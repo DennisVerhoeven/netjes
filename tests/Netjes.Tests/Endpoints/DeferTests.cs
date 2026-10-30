@@ -20,11 +20,13 @@ public class DeferTests
         return [.. text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonNode.Parse(line)!)];
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task DataRequest_StreamsThePayloadFirstThenEachValueAsItCompletes()
     {
         // The slow value is held until the fast one has been read off the stream, so the order follows from the
-        // streaming, not from two timers racing on a busy machine.
+        // streaming, not from two timers racing on a busy machine. The timeout ends the test if the stream ever waits
+        // for every value before writing.
+        var ct = TestContext.Current.CancellationToken;
         var slow = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var app = await TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
@@ -37,12 +39,12 @@ public class DeferTests
 
         var request = new HttpRequestMessage(HttpMethod.Get, "/posts/1");
         request.Headers.Add(NetjesHeaders.Data, "1");
-        using var response = await app.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, Ct);
-        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(Ct));
-        var payload = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
-        var first = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
+        using var response = await app.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(ct));
+        var payload = JsonNode.Parse((await reader.ReadLineAsync(ct))!)!;
+        var first = JsonNode.Parse((await reader.ReadLineAsync(ct))!)!;
         slow.SetResult(["slow"]);
-        var second = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
+        var second = JsonNode.Parse((await reader.ReadLineAsync(ct))!)!;
 
         Assert.Equal("application/x-ndjson", response.Content.Headers.ContentType?.MediaType);
         var props = payload["props"]!;
@@ -51,7 +53,7 @@ public class DeferTests
         Assert.Equal("""{"$netjes":"deferred","id":"d1"}""", props["likes"]!.ToJsonString());
         Assert.Equal("""{"id":"d1","value":3}""", first.ToJsonString());
         Assert.Equal("""{"id":"d0","value":["slow"]}""", second.ToJsonString());
-        Assert.Null(await reader.ReadLineAsync(Ct));
+        Assert.Null(await reader.ReadLineAsync(ct));
     }
 
     [Fact]
