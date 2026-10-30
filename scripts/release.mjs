@@ -159,13 +159,20 @@ export function releaseNotes(changelog, version) {
 
 /**
  * What is wrong with the packed packages in `dir`: it must hold the npm package and both NuGet packages of `version`,
- * and nothing else. Both `npm pack` and `dotnet pack` name the file after the version inside the package.
+ * each with its symbol package (`.snupkg`, which `dotnet nuget push` sends along with the `.nupkg` beside it), and
+ * nothing else. Both `npm pack` and `dotnet pack` name the file after the version inside the package.
  * @param {string} dir
  * @param {string} version
  * @returns {Promise<string[]>}
  */
 export async function checkPackages(dir, version) {
-  const expected = [`netjes-${version}.tgz`, `Netjes.${version}.nupkg`, `Netjes.Images.SkiaSharp.${version}.nupkg`];
+  const expected = [
+    `netjes-${version}.tgz`,
+    `Netjes.${version}.nupkg`,
+    `Netjes.${version}.snupkg`,
+    `Netjes.Images.SkiaSharp.${version}.nupkg`,
+    `Netjes.Images.SkiaSharp.${version}.snupkg`,
+  ];
   const found = (await readdir(dir)).sort();
   return [
     ...expected.filter((name) => !found.includes(name)).map((name) => `Missing ${name}.`),
@@ -179,7 +186,7 @@ const USAGE = `Usage:
       its entry and, with --repository, that packages/netjes/package.json names that GitHub repository. Then prints
       version=<version> and prerelease=<true|false> (for GITHUB_OUTPUT).
   node scripts/release.mjs packages <version> <dir>
-      Checks that <dir> holds exactly the npm and NuGet packages of <version>.
+      Checks that <dir> holds exactly the npm and NuGet packages of <version>, with the NuGet symbol packages.
   node scripts/release.mjs notes <version> [--root <dir>]
       Prints the CHANGELOG.md entry for <version>.
 `;
