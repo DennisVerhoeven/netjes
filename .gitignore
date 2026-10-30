@@ -1,0 +1,21 @@
+bin/
+# The netjes CLI's executable, not .NET build output.
+!packages/netjes/bin/
+obj/
+node_modules/
+dist/
+# netjes export output
+out/
+.vite/
+*.user
+.vs/
+.idea/
+.env
+.env.*
+!.env.example
+test-results/
+playwright-report/
+coverage/
+
+# Agent worktrees
+.claude/worktrees/

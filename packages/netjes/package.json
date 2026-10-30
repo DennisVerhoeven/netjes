@@ -1,0 +1,149 @@
+{
+  "name": "netjes",
+  "version": "0.0.1",
+  "description": "Build React apps and sites on ASP.NET Core: the Next.js App Router conventions, C# loaders and server actions, streaming SSR and types from C# to the browser",
+  "keywords": [
+    "react",
+    "aspnetcore",
+    "dotnet",
+    "csharp",
+    "ssr",
+    "vite",
+    "file-based-routing",
+    "tailwindcss",
+    "tanstack-query"
+  ],
+  "homepage": "https://github.com/DennisVerhoeven/netjes#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DennisVerhoeven/netjes.git",
+    "directory": "packages/netjes"
+  },
+  "bugs": {
+    "url": "https://github.com/DennisVerhoeven/netjes/issues"
+  },
+  "author": "Dennis Verhoeven",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./vite/plugin.d.ts",
+      "default": "./vite/plugin.mjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./testing/setup": {
+      "types": "./dist/testing-setup.d.ts",
+      "default": "./dist/testing-setup.js"
+    },
+    "./vitals": {
+      "types": "./dist/vitals.d.ts",
+      "default": "./dist/vitals.js"
+    },
+    "./zod": {
+      "types": "./dist/zod.d.ts",
+      "default": "./dist/zod.js"
+    },
+    "./client-entry": {
+      "types": "./dist/client-entry.d.ts",
+      "default": "./dist/client-entry.js"
+    },
+    "./server-entry": {
+      "types": "./dist/server-entry.d.ts",
+      "default": "./dist/server-entry.js"
+    },
+    "./sidecar": "./sidecar/server.mjs"
+  },
+  "bin": {
+    "netjes": "./bin/netjes.mjs"
+  },
+  "files": [
+    "dist",
+    "src",
+    "vite",
+    "sidecar",
+    "bin",
+    "cli",
+    "skills",
+    "template",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.strict-app.json"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.1.2"
+  },
+  "peerDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.80.0",
+    "@testing-library/react": "^16.0.0",
+    "jsdom": "*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "vite": ">=7",
+    "vitest": ">=3",
+    "web-vitals": ">=4",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.105.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^30.1.3",
+    "msw": "^3.0.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "web-vitals": "^6.2.3",
+    "zod": "^4.6.7"
+  },
+  "peerDependenciesMeta": {
+    "@tailwindcss/vite": {
+      "optional": true
+    },
+    "@testing-library/react": {
+      "optional": true
+    },
+    "jsdom": {
+      "optional": true
+    },
+    "tailwindcss": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    },
+    "web-vitals": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Development: dotnet watch for C#, the Vite dev server for pages (HMR on 5173). Open http://localhost:8080.
+# Both ports are bound to localhost only: dev error pages show stack traces and Vite serves the source.
+services:
+  app:
+    build:
+      target: dev
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - .:/src
+      # Keep the container's own installs and build output out of the bind mount.
+      - /src/node_modules
+      - /src/bin
+      - /src/obj

@@ -1,0 +1,26 @@
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  app:
+    restart: always
+    ports:
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    volumes:
+      # Data Protection keys sign antiforgery tokens; keep them across restarts and image updates.
+      - dataprotection:/home/app/.aspnet/DataProtection-Keys
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+volumes:
+  dataprotection:

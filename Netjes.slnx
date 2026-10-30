@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/bench/">
+    <Project Path="bench/netjes/app/NetjesBench.csproj" />
+  </Folder>
+  <Folder Name="/examples/">
+    <Project Path="examples/Blog/Blog.csproj" />
+    <Project Path="examples/TaskBoard/TaskBoard.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Netjes/Netjes.csproj" />
+    <Project Path="src/Netjes.Images.SkiaSharp/Netjes.Images.SkiaSharp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Blog.Tests/Blog.Tests.csproj" />
+    <Project Path="tests/Netjes.Tests/Netjes.Tests.csproj" />
+    <Project Path="tests/TaskBoard.Tests/TaskBoard.Tests.csproj" />
+  </Folder>
+</Solution>

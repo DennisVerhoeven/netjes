@@ -1,0 +1,11 @@
+node_modules/
+bin/
+obj/
+/publish/
+dist/
+out/
+.vite/
+test-results/
+playwright-report/
+.env
+.env.*

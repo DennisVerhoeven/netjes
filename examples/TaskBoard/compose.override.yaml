@@ -1,0 +1,36 @@
+# Development: dotnet watch + Vite HMR, http://localhost:8081. The app migrates and seeds a demo account on start
+# (demo@taskboard.test / taskboard-demo), so the migrate service is left out. Ports are bound to localhost only.
+services:
+  db:
+    ports:
+      # For `dotnet run` outside Docker (appsettings.Development.json points here).
+      - "127.0.0.1:5433:5432"
+
+  migrate:
+    profiles: ["manual"]
+
+  app:
+    # Its own image name: the production overlay builds `taskboard-app`, and a dev image must never be reused for it.
+    image: taskboard-app-dev
+    build:
+      target: dev
+    environment:
+      Netjes__ViteDevPort: "5174"
+    depends_on: !override
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"
+      - "127.0.0.1:5174:5174"
+    volumes:
+      - ../..:/src
+      # Keep the container's own installs and build output out of the bind mount.
+      - /src/node_modules
+      - /src/packages/netjes/node_modules
+      - /src/packages/netjes/dist
+      - /src/examples/Blog/node_modules
+      - /src/examples/TaskBoard/node_modules
+      - /src/examples/TaskBoard/bin
+      - /src/examples/TaskBoard/obj
+      - /src/src/Netjes/bin
+      - /src/src/Netjes/obj

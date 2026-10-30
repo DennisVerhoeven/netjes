@@ -1,0 +1,30 @@
+{
+  // Checks src/ under the flags of create-vite's React-TS template (tsconfig.app.json; "node" types
+  // are for the server-only files) and stricter options on top of `strict`, so this file holds the
+  // whole list (scripts/check-packages.sh adds it to a scaffolded app's own tsconfig.json too). Apps
+  // type-check the declarations in dist/, not these sources.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["vite/client", "node"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "allowArbitraryExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": ["src"]
+}

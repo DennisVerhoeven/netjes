@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- The Netjes mark: a lowercase n and a full stop. Edges fall on multiples of 4, whole pixels at 16 and 32 px. -->
+  <rect width="64" height="64" rx="14" fill="#162032"/>
+  <path d="M16 48V16M16 30a10 10 0 0 1 20 0v18" fill="none" stroke="#fbf7f0" stroke-width="8"/>
+  <rect x="44" y="40" width="8" height="8" fill="#e5484d"/>
+</svg>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Netjes from this checkout, so a run measures the code it was built from. -->
+  <Import Project="..\..\..\src\Netjes\build\Netjes.targets" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Netjes\Netjes.csproj" />
+  </ItemGroup>
+
+</Project>

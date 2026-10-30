@@ -1,0 +1,10 @@
+{
+  "name": "netjes-bench",
+  "private": true,
+  "type": "module",
+  "description": "Netjes's benchmark: an open-loop load generator with no dependencies, and a small app to run it against",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

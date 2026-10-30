@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Netjes.Images.SkiaSharp</RootNamespace>
+    <Description>Image resizing and WebP encoding for the Netjes &lt;Image&gt; endpoint, with SkiaSharp (MIT).</Description>
+    <PackageTags>netjes;images;skiasharp;webp;aspnetcore</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Members without docs are not an error; CS1591 and CS1573 would otherwise fail the build under TreatWarningsAsErrors. -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="SkiaSharp" Version="4.154.0" />
+    <!-- Linux native library without system dependencies, so it runs in the slim ASP.NET Core images. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.154.0" />
+    <ProjectReference Include="..\Netjes\Netjes.csproj" />
+  </ItemGroup>
+
+</Project>

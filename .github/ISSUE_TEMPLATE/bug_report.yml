@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work the way the documentation says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security problem, do not file an issue: see [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md).
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `npx netjes info`
+      description: Run it in the app's folder. It prints the versions of Node.js, the .NET SDK, the Netjes packages and more.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04, macOS 15, Windows 11, a container image, ...
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      description: Only if the problem is in the page (hydration, navigation, streaming).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A link to a small repository, or the steps from `netjes new` to the problem. The smaller, the faster it gets fixed.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and output
+      description: Server log, browser console, or the failing test output.
+      render: text

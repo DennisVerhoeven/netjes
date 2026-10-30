@@ -1,0 +1,5 @@
+# The published app run.sh starts, and the results of each run (docs/benchmarks.md holds the recorded ones).
+.out/
+results/
+# run.sh generates the app's types from its C# on every run, so they always match this checkout's typegen.
+app/generated/

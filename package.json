@@ -1,0 +1,20 @@
+{
+  "name": "netjes-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/netjes",
+    "examples/Blog",
+    "examples/TaskBoard"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present && npm run test:scripts",
+    "test:scripts": "node --test scripts/test/*.test.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:scripts",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json",
+    "build": "npm run build --workspaces --if-present",
+    "docs:llms": "node scripts/llms.mjs",
+    "docs:check": "node scripts/llms.mjs --check && node scripts/check-links.mjs",
+    "docs:links": "node scripts/check-links.mjs"
+  }
+}

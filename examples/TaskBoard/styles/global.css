@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+/*
+ * TaskBoard: a graphite workshop with one signal colour. Dark by default (people live in trackers), mono task keys,
+ * small-caps labels, status dots that read at a glance.
+ */
+@theme {
+  --color-ink-950: #0d0e0f;
+  --color-ink-900: #141618;
+  --color-ink-850: #191c1f;
+  --color-ink-800: #1f2326;
+  --color-ink-700: #2b3034;
+  --color-ink-600: #3b4146;
+  --color-ink-500: #5a6168;
+  --color-ink-400: #868d94;
+  --color-ink-300: #a9afb5;
+  --color-ink-200: #cdd1d4;
+  --color-ink-100: #e6e8e9;
+  --color-signal: #c8f031;
+  --color-signal-ink: #10140a;
+  --color-danger: #ff6b5e;
+  --color-state-backlog: #868d94;
+  --color-state-todo: #8fb3ff;
+  --color-state-progress: #ffc857;
+  --color-state-done: #6ee7a8;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --radius-card: 12px;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-ink-950 font-sans text-[15px]/[1.55] text-ink-100 antialiased;
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
+
+  :focus-visible {
+    @apply rounded-[4px] outline-2 outline-offset-2 outline-signal;
+  }
+
+  ::selection {
+    @apply bg-signal text-signal-ink;
+  }
+}
+
+/* Small caps label above fields and sections. */
+@utility label {
+  @apply text-[11px] font-semibold tracking-[0.14em] text-ink-400 uppercase;
+}
+
+@utility field {
+  @apply w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-ink-100 placeholder:text-ink-500 focus:border-signal focus:outline-none aria-invalid:border-danger;
+}
+
+@utility btn {
+  @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-signal px-3.5 py-2 text-sm font-semibold text-signal-ink transition-[filter] hover:brightness-110 disabled:cursor-progress disabled:opacity-60;
+}
+
+@utility btn-ghost {
+  @apply bg-transparent text-ink-200 ring-1 ring-ink-700 ring-inset hover:bg-ink-800 hover:brightness-100;
+}
+
+@utility panel {
+  @apply rounded-card border border-ink-800 bg-ink-900;
+}
+
+@utility key {
+  @apply font-mono text-[12px] tracking-tight text-ink-400;
+}

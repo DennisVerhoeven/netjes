@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a change or an addition
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Netjes keeps its public API small. Describe the problem first; the solution can follow.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Netjes to do? A sketch of the C# or React API helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What have you tried? How does Next.js or another framework handle it?
+  - type: input
+    id: netjes-version
+    attributes:
+      label: Netjes version
+      description: The `netjes` npm package and the `Netjes` NuGet package.
+  - type: input
+    id: environment
+    attributes:
+      label: .NET SDK, Node.js and OS
+      description: Only if the request depends on them.
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal example
+      description: A small example of the use case, if you have one.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would be willing to work on this.

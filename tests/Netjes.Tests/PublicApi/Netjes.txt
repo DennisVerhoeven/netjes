@@ -1,0 +1,251 @@
+# Netjes
+
+namespace Microsoft.AspNetCore.Builder
+public static class Microsoft.AspNetCore.Builder.NetjesApplicationBuilderExtensions
+  public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjes(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
+public static class Microsoft.AspNetCore.Builder.NetjesEndpointRouteBuilderExtensions
+  public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string name, Delegate action)
+  public static Netjes.Routing.LayoutLoaderBuilder MapLayoutLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string segment, Delegate loader)
+  public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate action)
+  public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate loader)
+  public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapPages(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints)
+public static class Microsoft.AspNetCore.Builder.NetjesLocalizationApplicationBuilderExtensions
+  public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapLocaleRedirect(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints)
+  public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjesLocalization(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
+public static class Microsoft.AspNetCore.Builder.StaticExportEndpointConventionBuilderExtensions
+  public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder StaticParams<TService>(this Microsoft.AspNetCore.Builder.RouteHandlerBuilder builder, Func<TService, System.Collections.Generic.IEnumerable<object>> parameters) where TService : notnull
+  public static TBuilder StaticParams<TBuilder>(this TBuilder builder, Func<IServiceProvider, System.Collections.Generic.IEnumerable<object>> parameters) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+
+namespace Microsoft.AspNetCore.Http
+public static class Microsoft.AspNetCore.Http.NetjesHttpContextExtensions
+  public static string GetCspNonce(this Microsoft.AspNetCore.Http.HttpContext http)
+
+namespace Microsoft.Extensions.DependencyInjection
+public static class Microsoft.Extensions.DependencyInjection.NetjesLocalizationServiceCollectionExtensions
+  public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddNetjesLocalization(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, Action<Netjes.NetjesLocalizationOptions>? configure = null)
+public static class Microsoft.Extensions.DependencyInjection.NetjesServiceCollectionExtensions
+  public static Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder AddNetjes(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder builder)
+  public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddNetjes(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, Action<Netjes.NetjesOptions>? configure = null)
+
+namespace Microsoft.Extensions.Hosting
+public static class Microsoft.Extensions.Hosting.NetjesHostExtensions
+  public static string? GetNetjesCommand(this Microsoft.Extensions.Hosting.IHost host)
+
+namespace Netjes
+public sealed class Netjes.Deferred<T>
+public interface Netjes.IDraftMode
+  bool IsEnabled { get; }
+  void Disable()
+  void Enable()
+public interface Netjes.IPageCache
+  System.Threading.Tasks.ValueTask RevalidatePathAsync(string path, System.Threading.CancellationToken cancellationToken = default)
+  System.Threading.Tasks.ValueTask RevalidateTagAsync(string tag, System.Threading.CancellationToken cancellationToken = default)
+public static class Netjes.NetjesHeaders
+  public const string Antiforgery = "X-Netjes-Antiforgery"
+  public const string Cookies = "X-Netjes-Cookies"
+  public const string Data = "X-Netjes-Data"
+  public const string Segments = "X-Netjes-Segments"
+  public const string ServerTime = "X-Netjes-Now"
+public sealed class Netjes.NetjesImageOptions
+  public NetjesImageOptions()
+  public bool AllowSvg { get; set; }
+  public TimeSpan CacheDuration { get; set; }
+  public int DefaultQuality { get; set; }
+  public int MaxConcurrency { get; set; }
+  public int MaxQueue { get; set; }
+  public int MaxRemoteFetches { get; set; }
+  public long MaxSourceBytes { get; set; }
+  public string Path { get; set; }
+  public int[] Qualities { get; set; }
+  public string[] RemoteHosts { get; set; }
+  public int[] RemotePorts { get; set; }
+  public bool RemoteRequireHttps { get; set; }
+  public TimeSpan RemoteTimeout { get; set; }
+  public int[] Widths { get; set; }
+public sealed class Netjes.NetjesLocalizationOptions
+  public NetjesLocalizationOptions()
+  public string RouteParameter { get; set; }
+  public string[] SupportedCultures { get; set; }
+public enum Netjes.NetjesMode
+  Development = 0
+  Production = 1
+public sealed class Netjes.NetjesOptions
+  public NetjesOptions()
+  public long? ActionBodySizeLimit { get; set; }
+  public System.Collections.Generic.IReadOnlyList<string> AllowedActionOrigins { get; set; }
+  public string AppDirectory { get; set; }
+  public bool ClientRenderFallback { get; set; }
+  public bool CollectWebVitals { get; set; }
+  public string? ContentSecurityPolicy { get; set; }
+  public string CrawlerUserAgents { get; set; }
+  public string DistDirectory { get; set; }
+  public TimeSpan DraftModeDuration { get; set; }
+  public Netjes.NetjesImageOptions Images { get; set; }
+  public bool? IncludeErrorDetails { get; set; }
+  public string Lang { get; set; }
+  public Netjes.NetjesMode? Mode { get; set; }
+  public string NodeExecutable { get; set; }
+  public System.Collections.Generic.IReadOnlyList<string> PrivateFormFields { get; set; }
+  public string PublicDirectory { get; set; }
+  public TimeSpan RenderTimeout { get; set; }
+  public string? Root { get; set; }
+  public Netjes.NetjesSecurityHeaderOptions SecurityHeaders { get; set; }
+  public string? SegmentKeySecret { get; set; }
+  public Func<Microsoft.AspNetCore.Http.HttpContext, System.Threading.Tasks.ValueTask<object?>>? SharedProps { get; set; }
+  public Type? SharedPropsType { get; }
+  public int SidecarProcesses { get; set; }
+  public string? SidecarScript { get; set; }
+  public TimeSpan StartupTimeout { get; set; }
+  public bool StreamDocuments { get; set; }
+  public TimeSpan StreamTimeout { get; set; }
+  public string? TypesFile { get; set; }
+  public int ViteDevPort { get; set; }
+  public Netjes.NetjesOptions UseSharedProps<T>(Func<Microsoft.AspNetCore.Http.HttpContext, System.Threading.Tasks.ValueTask<T>> factory)
+public sealed class Netjes.NetjesSecurityHeaderOptions
+  public NetjesSecurityHeaderOptions()
+  public string[] DraftFrameAncestors { get; set; }
+  public bool Enabled { get; set; }
+public static class Netjes.NetjesTelemetry
+  public const string Name = "Netjes"
+public sealed record Netjes.NoProps : IEquatable<Netjes.NoProps>
+  public NoProps()
+public static class Netjes.Page
+  public static Netjes.Deferred<T> Defer<T>(Func<IServiceProvider, System.Threading.Tasks.Task<T>> load)
+  public static Netjes.Deferred<T> Defer<T>(System.Threading.Tasks.Task<T> task)
+  public static Netjes.PageResult Forbidden()
+  public static bool IsLocalUrl(string? url)
+  public static Netjes.PageResult LocalRedirect(string location, bool permanent = false)
+  public static Netjes.PageResult NotFound()
+  public static Netjes.PageResult<Netjes.NoProps> Props()
+  public static Netjes.PageResult<TProps> Props<TProps>(TProps props)
+  public static Netjes.PageResult Redirect(string location, bool permanent = false)
+  public static Netjes.PageResult Render(string pattern, object? props = null)
+  public static Netjes.PageResult Unauthorized()
+public sealed record Netjes.PageMetadata : IEquatable<Netjes.PageMetadata>
+  public PageMetadata()
+  public Netjes.PageMetadataAlternates? Alternates { get; init; }
+  public string? Description { get; init; }
+  public System.Collections.Generic.IReadOnlyList<string>? Keywords { get; init; }
+  public Netjes.PageMetadataOpenGraph? OpenGraph { get; init; }
+  public System.Collections.Generic.IReadOnlyDictionary<string, string>? Other { get; init; }
+  public Netjes.PageMetadataRobots? Robots { get; init; }
+  public string? ThemeColor { get; init; }
+  public string? Title { get; init; }
+  public Netjes.PageMetadataTwitter? Twitter { get; init; }
+public sealed record Netjes.PageMetadataAlternates : IEquatable<Netjes.PageMetadataAlternates>
+  public PageMetadataAlternates(string? Canonical = null, System.Collections.Generic.IReadOnlyDictionary<string, string>? Languages = null)
+  public string? Canonical { get; init; }
+  public System.Collections.Generic.IReadOnlyDictionary<string, string>? Languages { get; init; }
+public sealed record Netjes.PageMetadataImage : IEquatable<Netjes.PageMetadataImage>
+  public PageMetadataImage(string Url, int? Width = null, int? Height = null, string? Alt = null)
+  public string? Alt { get; init; }
+  public int? Height { get; init; }
+  public string Url { get; init; }
+  public int? Width { get; init; }
+  public static implicit operator Netjes.PageMetadataImage(string url)
+public sealed record Netjes.PageMetadataOpenGraph : IEquatable<Netjes.PageMetadataOpenGraph>
+  public PageMetadataOpenGraph()
+  public string? Description { get; init; }
+  public System.Collections.Generic.IReadOnlyList<Netjes.PageMetadataImage>? Images { get; init; }
+  public string? Locale { get; init; }
+  public string? SiteName { get; init; }
+  public string? Title { get; init; }
+  public string? Type { get; init; }
+  public string? Url { get; init; }
+public sealed record Netjes.PageMetadataRobots : IEquatable<Netjes.PageMetadataRobots>
+  public PageMetadataRobots(bool Index = true, bool Follow = true)
+  public bool Follow { get; init; }
+  public bool Index { get; init; }
+public sealed record Netjes.PageMetadataTwitter : IEquatable<Netjes.PageMetadataTwitter>
+  public PageMetadataTwitter()
+  public string? Card { get; init; }
+  public string? Creator { get; init; }
+  public System.Collections.Generic.IReadOnlyList<Netjes.PageMetadataImage>? Images { get; init; }
+  public string? Site { get; init; }
+public sealed class Netjes.PageResult : Microsoft.AspNetCore.Http.IResult
+  public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)
+  public Netjes.PageResult WithMetadata(Netjes.PageMetadata metadata)
+  public Netjes.PageResult WithQuery(System.Collections.Generic.IReadOnlyList<object?> queryKey, object? data)
+  public Netjes.PageResult WithStatus(int statusCode)
+public sealed class Netjes.PageResult<TProps> : Microsoft.AspNetCore.Http.IResult
+  public TProps? Props { get; }
+  public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)
+  public Netjes.PageResult<TProps> WithMetadata(Netjes.PageMetadata metadata)
+  public Netjes.PageResult<TProps> WithQuery(System.Collections.Generic.IReadOnlyList<object?> queryKey, object? data)
+  public Netjes.PageResult<TProps> WithStatus(int statusCode)
+  public static implicit operator Netjes.PageResult<TProps>(Netjes.PageResult result)
+public static class Netjes.ServerAction
+  public static Netjes.ServerActionResult Forbidden()
+  public static Netjes.ServerActionResult Invalid(System.Collections.Generic.IDictionary<string, string[]> errors)
+  public static Netjes.ServerActionResult Invalid(string field, string message)
+  public static Netjes.ServerActionResult NotFound()
+  public static Netjes.ServerActionResult Ok()
+  public static Netjes.ServerActionResult<TResult> Ok<TResult>(TResult result)
+  public static Netjes.ServerActionResult Redirect(string location)
+public sealed class Netjes.ServerActionResult : Microsoft.AspNetCore.Http.IResult
+  public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext http)
+  public Netjes.ServerActionResult Invalidate(params System.Collections.Generic.IReadOnlyList<object?>[] queryKeys)
+  public Netjes.ServerActionResult Refresh()
+  public Netjes.ServerActionResult Revalidate(params string[] tags)
+  public Netjes.ServerActionResult RevalidatePath(params string[] paths)
+  public Netjes.ServerActionResult WithQuery(System.Collections.Generic.IReadOnlyList<object?> queryKey, object? data)
+public sealed class Netjes.ServerActionResult<TResult> : Microsoft.AspNetCore.Http.IResult
+  public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)
+  public Netjes.ServerActionResult<TResult> Invalidate(params System.Collections.Generic.IReadOnlyList<object?>[] queryKeys)
+  public Netjes.ServerActionResult<TResult> Refresh()
+  public Netjes.ServerActionResult<TResult> Revalidate(params string[] tags)
+  public Netjes.ServerActionResult<TResult> RevalidatePath(params string[] paths)
+  public Netjes.ServerActionResult<TResult> WithQuery(System.Collections.Generic.IReadOnlyList<object?> queryKey, object? data)
+  public static implicit operator Netjes.ServerActionResult<TResult>(Netjes.ServerActionResult result)
+public static class Netjes.SitemapEndpointRouteBuilderExtensions
+  public static TBuilder ExcludeFromSitemap<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapRobotsTxt(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, Uri siteUrl, System.Collections.Generic.IReadOnlyList<string>? disallow = null)
+  public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapSitemap(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, Uri siteUrl, TimeSpan? cacheFor = null)
+public sealed class Netjes.SsrRenderException : Exception
+  public SsrRenderException(string message, string? jsStack, Exception? inner = null)
+  public string? JsStack { get; }
+
+namespace Netjes.Images
+public interface Netjes.Images.IImageProcessor
+  System.Collections.Generic.IReadOnlyList<string> OutputFormats { get; }
+  System.Threading.Tasks.ValueTask<Netjes.Images.ProcessedImage> ProcessAsync(Netjes.Images.ImageSource source, Netjes.Images.ImageTransform transform, System.Threading.CancellationToken cancellationToken)
+public sealed class Netjes.Images.ImageRejectedException : Exception
+  public ImageRejectedException(string message)
+public sealed record Netjes.Images.ImageSource : IEquatable<Netjes.Images.ImageSource>
+  public ImageSource(ReadOnlyMemory<byte> Content, string ContentType)
+  public ReadOnlyMemory<byte> Content { get; init; }
+  public string ContentType { get; init; }
+public sealed record Netjes.Images.ImageTransform : IEquatable<Netjes.Images.ImageTransform>
+  public ImageTransform(int Width, int Quality, string? Format)
+  public string? Format { get; init; }
+  public int Quality { get; init; }
+  public int Width { get; init; }
+public sealed class Netjes.Images.PassThroughImageProcessor : Netjes.Images.IImageProcessor
+  public PassThroughImageProcessor()
+  public System.Collections.Generic.IReadOnlyList<string> OutputFormats { get; }
+  public System.Threading.Tasks.ValueTask<Netjes.Images.ProcessedImage> ProcessAsync(Netjes.Images.ImageSource source, Netjes.Images.ImageTransform transform, System.Threading.CancellationToken cancellationToken)
+public sealed record Netjes.Images.ProcessedImage : IEquatable<Netjes.Images.ProcessedImage>
+  public ProcessedImage(ReadOnlyMemory<byte> Content, string ContentType)
+  public ReadOnlyMemory<byte> Content { get; init; }
+  public string ContentType { get; init; }
+
+namespace Netjes.Rendering
+public interface Netjes.Rendering.ISsrRenderer
+  System.Threading.Tasks.Task<string> RenderAsync(string payloadJson, System.Threading.CancellationToken cancellationToken)
+  System.Threading.Tasks.Task<System.IO.Stream> RenderStreamAsync(string payloadJson, Netjes.Rendering.SsrStreamOptions options, System.Threading.CancellationToken cancellationToken)
+  System.Threading.Tasks.Task ResolveAsync(string renderId, string id, string? valueJson, string? error, System.Threading.CancellationToken cancellationToken)
+public sealed record Netjes.Rendering.SsrStreamOptions : IEquatable<Netjes.Rendering.SsrStreamOptions>
+  public SsrStreamOptions(bool WaitForAll, string? RenderId = null)
+  public string? RenderId { get; init; }
+  public bool WaitForAll { get; init; }
+
+namespace Netjes.Routing
+public sealed class Netjes.Routing.InvalidPageFileException : Exception
+  public InvalidPageFileException(string message)
+public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public void Add(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> convention)
+  public void Finally(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> finallyConvention)
+public sealed class Netjes.Routing.RouteConflictException : Exception
+  public RouteConflictException(string message)
