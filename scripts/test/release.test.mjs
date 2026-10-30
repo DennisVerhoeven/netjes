@@ -188,20 +188,31 @@ describe('checkPackages', () => {
   const packages = (version) => ({
     [`netjes-${version}.tgz`]: '',
     [`Netjes.${version}.nupkg`]: '',
+    [`Netjes.${version}.snupkg`]: '',
     [`Netjes.Images.SkiaSharp.${version}.nupkg`]: '',
+    [`Netjes.Images.SkiaSharp.${version}.snupkg`]: '',
   });
 
-  it('passes for exactly the three packages of the version', async () => {
+  it('passes for exactly the packages of the version, the NuGet symbol packages included', async () => {
     assert.deepEqual(await checkPackages(await tree(packages('0.0.1')), '0.0.1'), []);
+  });
+
+  it('names a missing symbol package, which dotnet nuget push would otherwise skip without a word', async () => {
+    const { [`Netjes.0.0.1.snupkg`]: _, ...rest } = packages('0.0.1');
+    assert.deepEqual(await checkPackages(await tree(rest), '0.0.1'), ['Missing Netjes.0.0.1.snupkg.']);
   });
 
   it('names the missing and the unexpected files', async () => {
     const dir = await tree({ ...packages('0.1.0'), 'Netjes.0.0.1.nupkg': '' });
     assert.deepEqual(await checkPackages(dir, '0.0.1'), [
       'Missing netjes-0.0.1.tgz.',
+      'Missing Netjes.0.0.1.snupkg.',
       'Missing Netjes.Images.SkiaSharp.0.0.1.nupkg.',
+      'Missing Netjes.Images.SkiaSharp.0.0.1.snupkg.',
       'Unexpected Netjes.0.1.0.nupkg.',
+      'Unexpected Netjes.0.1.0.snupkg.',
       'Unexpected Netjes.Images.SkiaSharp.0.1.0.nupkg.',
+      'Unexpected Netjes.Images.SkiaSharp.0.1.0.snupkg.',
       'Unexpected netjes-0.1.0.tgz.',
     ]);
   });
