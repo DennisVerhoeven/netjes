@@ -1,0 +1,7 @@
+@import 'tailwindcss';
+
+@layer base {
+  :focus-visible {
+    @apply rounded-sm outline-2 outline-offset-2 outline-slate-900;
+  }
+}

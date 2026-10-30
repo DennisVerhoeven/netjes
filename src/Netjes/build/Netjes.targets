@@ -1,0 +1,31 @@
+<Project>
+  <!--
+    Import from a Netjes app's project file. Keeps node_modules and dist out of the default item globs and a publish folder out of the Web SDK's content globs (C# in it still compiles), and makes
+    `dotnet publish` run the client + server build and ship dist/ next to the app.
+    Properties: NetjesRoot (default: project dir), NetjesBuildCommand (default: npm run build),
+    NetjesSkipClientBuild=true to publish an already-built dist/ (e.g. in a Docker build stage).
+  -->
+  <PropertyGroup>
+    <NetjesRoot Condition="'$(NetjesRoot)' == ''">$(MSBuildProjectDirectory)</NetjesRoot>
+    <NetjesBuildCommand Condition="'$(NetjesBuildCommand)' == ''">npm run build</NetjesBuildCommand>
+    <DefaultItemExcludes>$(DefaultItemExcludes);node_modules/**;dist/**;test-results/**;playwright-report/**</DefaultItemExcludes>
+    <DefaultWebContentItemExcludes>$(DefaultWebContentItemExcludes);publish/**</DefaultWebContentItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Netjes" Condition="'$(ImplicitUsings)' == 'enable' or '$(ImplicitUsings)' == 'true'" />
+    <Content Update="package.json;package-lock.json;tsconfig.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+  <Target Name="NetjesPublishClient" AfterTargets="ComputeFilesToPublish">
+    <Exec Condition="'$(NetjesSkipClientBuild)' != 'true'" Command="$(NetjesBuildCommand)" WorkingDirectory="$(NetjesRoot)" />
+    <ItemGroup>
+      <NetjesDistFiles Include="$(NetjesRoot)/dist/**" />
+      <ResolvedFileToPublish Include="@(NetjesDistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>dist/%(NetjesDistFiles.RecursiveDir)%(NetjesDistFiles.Filename)%(NetjesDistFiles.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,11 @@
+{
+  "name": "netjes-bench-app",
+  "private": true,
+  "type": "module",
+  "description": "Takes Netjes, React and Vite from the repository's own install (npm ci at the root), so its versions are the lockfile's",
+  "scripts": {
+    "build": "vite build && vite build --ssr",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "generate": "netjes generate"
+  }
+}

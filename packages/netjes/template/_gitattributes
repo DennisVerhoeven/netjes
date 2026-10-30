@@ -1,0 +1,2 @@
+# The generator writes LF; keep it so on checkout, or `netjes generate --check` sees a difference.
+generated/** text eol=lf

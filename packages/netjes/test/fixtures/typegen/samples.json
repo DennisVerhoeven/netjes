@@ -1,0 +1,64 @@
+{
+  "post": {
+    "title": "Hello",
+    "subtitle": null,
+    "views": 3,
+    "rating": 4.5,
+    "published": true,
+    "publishedOn": "2026-10-28",
+    "updatedAt": "2026-10-28T12:00:00+02:00",
+    "createdAt": "2026-10-28T12:00:00",
+    "at": "09:30:00",
+    "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+    "link": "https://example.com/a",
+    "status": 1,
+    "author": {
+      "name": "Ada",
+      "bio": null
+    },
+    "tags": [
+      "a",
+      "b"
+    ],
+    "coauthors": [
+      {
+        "name": "Ada",
+        "bio": null
+      }
+    ],
+    "counts": {
+      "x": 1
+    },
+    "thumbnail": "AQID",
+    "extra": null,
+    "raw": {
+      "any": true
+    },
+    "renamed": "orig"
+  },
+  "category": {
+    "name": "root",
+    "children": [
+      {
+        "name": "child",
+        "children": [],
+        "parent": null
+      }
+    ],
+    "parent": null
+  },
+  "shape": {
+    "$type": "circle",
+    "radius": 2,
+    "color": "red"
+  },
+  "paged": {
+    "items": [
+      {
+        "name": "Ada",
+        "bio": null
+      }
+    ],
+    "total": 1
+  }
+}

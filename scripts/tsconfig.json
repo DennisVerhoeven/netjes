@@ -1,0 +1,15 @@
+{
+  // Type-checks the scripts and their tests from their JSDoc types: npm run typecheck (TypeScript from the root install).
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.mjs", "test/*.mjs"]
+}

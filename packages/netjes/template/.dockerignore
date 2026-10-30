@@ -1,0 +1,11 @@
+**/node_modules
+**/bin
+**/obj
+publish
+**/dist
+**/.vite
+**/test-results
+.git
+**/.env
+**/.env.*
+!**/.env.example

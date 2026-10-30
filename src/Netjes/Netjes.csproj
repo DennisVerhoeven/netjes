@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Netjes</RootNamespace>
+    <Description>Build React apps and sites on ASP.NET Core: the Next.js App Router conventions, C# loaders and server actions, streaming server rendering and types from C# to the browser.</Description>
+    <PackageTags>netjes;react;ssr;aspnetcore;vite;file-based-routing;sidecar</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Members without docs are not an error; CS1591 and CS1573 would otherwise fail the build under TreatWarningsAsErrors. -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Netjes.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NuGet imports build/<PackageId>.targets into every project that references the package. -->
+    <None Include="build/Netjes.targets" Pack="true" PackagePath="build/" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

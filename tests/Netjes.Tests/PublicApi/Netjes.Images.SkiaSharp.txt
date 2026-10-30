@@ -1,0 +1,16 @@
+# Netjes.Images.SkiaSharp
+
+namespace Microsoft.Extensions.DependencyInjection
+public static class Microsoft.Extensions.DependencyInjection.SkiaImagesServiceCollectionExtensions
+  public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddNetjesSkiaImages(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, Action<Netjes.Images.SkiaSharp.SkiaImageOptions>? configure = null)
+
+namespace Netjes.Images.SkiaSharp
+public sealed class Netjes.Images.SkiaSharp.SkiaImageOptions
+  public SkiaImageOptions()
+  public int MaxConcurrency { get; set; }
+  public long MaxPixels { get; set; }
+public sealed class Netjes.Images.SkiaSharp.SkiaImageProcessor : Netjes.Images.IImageProcessor
+  public SkiaImageProcessor()
+  public SkiaImageProcessor(Netjes.Images.SkiaSharp.SkiaImageOptions options)
+  public System.Collections.Generic.IReadOnlyList<string> OutputFormats { get; }
+  public System.Threading.Tasks.ValueTask<Netjes.Images.ProcessedImage> ProcessAsync(Netjes.Images.ImageSource source, Netjes.Images.ImageTransform transform, System.Threading.CancellationToken cancellationToken)

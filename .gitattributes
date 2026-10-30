@@ -1,0 +1,25 @@
+# LF in every checkout, whatever core.autocrlf says (Git for Windows checks text files out with CRLF by default): the
+# CLI fills in the app template by matching its lines, tests compare and hash text from the checkout, and bash cannot
+# run a script with CRLF line endings. scripts/test/line-endings.test.mjs checks it.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.nupkg binary
+*.snupkg binary
+*.dll binary
+*.exe binary
+*.pdb binary

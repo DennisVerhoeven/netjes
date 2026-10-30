@@ -1,0 +1,15 @@
+{
+  // Type-checks the harness's JavaScript from its JSDoc types: npm run typecheck (TypeScript from the root install).
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["bench.mjs", "meta.mjs", "lib"]
+}

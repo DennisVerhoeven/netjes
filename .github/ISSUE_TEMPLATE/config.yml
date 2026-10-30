@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea to talk through
+    url: https://github.com/DennisVerhoeven/netjes/discussions
+    about: Ask how to do something, or float an idea, in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md
+    about: Please do not open an issue. SECURITY.md explains how to report it privately.

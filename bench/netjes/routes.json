@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "name": "document",
+      "path": "/items",
+      "headers": { "Accept": "text/html" },
+      "expect": { "contentType": "text/html", "contains": "data-bench=\"items\"" }
+    },
+    {
+      "name": "navigation",
+      "path": "/items",
+      "headers": { "Accept": "application/json", "X-Netjes-Data": "1" },
+      "expect": { "contentType": "application/json", "contains": "\"Item 50\"" }
+    },
+    {
+      "name": "streamed",
+      "path": "/items/7",
+      "headers": { "Accept": "text/html" },
+      "expect": { "contentType": "text/html", "contains": "in stock in Rotterdam" }
+    },
+    {
+      "name": "cached",
+      "path": "/cached",
+      "headers": { "Accept": "text/html" },
+      "expect": { "contentType": "text/html", "contains": "data-bench=\"items\"", "header": "age" }
+    }
+  ],
+  "restart": { "route": "document", "health": "/healthz", "healthy": "Healthy" }
+}

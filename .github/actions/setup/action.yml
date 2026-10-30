@@ -1,0 +1,89 @@
+name: Set up .NET and Node.js
+description: >-
+  Installs the .NET SDK that global.json names and Node.js 22.22.2 (the oldest supported version), restores the npm and
+  NuGet caches, and runs npm ci. Run it after actions/checkout.
+
+# One job saves each cache and the others only restore it. When several jobs save one key, the first to finish decides
+# what it holds, and a job that needs more than that downloads the rest on every run.
+inputs:
+  npm-cache:
+    description: >-
+      save, restore or off. save restores the npm download cache and saves it when the job succeeds; restore only
+      restores it. Only a job whose npm installs are those of package-lock.json saves it. Off for release builds.
+    default: restore
+  nuget-cache:
+    description: >-
+      save, restore or off, as npm-cache, for the NuGet package folder. Only a job that restores the whole solution
+      saves it. Off for release builds and for jobs that use a NuGet folder of their own.
+    default: restore
+
+runs:
+  using: composite
+  steps:
+    - name: Cache keys
+      id: cache
+      shell: bash
+      env:
+        NPM_CACHE: ${{ inputs.npm-cache }}
+        NUGET_CACHE: ${{ inputs.nuget-cache }}
+        NPM_KEY: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        NUGET_KEY: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
+      run: |
+        for mode in "$NPM_CACHE" "$NUGET_CACHE"; do
+          case "$mode" in
+            save | restore | off) ;;
+            *) echo "::error::A cache mode is save, restore or off, not '$mode'."; exit 1 ;;
+          esac
+        done
+        echo "npm=$NPM_KEY" >> "$GITHUB_OUTPUT"
+        echo "nuget=$NUGET_KEY" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/setup-dotnet@v6
+      with:
+        global-json-file: global.json
+
+    # The npm cache is restored below, not by setup-node, whose cache always saves as well.
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22.22.2
+        package-manager-cache: false
+
+    # npm's download cache is ~/.npm on Linux and macOS but %LocalAppData%\npm-cache on Windows: ask npm.
+    - name: npm cache folder
+      id: npm-folder
+      if: inputs.npm-cache != 'off'
+      shell: bash
+      run: echo "path=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+    # actions/cache restores now and saves in a post step when the job succeeds; actions/cache/restore only restores.
+    - if: inputs.npm-cache == 'save'
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.npm-folder.outputs.path }}
+        key: ${{ steps.cache.outputs.npm }}
+        restore-keys: npm-${{ runner.os }}-
+
+    - if: inputs.npm-cache == 'restore'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.npm-folder.outputs.path }}
+        key: ${{ steps.cache.outputs.npm }}
+        restore-keys: npm-${{ runner.os }}-
+
+    - if: inputs.nuget-cache == 'save'
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ steps.cache.outputs.nuget }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - if: inputs.nuget-cache == 'restore'
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ steps.cache.outputs.nuget }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: npm ci
+      shell: bash
+      run: npm ci --no-audit --no-fund

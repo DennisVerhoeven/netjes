@@ -1,0 +1,81 @@
+# docker compose -f compose.yaml -f compose.prod.yaml up -d
+# Caddy terminates TLS for TASKBOARD_SITE and is the only way in: the app publishes no port. The app believes
+# X-Forwarded-For and -Proto from the proxy's address on the edge network only (ForwardedHeaders:KnownNetworks).
+services:
+  db:
+    restart: always
+
+  migrate:
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  proxy:
+    image: caddy:2.11.4-alpine
+    restart: always
+    # A domain gets a Let's Encrypt certificate (its DNS must point here, ports 80 and 443 open); localhost gets one
+    # from Caddy's own CA, which browsers do not trust. Plain http is redirected to https.
+    command: ["caddy", "reverse-proxy", "--from", "${TASKBOARD_SITE:-localhost}", "--to", "app:8080"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
+      edge:
+        ipv4_address: ${TASKBOARD_PROXY_ADDRESS:-172.30.250.2}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    volumes:
+      # Certificates and the ACME account: keep them, or every restart asks Let's Encrypt again.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+  app:
+    restart: always
+    networks:
+      - default
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Only the proxy may say what the visitor's scheme and address were.
+      ForwardedHeaders__KnownNetworks__0: ${TASKBOARD_PROXY_ADDRESS:-172.30.250.2}/32
+    volumes:
+      # Data Protection keys sign the auth cookie and antiforgery tokens: keep them across restarts and updates.
+      - dataprotection:/home/app/.aspnet/DataProtection-Keys
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+networks:
+  # Between the proxy and the app. A fixed subnet, so the proxy's address is known; change TASKBOARD_EDGE_SUBNET and
+  # TASKBOARD_PROXY_ADDRESS together if it overlaps a network you already have.
+  edge:
+    ipam:
+      config:
+        - subnet: ${TASKBOARD_EDGE_SUBNET:-172.30.250.0/29}
+
+volumes:
+  dataprotection:
+  caddy-data:
+  caddy-config:

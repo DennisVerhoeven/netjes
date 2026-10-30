@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <!-- The repository's social preview: the mark (netjes.svg) and the wordmark, drawn with the mark's strokes. -->
+  <rect width="1280" height="640" fill="#fbf7f0"/>
+  <g transform="translate(222 224) scale(3)">
+    <rect width="64" height="64" rx="14" fill="#162032"/>
+    <path d="M16 48V16M16 30a10 10 0 0 1 20 0v18" fill="none" stroke="#fbf7f0" stroke-width="8"/>
+    <rect x="44" y="40" width="8" height="8" fill="#e5484d"/>
+  </g>
+  <!-- "netjes." on the mark's grid: x-height 16 to 48, strokes 8 wide. -->
+  <g transform="translate(470 224) scale(3)">
+    <g fill="none" stroke="#162032" stroke-width="8">
+      <path d="M4 48V16M4 30a10 10 0 0 1 20 0v18"/>
+      <path d="M40 32H68M64 32A12 12 0 1 0 60.485 40.485"/>
+      <path d="M84 6V48M75 20H93"/>
+      <path d="M104 16V52a8 8 0 0 1-8 8h-4"/>
+      <path d="M120 32H148M144 32A12 12 0 1 0 140.485 40.485"/>
+      <path d="M176.8 23A9 6 0 0 0 169 20A9 6 0 0 0 169 32A9 6 0 0 1 169 44A9 6 0 0 1 161.2 41"/>
+    </g>
+    <rect x="100" y="2" width="8" height="8" fill="#162032"/>
+    <rect x="188" y="40" width="8" height="8" fill="#e5484d"/>
+  </g>
+</svg>

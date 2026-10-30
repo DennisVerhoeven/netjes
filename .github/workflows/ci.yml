@@ -1,0 +1,221 @@
+# The whole gate from .claude/skills/netjes-verification, in parallel jobs on Linux: build and test (.NET, JavaScript,
+# types, generated types, the benchmark harness, the script tests, the docs), the two end-to-end suites, and the
+# package check. The build and the .NET and JavaScript tests also run on macOS and Windows.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run. Every commit pushed to main gets a run of its own, which
+# finishes: the release workflow releases only a commit whose run on main passed.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build-and-test:
+    name: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # This job saves the npm and NuGet caches the other Linux jobs restore: it installs exactly package-lock.json and
+      # restores the whole solution, so the caches hold everything any job needs.
+      - uses: ./.github/actions/setup
+        with:
+          npm-cache: save
+          nuget-cache: save
+
+      # The package's dist/, which the examples import, then the examples' production build: the .NET tests serve it
+      # (SidecarCrashTests runs TaskBoard as in production).
+      - name: Build the package and the examples
+        id: build
+        run: npm run build
+
+      # Every check below runs even when an earlier one failed, so one run reports all of them.
+      - name: Type check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run typecheck
+
+      - name: JavaScript tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test
+
+      - name: Generated types are current (Blog)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: examples/Blog
+        run: npx netjes generate --check
+
+      - name: Generated types are current (TaskBoard)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: examples/TaskBoard
+        run: npx netjes generate --check
+
+      - name: Benchmark harness tests and type check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: bench/netjes
+        run: |
+          npm test
+          npm run typecheck
+
+      # llms.txt and llms-full.txt match the docs, and every link in the tracked Markdown resolves. Needs no build.
+      - name: Docs
+        if: ${{ !cancelled() }}
+        run: npm run docs:check
+
+      # Netjes.Tests, Blog.Tests and TaskBoard.Tests. TaskBoard's tests run Postgres in Docker (Testcontainers), and
+      # SidecarCrashTests finds the sidecar with pgrep; the runner has both.
+      - name: .NET tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet test Netjes.slnx -c Release
+
+  # The build-and-test job on macOS and Windows, without what needs Linux. The TaskBoard tests that start Postgres in
+  # Docker (Category=Docker) are left out: GitHub's macOS runners have no Docker, and its Windows runners run Windows
+  # containers only. The end-to-end suites (TaskBoard's needs Docker too), the package check (a bash script built on
+  # Linux tools) and the benchmark harness run in the Linux jobs only.
+  build-and-test-os:
+    name: build-and-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    # Git Bash on Windows.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The only job on its system, so it saves that system's caches; their keys name the system.
+      - uses: ./.github/actions/setup
+        with:
+          npm-cache: save
+          nuget-cache: save
+
+      - name: Build the package and the examples
+        id: build
+        run: npm run build
+
+      # Every check below runs even when an earlier one failed, so one run reports all of them.
+      - name: Type check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run typecheck
+
+      # With the script tests, which check that the checkout has LF line endings.
+      - name: JavaScript tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm test
+
+      - name: Generated types are current (Blog)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: examples/Blog
+        run: npx netjes generate --check
+
+      - name: Generated types are current (TaskBoard)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: examples/TaskBoard
+        run: npx netjes generate --check
+
+      - name: Docs
+        if: ${{ !cancelled() }}
+        run: npm run docs:check
+
+      - name: .NET tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet test Netjes.slnx -c Release --filter-not-trait Category=Docker
+
+  e2e:
+    name: e2e (${{ matrix.example }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [Blog, TaskBoard]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Restores the caches build-and-test saves.
+      - uses: ./.github/actions/setup
+
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Both legs install the same browser, so it does not matter which one saves it.
+      - name: Cache Playwright's browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      # The cache holds the browser, not the system libraries it needs.
+      - name: Install Chromium's system libraries
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # The examples import netjes from its build, dist/; each suite builds its example itself.
+      - name: Build the package
+        run: npm run build --workspace=packages/netjes
+
+      # CI=1 makes the Playwright config start fresh servers on its default ports and retry a failed test once.
+      # TaskBoard's suite starts a throwaway Postgres in Docker and removes it afterwards.
+      - name: End-to-end tests
+        working-directory: examples/${{ matrix.example }}
+        env:
+          CI: '1'
+          PLAYWRIGHT_HTML_OPEN: never
+        run: npm run test:e2e -- --reporter=github,html
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-${{ matrix.example }}
+          path: |
+            examples/${{ matrix.example }}/playwright-report/
+            examples/${{ matrix.example }}/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  packages:
+    name: packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The script restores into a NuGet folder of its own, so a package it packs is never served from a cache. It
+      # also installs the scaffolded app's npm packages, which is why this job restores the npm cache but never saves it.
+      - uses: ./.github/actions/setup
+        with:
+          nuget-cache: 'off'
+
+      - name: Pack, scaffold, test, publish and serve a new app
+        run: scripts/check-packages.sh

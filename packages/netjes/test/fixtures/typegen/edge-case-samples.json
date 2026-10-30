@@ -1,0 +1,13 @@
+{
+  "shapeBase": {"$type":"base","name":"b"},
+  "shapeCircle": {"$type":"circle","r":1,"name":"c"},
+  "petDog": {"$type":"dog","name":"d"},
+  "petPuppy": {"$type":"puppy","age":1,"name":"p"},
+  "comment": {"text":"a","replies":[{"text":"b","replies":[]}]},
+  "pinned": {"$type":"pinned","text":"p","replies":[{"text":"b","replies":[]}]},
+  "invoice": {"count":"3","price":"1.5"},
+  "counters": {"ids":["1","2"],"totals":{"a":"9007199254740993","b":null},"owners":[{"n":"o"}]},
+  "precise": {"small":"1.5","plain":2},
+  "usesGlobals": {"record":{"a":"a"},"form":{"b":"b"},"search":{"c":"c"},"number":{"d":4}},
+  "measurements": {"mean":"NaN","peak":"-Infinity","cost":"2.5","samples":"4"}
+}
