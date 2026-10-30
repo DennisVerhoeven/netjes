@@ -201,12 +201,12 @@ describe('netjes() defaults', () => {
         picomatch(glob.includes('/') ? glob : `**/${glob}`, { dot: true, nocase: true })(`${absolute(root)}/${file}`),
       );
 
-    expect(denied('/home/me/bin/shop', 'pages/index.tsx')).toBe(false);
-    expect(denied('/home/me/obj/shop', 'logo.svg')).toBe(false);
-    expect(denied('/home/me/bin/shop', 'bin/Debug/net10.0/Shop.txt')).toBe(true);
-    expect(denied('/home/me/bin/shop', 'obj/project.assets.txt')).toBe(true);
-    expect(denied('/home/me/bin/shop', 'dist/server/server-entry.txt')).toBe(true);
-    expect(denied('/home/me/shop (v2)', 'dist/server/server-entry.txt')).toBe(true);
+    expect(denied('/work/me/bin/shop', 'pages/index.tsx')).toBe(false);
+    expect(denied('/work/me/obj/shop', 'logo.svg')).toBe(false);
+    expect(denied('/work/me/bin/shop', 'bin/Debug/net10.0/Shop.txt')).toBe(true);
+    expect(denied('/work/me/bin/shop', 'obj/project.assets.txt')).toBe(true);
+    expect(denied('/work/me/bin/shop', 'dist/server/server-entry.txt')).toBe(true);
+    expect(denied('/work/me/shop (v2)', 'dist/server/server-entry.txt')).toBe(true);
   });
 
   it('denies the files that hold credentials and deployment settings, in any case and in any folder', async () => {
