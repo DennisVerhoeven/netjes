@@ -23,26 +23,35 @@ public class DeferTests
     [Fact]
     public async Task DataRequest_StreamsThePayloadFirstThenEachValueAsItCompletes()
     {
+        // The slow value is held until the fast one has been read off the stream, so the order follows from the
+        // streaming, not from two timers racing on a busy machine.
+        var slow = new TaskCompletionSource<string[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var app = await TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
             map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new
             {
                 Title = $"Post {id}",
-                Comments = Page.Defer(After(150, new[] { "slow" })),
+                Comments = Page.Defer(slow.Task),
                 Likes = Page.Defer(After(10, 3)),
             })));
 
-        var response = await app.GetDataAsync("/posts/1");
-        var lines = await LinesAsync(response);
+        var request = new HttpRequestMessage(HttpMethod.Get, "/posts/1");
+        request.Headers.Add(NetjesHeaders.Data, "1");
+        using var response = await app.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, Ct);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(Ct));
+        var payload = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
+        var first = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
+        slow.SetResult(["slow"]);
+        var second = JsonNode.Parse((await reader.ReadLineAsync(Ct))!)!;
 
         Assert.Equal("application/x-ndjson", response.Content.Headers.ContentType?.MediaType);
-        Assert.Equal(3, lines.Count);
-        var props = lines[0]["props"]!;
+        var props = payload["props"]!;
         Assert.Equal("Post 1", (string?)props["title"]);
         Assert.Equal("""{"$netjes":"deferred","id":"d0"}""", props["comments"]!.ToJsonString());
         Assert.Equal("""{"$netjes":"deferred","id":"d1"}""", props["likes"]!.ToJsonString());
-        Assert.Equal("""{"id":"d1","value":3}""", lines[1].ToJsonString());
-        Assert.Equal("""{"id":"d0","value":["slow"]}""", lines[2].ToJsonString());
+        Assert.Equal("""{"id":"d1","value":3}""", first.ToJsonString());
+        Assert.Equal("""{"id":"d0","value":["slow"]}""", second.ToJsonString());
+        Assert.Null(await reader.ReadLineAsync(Ct));
     }
 
     [Fact]
