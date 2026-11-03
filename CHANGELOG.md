@@ -4,6 +4,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Fixed
+
+- A page could show twice. When the client entry came from the browser's cache, it could hydrate a streamed document before the shell had been parsed; React reported a hydration error (#418), rendered the page itself, and the rest of the server's HTML followed it. The client entry now waits for the end of the shell ([ADR 0022](docs/decisions/0022-hydrate-once-the-shell-is-parsed.md)). Every server-rendered document ends its body with an empty `<template id="__NETJES_SHELL_END__">`. Apps have nothing to change, but a stylesheet that targets the body's last child now matches it.
+
 ## [0.0.1] - 2026-10-30
 
 Initial release.
