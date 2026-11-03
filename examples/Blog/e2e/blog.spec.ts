@@ -331,9 +331,9 @@ test.describe('a page whose module does not load', () => {
     const html = await (await request.get('/about')).text();
     const chunk = /<link rel="modulepreload" href="([^"]*\/page-[^"]+\.js)"/.exec(html)?.[1];
     expect(chunk).toBeTruthy();
-    let requests = 0;
+    const requests: number[] = [];
     await page.route(`**${chunk}`, (route) => {
-      requests++;
+      requests.push(Date.now());
       return route.abort('internetdisconnected');
     });
     const logged: string[] = [];
@@ -347,8 +347,11 @@ test.describe('a page whose module does not load', () => {
 
     await expect.poll(() => logged.length).toBe(1);
     expect(logged[0]).toContain('app/about/page.tsx');
-    // The preload, the import and the import tried once more.
-    expect(requests).toBe(3);
+    // The preload, the import and the import tried once more. An import that starts while the preload is still on its
+    // way shares its request, so there are two or three; the last is the retry, which waits RETRY_DELAY_MS (500 ms)
+    // after the first attempt failed.
+    expect([2, 3]).toContain(requests.length);
+    expect((requests.at(-1) ?? 0) - (requests[0] ?? 0)).toBeGreaterThanOrEqual(450);
     await expect(page.getByRole('heading', { level: 1, name: 'About' })).toBeVisible();
     // The router never started: its links are plain links, which the browser loads in full.
     expect(await page.evaluate(() => window.history.state)).toBeNull();
