@@ -4,7 +4,7 @@ import { createRoot, hydrateRoot } from 'react-dom/client';
 import { pages } from 'virtual:netjes/pages';
 import { deferredRegistry, revivePayload } from './deferred.ts';
 import { type RouteModules, createModuleLoader } from './modules.ts';
-import { DATA_ELEMENT_ID, parseInitialPayload } from './payload.ts';
+import { DATA_ELEMENT_ID, SHELL_END_ID, parseInitialPayload } from './payload.ts';
 import { Root } from './root.tsx';
 import { withClockOffset } from './router.tsx';
 
@@ -33,6 +33,28 @@ function payloadElement(): Promise<HTMLElement | null> {
       observer.disconnect();
       resolve(document.getElementById(DATA_ELEMENT_ID));
     });
+  });
+}
+
+/**
+ * Resolves once the parser has passed the end of the shell, the empty element `Document` writes last in the body.
+ * This script is async, so a cached copy can run as soon as the payload is in, before most of the page is: hydrating
+ * then would meet half a document, give up and render the page in the browser, and the parser would add the rest of
+ * the server's HTML below it, so the page would show twice.
+ */
+function shellParsed(): Promise<void> {
+  if (document.getElementById(SHELL_END_ID) || document.readyState !== 'loading') return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      observer.disconnect();
+      document.removeEventListener('DOMContentLoaded', done);
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      if (document.getElementById(SHELL_END_ID)) done();
+    });
+    observer.observe(document, { childList: true, subtree: true });
+    document.addEventListener('DOMContentLoaded', done);
   });
 }
 
@@ -98,6 +120,7 @@ if (modules) {
     // the scripts and stylesheets already in it and replaces the rest.
     createRoot(document).render(root);
   } else {
+    await shellParsed();
     hydrateRoot(document, root);
   }
 }

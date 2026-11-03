@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Thenable } from '../src/deferred.ts';
-import type { PagePayload } from '../src/payload.ts';
+import { type PagePayload, SHELL_END_ID } from '../src/payload.ts';
 
 vi.mock('react-dom/client', () => ({ hydrateRoot: vi.fn(), createRoot: vi.fn(() => ({ render: vi.fn() })) }));
 
@@ -119,6 +119,25 @@ describe('the client entry', () => {
     await import('../src/client-entry.tsx');
 
     expect(hydrateRoot).toHaveBeenCalledOnce();
+  });
+
+  it('waits for the end of the shell before it hydrates a document that is still being parsed', async () => {
+    // A cached client entry runs while the parser has the payload and the start of the page, not the rest of the shell.
+    serverDocument('<header>Blog</header>');
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' });
+    try {
+      const entry = import('../src/client-entry.tsx');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(hydrateRoot).not.toHaveBeenCalled();
+
+      // The parser reaches the end of the shell.
+      document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
+      await entry;
+
+      expect(hydrateRoot).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, 'readyState');
+    }
   });
 
   it('hydrates a document the sidecar rendered', async () => {

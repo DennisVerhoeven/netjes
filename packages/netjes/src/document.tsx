@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { DEFERRED_BOOTSTRAP } from './deferred.ts';
-import { DATA_ELEMENT_ID, type DocumentInfo } from './payload.ts';
+import { DATA_ELEMENT_ID, type DocumentInfo, SHELL_END_ID } from './payload.ts';
 
 type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode };
 
@@ -8,9 +8,10 @@ type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode
  * The `<html>` shell around every page. React renders and hydrates the whole document, so `<title>`, `<meta>`
  * and `<link>` rendered by pages and layouts end up in the head.
  *
- * Documents stream, so the client entry is `async`: it hydrates the shell as soon as it loads, not once the last
- * Suspense boundary has arrived. Everything it reads comes before the content: the deferred-values bootstrap in the
- * head, the payload first in the body.
+ * Documents stream, so the client entry is `async`: it hydrates the shell as soon as the shell is in, not once the
+ * last Suspense boundary has arrived. Everything it reads comes before the content: the deferred-values bootstrap in
+ * the head, the payload first in the body. The empty element at the end of the body is the last thing in the shell,
+ * which the client entry waits for before it hydrates: a cached entry can run long before the parser gets there.
  */
 export function Document({ info, dataJson, children }: DocumentProps) {
   const { nonce } = info;
@@ -41,6 +42,7 @@ export function Document({ info, dataJson, children }: DocumentProps) {
         {/* Already escaped for HTML by the server; the client reads it back verbatim to hydrate. */}
         <script id={DATA_ELEMENT_ID} type="application/json" nonce={nonce} dangerouslySetInnerHTML={{ __html: dataJson }} />
         {children}
+        <template id={SHELL_END_ID} />
       </body>
     </html>
   );

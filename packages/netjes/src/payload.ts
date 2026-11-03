@@ -13,6 +13,8 @@ export const ANTIFORGERY_HEADER = 'X-Netjes-Antiforgery';
  */
 export const COOKIES_HEADER = 'X-Netjes-Cookies';
 export const DATA_ELEMENT_ID = '__NETJES_DATA__';
+/** The id of the empty element that ends the body of every server-rendered document, and so the shell. */
+export const SHELL_END_ID = '__NETJES_SHELL_END__';
 
 /** The page's route values by parameter name: a string per single segment, an array per catch-all (empty for an optional one). A single parameter the request has no value for is `null`, as when a page is rendered with `Page.Render` from an endpoint whose route lacks it. */
 export type Params = Record<string, string | string[] | null>;

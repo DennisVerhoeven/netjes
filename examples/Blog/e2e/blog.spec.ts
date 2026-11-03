@@ -298,6 +298,31 @@ test.describe('in the browser', () => {
   });
 });
 
+test.describe('a document that arrives slowly', () => {
+  test('hydrates once, after its shell, when the scripts are already cached', async ({ page, context }) => {
+    // The first load puts the client entry and the page's modules in the browser's cache.
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+    const errors = watchForErrors(page);
+    // Cached scripts skip the throttle while the document trickles in, so the async client entry runs long before the
+    // parser reaches the end of the shell.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: 8 * 1024, uploadThroughput: -1 });
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    // A client entry that hydrated half a document gives up (React's hydration error), renders the page itself, and the
+    // parser adds the rest of the server's below it.
+    expect(errors).toEqual([]);
+    await expect(page.getByRole('banner')).toHaveCount(1);
+    await expect(page.getByRole('main')).toHaveCount(1);
+    await expect(page.getByRole('contentinfo')).toHaveCount(1);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('React pages, served by ASP.NET Core');
+  });
+});
+
 test.describe('a page whose module does not load', () => {
   test.beforeEach(({}, testInfo) => test.skip(testInfo.project.name !== 'production', 'the built chunks are the ones a deploy removes'));
 
