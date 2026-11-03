@@ -488,10 +488,8 @@ internal sealed class PageRenderer(
         var waitForAll = !context.Options.StreamDocuments || context.Command is { Name: "export" } || IsCrawler(http);
         var renderId = collector.Values.Count > 0 ? Convert.ToHexString(RandomNumberGenerator.GetBytes(12)) : null;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-        // A little before the sidecar's own StreamTimeout ends the render, so what never arrived is reported in time
-        // for the document to show those boundaries as failed instead of being cut off.
         var limit = context.Options.StreamTimeout;
-        stop.CancelAfter(limit - TimeSpan.FromTicks(Math.Min(TimeSpan.TicksPerSecond, limit.Ticks / 10)));
+        stop.CancelAfter(DeferredDeadline(limit));
         // Deferred values go to the sidecar as they complete; it may need them before the shell (waitForAll). They are
         // sent until the document is done or the sidecar's own deadline passes: the failures for values that ran out of
         // time come after `stop`, and a sidecar that stops answering (a crash) must not hold the request open.
@@ -672,6 +670,14 @@ internal sealed class PageRenderer(
         http.Response.ContentType = "application/json; charset=utf-8";
         await http.Response.WriteAsync(json, http.RequestAborted);
     }
+
+    /// <summary>
+    /// When a document's deferred values that have not arrived are reported as failed: a little before the sidecar's
+    /// own <see cref="NetjesOptions.StreamTimeout"/> ends the render (a tenth of it, at most a second), so the
+    /// document shows those boundaries as failed instead of being cut off.
+    /// </summary>
+    internal static TimeSpan DeferredDeadline(TimeSpan streamTimeout) =>
+        streamTimeout - TimeSpan.FromTicks(Math.Min(TimeSpan.TicksPerSecond, streamTimeout.Ticks / 10));
 
     /// <summary>
     /// nosniff, a referrer policy and same-origin framing on documents, each unless the app set it (framing: unless it
