@@ -334,7 +334,7 @@ public class AppRouterRegressionTests
     }
 
     [Fact]
-    public async Task CrawlerDocument_WithAValueThatNeverArrives_IsStillComplete_BeforeTheSidecarGivesUp()
+    public async Task CrawlerDocument_WithAValueThatNeverArrives_IsStillComplete()
     {
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
@@ -342,15 +342,11 @@ public class AppRouterRegressionTests
             map: a => a.MapPageLoader("/", () => Page.Props(new { Never = Page.Defer(new TaskCompletionSource<int>().Task) })));
         app.Renderer.StreamHandler = async (_, options) =>
         {
-            // Like the sidecar for a crawler: the document once every value has settled, aborted at its StreamTimeout.
-            var waited = System.Diagnostics.Stopwatch.StartNew();
+            // Like the sidecar for a crawler: the document once every value has settled. The real one gives up at
+            // StreamTimeout, after .NET has reported the value as failed (DeferredDeadlineTests); this one waits for the
+            // report, so the test does not race two clocks a tenth of a timeout apart.
             while (!app.Renderer.Resolved.Any(r => r.RenderId == options.RenderId && r.Id == "d0"))
             {
-                if (waited.Elapsed >= TimeSpan.FromMilliseconds(600))
-                {
-                    throw new SsrRenderException("Server rendering did not finish within 1s.", null);
-                }
-
                 await Task.Delay(5, Ct);
             }
 
