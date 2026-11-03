@@ -200,13 +200,13 @@ netjes info
 Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise.
 
 ```text
-netjes 0.0.1 in /home/me/my-shop
+netjes 0.0.2 in /home/me/my-shop
 
 ✓ Node.js 24.15.0
 ✓ .NET SDK 10.0.403 (MyShop.csproj targets net10.0)
 
-✓ npm packages: netjes 0.0.1, vite 8.3.5, react 19.3.1, react-dom 19.3.1
-✓ MyShop.csproj references Netjes 0.0.1, the version of the npm package
+✓ npm packages: netjes 0.0.2, vite 8.3.5, react 19.3.1, react-dom 19.3.1
+✓ MyShop.csproj references Netjes 0.0.2, the version of the npm package
 ✓ vite.config.ts uses netjes()
 ✓ package.json has a build script (dotnet publish runs it)
 ✓ app/ has 2 pages

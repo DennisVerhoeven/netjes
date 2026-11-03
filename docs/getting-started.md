@@ -21,7 +21,7 @@ npx netjes new my-app
 `netjes new` copies the app template into `my-app`, runs `npm install` in it, and prints where things are:
 
 ```text
-Created MyApp in my-app (using the Netjes 0.0.1 packages)
+Created MyApp in my-app (using the Netjes 0.0.2 packages)
 
   app/                 the pages: page.tsx is /, about/page.tsx is /about, layout.tsx wraps them
   components/          React components, each with a Vitest test
@@ -499,11 +499,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.1`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.1` with `Netjes` 0.0.1), and the tools the template builds, tests and type-checks with:
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
 
    ```bash
-   npm install netjes@0.0.1 react react-dom zod @tanstack/react-query
+   npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
    npm install -D vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
