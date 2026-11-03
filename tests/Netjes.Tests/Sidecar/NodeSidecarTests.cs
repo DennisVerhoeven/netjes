@@ -164,11 +164,14 @@ public class NodeSidecarTests
     [InlineData(true)]
     public async Task Render_WaitingForARestartLongerThanItsTimeout_SaysTheSidecarIsRestarting(bool streamed)
     {
-        await using var sidecar = Create("fake-sidecar.mjs", renderTimeout: TimeSpan.FromMilliseconds(500));
+        NetjesOptions? options = null;
+        await using var sidecar = Create("fake-sidecar.mjs", configure: o => options = o);
         await sidecar.StartAsync(Ct);
         await SidecarPoolTests.CrashAsync(sidecar);
 
-        // The restart comes after a second.
+        // The restart comes after a second, and only the render under test gets less than that: asking for the pid and
+        // crashing are renders too, and the first one on a busy machine can take longer than half a second.
+        options!.RenderTimeout = TimeSpan.FromMilliseconds(500);
         Func<Task> render = streamed
             ? () => sidecar.RenderStreamAsync("""{"page":"x"}""", new SsrStreamOptions(false), Ct)
             : () => sidecar.RenderAsync("""{"page":"x"}""", Ct);
