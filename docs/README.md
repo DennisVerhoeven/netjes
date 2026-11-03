@@ -61,6 +61,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0019 – A forced no-store removes the headers CDNs read first](decisions/0019-forced-no-store-removes-cdn-cache-headers.md)
 - [0020 – Page actions check their inputs like server actions](decisions/0020-page-actions-check-their-inputs-like-server-actions.md)
 - [0021 – Signing in or out reaches the app's other tabs](decisions/0021-signing-in-or-out-reaches-the-other-tabs.md)
+- [0022 – The client entry hydrates once the shell is parsed](decisions/0022-hydrate-once-the-shell-is-parsed.md)
 
 ## The project
 

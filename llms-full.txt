@@ -6252,6 +6252,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0019 – A forced no-store removes the headers CDNs read first](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0019-forced-no-store-removes-cdn-cache-headers.md): drafts, the fallback and the other `no-store` responses go out without `CDN-Cache-Control`, `Surrogate-Control` and the like.
 - [0020 – Page actions check their inputs like server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0020-page-actions-check-their-inputs-like-server-actions.md): a failed check renders the page again from its loader, and `usePageActionState()` reads it.
 - [0021 – Signing in or out reaches the app's other tabs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0021-signing-in-or-out-reaches-the-other-tabs.md): a tab that sees a cookie change tells the others on a `BroadcastChannel`, and they forget and reload the same way.
+- [0022 – The client entry hydrates once the shell is parsed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6262,6 +6263,10 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Fixed
+
+- A page could show twice. When the client entry came from the browser's cache, it could hydrate a streamed document before the shell had been parsed; React reported a hydration error (#418), rendered the page itself, and the rest of the server's HTML followed it. The client entry now waits for the end of the shell ([ADR 0022](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md)). Every server-rendered document ends its body with an empty `<template id="__NETJES_SHELL_END__">`. Apps have nothing to change, but a stylesheet that targets the body's last child now matches it.
 
 ## [0.0.1] - 2026-10-30
 

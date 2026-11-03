@@ -298,6 +298,31 @@ test.describe('in the browser', () => {
   });
 });
 
+test.describe('a document that arrives slowly', () => {
+  test('hydrates once, after its shell, when the scripts are already cached', async ({ page, context }) => {
+    // The first load puts the client entry and the page's modules in the browser's cache.
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+    const errors = watchForErrors(page);
+    // Cached scripts skip the throttle while the document trickles in, so the async client entry runs long before the
+    // parser reaches the end of the shell.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: 8 * 1024, uploadThroughput: -1 });
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    // A client entry that hydrated half a document gives up (React's hydration error), renders the page itself, and the
+    // parser adds the rest of the server's below it.
+    expect(errors).toEqual([]);
+    await expect(page.getByRole('banner')).toHaveCount(1);
+    await expect(page.getByRole('main')).toHaveCount(1);
+    await expect(page.getByRole('contentinfo')).toHaveCount(1);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('React pages, served by ASP.NET Core');
+  });
+});
+
 test.describe('a page whose module does not load', () => {
   test.beforeEach(({}, testInfo) => test.skip(testInfo.project.name !== 'production', 'the built chunks are the ones a deploy removes'));
 
@@ -306,9 +331,9 @@ test.describe('a page whose module does not load', () => {
     const html = await (await request.get('/about')).text();
     const chunk = /<link rel="modulepreload" href="([^"]*\/page-[^"]+\.js)"/.exec(html)?.[1];
     expect(chunk).toBeTruthy();
-    let requests = 0;
+    const requests: number[] = [];
     await page.route(`**${chunk}`, (route) => {
-      requests++;
+      requests.push(Date.now());
       return route.abort('internetdisconnected');
     });
     const logged: string[] = [];
@@ -322,8 +347,11 @@ test.describe('a page whose module does not load', () => {
 
     await expect.poll(() => logged.length).toBe(1);
     expect(logged[0]).toContain('app/about/page.tsx');
-    // The preload, the import and the import tried once more.
-    expect(requests).toBe(3);
+    // The preload, the import and the import tried once more. An import that starts while the preload is still on its
+    // way shares its request, so there are two or three; the last is the retry, which waits RETRY_DELAY_MS (500 ms)
+    // after the first attempt failed.
+    expect([2, 3]).toContain(requests.length);
+    expect((requests.at(-1) ?? 0) - (requests[0] ?? 0)).toBeGreaterThanOrEqual(450);
     await expect(page.getByRole('heading', { level: 1, name: 'About' })).toBeVisible();
     // The router never started: its links are plain links, which the browser loads in full.
     expect(await page.evaluate(() => window.history.state)).toBeNull();

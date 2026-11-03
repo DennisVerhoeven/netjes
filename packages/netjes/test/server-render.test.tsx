@@ -13,6 +13,7 @@ import { createQueryShell } from '../src/query.tsx';
 import { RouterProvider } from '../src/router.tsx';
 import { z } from 'zod';
 import { usePathname, useSharedProps } from '../src/router.tsx';
+import { SHELL_END_ID } from '../src/payload.ts';
 import { createServerRenderer } from '../src/server-render.tsx';
 
 const sharedSchema = z.object({ siteName: z.string() });
@@ -304,6 +305,45 @@ describe('streaming', () => {
     expect(shell).not.toContain('3 comments');
     expect(received.join('')).toContain('3 comments');
     expect(received.join('')).toContain('</html>');
+  });
+
+  it('ends the shell with the element the client entry waits for, ahead of what streams later', async () => {
+    let release: (value: string) => void = () => {};
+    const slowData = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    function Slow(): ReactNode {
+      return <p>{use(slowData)}</p>;
+    }
+    const streaming = createServerRenderer({
+      '/app/slow/page.tsx': async () => ({
+        default: () => (
+          <Suspense fallback={<p>loading comments…</p>}>
+            <Slow />
+          </Suspense>
+        ),
+      }),
+    });
+
+    const stream = await streaming.renderToStream(data({ page: 'app/slow/page.tsx', segments: [] }));
+    const received: string[] = [];
+    const done = chunks(stream, (text) => received.push(text));
+    await new Promise((r) => setTimeout(r, 30));
+    const shell = received.join('');
+    release('3 comments');
+    await done;
+    const html = received.join('');
+
+    const end = `<template id="${SHELL_END_ID}"></template>`;
+    expect(shell).toContain(end);
+    expect(html.indexOf('loading comments…')).toBeLessThan(html.indexOf(end));
+    expect(html.indexOf(end)).toBeLessThan(html.indexOf('3 comments'));
+  });
+
+  it('ends the body of a complete document with that element', async () => {
+    const html = await renderer.render(data());
+
+    expect(html.endsWith(`<template id="${SHELL_END_ID}"></template></body></html>`)).toBe(true);
   });
 
   it('waits for everything when asked, e.g. for crawlers', async () => {
