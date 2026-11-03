@@ -166,7 +166,7 @@ The three are released together under one version. An app uses the same version 
 
 ## Status
 
-Netjes is at 0.0.1, its first release. Until 1.0, a new version can change the API; the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md) says what changed and what to do about it.
+Netjes is at 0.0.2, its first release. Until 1.0, a new version can change the API; the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md) says what changed and what to do about it.
 
 Not there yet:
 
@@ -215,7 +215,7 @@ npx netjes new my-app
 `netjes new` copies the app template into `my-app`, runs `npm install` in it, and prints where things are:
 
 ```text
-Created MyApp in my-app (using the Netjes 0.0.1 packages)
+Created MyApp in my-app (using the Netjes 0.0.2 packages)
 
   app/                 the pages: page.tsx is /, about/page.tsx is /about, layout.tsx wraps them
   components/          React components, each with a Vitest test
@@ -693,11 +693,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.1`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.1` with `Netjes` 0.0.1), and the tools the template builds, tests and type-checks with:
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
 
    ```bash
-   npm install netjes@0.0.1 react react-dom zod @tanstack/react-query
+   npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
    npm install -D vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
@@ -5421,13 +5421,13 @@ netjes info
 Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise.
 
 ```text
-netjes 0.0.1 in /home/me/my-shop
+netjes 0.0.2 in /home/me/my-shop
 
 ✓ Node.js 24.15.0
 ✓ .NET SDK 10.0.403 (MyShop.csproj targets net10.0)
 
-✓ npm packages: netjes 0.0.1, vite 8.3.5, react 19.3.1, react-dom 19.3.1
-✓ MyShop.csproj references Netjes 0.0.1, the version of the npm package
+✓ npm packages: netjes 0.0.2, vite 8.3.5, react 19.3.1, react-dom 19.3.1
+✓ MyShop.csproj references Netjes 0.0.2, the version of the npm package
 ✓ vite.config.ts uses netjes()
 ✓ package.json has a build script (dotnet publish runs it)
 ✓ app/ has 2 pages
@@ -5642,7 +5642,7 @@ npm run dev          # http://localhost:5080
 ## Add it to a project
 
 ```bash
-npm install netjes@0.0.1 react react-dom zod @tanstack/react-query
+npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
 npm install -D vite tailwindcss @tailwindcss/vite
 ```
 
@@ -5691,11 +5691,11 @@ The ASP.NET Core half of [Netjes](https://github.com/DennisVerhoeven/netjes), a 
 npx netjes new my-app
 ```
 
-That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.1 here; the two are released together):
+That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.2 here; the two are released together):
 
 ```bash
-dotnet add package Netjes --version 0.0.1
-npm install netjes@0.0.1 react react-dom zod @tanstack/react-query
+dotnet add package Netjes --version 0.0.2
+npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
 ```
 
 ```csharp
@@ -5741,7 +5741,7 @@ Image processing for the [Netjes](https://www.nuget.org/packages/Netjes) `<Image
 ## Install
 
 ```bash
-dotnet add package Netjes.Images.SkiaSharp --version 0.0.1
+dotnet add package Netjes.Images.SkiaSharp --version 0.0.2
 ```
 
 ```csharp
@@ -5772,7 +5772,7 @@ builder.Services.AddNetjesSkiaImages(o =>
 
 This package decodes bytes that visitors and remote hosts control, with native codecs (libjpeg-turbo, libpng, libwebp and others inside SkiaSharp's Skia build). Native image codecs have a history of memory-safety vulnerabilities, so keep the SkiaSharp packages current: update `Netjes.Images.SkiaSharp` and watch SkiaSharp releases and advisories. The pixel limit and concurrency cap bound resource use but do not protect against a codec bug. Restrict `Netjes:Images:RemoteHosts` to hosts you trust and leave `AllowSvg` off.
 
-Use the same version as `Netjes` (0.0.1 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
+Use the same version as `Netjes` (0.0.2 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/SKILL.md -->
 
@@ -6264,6 +6264,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-03
+
 ### Fixed
 
 - A page could show twice. When the client entry came from the browser's cache, it could hydrate a streamed document before the shell had been parsed; React reported a hydration error (#418), rendered the page itself, and the rest of the server's HTML followed it. The client entry now waits for the end of the shell ([ADR 0022](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md)). Every server-rendered document ends its body with an empty `<template id="__NETJES_SHELL_END__">`. Apps have nothing to change, but a stylesheet that targets the body's last child now matches it.
@@ -6288,7 +6290,8 @@ Initial release.
 - **Testing.** Vitest defaults in the Vite plugin and `createTestApp()` from `netjes/testing`, with a fake router, seeded queries and fake server actions.
 - **Tooling.** The `netjes` command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info` and `agents`. An app template with a C# loader, a validated server action, component tests, Tailwind CSS and Docker files for development and production. `AGENTS.md`, `CLAUDE.md` and a Netjes skill for coding agents in new apps, and `llms.txt` and `llms-full.txt` for the docs. The npm package ships compiled ES modules with type declarations.
 
-[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/DennisVerhoeven/netjes/releases/tag/v0.0.1
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/roadmap.md -->

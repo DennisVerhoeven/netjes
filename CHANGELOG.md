@@ -4,6 +4,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-03
+
 ### Fixed
 
 - A page could show twice. When the client entry came from the browser's cache, it could hydrate a streamed document before the shell had been parsed; React reported a hydration error (#418), rendered the page itself, and the rest of the server's HTML followed it. The client entry now waits for the end of the shell ([ADR 0022](docs/decisions/0022-hydrate-once-the-shell-is-parsed.md)). Every server-rendered document ends its body with an empty `<template id="__NETJES_SHELL_END__">`. Apps have nothing to change, but a stylesheet that targets the body's last child now matches it.
@@ -28,5 +30,6 @@ Initial release.
 - **Testing.** Vitest defaults in the Vite plugin and `createTestApp()` from `netjes/testing`, with a fake router, seeded queries and fake server actions.
 - **Tooling.** The `netjes` command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info` and `agents`. An app template with a C# loader, a validated server action, component tests, Tailwind CSS and Docker files for development and production. `AGENTS.md`, `CLAUDE.md` and a Netjes skill for coding agents in new apps, and `llms.txt` and `llms-full.txt` for the docs. The npm package ships compiled ES modules with type declarations.
 
-[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/DennisVerhoeven/netjes/releases/tag/v0.0.1

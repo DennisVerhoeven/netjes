@@ -5,7 +5,7 @@ Image processing for the [Netjes](https://www.nuget.org/packages/Netjes) `<Image
 ## Install
 
 ```bash
-dotnet add package Netjes.Images.SkiaSharp --version 0.0.1
+dotnet add package Netjes.Images.SkiaSharp --version 0.0.2
 ```
 
 ```csharp
@@ -36,4 +36,4 @@ builder.Services.AddNetjesSkiaImages(o =>
 
 This package decodes bytes that visitors and remote hosts control, with native codecs (libjpeg-turbo, libpng, libwebp and others inside SkiaSharp's Skia build). Native image codecs have a history of memory-safety vulnerabilities, so keep the SkiaSharp packages current: update `Netjes.Images.SkiaSharp` and watch SkiaSharp releases and advisories. The pixel limit and concurrency cap bound resource use but do not protect against a codec bug. Restrict `Netjes:Images:RemoteHosts` to hosts you trust and leave `AllowSvg` off.
 
-Use the same version as `Netjes` (0.0.1 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
+Use the same version as `Netjes` (0.0.2 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
