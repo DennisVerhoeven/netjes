@@ -7,7 +7,7 @@ import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
 import { RouterProvider } from '../src/router.tsx';
 
-// The mark the router puts on <html> once it runs in the document. A page hydrated the way the browser hydrates it:
+// The router puts a mark on <html> once it runs in the document. These tests hydrate a page the way the browser does:
 // outside act(), on React's own scheduler, which commits the page in one task and runs its effects (useEffect) in a
 // later one (before-ready.test.tsx has the clicks that come in between).
 
@@ -64,13 +64,13 @@ async function hydrate() {
   const loader = createModuleLoader(modules);
   const initialModules = await loader.loadRoute(initial);
   const app = <RouterProvider initial={initial} initialModules={initialModules} loader={loader} errorPage={null} />;
-  const window_ = globalThis.document;
+  const browserDocument = globalThis.document;
   vi.stubGlobal('document', undefined);
   let html: string;
   try {
     html = renderToString(app);
   } finally {
-    vi.stubGlobal('document', window_);
+    vi.stubGlobal('document', browserDocument);
     vi.unstubAllGlobals();
   }
   container = document.createElement('div');
@@ -109,6 +109,6 @@ describe('the hydrated mark on <html>', () => {
     root?.unmount();
     root = undefined;
 
-    expect(document.documentElement.hasAttribute(MARK)).toBe(false);
+    expect(marked()).toBeNull();
   });
 });
