@@ -14,9 +14,9 @@ namespace Netjes.Tests.Endpoints;
 /// <summary>
 /// A Netjes app on TestServer, rooted in a temporary directory, with SSR replaced by a recording fake (or, with
 /// <c>sidecar</c>, rendered by the real sidecar pool running a test script). It runs in the Development environment
-/// unless a test names another; <c>mode</c> sets the Netjes mode, so a test can run Netjes's development mode in another
-/// environment, and <c>developmentOutputCache</c> marks a test that means to use output caching in the Development
-/// environment. Its services are validated on build in every environment.
+/// unless a test names another, and refuses output caching there, where pages are never output-cached: tests of the
+/// output cache run in the Testing environment with <c>mode: NetjesMode.Development</c>, and tests of what Development
+/// does pass <c>developmentOutputCache: true</c>. Its services are validated on build in every environment.
 /// </summary>
 internal sealed class TestApp : IAsyncDisposable
 {
@@ -99,6 +99,17 @@ internal sealed class TestApp : IAsyncDisposable
 
             builder.Services.AddNetjes(configure);
             services?.Invoke(builder.Services);
+            if (builder.Environment.IsDevelopment() && !developmentOutputCache
+                && builder.Services.Any(d => d.ServiceType == typeof(Microsoft.AspNetCore.OutputCaching.IOutputCacheStore)))
+            {
+                // There every page renders for each request and none is stored, so a test of what the output cache does
+                // with pages would pass or fail for that reason alone.
+                throw new InvalidOperationException(
+                    "The test app has output caching in the Development environment, where Netjes never output-caches " +
+                    "pages. To test the output cache, start it with environment: \"Testing\", mode: NetjesMode.Development; " +
+                    "to test what Development does, pass developmentOutputCache: true.");
+            }
+
             var fake = new FakeSsrRenderer();
             // Before the app starts: hosted services such as the export render while it does.
             renderer?.Invoke(fake);
