@@ -4,6 +4,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Added
+
+- `PageRouteMetadata` and `CachedPageMetadata` in `Netjes.Routing`, so app code and tests can find the app's pages by walking `EndpointDataSource`, as `netjes routes` does ([endpoint metadata](docs/reference/csharp-api.md#endpoint-metadata)). Every endpoint that serves a page carries `PageRouteMetadata`, with the page's `Pattern` as its file names it and `IsLoader`, true on the endpoint `MapPageLoader` maps. Every endpoint `CachePage` is put on carries `CachedPageMetadata`, with the `Duration` and `Tags` it was given. This is new API only: nothing changes at runtime, and apps have nothing to change. Code that finds a page's endpoint by its display name (`Page /blog/[slug]`), which is not part of the API, can read `PageRouteMetadata` instead.
+
 ### Changed
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
