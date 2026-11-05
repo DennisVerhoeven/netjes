@@ -9,12 +9,13 @@ using Testcontainers.PostgreSql;
 namespace TaskBoard.Tests;
 
 /// <summary>
-/// The Node sidecar dies while it streams a document. The app runs as in production: its own process
-/// (<c>dotnet TaskBoard.dll</c> in the Production environment, behind a trusted proxy that says https), the built client
-/// and server, the real sidecar, and its own Postgres. The task page streams its activity feed after the shell
-/// (Page.Defer); a lock on the activity table holds that query back, so the document is still open when the sidecar is
-/// killed. The response must be cut rather than end as if it were whole, a request while the sidecar restarts must still
-/// get the page, the sidecar must come back, and the next render must be complete.
+/// The Node sidecar dies while it streams a document, or stops answering. The app runs as in production: its own
+/// process (<c>dotnet TaskBoard.dll</c> in the Production environment, behind a trusted proxy that says https), the
+/// built client and server, the real sidecar, and its own Postgres. The task page streams its activity feed after the
+/// shell (Page.Defer); a lock on the activity table holds that query back, so the document is still open when the
+/// sidecar is killed. The response must be cut rather than end as if it were whole, a request while the sidecar
+/// restarts must still get the page, the sidecar must come back, and the next render must be complete. A sidecar that
+/// is stopped (SIGSTOP) must be killed and restarted, with <c>/healthz</c> saying so meanwhile.
 /// <para>
 /// Needs the production build (<c>npm run build</c>) and finds the sidecar with <c>pgrep</c>, so it runs on Linux and
 /// macOS. The app listens on <c>TASKBOARD_TEST_PORT</c>, or a free port when that is not set.
@@ -113,16 +114,59 @@ public sealed class SidecarCrashTests : IAsyncLifetime
         Assert.NotEqual(sidecar, Assert.Single(SidecarProcesses()));
     }
 
+    [Fact]
+    public async Task ASidecarThatStopsAnswering_IsRestarted_AndHealthzSaysSoMeanwhile()
+    {
+        var owner = NewBrowser();
+        await owner.SignUpAsync("Owner");
+        var slug = ProjectsTests.NewSlug();
+        await owner.ActionAsync("projects.create", new { name = "Hanging", slug });
+        var (_, created) = await owner.ActionAsync("tasks.create", new { projectSlug = slug, title = "Survive a hang" });
+        var url = $"/projects/{slug}/tasks/{(int)created["result"]!["number"]!}";
+        var sidecar = Assert.Single(SidecarProcesses());
+
+        try
+        {
+            // Stopped, the process still runs and its port still takes connections, but nothing is answered.
+            Signal("STOP", sidecar);
+
+            // A process silent for five seconds is pinged, and killed when no answer comes within RenderTimeout (15 s):
+            // out within 25 s of its last answer.
+            await HealthAsync(owner.Http, HttpStatusCode.ServiceUnavailable, "Unhealthy", TimeSpan.FromSeconds(40));
+            await HealthyAsync(owner.Http);
+        }
+        finally
+        {
+            // Should it still be there, stopped, a failed test would otherwise leave it behind.
+            if (SidecarProcesses().Contains(sidecar))
+            {
+                Signal("KILL", sidecar);
+            }
+        }
+
+        Assert.NotEqual(sidecar, Assert.Single(SidecarProcesses()));
+        var next = await owner.Http.GetAsync(url, Ct);
+        var html = await next.Content.ReadAsStringAsync(Ct);
+        Assert.True(next.StatusCode == HttpStatusCode.OK, $"{next.StatusCode}\n{Output()}");
+        Assert.DoesNotContain("No Node sidecar was ready", html, StringComparison.Ordinal);
+        Assert.Contains("Survive a hang", html, StringComparison.Ordinal);
+        Assert.Contains($"created {slug.ToUpperInvariant()}-1", html, StringComparison.Ordinal);
+        Assert.Contains("</body></html>", html, StringComparison.Ordinal);
+    }
+
     /// <summary>Waits for the health check to report the restarted sidecar ready (it restarts after a second).</summary>
-    private async Task HealthyAsync(HttpClient http)
+    private Task HealthyAsync(HttpClient http) => HealthAsync(http, HttpStatusCode.OK, "Healthy", TimeSpan.FromSeconds(60));
+
+    /// <summary>Waits until <c>/healthz</c> answers <paramref name="expected"/> with <paramref name="expectedBody"/>.</summary>
+    private async Task HealthAsync(HttpClient http, HttpStatusCode expected, string expectedBody, TimeSpan within)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        deadline.CancelAfter(TimeSpan.FromSeconds(60));
-        var status = HttpStatusCode.ServiceUnavailable;
+        deadline.CancelAfter(within);
+        HttpStatusCode? status = null;
         var body = "";
         try
         {
-            while (!(status == HttpStatusCode.OK && body == "Healthy"))
+            while (!(status == expected && body == expectedBody))
             {
                 await Task.Delay(100, deadline.Token);
                 using var health = await http.GetAsync("/healthz", deadline.Token);
@@ -132,8 +176,18 @@ public sealed class SidecarCrashTests : IAsyncLifetime
         }
         catch (OperationCanceledException) when (!Ct.IsCancellationRequested)
         {
-            Assert.Fail($"/healthz: {status} {body}\n{Output()}");
+            Assert.Fail($"/healthz: {status} {body} after {within.TotalSeconds}s, not {expected} {expectedBody}\n{Output()}");
         }
+    }
+
+    /// <summary>Sends <paramref name="signal"/> to a process, as <c>kill -STOP</c> does.</summary>
+    private static void Signal(string signal, int pid)
+    {
+        using var kill = Process.Start(new ProcessStartInfo("kill", [$"-{signal}", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)])
+        {
+            UseShellExecute = false,
+        })!;
+        kill.WaitForExit();
     }
 
     /// <summary>Takes a lock that the activity query waits for (and nothing else on the task page does) until disposed.</summary>

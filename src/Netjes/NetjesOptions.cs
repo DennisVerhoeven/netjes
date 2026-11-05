@@ -33,7 +33,11 @@ public sealed class NetjesOptions
     /// <summary>The Node.js executable that runs the sidecar processes.</summary>
     public string NodeExecutable { get; set; } = "node";
 
-    /// <summary>Overrides the sidecar script location. Default: the netjes package in development, the copy in dist/server in production.</summary>
+    /// <summary>
+    /// Overrides the sidecar script location. Default: the netjes package in development, the copy in dist/server in
+    /// production. A script of your own must answer <c>GET /health</c>, with any status and without reading a request
+    /// body: in production a process that answers no health ping is restarted (see <see cref="RenderTimeout"/>).
+    /// </summary>
     public string? SidecarScript { get; set; }
 
     /// <summary>The port of the Vite dev server in development.</summary>
@@ -45,7 +49,11 @@ public sealed class NetjesOptions
     /// </summary>
     public int SidecarProcesses { get; set; } = 1;
 
-    /// <summary>How long the sidecar may take to render the shell (everything outside unresolved Suspense boundaries).</summary>
+    /// <summary>
+    /// How long the sidecar may take to render the shell (everything outside unresolved Suspense boundaries). In
+    /// production also how long a health ping waits, and never less than five seconds: a Node process that has answered
+    /// no render for five seconds is pinged, and killed and restarted when no answer comes in that time.
+    /// </summary>
     public TimeSpan RenderTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>How long a streamed document may take in total, Suspense boundaries included.</summary>

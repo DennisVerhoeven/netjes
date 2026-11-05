@@ -166,10 +166,12 @@ app.MapHealthChecks("/healthz");
 | Status | When | `/healthz` answers |
 |---|---|---|
 | Healthy | Every process is ready. | 200 |
-| Degraded | Some processes are restarting; the others take the renders. | 200 |
+| Degraded | Some processes are restarting, after they exited or stopped answering; the others take the renders. | 200 |
 | Unhealthy | None is ready: starting, or all restarting. Documents are then [rendered in the browser](rendering-and-streaming.md#when-no-sidecar-is-ready). | 503 |
 
 The status codes are ASP.NET Core's defaults for `MapHealthChecks`. The template's `Dockerfile` and `docker-compose.yml` use `/healthz` for Docker's health check.
+
+The app restarts its own Node processes: one that exits, and in production one that stops answering without exiting. Netjes pings a process that has answered no render for 5 seconds, and kills and restarts one that gives no answer within `RenderTimeout` (15 seconds by default, never less than 5); the check reports it as restarting from the moment it is taken out ([rendering](rendering-and-streaming.md#restarts)). So a restart policy that acts when the app's own process exits, as the template's `restart: always` does, is all the host needs; a probe of `/healthz` tells a load balancer which instances render on the server right now.
 
 ## Telemetry
 
@@ -210,7 +212,7 @@ Netjes logs through `ILogger`, under these categories:
 
 | Category | What it logs |
 |---|---|
-| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back. |
+| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back, and processes killed because they stopped answering (errors). |
 | `Netjes.Sidecar.NodeSidecarHostedService` | Why the app could not start its Node processes, or in development the Vite dev server: one critical entry, after which the app exits with code 1. |
 | `Netjes.Rendering.ViteManifestProvider` | That the app started in Production without a build: one critical entry, after which it exits with code 1. |
 | `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order). |

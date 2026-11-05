@@ -51,7 +51,7 @@ Maps every page file that has no `MapPageLoader`, a lowest-priority fallback tha
 public static IHealthChecksBuilder AddNetjes(this IHealthChecksBuilder builder)
 ```
 
-Adds a health check named `netjes` for the Node processes: Healthy when all are ready, Degraded while some restart, Unhealthy when none is ready. See [deployment](../guides/deployment.md#health-checks).
+Adds a health check named `netjes` for the Node processes: Healthy when all are ready, Degraded while some restart, Unhealthy when none is ready. A process counts as restarting from the moment it is taken out: when it exits, and in production also when it stops answering. See [deployment](../guides/deployment.md#health-checks).
 
 ### GetNetjesCommand
 
