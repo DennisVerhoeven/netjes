@@ -34,6 +34,11 @@ internal sealed class PageRenderer(
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedNonceCaching = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedUnkeyedCaching = new(StringComparer.Ordinal);
+    // The Content-Security-Policies documents went out under, by their text without nonces (CspChecks.WithoutNonces).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _checkedPolicies = new(StringComparer.Ordinal);
+    private int _checkedPolicyCount;
+    // An app can write another policy for each request; the rest are not checked.
+    private const int MaxCheckedPolicies = 100;
 
     private static readonly IReadOnlyDictionary<string, object?> NoParams = new Dictionary<string, object?>();
     private static readonly IReadOnlyDictionary<string, object?> NoProps = new Dictionary<string, object?>();
@@ -387,6 +392,7 @@ internal sealed class PageRenderer(
         // With AddNetjesLocalization, the request culture (from the [lang] segment) is the locale and the page's lang.
         var locale = http.RequestServices.GetService<LocalizationMarker>() is null ? null : System.Globalization.CultureInfo.CurrentUICulture.Name;
         IReadOnlyList<string> modules = [.. segments.SelectMany(s => s.Modules()), .. page is null ? Array.Empty<string>() : [page]];
+        var documentAssets = isData ? null : UnderBasePath(http, assets.Resolve(modules));
         var errorPage = routes.Current.Error;
         var payload = new PagePayload(
             Route: route,
@@ -411,15 +417,15 @@ internal sealed class PageRenderer(
             DraftMode: draftMode,
             BasePath: http.Request.PathBase.HasValue ? http.Request.PathBase.Value : null,
             Locale: locale,
-            Document: isData
+            Document: documentAssets is null
                 ? null
                 : new DocumentPayload(
                     locale ?? context.Options.Lang,
-                    UnderBasePath(http, assets.Resolve(modules)),
+                    documentAssets,
                     errorPage is null ? null : new SpecialPagePayload(errorPage.File, [.. errorPage.Segments.Select(s => SegmentPayload.From(s))]),
                     ImagesFor(http, context.Options.Images),
                     PublicConfig.From(configuration, jsonOptions.Value.SerializerOptions.PropertyNamingPolicy),
-                    ContentSecurityPolicyFor(http, frameAncestors),
+                    ContentSecurityPolicyFor(http, frameAncestors, documentAssets.Scripts),
                     context.Options.CollectWebVitals ? UnderBasePath(http, WebVitalsEndpoint.Path) : null,
                     clientRender));
         // After the document part, which keeps a page with a CSP nonce out of the output cache. A static export has no
@@ -775,9 +781,10 @@ internal sealed class PageRenderer(
     /// <summary>
     /// The nonce for this document: Netjes's own policy gets one (and its header) when it has a <c>{nonce}</c> for it,
     /// and so does any app that asked for <c>GetCspNonce()</c> to write its own policy. Either way the document is kept
-    /// out of the output cache. A policy without <c>{nonce}</c> (hash-based, as cached pages need) gets none.
+    /// out of the output cache. A policy without <c>{nonce}</c> (hash-based, as cached pages need) gets none. The
+    /// policy that goes out, as written, is checked against what the document needs (<see cref="WarnAboutThePolicy"/>).
     /// </summary>
-    private string? ContentSecurityPolicyFor(HttpContext http, string? frameAncestors)
+    private string? ContentSecurityPolicyFor(HttpContext http, string? frameAncestors, IReadOnlyList<string> scripts)
     {
         var policy = context.Options.ContentSecurityPolicy;
         var nonce = policy?.Contains("{nonce}", StringComparison.Ordinal) == true ? http.GetCspNonce() : http.PeekCspNonce();
@@ -792,7 +799,37 @@ internal sealed class PageRenderer(
             KeepNonceOutOfTheOutputCache(http);
         }
 
+        WarnAboutThePolicy(http, scripts);
         return nonce;
+    }
+
+    /// <summary>
+    /// Warns about what the Content-Security-Policy on this document refuses of what it needs (<see cref="CspChecks"/>):
+    /// the app's own header, or else the option's. Netjes sends it as written, in Development too, and warns once per
+    /// policy. A nonce changes with every document, so policies are told apart without theirs, and once there have been
+    /// <see cref="MaxCheckedPolicies"/> of them, a new one is not checked. Not for a command: the static export writes
+    /// files, which go out under the static host's policy.
+    /// </summary>
+    private void WarnAboutThePolicy(HttpContext http, IReadOnlyList<string> scripts)
+    {
+        var policies = http.Response.Headers.ContentSecurityPolicy;
+        if (context.Command is not null || StringValues.IsNullOrEmpty(policies))
+        {
+            return;
+        }
+
+        var key = CspChecks.WithoutNonces(policies.ToString());
+        if (_checkedPolicies.ContainsKey(key) || Volatile.Read(ref _checkedPolicyCount) >= MaxCheckedPolicies || !_checkedPolicies.TryAdd(key, true))
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref _checkedPolicyCount);
+        var document = new CspDocument(scripts, http.Request.Scheme, http.Request.Host.Value ?? "", assets.DevServerOrigin);
+        foreach (var finding in CspChecks.Check(policies, document))
+        {
+            CspChecks.Warn(logger, finding);
+        }
     }
 
     /// <summary>The policy with a <c>frame-ancestors</c> directive added, unless it has one of its own.</summary>

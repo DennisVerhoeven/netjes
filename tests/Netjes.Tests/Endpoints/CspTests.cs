@@ -218,6 +218,281 @@ public partial class CspTests
         Assert.DoesNotContain(app.Logs, l => l.Message.Contains("hash-based", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The policy with the word <c>ScriptHashes</c> replaced by <see cref="NetjesContentSecurityPolicy.ScriptHashes"/>,
+    /// and <c>SCRIPTHASHES</c> by the same hashes with their prefix in upper case (<c>'SHA256-…'</c>).
+    /// </summary>
+    private static string WithScriptHashes(string policy) =>
+        policy
+            .Replace("ScriptHashes", NetjesContentSecurityPolicy.ScriptHashes, StringComparison.Ordinal)
+            .Replace("SCRIPTHASHES", NetjesContentSecurityPolicy.ScriptHashes.Replace("'sha256-", "'SHA256-", StringComparison.Ordinal), StringComparison.Ordinal);
+
+    /// <summary>
+    /// An app whose documents go out under <paramref name="policy"/> (<see cref="WithScriptHashes"/>): a client build in
+    /// Production, whose module script is <c>/assets/client-entry-AAA.js</c>, or in Development the Vite dev server at
+    /// <c>http://localhost:5173</c>. With <paramref name="inItsOwnHeader"/>, the app writes the policy itself, and
+    /// <c>{nonce}</c> stands for <see cref="NetjesHttpContextExtensions.GetCspNonce"/>.
+    /// </summary>
+    private static Task<TestApp> StartWithPolicyAsync(string policy, string environment = "Development", bool inItsOwnHeader = false)
+    {
+        var written = WithScriptHashes(policy);
+        return TestApp.StartAsync(
+            environment == "Production" ? [] : ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = inItsOwnHeader ? null : written,
+            configureApp: a =>
+            {
+                if (inItsOwnHeader)
+                {
+                    a.Use((http, next) =>
+                    {
+                        http.Response.Headers.ContentSecurityPolicy = written.Replace("{nonce}", http.GetCspNonce(), StringComparison.Ordinal);
+                        return next(http);
+                    });
+                }
+            },
+            environment: environment,
+            prepareRoot: environment == "Production" ? ModeTests.WriteProductionBuild : null);
+    }
+
+    /// <summary>The renderer's warnings, which in these apps are all about the policies that go out on documents.</summary>
+    private static List<string> PolicyWarnings(TestApp app) =>
+        [.. app.Logs
+            .Where(l => l.Category == typeof(Netjes.Rendering.PageRenderer).FullName && l.Level == Microsoft.Extensions.Logging.LogLevel.Warning)
+            .Select(l => l.Message)];
+
+    [Theory]
+    [InlineData("script-src 'self'")]
+    [InlineData("default-src 'self'")]
+    [InlineData("SCRIPT-SRC 'self'")]
+    // A hash turns 'unsafe-inline' off.
+    [InlineData("script-src 'self' 'unsafe-inline' 'sha256-AAAA'")]
+    // Script elements follow script-src-elem.
+    [InlineData("script-src 'unsafe-inline'; script-src-elem 'self'")]
+    // Two policies in one header, and browsers enforce both.
+    [InlineData("object-src 'none', script-src 'self'")]
+    public async Task APolicyWithoutANonce_ThatRefusesTheBootstrap_IsWarnedAboutOnce(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy, "Production");
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        var warning = Assert.Single(PolicyWarnings(app));
+        Assert.Contains("NetjesContentSecurityPolicy.ScriptHashes", warning);
+    }
+
+    [Theory]
+    [InlineData("script-src ScriptHashes", "/assets/client-entry-AAA.js", "'self'")]
+    // Next to 'strict-dynamic' browsers ignore 'self', and the scripts carry no nonce.
+    [InlineData("script-src 'self' 'strict-dynamic' ScriptHashes", "'strict-dynamic'", "nonce")]
+    [InlineData("script-src 'strict-dynamic' 'unsafe-inline' https: ScriptHashes", "'strict-dynamic'", "nonce")]
+    public async Task APolicyThatRefusesTheDocumentsModuleScripts_IsWarnedAbout(string policy, string named, string advice)
+    {
+        await using var app = await StartWithPolicyAsync(policy, "Production");
+
+        await app.GetDocumentAsync("/");
+
+        var warning = Assert.Single(PolicyWarnings(app));
+        Assert.Contains(named, warning);
+        Assert.Contains(advice, warning);
+    }
+
+    [Theory]
+    [InlineData("script-src 'self' ScriptHashes; object-src 'none'")]
+    [InlineData("script-src 'self' 'unsafe-inline'")]
+    [InlineData("object-src 'none'; base-uri 'self'")]
+    [InlineData("default-src 'self' 'unsafe-inline'")]
+    [InlineData("script-src 'self' SCRIPTHASHES")]
+    [InlineData("script-src https: ScriptHashes")]
+    [InlineData("script-src * ScriptHashes")]
+    // Behind a proxy the request's host is not always the one the browser sees: a host source may name the app's own.
+    [InlineData("script-src https://www.example.com ScriptHashes")]
+    public async Task PoliciesThatAllowNetjesScripts_AreNotWarnedAbout(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy, "Production");
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task TheAppsOwnPolicyHeader_IsCheckedToo()
+    {
+        await using var app = await StartWithPolicyAsync("script-src 'self'", "Production", inItsOwnHeader: true);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Contains("NetjesContentSecurityPolicy.ScriptHashes", Assert.Single(PolicyWarnings(app)));
+    }
+
+    [Theory]
+    [InlineData("Production", false)]
+    [InlineData("Production", true)]
+    [InlineData("Development", false)]
+    [InlineData("Development", true)]
+    public async Task NonceBasedPolicies_GetNoScriptWarnings(string environment, bool inItsOwnHeader)
+    {
+        // Netjes puts the nonce on its scripts, the dev server's included, and the modules they load inherit it.
+        await using var app = await StartWithPolicyAsync("script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'", environment, inItsOwnHeader);
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task InDevelopment_APolicyWithoutANonceThatRefusesTheViteDevServer_IsWarnedAbout()
+    {
+        await using var app = await StartWithPolicyAsync("script-src 'self' ScriptHashes; object-src 'none'");
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        var warning = Assert.Single(PolicyWarnings(app));
+        Assert.Contains("http://localhost:5173", warning);
+        Assert.Contains("outside Development", warning);
+    }
+
+    [Theory]
+    [InlineData("script-src 'self' http://localhost:5173 ScriptHashes")]
+    [InlineData("script-src 'self' localhost:5173 ScriptHashes")]
+    [InlineData("script-src 'self' http://localhost:* ScriptHashes")]
+    [InlineData("script-src * ScriptHashes")]
+    [InlineData("script-src http: ScriptHashes")]
+    [InlineData("object-src 'none'; base-uri 'self'")]
+    public async Task InDevelopment_APolicyThatAllowsTheViteDevServer_IsNotWarnedAbout(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Theory]
+    [InlineData("script-src 'nonce-{nonce}' 'strict-dynamic'; connect-src 'self'", false)]
+    [InlineData("script-src 'nonce-{nonce}' 'strict-dynamic'; connect-src 'self'", true)]
+    [InlineData("default-src 'self'; script-src 'nonce-{nonce}'", false)]
+    // An http source matches https, but not ws.
+    [InlineData("script-src 'nonce-{nonce}'; connect-src 'self' http://localhost:5173", false)]
+    public async Task InDevelopment_AConnectSrcThatRefusesTheHmrSocket_IsWarnedAbout(string policy, bool inItsOwnHeader)
+    {
+        await using var app = await StartWithPolicyAsync(policy, inItsOwnHeader: inItsOwnHeader);
+
+        // Each document has a nonce of its own in the policy, and the warning still comes once.
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        var warning = Assert.Single(PolicyWarnings(app), w => w.Contains("ws://localhost:5173", StringComparison.Ordinal));
+        Assert.Contains("server.hmr", warning);
+    }
+
+    [Theory]
+    [InlineData("script-src 'nonce-{nonce}'; connect-src 'self' ws://localhost:5173")]
+    [InlineData("script-src 'nonce-{nonce}'; connect-src ws:")]
+    [InlineData("script-src 'nonce-{nonce}'; connect-src *")]
+    [InlineData("script-src 'nonce-{nonce}'; connect-src ws://localhost:*")]
+    [InlineData("script-src 'nonce-{nonce}'; CONNECT-SRC WS://LOCALHOST:5173")]
+    [InlineData("script-src 'nonce-{nonce}'; object-src 'none'")]
+    public async Task InDevelopment_AConnectSrcThatAllowsTheSocket_IsNotWarnedAbout(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task InProduction_NoDevServerChecksRun()
+    {
+        await using var app = await StartWithPolicyAsync("script-src 'self' ScriptHashes; connect-src 'self'; style-src 'self'", "Production");
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Theory]
+    [InlineData("script-src 'self' http://localhost:5173 ScriptHashes; style-src 'self'")]
+    [InlineData("default-src 'self' http://localhost:5173 ws://localhost:5173 ScriptHashes")]
+    // A hash turns 'unsafe-inline' off.
+    [InlineData("script-src 'self' http://localhost:5173 ScriptHashes; style-src 'self' 'unsafe-inline' 'sha256-AAAA'")]
+    // The nonce goes on the styles too, but this style-src does not hold it.
+    [InlineData("script-src 'nonce-{nonce}'; style-src 'self'")]
+    public async Task InDevelopment_AStyleSrcThatRefusesInlineStyles_IsWarnedAbout(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy);
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        Assert.Contains("style-src", Assert.Single(PolicyWarnings(app)));
+    }
+
+    [Theory]
+    [InlineData("script-src 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'")]
+    [InlineData("script-src 'nonce-{nonce}'; object-src 'none'")]
+    [InlineData("script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'")]
+    public async Task InDevelopment_StyleSourcesThatAllowTheDevStyles_AreNotWarnedAbout(string policy)
+    {
+        await using var app = await StartWithPolicyAsync(policy);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task APolicyThatChangesWithEveryRequest_IsCheckedOnlyUntilALimit()
+    {
+        // Such as a policy with the hash of an inline script whose text changes each time: Netjes keeps no more of them.
+        var requests = 0;
+        await using var app = await TestApp.StartAsync(
+            [],
+            configureApp: a => a.Use((http, next) =>
+            {
+                http.Response.Headers.ContentSecurityPolicy = $"script-src 'self'; report-uri /csp-reports/{Interlocked.Increment(ref requests)}";
+                return next(http);
+            }),
+            environment: "Production",
+            prepareRoot: ModeTests.WriteProductionBuild);
+
+        for (var i = 0; i < 120; i++)
+        {
+            await app.GetDocumentAsync("/");
+        }
+
+        Assert.InRange(PolicyWarnings(app).Count, 1, 100);
+    }
+
+    [Fact]
+    public async Task AStaticExport_IsNotChecked()
+    {
+        // The exported files go out under the static host's policy, not this one.
+        int? exitCode = null;
+        await using var app = await TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: ModeTests.WriteProductionBuild,
+            configure: o =>
+            {
+                o.ContentSecurityPolicy = "script-src 'self'";
+                o.Command = new NetjesCommandOptions { Name = "export", Output = "out" };
+            },
+            services: s =>
+            {
+                s.AddSingleton(new Netjes.TypeGen.CommandExit(code => exitCode = code));
+                s.AddSingleton(sp => new Netjes.Export.ExportClient(
+                    () => ((Microsoft.AspNetCore.TestHost.TestServer)sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()).CreateClient()));
+            });
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(PolicyWarnings(app));
+    }
+
     [GeneratedRegex("'nonce-([^']+)'")]
     private static partial Regex NonceRegex();
 
