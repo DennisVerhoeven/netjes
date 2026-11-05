@@ -2331,7 +2331,7 @@ The app does not start until every process has reported ready, within `StartupTi
 
 | Option | Default | Limits |
 |---|---|---|
-| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. |
+| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. In production also how long a health ping waits for an answer, and never less than 5 s ([Restarts](#restarts)). |
 | `StreamTimeout` | 60 s | How long a whole document may take, deferred values and Suspense boundaries included. A complete document (for a crawler, below) waits up to this long. |
 
 A render that runs out of time fails with the error page.
@@ -3532,7 +3532,7 @@ Netjes logs through `ILogger`, under these categories:
 
 | Category | What it logs |
 |---|---|
-| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back, and processes killed because they stopped answering (errors). |
+| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back, and processes killed because they stopped answering (errors). In production also a warning when a sidecar script of the app's own (`Netjes:SidecarScript`) exits while a health ping waits for its answer, and an error when watching a process for answers fails, after which that process is no longer pinged. |
 | `Netjes.Sidecar.NodeSidecarHostedService` | Why the app could not start its Node processes, or in development the Vite dev server: one critical entry, after which the app exits with code 1. |
 | `Netjes.Rendering.ViteManifestProvider` | That the app started in Production without a build: one critical entry, after which it exits with code 1. |
 | `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order). |
