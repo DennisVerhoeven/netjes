@@ -2,7 +2,7 @@
 // The checks .github/workflows/release.yml runs before it publishes, also runnable by hand from the repository root.
 // `node scripts/release.mjs` with no arguments prints the usage. Tests: node --test scripts/test/*.test.mjs
 import { realpathSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -103,32 +103,95 @@ const REF_LINK =
   /(https?:\/\/(?:(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/(?:blob|tree)|raw\.githubusercontent\.com\/([\w.-]+\/[\w.-]+))\/)([^\s/?#<>()[\]"'\x60]+)([^\s<>()[\]"'\x60]*)/gi;
 
 /**
- * The links to this repository's files and folders in `text`, with the ref each one names. The owner and the name
- * match in any case, as on GitHub; the ref is compared as written.
+ * Whether a REF_LINK match is to this repository. The owner and the name match in any case, as on GitHub.
+ * @param {string | undefined} blobRepository
+ * @param {string | undefined} rawRepository
+ */
+const isThisRepository = (blobRepository, rawRepository) =>
+  (blobRepository ?? rawRepository ?? '').toLowerCase() === REPOSITORY.toLowerCase();
+
+/**
+ * The links to this repository's files and folders in `text`, with the ref each one names, as written.
  * @param {string} text
  * @returns {{ url: string, ref: string }[]}
  */
 function repositoryLinks(text) {
   return [...text.matchAll(REF_LINK)]
-    .filter((match) => (match[2] ?? match[3] ?? '').toLowerCase() === REPOSITORY.toLowerCase())
+    .filter((match) => isThisRepository(match[2], match[3]))
     .map((match) => ({ url: match[0].replace(/[.,:;!?*_~]+$/, ''), ref: match[4] ?? '' }));
 }
 
 /**
- * What is wrong with the links in the package READMEs (PACKAGE_READMES): each link to this repository must name
- * `main`, which the release moves to its tag. A README that is missing is left to the pinned-version check.
+ * The package READMEs (PACKAGE_READMES) at `root`, each with its text, or null when it is missing.
+ * @param {string} root
+ * @returns {Promise<{ file: string, text: string | null }[]>}
+ */
+function readReadmes(root) {
+  return Promise.all(
+    PACKAGE_READMES.map(async (file) => ({ file, text: await readFile(path.join(root, file), 'utf8').catch(() => null) })),
+  );
+}
+
+/**
+ * What is wrong with the links in the package READMEs: each link to this repository must name `main`, which the
+ * release moves to its tag.
+ * @param {{ file: string, text: string | null }[]} readmes
+ * @returns {string[]}
+ */
+function linksOffMain(readmes) {
+  return readmes.flatMap(({ file, text }) =>
+    repositoryLinks(text ?? '')
+      .filter(({ ref }) => ref !== 'main')
+      .map(({ url, ref }) => `${file} links ${ref} in ${url}: link main, which the release moves to its tag.`),
+  );
+}
+
+/**
+ * What is wrong with the links in the package READMEs at `root` (see linksOffMain). A README that is missing is left
+ * to the pinned-version check, which names it.
  * @param {string} root
  * @returns {Promise<string[]>}
  */
 async function checkReadmeLinks(root) {
-  const errors = [];
-  for (const file of PACKAGE_READMES) {
-    const text = await readFile(path.join(root, file), 'utf8').catch(() => '');
-    for (const { url, ref } of repositoryLinks(text)) {
-      if (ref !== 'main') errors.push(`${file} links ${ref} in ${url}: link main, which the release moves to its tag.`);
+  return linksOffMain(await readReadmes(root));
+}
+
+/**
+ * Moves every link to this repository in the package READMEs at `root` from `main` to the tag of `version`, in
+ * place: what the release does just before it packs them. Nothing is written when `version` is not a version, or
+ * when a README is missing or links another ref. The files are read back afterwards, and a link that names anything
+ * but the tag then is an error too.
+ * @param {string} root
+ * @param {string} version
+ * @returns {Promise<{ errors: string[], moved: { file: string, count: number }[] }>}
+ */
+async function moveReadmeLinks(root, version) {
+  if (!SEMVER.test(version)) {
+    return { errors: [`"${version}" is not a version (<major>.<minor>.<patch>[-<prerelease>], without the tag's v).`], moved: [] };
+  }
+  const tag = `v${version}`;
+  const readmes = await readReadmes(root);
+  const errors = [...readmes.filter(({ text }) => text === null).map(({ file }) => `${file} is missing.`), ...linksOffMain(readmes)];
+  if (errors.length > 0) return { errors, moved: [] };
+
+  const moved = [];
+  for (const { file, text } of readmes) {
+    let count = 0;
+    const linked = (text ?? '').replace(REF_LINK, (url, start, blobRepository, rawRepository, ref, rest) => {
+      if (!isThisRepository(blobRepository, rawRepository) || ref !== 'main') return url;
+      count++;
+      return `${start}${tag}${rest}`;
+    });
+    if (linked !== text) await writeFile(path.join(root, file), linked);
+    moved.push({ file, count });
+  }
+
+  for (const { file, text } of await readReadmes(root)) {
+    for (const { url, ref } of repositoryLinks(text ?? '')) {
+      if (ref !== tag) errors.push(`${file} still links ${ref} in ${url}, not ${tag}.`);
     }
   }
-  return errors;
+  return { errors, moved };
 }
 
 /**
@@ -232,9 +295,13 @@ export async function checkPackages(dir, version) {
 
 const USAGE = `Usage:
   node scripts/release.mjs check <tag> [--repository <owner/name>] [--root <dir>]
-      Checks that every package source and every version the docs pin is the tag's version, that CHANGELOG.md has
-      its entry and, with --repository, that packages/netjes/package.json names that GitHub repository. Then prints
-      version=<version> and prerelease=<true|false> (for GITHUB_OUTPUT).
+      Checks that every package source and every version the docs pin is the tag's version, that the package
+      READMEs link this repository on main only, that CHANGELOG.md has its entry and, with
+      --repository, that packages/netjes/package.json names that GitHub repository. Then prints version=<version>
+      and prerelease=<true|false> (for GITHUB_OUTPUT).
+  node scripts/release.mjs links <version> [--root <dir>]
+      Moves every link to this repository in the package READMEs from main to the tag v<version>, in place, as the
+      release does just before it packs them. Writes nothing when a README links another ref.
   node scripts/release.mjs packages <version> <dir>
       Checks that <dir> holds exactly the npm and NuGet packages of <version>, with the NuGet symbol packages.
   node scripts/release.mjs notes <version> [--root <dir>]
@@ -264,6 +331,14 @@ async function main(argv) {
     const errors = await checkSources(root, version, { repository: values.repository });
     if (errors.length > 0) return fail(errors);
     process.stdout.write(`version=${version}\nprerelease=${prerelease}\n`);
+    return 0;
+  }
+  if (command === 'links' && rest.length === 1) {
+    const { errors, moved } = await moveReadmeLinks(root, rest[0]);
+    if (errors.length > 0) return fail(errors);
+    process.stdout.write(
+      moved.map(({ file, count }) => `${file}: ${count} ${count === 1 ? 'link' : 'links'} moved to v${rest[0]}\n`).join(''),
+    );
     return 0;
   }
   if (command === 'packages' && rest.length === 2) {
