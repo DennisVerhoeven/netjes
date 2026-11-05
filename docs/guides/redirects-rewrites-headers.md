@@ -35,7 +35,7 @@ app.MapReverseProxy(); // e.g. /api/legacy/{**rest} → https://legacy.example.c
 
 ## Headers
 
-Netjes already sends `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `X-Frame-Options: SAMEORIGIN` with every document (see [security headers](security.md#security-headers)), leaving out any the app has set itself. An app that sends its own `X-Frame-Options`, as below, or a policy with `frame-ancestors`, decides about framing alone: Netjes then adds neither framing header.
+Netjes already sends `X-Content-Type-Options: nosniff` with every response that passes through `UseNetjes()`, so an app needs no middleware of its own for it, and `Referrer-Policy: strict-origin-when-cross-origin` and `X-Frame-Options: SAMEORIGIN` with every document (see [security headers](security.md#security-headers)). It leaves out any of them that the app has set itself. An app that sends its own `X-Frame-Options`, as below, decides about framing alone: Netjes then adds neither framing header. With `frame-ancestors` in the app's policy, documents get the `X-Frame-Options` it implies, `DENY` or `SAMEORIGIN`, instead of the default `SAMEORIGIN`.
 
 Set headers for all pages with a small middleware, or for some pages with an endpoint filter, where Next.js has `headers()`:
 

@@ -33,7 +33,7 @@ The image restores Netjes from NuGet and npm, so the app must reference the pack
 - `Netjes:SidecarProcesses`: Node processes rendering in production (default 1; about one per core for CPU-heavy pages).
 - If no sidecar is ready (they crashed and are restarting), documents are sent for the browser to render instead of failing (`ClientRenderFallback`, on by default), and `/healthz` reports Unhealthy. Register the check with `builder.Services.AddHealthChecks().AddNetjes()` and `app.MapHealthChecks("/healthz")`.
 - Output caching: set `SizeLimit`, and see [caching-and-streaming.md](caching-and-streaming.md).
-- Security headers: every document gets `X-Content-Type-Options`, `Referrer-Policy` and a same-origin framing policy unless the app sets them (`Netjes:SecurityHeaders`). A Content-Security-Policy is off until you set `NetjesOptions.ContentSecurityPolicy`, with `{nonce}` for a nonce-based policy.
+- Security headers: every response through `UseNetjes()` gets `X-Content-Type-Options: nosniff`, so a script or stylesheet must be served with its real `Content-Type`. Every document also gets `Referrer-Policy` and a same-origin framing policy, or the `X-Frame-Options` that the policy's `frame-ancestors` implies, unless the app sets them (`Netjes:SecurityHeaders`). A Content-Security-Policy is off until you set `NetjesOptions.ContentSecurityPolicy`, with `{nonce}` for a nonce-based policy.
 - `Netjes:PublicConfig` is sent to the browser as is; secrets go in other configuration.
 - Telemetry: add the `Netjes` ActivitySource and Meter (`NetjesTelemetry.Name`) to OpenTelemetry for loader, action and render spans and render durations.
 

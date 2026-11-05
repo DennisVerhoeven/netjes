@@ -72,7 +72,7 @@ Configuration adds list items to what a list holds already, while the delegate r
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `ContentSecurityPolicy` | `string?` | `null`: no policy | A Content-Security-Policy for documents. With `{nonce}`, each document gets a nonce in its place and on everything Netjes renders, and is never output-cached. Without it (hash-based), no nonce is made and pages can be cached, but must not stream. `frame-ancestors 'self'` is added when the policy has none. Not sent when the app set the header itself. See [security](../guides/security.md#content-security-policy). |
-| `SecurityHeaders` | `NetjesSecurityHeaderOptions` | below | The headers Netjes adds to documents. |
+| `SecurityHeaders` | `NetjesSecurityHeaderOptions` | below | The headers Netjes adds: `nosniff` to every response through `UseNetjes()`, the rest to documents. |
 | `SegmentKeySecret` | `string?` | random per process | The secret that signs layout keys, at least 32 bytes of UTF-8 (shorter stops the app at startup). Set the same value on every instance so they accept each other's keys and share cached payloads that reuse layouts. See [deployment](../guides/deployment.md#the-segment-key-secret). |
 
 ### Caching, drafts and telemetry
@@ -123,7 +123,7 @@ The [images guide](../guides/images.md) explains the limits and what they cost i
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `Enabled` | `bool` | `true` | Add `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and same-origin framing (`X-Frame-Options: SAMEORIGIN`, `frame-ancestors 'self'` in Netjes's policy) to documents, each unless the app set it. `false` adds none. |
+| `Enabled` | `bool` | `true` | Add `X-Content-Type-Options: nosniff` to every response that passes through `UseNetjes()`, and `Referrer-Policy: strict-origin-when-cross-origin` and framing headers to documents, each unless the app set it. Framing is same-origin (`X-Frame-Options: SAMEORIGIN`, `frame-ancestors 'self'` in Netjes's policy); with `frame-ancestors` in a policy that goes out, documents get the `X-Frame-Options` it implies instead, `DENY` or `SAMEORIGIN`, and an app that sends `X-Frame-Options` keeps its own ([security](../guides/security.md#security-headers)). `false` adds none; the image endpoint keeps its own `nosniff` and sandboxing policy. |
 | `DraftFrameAncestors` | `string[]` | none | Sites that may frame pages in draft mode, such as a CMS's preview: each one CSP source (`https://cms.example`, `https://*.cms.example`); anything else stops the app at startup. Ignored when the app sends its own `X-Frame-Options` or `Content-Security-Policy`, or has `frame-ancestors` in `ContentSecurityPolicy`. |
 
 See [security](../guides/security.md#security-headers).
