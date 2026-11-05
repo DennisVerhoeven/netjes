@@ -55,6 +55,7 @@ describe('the client entry', () => {
   afterEach(() => {
     delete globals.__netjes_v;
     delete globals.__netjes_d;
+    document.head.innerHTML = '';
     document.body.innerHTML = '';
     vi.doUnmock('virtual:netjes/pages');
     vi.restoreAllMocks();
@@ -133,6 +134,65 @@ describe('the client entry', () => {
       expect(hydrateRoot).not.toHaveBeenCalled();
 
       // The parser reaches the end of the shell.
+      document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
+      await entry;
+
+      expect(hydrateRoot).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, 'readyState');
+    }
+  });
+
+  /** The page module, which records each time it is imported. */
+  function pageModuleRecorded() {
+    const imported = vi.fn(async () => ({ default: () => null }));
+    vi.doMock('virtual:netjes/pages', () => ({ pages: { '/app/about/page.tsx': imported } }));
+    return imported;
+  }
+
+  /** What `<Script src={src} strategy="beforeInteractive">` puts in the document: the head's marker and an inert entry. */
+  const beforeInteractiveEntry = (src: string) =>
+    `<script type="application/json" data-netjes-script="${src}">${JSON.stringify({ src, attributes: {} })}</script>`;
+
+  it("imports the page's modules only once the shell is parsed and the external entries have loaded, when the head has the marker", async () => {
+    const imported = pageModuleRecorded();
+    document.head.innerHTML = '<meta name="netjes-before-interactive">';
+    serverDocument(`<header>Blog</header>${beforeInteractiveEntry('/polyfills.js')}`, {}, {}, 'app/about/page.tsx');
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' });
+    try {
+      const entry = import('../src/client-entry.tsx');
+      // The entry has read the payload.
+      await vi.waitFor(() => expect(globals.__netjes_d).toBeTypeOf('function'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(imported).not.toHaveBeenCalled();
+
+      // The parser reaches the end of the shell, and the external script starts loading.
+      document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const polyfills = document.head.querySelector<HTMLScriptElement>('script[src="/polyfills.js"]');
+      expect(polyfills).not.toBeNull();
+      expect(imported).not.toHaveBeenCalled();
+
+      polyfills?.dispatchEvent(new Event('load'));
+      await entry;
+
+      expect(imported).toHaveBeenCalledOnce();
+      expect(hydrateRoot).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, 'readyState');
+    }
+  });
+
+  it("imports the page's modules before the end of the shell when the head has no marker", async () => {
+    const imported = pageModuleRecorded();
+    serverDocument('<header>Blog</header>', {}, {}, 'app/about/page.tsx');
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' });
+    try {
+      const entry = import('../src/client-entry.tsx');
+      await vi.waitFor(() => expect(imported).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(hydrateRoot).not.toHaveBeenCalled();
+
       document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
       await entry;
 
