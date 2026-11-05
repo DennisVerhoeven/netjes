@@ -122,7 +122,7 @@ In the browser a failed query is tried three more times, after 1, 2 and 4 second
 - Under fake timers, each try after the first still waits on a timer of 0 ms, which runs only when the fake clock moves on. `findBy…` and `waitFor` move it on as they wait.
 - Seeded data is fresh for the app's `staleTime`, counted from when `createTestApp()` is called. With a `staleTime` of 0, a component fetches its seeded query again as it mounts, as it does in the browser; with a longer one, only a component that mounts after that time, such as one rendered after the test moved [fake timers](#fake-timers) on. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
 
-A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](../decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)).
+A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](../decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)). In Vitest's browser mode, Vitest sends provided values to the test page as JSON, so an `Infinity` in `netjes({ query })`, such as `staleTime: Infinity`, reaches `createTestApp()` as `null`, and seeded data is stale at once: pass such a value in the test's `defaultOptions` there.
 
 ### Fake timers
 
