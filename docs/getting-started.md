@@ -42,7 +42,7 @@ The folder name gives the .NET project name and root namespace (`my-app` becomes
 ```text
 my-app/
   app/
-    layout.tsx               the root layout: the header, the navigation, the title template and the favicon
+    layout.tsx               the root layout: a skip link, the header, the navigation, the title template and the favicon
     page.tsx                 /, with props from a C# loader
     about/page.tsx           /about, a page without a loader
     not-found.tsx            unknown URLs, and Page.NotFound() from a loader
