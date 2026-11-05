@@ -143,7 +143,10 @@ public sealed class NetjesOptions
     /// <summary>The <c>&lt;Image&gt;</c> endpoint: allowed widths, remote hosts, caching.</summary>
     public NetjesImageOptions Images { get; set; } = new();
 
-    /// <summary>nosniff, a referrer policy and same-origin framing on documents; on by default.</summary>
+    /// <summary>
+    /// nosniff on every response that passes through <c>UseNetjes</c>, and a referrer policy and framing headers on
+    /// documents; on by default.
+    /// </summary>
     public NetjesSecurityHeaderOptions SecurityHeaders { get; set; } = new();
 
 

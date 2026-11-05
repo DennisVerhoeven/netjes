@@ -381,6 +381,8 @@ internal sealed class PageRenderer(
 
         KeepUnkeyedPagesOutOfTheOutputCache(http, status);
 
+        // Before AntiforgeryFor (below): antiforgery adds X-Frame-Options: SAMEORIGIN when it stores a new cookie and
+        // finds none, which would give a visitor's first document another framing header than the rest.
         var frameAncestors = isData ? null : SecurityHeaders(http, context, draftMode);
         // With AddNetjesLocalization, the request culture (from the [lang] segment) is the locale and the page's lang.
         var locale = http.RequestServices.GetService<LocalizationMarker>() is null ? null : System.Globalization.CultureInfo.CurrentUICulture.Name;
@@ -680,11 +682,13 @@ internal sealed class PageRenderer(
         streamTimeout - TimeSpan.FromTicks(Math.Min(TimeSpan.TicksPerSecond, streamTimeout.Ticks / 10));
 
     /// <summary>
-    /// nosniff, a referrer policy and same-origin framing on documents, each unless the app set it (framing: unless it
-    /// sent X-Frame-Options or a policy with <c>frame-ancestors</c>, its own header or, when it sent none,
-    /// <see cref="NetjesOptions.ContentSecurityPolicy"/>). Returns the <c>frame-ancestors</c> sources for
-    /// Netjes's own Content-Security-Policy, null for none. Runs before the payload is built: antiforgery adds its own
-    /// X-Frame-Options when it stores a cookie, unless one is already there.
+    /// nosniff, a referrer policy and framing headers on documents, each unless the app set it. Unless the app sent
+    /// X-Frame-Options, framing follows the <c>frame-ancestors</c> in the policies that go out (the app's own header
+    /// or, when it sent none, <see cref="NetjesOptions.ContentSecurityPolicy"/>): the X-Frame-Options they imply, and
+    /// no <c>frame-ancestors</c> of Netjes's own. Without any, it is same-origin: X-Frame-Options SAMEORIGIN, and the
+    /// sources this returns for Netjes's own Content-Security-Policy (null for none). Runs before the payload is built,
+    /// and so before <c>AntiforgeryFor</c>: antiforgery adds its own X-Frame-Options when it stores a cookie, unless
+    /// one is already there.
     /// </summary>
     internal static string? SecurityHeaders(HttpContext http, NetjesContext context, bool draftMode)
     {
@@ -696,13 +700,21 @@ internal sealed class PageRenderer(
         var headers = http.Response.Headers;
         headers.TryAdd(HeaderNames.XContentTypeOptions, "nosniff");
         headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+        if (headers.ContainsKey(HeaderNames.XFrameOptions))
+        {
+            // The app chose who may frame its pages. Netjes adds nothing that says otherwise: browsers obey
+            // frame-ancestors over X-Frame-Options, so a 'self' would undo an app's DENY. Antiforgery's SAMEORIGIN, from
+            // app code that stored a token before the render, is kept the same way.
+            return null;
+        }
+
         // The option's policy goes out only when the app sent none (ContentSecurityPolicyFor), so only then does it count.
         var ownPolicy = headers.ContainsKey(HeaderNames.ContentSecurityPolicy);
-        if (headers.ContainsKey(HeaderNames.XFrameOptions)
-            || (ownPolicy ? headers.ContentSecurityPolicy.Any(HasFrameAncestors) : HasFrameAncestors(context.Options.ContentSecurityPolicy)))
+        if (XFrameOptionsFor(ownPolicy ? headers.ContentSecurityPolicy : context.Options.ContentSecurityPolicy) is { } implied)
         {
-            // The app chose who may frame its pages (a partner site, say, or no one). Netjes adds nothing that says
-            // otherwise: browsers obey frame-ancestors over X-Frame-Options, so a 'self' would undo an app's DENY.
+            // The app chose who may frame its pages (no one, say, or a partner site too). Browsers that know only
+            // X-Frame-Options get the closest it can say, and antiforgery, which comes later, adds none of its own.
+            headers.XFrameOptions = implied;
             return null;
         }
 
@@ -723,6 +735,42 @@ internal sealed class PageRenderer(
 
         return "'self'";
     }
+
+    /// <summary>
+    /// The X-Frame-Options that the <c>frame-ancestors</c> of these policies imply, null when none has the directive.
+    /// Browsers enforce every policy, so the strictest decides. A list that could let the app's own pages frame it
+    /// (<c>'self'</c>, <c>*</c> or a scheme source such as <c>https:</c>) gets SAMEORIGIN, the closest X-Frame-Options
+    /// comes, since it cannot name other sites; any other list (<c>'none'</c>, an empty one, or other sites only) gets
+    /// DENY. A host source never counts, even one naming the app's own origin: behind a proxy, the request's host is
+    /// not always the one the browser sees.
+    /// </summary>
+    private static string? XFrameOptionsFor(StringValues policies)
+    {
+        string? implied = null;
+        foreach (var policy in CspDirectives.Policies(policies))
+        {
+            if (CspDirectives.Sources(policy, "frame-ancestors") is not { } sources)
+            {
+                continue;
+            }
+
+            if (!sources.Any(MayMatchTheAppsOwnPages))
+            {
+                return "DENY";
+            }
+
+            implied = "SAMEORIGIN";
+        }
+
+        return implied;
+    }
+
+    private static bool MayMatchTheAppsOwnPages(string source) =>
+        source == "*"
+        || source.Equals("'self'", StringComparison.OrdinalIgnoreCase)
+        // A scheme source, such as https: (RFC 3986's scheme and a colon).
+        || (source.Length > 1 && source[^1] == ':' && char.IsAsciiLetter(source[0])
+            && source[1..^1].All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.'));
 
     /// <summary>
     /// The nonce for this document: Netjes's own policy gets one (and its header) when it has a <c>{nonce}</c> for it,
@@ -759,9 +807,8 @@ internal sealed class PageRenderer(
         return rest.Length == 0 ? $"frame-ancestors {sources}" : $"{rest}; frame-ancestors {sources}";
     }
 
-    private static bool HasFrameAncestors(string? policy) =>
-        policy is not null && policy.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Any(d => d.Split([' ', '\t'], 2)[0].Equals("frame-ancestors", StringComparison.OrdinalIgnoreCase));
+    private static bool HasFrameAncestors(string policy) =>
+        CspDirectives.Policies(policy).Any(p => CspDirectives.Sources(p, "frame-ancestors") is not null);
 
     /// <summary>
     /// A stored copy would hand every visitor the same nonce, which anyone can read and reuse: the nonce stops

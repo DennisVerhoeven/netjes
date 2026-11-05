@@ -1,7 +1,9 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Net.Http.Headers;
 using Netjes;
 using Netjes.Rendering;
 using Netjes.Routing;
@@ -15,6 +17,10 @@ public static class NetjesApplicationBuilderExtensions
     /// Serves static files (public/ in development, the client build in production), adds routing, and renders
     /// the nearest <c>error.tsx</c> for exceptions thrown by pages. Call it before authentication and authorization.
     /// Middleware registered before it does not run again when a failed no-JavaScript form post renders its page.
+    /// Every response that passes through it gets <c>X-Content-Type-Options: nosniff</c>, static files, client payloads,
+    /// output-cache answers and the app's own endpoints included, unless the response has that header when it starts;
+    /// a response that middleware registered before it writes without passing the request on does not.
+    /// <c>Netjes:SecurityHeaders:Enabled</c> set to false turns that off (<see cref="NetjesOptions.SecurityHeaders"/>).
     /// </summary>
     public static IApplicationBuilder UseNetjes(this IApplicationBuilder app)
     {
@@ -28,6 +34,12 @@ public static class NetjesApplicationBuilderExtensions
             http.Features.Set(reExecute);
             return next(http);
         });
+        // Ahead of the static files and everything else Netjes adds, so no response that passes through here goes without.
+        if (context.Options.SecurityHeaders.Enabled)
+        {
+            app.Use(NoSniff);
+        }
+
         // Runs outside output caching, so even a cached payload is sent with the current server time.
         app.Use((http, next) =>
         {
@@ -98,5 +110,22 @@ public static class NetjesApplicationBuilderExtensions
         app.Use(ReExecute.PagesOnly);
         app.UseMiddleware<PageErrorMiddleware>();
         return app;
+    }
+
+    /// <summary>
+    /// Under a policy such as <c>script-src 'self'</c>, any response from the app's origin can be loaded as a script or
+    /// a stylesheet; nosniff makes the browser refuse one whose Content-Type says otherwise. Added as the response
+    /// starts, after the response-start callbacks of the endpoint and of later middleware, and only when the header is
+    /// not there by then: the app's own value wins, and an output-cache answer, which may carry it among its stored
+    /// headers, gets it once.
+    /// </summary>
+    private static Task NoSniff(HttpContext http, RequestDelegate next)
+    {
+        http.Response.OnStarting(static state =>
+        {
+            ((HttpResponse)state).Headers.TryAdd(HeaderNames.XContentTypeOptions, "nosniff");
+            return Task.CompletedTask;
+        }, http.Response);
+        return next(http);
     }
 }

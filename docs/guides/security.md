@@ -6,7 +6,7 @@ This guide is for app developers putting a Netjes app in front of real users. It
 
 | What | Default | Change it with |
 |---|---|---|
-| `X-Content-Type-Options`, `Referrer-Policy`, framing headers on documents | On | `Netjes:SecurityHeaders` |
+| `X-Content-Type-Options` on every response through `UseNetjes()`; `Referrer-Policy` and framing headers on documents | On | `Netjes:SecurityHeaders` |
 | Content-Security-Policy | Off | `NetjesOptions.ContentSecurityPolicy` |
 | Antiforgery token and same-origin check on server actions and page actions | On | `.DisableAntiforgery()` on a page action; `AllowedActionOrigins` |
 | Server action body limit | 1 MB | `ActionBodySizeLimit`, `[RequestSizeLimit]` |
@@ -25,16 +25,33 @@ Every HTML document Netjes renders (pages, not-found and error pages, the plain 
 |---|---|
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `X-Frame-Options` | `SAMEORIGIN`, unless the app decides about framing itself (below) |
-| `Content-Security-Policy` | `frame-ancestors 'self'` added to `NetjesOptions.ContentSecurityPolicy` when you set one, likewise |
+| `X-Frame-Options` | `SAMEORIGIN`, or what the policy's `frame-ancestors` implies (below) |
+| `Content-Security-Policy` | `frame-ancestors 'self'` added to `NetjesOptions.ContentSecurityPolicy` when you set one without `frame-ancestors`, unless the app sent `X-Frame-Options` |
 
-Client payloads (JSON) and static files get none of them.
+Every other response that passes through `UseNetjes()` gets `X-Content-Type-Options: nosniff` too: client payloads (JSON), static files from `public/` and the client build, `robots.txt`, `sitemap.xml`, `/_netjes/antiforgery`, the app's own endpoints, and answers from the output cache. Under a policy such as `script-src 'self'`, any response from the app's origin can be loaded as a script or a stylesheet, and with `nosniff` the browser refuses to run a script whose `Content-Type` is missing or not a JavaScript type, or to apply a stylesheet whose `Content-Type` is missing or not `text/css`. Nor does it take a response with no `Content-Type` for HTML: a page that an endpoint writes itself with `Response.WriteAsync` shows as plain text, and none of its scripts run, unless the endpoint sets `Response.ContentType = "text/html; charset=utf-8"` first. Netjes adds it as the response starts, only when the response does not have it by then, so a value the app sets is kept and an answer from the output cache carries it once. A response that middleware registered before `UseNetjes()` writes itself, without passing the request on, does not get it. These responses get none of the other headers in the table. The image endpoint sends `nosniff` and a sandboxing Content-Security-Policy of its own, whatever `Enabled` says (see [the image endpoint](images.md#the-image-endpoint)).
 
-Framing is the app's own once it sends `X-Frame-Options` itself, or has `frame-ancestors` in the Content-Security-Policy that goes out: its own header, or else `NetjesOptions.ContentSecurityPolicy`. Netjes then adds neither framing header, so nothing contradicts it. Browsers obey `frame-ancestors` over `X-Frame-Options`, which cannot name another site, so to let a partner frame your pages, send `frame-ancestors 'self' https://partner.example`. ASP.NET Core antiforgery adds `X-Frame-Options: SAMEORIGIN` with each new token cookie; browsers ignore it next to `frame-ancestors`, and `AntiforgeryOptions.SuppressXFrameOptionsHeader` turns it off.
+An app that sends `X-Frame-Options` itself decides about framing alone: Netjes adds neither framing header, so nothing contradicts it.
+
+An app with `frame-ancestors` in a Content-Security-Policy that goes out (its own header, or else `NetjesOptions.ContentSecurityPolicy`) gets the `X-Frame-Options` that the directive implies, for browsers that know only that header, and no `frame-ancestors` from Netjes:
+
+| `frame-ancestors` | `X-Frame-Options` |
+|---|---|
+| `'none'`, an empty list, or other sites only, such as `https://partner.example` | `DENY` |
+| `'self'`, `*` or a scheme source such as `https:`, with or without other sites | `SAMEORIGIN` |
+
+Every policy counts, whether it comes in a header of its own or joined to others by commas, and the strictest decides: when one of them implies `DENY`, the document gets `DENY`. A `Content-Security-Policy-Report-Only` header does not count. Directive names and keywords such as `'self'` are compared ignoring case. Browsers obey `frame-ancestors` over `X-Frame-Options`, which cannot name another site, so to let a partner frame your pages, send `frame-ancestors 'self' https://partner.example`: browsers that support `frame-ancestors` let the partner frame them, and a browser that knows only `X-Frame-Options` keeps them to your own site.
+
+Netjes sets `X-Frame-Options` on a document before the visitor's antiforgery cookie is stored. ASP.NET Core antiforgery adds `X-Frame-Options: SAMEORIGIN` with each new token cookie, but only to a response that has no `X-Frame-Options` yet, so on documents it adds none: a visitor's first page, a returning visitor's, and a page from the output cache all get the same header. Three limits remain:
+
+- A host source that names your own site counts as another site: `frame-ancestors https://www.example.com` on `https://www.example.com` gets `DENY`. Netjes does not compare sources with the request's host, which behind a proxy is not always the one the browser sees. Write `'self'` for your own site.
+- Code that stores antiforgery tokens before the page renders, such as a loader or a middleware that calls `IAntiforgery.GetAndStoreTokens`, has antiforgery add its `SAMEORIGIN` to a visitor's first page before Netjes decides, and Netjes keeps it as the app's own. Set `AntiforgeryOptions.SuppressXFrameOptionsHeader = true` to have Netjes follow the policy there too.
+- Netjes decides when the page renders, so it does not see a policy that a middleware writes later, in a `Response.OnStarting` callback. Set such a policy before the page renders, or send `X-Frame-Options` yourself.
+
+On responses that are not documents, and on every response with `Enabled = false`, antiforgery still adds its `X-Frame-Options: SAMEORIGIN` with each new token cookie; `AntiforgeryOptions.SuppressXFrameOptionsHeader` turns it off.
 
 `NetjesOptions.SecurityHeaders` (`Netjes:SecurityHeaders`) has two settings:
 
-- `Enabled = false` turns them all off. To preview the app in an editor's frame, such as VS Code's Simple Browser, set it in `appsettings.Development.json`, and turn off the header that antiforgery adds in code, since ASP.NET Core does not bind `AntiforgeryOptions` from configuration:
+- `Enabled = false` turns all of them off, `nosniff` on the other responses included; the image endpoint keeps its own. To preview the app in an editor's frame, such as VS Code's Simple Browser, set it in `appsettings.Development.json`, and turn off the header that antiforgery adds in code, since ASP.NET Core does not bind `AntiforgeryOptions` from configuration:
 
   ```json
   { "Netjes": { "SecurityHeaders": { "Enabled": false } } }

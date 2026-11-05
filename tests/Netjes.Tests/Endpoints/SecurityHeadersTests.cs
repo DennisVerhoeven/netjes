@@ -1,10 +1,15 @@
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 
 namespace Netjes.Tests.Endpoints;
 
-/// <summary>nosniff, a referrer policy and a same-origin framing policy on every document, unless the app set its own.</summary>
+/// <summary>
+/// nosniff on every response through UseNetjes, and a referrer policy and a same-origin framing policy on every document,
+/// unless the app set its own.
+/// </summary>
 public class SecurityHeadersTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -138,11 +143,88 @@ public class SecurityHeadersTests
     }
 
     [Theory]
+    [InlineData("frame-ancestors 'none'", "DENY")]
+    [InlineData("frame-ancestors 'self'", "SAMEORIGIN")]
+    [InlineData("script-src 'self'; frame-ancestors 'self' https://partner.example", "SAMEORIGIN")]
+    [InlineData("frame-ancestors https://partner.example", "DENY")]
+    [InlineData("FRAME-ANCESTORS 'NONE'", "DENY")]
+    [InlineData("frame-ancestors 'SELF'", "SAMEORIGIN")]
+    [InlineData("script-src 'self'; frame-ancestors;", "DENY")]
+    [InlineData("frame-ancestors *", "SAMEORIGIN")]
+    [InlineData("frame-ancestors https:", "SAMEORIGIN")]
+    // The app's own host as a host source: Netjes does not compare sources with the request's host.
+    [InlineData("frame-ancestors https://localhost", "DENY")]
+    [InlineData("script-src 'self';\tframe-ancestors\t'none'", "DENY")]
+    // Without its quotes, self is a host named self.
+    [InlineData("frame-ancestors self", "DENY")]
+    // 'none' counts only on its own.
+    [InlineData("frame-ancestors 'none' 'self'", "SAMEORIGIN")]
+    // Browsers obey the first of two.
+    [InlineData("frame-ancestors 'self'; frame-ancestors 'none'", "SAMEORIGIN")]
+    public async Task FrameAncestors_SendTheXFrameOptionsTheyImply(string policy, string xFrameOptions)
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = policy);
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal(xFrameOptions, Header(response, "X-Frame-Options"));
+        Assert.Equal(policy, Header(response, "Content-Security-Policy"));
+    }
+
+    [Theory]
+    [InlineData("a first visit", 200)]
+    [InlineData("a returning visitor", 200)]
+    [InlineData("the not-found document", 404)]
+    [InlineData("the plain error document", 500)]
+    [InlineData("an output-cached document", 200)]
+    public async Task FrameAncestorsNone_SendsDenyOnEveryKindOfDocument(string document, int status)
+    {
+        // Antiforgery adds X-Frame-Options: SAMEORIGIN when it stores a new cookie and finds none: on a first visit,
+        // but never on a page the output cache may store, which carries no token. The policy decides on all of them.
+        const string policy = "script-src 'self'; frame-ancestors 'none'";
+        var loads = 0;
+        await using var app = document == "an output-cached document"
+            ? await TestApp.StartAsync(
+                [],
+                configure: o => o.ContentSecurityPolicy = policy,
+                map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
+                services: s => s.AddOutputCache(),
+                configureApp: a => a.UseOutputCache(),
+                environment: "Production",
+                prepareRoot: ModeTests.WriteProductionBuild)
+            : await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = policy);
+        if (document == "the plain error document")
+        {
+            app.Renderer.OnRender = _ => throw new SsrRenderException("window is not defined", null);
+        }
+
+        var response = document switch
+        {
+            "a returning visitor" => await GetAsReturningVisitorAsync(app, "/"),
+            "the not-found document" => await app.GetDocumentAsync("/missing"),
+            "an output-cached document" => await GetFromTheOutputCacheAsync(app, "/"),
+            _ => await app.GetDocumentAsync("/"),
+        };
+
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.Equal(document == "an output-cached document" ? 1 : 0, loads);
+        Assert.Equal("DENY", Header(response, "X-Frame-Options"));
+    }
+
+    /// <summary>The second of two requests, which the output cache answers.</summary>
+    private static async Task<HttpResponseMessage> GetFromTheOutputCacheAsync(TestApp app, string url)
+    {
+        await app.GetDocumentAsync(url);
+        return await app.GetDocumentAsync(url);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AnAppWithItsOwnFrameAncestors_GetsNoXFrameOptionsFromNetjes(bool inItsOwnHeader)
+    public async Task AnAppsOwnFrameAncestors_GetTheXFrameOptionsTheyImply(bool inItsOwnHeader)
     {
-        // How an app lets a partner frame its pages: X-Frame-Options cannot name another site.
+        // How an app lets a partner frame its pages. X-Frame-Options cannot name another site, so a browser that knows
+        // only that header keeps them to the app's own.
         const string policy = "frame-ancestors 'self' https://partner.example";
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
@@ -160,8 +242,76 @@ public class SecurityHeadersTests
         var response = await GetAsReturningVisitorAsync(app, "/");
 
         Assert.Equal(policy, Header(response, "Content-Security-Policy"));
-        Assert.Null(Header(response, "X-Frame-Options"));
+        Assert.Equal("SAMEORIGIN", Header(response, "X-Frame-Options"));
         Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Theory]
+    [InlineData(true, "frame-ancestors 'self'", "frame-ancestors 'none'")]
+    [InlineData(true, "frame-ancestors 'self', frame-ancestors 'none'", null)]
+    [InlineData(true, "script-src 'self', frame-ancestors 'none'", null)]
+    [InlineData(false, "frame-ancestors 'self', frame-ancestors 'none'", null)]
+    [InlineData(false, "script-src 'self', frame-ancestors 'none'", null)]
+    public async Task SeveralPolicies_TheStrictestFramingWins(bool inItsOwnHeader, string policy, string? another)
+    {
+        // Browsers enforce every policy, whether each comes in a header of its own or several are joined by commas.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = inItsOwnHeader ? null : policy,
+            configureApp: a => a.Use((http, next) =>
+            {
+                if (inItsOwnHeader)
+                {
+                    http.Response.Headers.ContentSecurityPolicy = another is null ? policy : new StringValues([policy, another]);
+                }
+
+                return next(http);
+            }));
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal(another is null ? policy : $"{policy}, {another}", Header(response, "Content-Security-Policy"));
+        Assert.Equal("DENY", Header(response, "X-Frame-Options"));
+    }
+
+    [Fact]
+    public async Task AReportOnlyPolicy_DoesNotDecideFraming()
+    {
+        // A report-only policy blocks nothing, so it says nothing about who may frame the pages.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configureApp: a => a.Use((http, next) =>
+            {
+                http.Response.Headers["Content-Security-Policy-Report-Only"] = "frame-ancestors 'none'";
+                return next(http);
+            }));
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal("SAMEORIGIN", Header(response, "X-Frame-Options"));
+        Assert.Null(Header(response, "Content-Security-Policy"));
+    }
+
+    [Theory]
+    [InlineData(false, "SAMEORIGIN")]
+    [InlineData(true, "DENY")]
+    public async Task ALoaderThatStoresAntiforgeryTokens_KeepsAntiforgerysHeader_UnlessSuppressed(bool suppressed, string xFrameOptions)
+    {
+        // Antiforgery adds its X-Frame-Options before Netjes renders, so Netjes takes it for the app's own.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = "frame-ancestors 'none'",
+            services: s => s.AddAntiforgery(o => o.SuppressXFrameOptionsHeader = suppressed),
+            map: a => a.MapPageLoader("/", (HttpContext http, IAntiforgery antiforgery) =>
+            {
+                antiforgery.GetAndStoreTokens(http);
+                return Page.Props(new { Stored = true });
+            }));
+
+        var response = await app.GetDocumentAsync("/");
+
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith(".AspNetCore.Antiforgery.", StringComparison.Ordinal));
+        Assert.Equal(xFrameOptions, Header(response, "X-Frame-Options"));
     }
 
     [Fact]
@@ -291,7 +441,7 @@ public class SecurityHeadersTests
     }
 
     [Fact]
-    public async Task DataResponses_GetNone()
+    public async Task DataResponses_GetNosniffOnly()
     {
         await using var app = await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = "script-src 'self'");
         var first = await app.GetDataAsync("/");
@@ -302,9 +452,159 @@ public class SecurityHeadersTests
         var response = await app.Client.SendAsync(request, Ct);
 
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        Assert.Null(Header(response, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
         Assert.Null(Header(response, "Referrer-Policy"));
         Assert.Null(Header(response, "X-Frame-Options"));
+    }
+
+    [Theory]
+    [InlineData("/robots.txt")]
+    [InlineData("/sitemap.xml")]
+    [InlineData("/_netjes/antiforgery")]
+    public async Task NetjesEndpoints_GetNosniff(string path)
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a =>
+        {
+            a.MapRobotsTxt(new Uri("https://example.com"));
+            a.MapSitemap(new Uri("https://example.com"));
+        });
+
+        var response = await app.GetDocumentAsync(path);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StaticFiles_GetNosniff(bool production)
+    {
+        // public/ in Development, the client build elsewhere, whose hashed files keep their own caching.
+        await using var app = production
+            ? await TestApp.StartAsync([], environment: "Production", prepareRoot: ModeTests.WriteProductionBuild)
+            : await TestApp.StartAsync(["app/page.tsx"], prepareRoot: WritePublicFile);
+
+        var response = await app.GetDocumentAsync(production ? "/assets/index-CCC.js" : "/favicon.svg");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+        if (production)
+        {
+            Assert.Equal("public, max-age=31536000, immutable", response.Headers.CacheControl?.ToString());
+        }
+    }
+
+    private static void WritePublicFile(string root)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "public"));
+        File.WriteAllText(Path.Combine(root, "public", "favicon.svg"), "<svg/>");
+    }
+
+    [Fact]
+    public async Task TheAppsOwnEndpoints_GetNosniff()
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.MapGet("/api/text", () => "x"));
+
+        var response = await app.GetDocumentAsync("/api/text");
+
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Fact]
+    public async Task AnAnswerFromAnExceptionHandlerAheadOfNetjes_GetsNosniff()
+    {
+        // The handler clears the response, headers and all, before it writes its own: nosniff is added as it starts.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            beforeNetjes: a => a.UseExceptionHandler(new ExceptionHandlerOptions
+            {
+                ExceptionHandler = http => http.Response.WriteAsync("failed"),
+            }),
+            map: a => a.MapGet("/api/fails", string () => throw new InvalidOperationException("broken")));
+
+        var response = await app.GetDocumentAsync("/api/fails");
+
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal("failed", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Theory]
+    [InlineData("an endpoint")]
+    [InlineData("an endpoint's response-start callback")]
+    [InlineData("a middleware, on a page")]
+    public async Task TheAppsOwnXContentTypeOptions_IsKept(string setBy)
+    {
+        // Browsers read nosniff in any casing; this one shows that the app's value went out, and only it.
+        const string own = "NOSNIFF";
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configureApp: a => a.Use((http, next) =>
+            {
+                if (setBy == "a middleware, on a page")
+                {
+                    http.Response.Headers.XContentTypeOptions = own;
+                }
+
+                return next(http);
+            }),
+            map: a => a.MapGet("/api/text", (HttpContext http) =>
+            {
+                if (setBy == "an endpoint")
+                {
+                    http.Response.Headers.XContentTypeOptions = own;
+                }
+                else
+                {
+                    http.Response.OnStarting(() =>
+                    {
+                        http.Response.Headers.XContentTypeOptions = own;
+                        return Task.CompletedTask;
+                    });
+                }
+
+                return "x";
+            }));
+
+        var response = await app.GetDocumentAsync(setBy == "a middleware, on a page" ? "/" : "/api/text");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(own, Header(response, "X-Content-Type-Options"));
+    }
+
+    [Fact]
+    public async Task OutputCachedResponses_CarryNosniffOnce()
+    {
+        // The endpoint's answer is stored without it (the output cache takes the headers before the response starts),
+        // the document's with it: either way, each answer from the cache has one.
+        var calls = 0;
+        var loads = 0;
+        await using var app = await TestApp.StartAsync(
+            [],
+            map: a =>
+            {
+                a.MapGet("/api/count", () => $"{Interlocked.Increment(ref calls)}").CacheOutput();
+                a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5));
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Production",
+            prepareRoot: ModeTests.WriteProductionBuild);
+
+        var first = await app.GetDocumentAsync("/api/count");
+        var cached = await app.GetDocumentAsync("/api/count");
+        var firstDocument = await app.GetDocumentAsync("/");
+        var cachedDocument = await app.GetDocumentAsync("/");
+
+        Assert.Equal(1, calls);
+        Assert.Equal(1, loads);
+        Assert.Equal("1", await cached.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("nosniff", Header(first, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(cached, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(firstDocument, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(cachedDocument, "X-Content-Type-Options"));
     }
 
     [Fact]
@@ -322,6 +622,34 @@ public class SecurityHeadersTests
         Assert.Null(Header(response, "Referrer-Policy"));
         Assert.Null(Header(response, "X-Frame-Options"));
         Assert.Equal("script-src 'self'", Header(response, "Content-Security-Policy"));
+    }
+
+    [Fact]
+    public async Task TurnedOff_NoResponseGetsNosniff_ButImagesKeepTheirs()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.SecurityHeaders.Enabled = false,
+            map: a => a.MapGet("/api/text", () => "x"),
+            prepareRoot: root =>
+            {
+                WritePublicFile(root);
+                File.WriteAllBytes(Path.Combine(root, "public", "hero.png"), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4]);
+            });
+
+        var document = await GetAsReturningVisitorAsync(app, "/");
+        var data = await app.GetDataAsync("/");
+        var file = await app.GetDocumentAsync("/favicon.svg");
+        var text = await app.GetDocumentAsync("/api/text");
+        var image = await app.GetDocumentAsync("/_netjes/image?url=%2Fhero.png&w=640");
+
+        Assert.Null(Header(document, "X-Content-Type-Options"));
+        Assert.Null(Header(data, "X-Content-Type-Options"));
+        Assert.Null(Header(file, "X-Content-Type-Options"));
+        Assert.Null(Header(text, "X-Content-Type-Options"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal("nosniff", Header(image, "X-Content-Type-Options"));
+        Assert.Contains("sandbox", Header(image, "Content-Security-Policy"));
     }
 
     [Fact]

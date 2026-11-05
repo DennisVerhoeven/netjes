@@ -69,6 +69,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on](decisions/0027-testing-library-advances-vitest-fake-timers.md)
 - [0028 – The test harness starts from the app's query defaults and keeps its retries, without the waits](decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)
 - [0029 – An endpoint that ties with a page is a route warning](decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md)
+- [0030 – Security headers beyond documents](decisions/0030-security-headers-beyond-documents.md)
 
 ## The project
 
