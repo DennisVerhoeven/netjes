@@ -10,7 +10,8 @@ public static class NetjesContentSecurityPolicy
     /// A fixed script has the same text in every document. In this version there is one, the bootstrap that collects
     /// streamed <c>Page.Defer</c> values, and a Netjes version that changes it or adds another changes the value. The
     /// scripts that deliver those values, and React's scripts that reveal Suspense boundaries, differ from render to
-    /// render, so no hash covers them. The npm package exports the same value as <c>CSP_SCRIPT_HASHES</c> from
+    /// render, so no hash covers them. React's script for form actions that are functions is left out too, since its
+    /// text follows the React version. The npm package exports the same value as <c>CSP_SCRIPT_HASHES</c> from
     /// <c>netjes</c>.
     /// </summary>
     /// <remarks>

@@ -94,6 +94,8 @@ builder.Services.AddNetjes(options =>
 });
 ```
 
+A form action that is a function makes React add an inline script of its own, which replays a submission made before the page hydrates. A server action from `useAction` in `<Form action>` adds none, since Netjes renders that form with the action's URL. Any other function does, in `<Form action>`, in `<SubmitButton formAction>` (server actions included) or on a plain `<form>` or `<button>`. The script's text follows the React version, so `ScriptHashes` leaves it out. List its hash for the React version you run (Chromium names the hash in the console when it blocks the script), or keep such actions off pages under the policy. While the script is blocked, a submission made before the page hydrates is lost; after hydration, React runs the action without it.
+
 No hash covers what streams after the shell: each script that delivers a `Page.Defer` value carries that value, and React's scripts that reveal Suspense boundaries name the boundaries of that render. A hash-based policy blocks both, so a page served under one must not stream: no `Page.Defer`, and no Suspense boundary still waiting when the shell goes out (lazy code under `loading.tsx` included). Pages from `netjes export` are the exception, since their scripts are fixed text; see [static export](static-export.md#deferred-values-and-suspense).
 
 ## Server actions and page actions

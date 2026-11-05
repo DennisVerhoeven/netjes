@@ -121,7 +121,8 @@ export const DEFERRED_BOOTSTRAP =
  * has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer`
  * values, and a Netjes version that changes it or adds another changes the value. The scripts that deliver those
  * values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them.
- * The same value as `NetjesContentSecurityPolicy.ScriptHashes` in C#.
+ * React's script for form actions that are functions is left out too, since its text follows the React version. The
+ * same value as `NetjesContentSecurityPolicy.ScriptHashes` in C#.
  */
 export const CSP_SCRIPT_HASHES: string = "'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='";
 
