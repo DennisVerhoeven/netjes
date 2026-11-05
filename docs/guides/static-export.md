@@ -79,6 +79,6 @@ Each page is exported as a complete document, the one crawlers get (see [renderi
 The values also follow in inline scripts, for the client to hydrate that content. Under a policy that blocks those scripts, the content shows on load but its boundary does not hydrate: the first update that renders the boundary again (a state change in the page around it) replaces it with the fallback, for good. Two ways out:
 
 - keep `Page.Defer` out of exported pages that update around their deferred content, or
-- list the scripts' hashes in the host's policy, next to `CSP_SCRIPT_HASHES` from `netjes`, which holds the hashes of Netjes's own inline scripts, the bootstrap among them (`NetjesContentSecurityPolicy.ScriptHashes` in C#; see [security](security.md#hash-based)). In an exported file those scripts are fixed text, and change only when a value does, so their hashes change only when you export again with other data.
+- list the scripts' hashes in the host's policy, next to `CSP_SCRIPT_HASHES` from `netjes`, the hashes of the inline scripts that every document carries with the same text, such as the bootstrap (`NetjesContentSecurityPolicy.ScriptHashes` in C#; see [security](security.md#hash-based)). In an exported file those scripts are fixed text, and change only when a value does, so their hashes change only when you export again with other data.
 
 A value that fails, or misses `StreamTimeout`, leaves its fallback in the file, and the nearest `error.tsx` replaces it once JavaScript runs. The export logs a warning and still succeeds.
