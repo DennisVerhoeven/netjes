@@ -6282,6 +6282,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
 
+### Fixed
+
+- In development, a script that sets an attribute on `<html>` or `<body>` before the page hydrates, such as a theme script, a browser extension or a translator, no longer makes React log a hydration error. Netjes renders both elements and an app's layout cannot reach them, so both now carry `suppressHydrationWarning`, which ends React's attribute check for their own attributes and no further ([ADR 0026](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)). Apps have nothing to change: the markup the server sends is the same, and React does not check attributes in production. A mismatch in the head or in the body's content is still reported; a different `lang` on `<html>` is not.
+
 ## [0.0.2] - 2026-11-03
 
 ### Fixed
