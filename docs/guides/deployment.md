@@ -234,6 +234,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Rendering.PageCachePolicy` | Development: once, at Information, that pages are not output-cached there. |
 | `Netjes.Deferred` | `Page.Defer` values that failed or could not be serialized. |
 | `Netjes.ServerActions` | Server action calls that failed (errors) or were refused (warnings). |
+| `Netjes.Sitemap` | At debug level, that `/sitemap.xml` answered 404 because the base path is longer than its URLs may carry ([sitemap and robots](metadata.md#sitemap-and-robots)). |
 | `Netjes.Routing.RouteDiagnostics` | [Route warnings](routing.md) at startup. |
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
 | `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
