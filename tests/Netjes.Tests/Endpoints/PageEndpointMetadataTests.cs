@@ -108,6 +108,37 @@ public class PageEndpointMetadataTests
         Assert.Equal(2, loads["news"]);
     }
 
+    [Fact]
+    public async Task CachePage_WhenTheCallerChangesItsTagArrayAfterwards_KeepsTheTagsItWasGiven()
+    {
+        var loads = new Dictionary<string, int>();
+        string[] tags = ["posts"];
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/posts", () => Load(loads, "posts")).CachePage(TimeSpan.FromHours(1), tags);
+                tags[0] = "news";
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var cache = app.App.Services.GetRequiredService<IPageCache>();
+        await app.GetDataAsync("/posts");
+
+        await cache.RevalidateTagAsync("news", TestContext.Current.CancellationToken);
+        await app.GetDataAsync("/posts");
+        var afterNews = loads["posts"];
+        await cache.RevalidateTagAsync("posts", TestContext.Current.CancellationToken);
+        await app.GetDataAsync("/posts");
+
+        // The tag the array holds now leaves the page in the cache; the tag CachePage was given, which its metadata
+        // lists, evicts it.
+        Assert.Equal((1, 2), (afterNews, loads["posts"]));
+        Assert.Equal(["posts"], Get(app, "/posts").Metadata.GetMetadata<CachedPageMetadata>()?.Tags ?? []);
+    }
+
     private static PageResult<NoProps> Load(Dictionary<string, int> loads, string page)
     {
         loads[page] = loads.GetValueOrDefault(page) + 1;

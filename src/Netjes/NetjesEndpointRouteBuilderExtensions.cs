@@ -252,10 +252,17 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// unless it sets its own <c>Cache-Control</c>.
     /// </summary>
     public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags)
-        where TBuilder : IEndpointConventionBuilder =>
-        builder
-            .CacheOutput(policy => policy.Expire(duration).Tag(tags))
-            .WithMetadata(new OmitAntiforgeryTokenMetadata(), new CachedPageMetadata(duration, tags));
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+
+        // The policy reads the array it is given on every request, so it gets a copy: the page stays tagged as its
+        // metadata says when the caller changes its array afterwards.
+        string[] copy = [.. tags];
+        return builder
+            .CacheOutput(policy => policy.Expire(duration).Tag(copy))
+            .WithMetadata(new OmitAntiforgeryTokenMetadata(), new CachedPageMetadata(duration, copy));
+    }
 
     /// <summary>
     /// Maps a server action, the counterpart of a Next.js <c>'use server'</c> function: a POST endpoint at
