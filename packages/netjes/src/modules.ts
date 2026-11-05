@@ -6,8 +6,17 @@ export type PageComponent = ComponentType<Record<string, unknown>>;
 /** The props every layout gets: its `children` and the route `params`. The loader's props and parallel route slots arrive as further props. */
 export type LayoutProps = { children: ReactNode; params: Params };
 export type LayoutComponent = ComponentType<LayoutProps & Record<string, unknown>>;
-/** The props of an `error.tsx`: what was thrown, and a way to try rendering the segment again. */
-export type ErrorPageProps = { error: Error & { status?: number }; reset: () => void };
+/**
+ * The props of an `error.tsx`: what was thrown, and a way to try rendering the segment again.
+ *
+ * - `error.status` is the HTTP status of a server answer behind the error: the status of the error page the server
+ *   rendered, or of a server action call that failed. An error thrown in the browser has none.
+ * - `error.withheld` is true when the message is Netjes's stand-in for one it does not show: the server's reason
+ *   phrase for an exception while error details are off, or "Something went wrong" for a thrown value that has no
+ *   message. Render `error.message` only when `!error.withheld`.
+ * - `error.stack` is the server's stack when error details are on, and undefined for a server error sent without one.
+ */
+export type ErrorPageProps = { error: Error & { status?: number; withheld?: boolean }; reset: () => void };
 
 export type LoadedSegment = {
   id: string;

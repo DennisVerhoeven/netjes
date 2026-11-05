@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFERRED_BOOTSTRAP, createDeferred, deferredScript, reviveDeferred } from '../src/deferred.ts';
+import { DEFERRED_BOOTSTRAP, createDeferred, deferredRegistry, deferredScript, reviveDeferred } from '../src/deferred.ts';
 
 describe('deferred values', () => {
   it('replace placeholders anywhere in the props with the promises from the source', () => {
@@ -48,6 +48,25 @@ describe('deferred values', () => {
     expect(ok.promise.value).toBe(3);
     expect(failed.promise.status).toBe('rejected');
     await expect(ok.promise).resolves.toBe(3);
+  });
+
+  it('rejects a value whose message the server withheld with a stand-in marked withheld', async () => {
+    const registry = deferredRegistry();
+
+    registry.reject('d0', '');
+    registry.reject('d1', 'comments down');
+    const pending = registry.source('d2');
+    registry.rejectPending((id) => `netjes: the page stream ended before deferred value ${id} arrived`);
+
+    const reasons = await Promise.all(['d0', 'd1'].map((id) => registry.source(id).catch((reason: unknown) => reason)));
+    expect(reasons[0]).toBeInstanceOf(Error);
+    expect(reasons[0]).toMatchObject({ message: 'Something went wrong', withheld: true });
+    expect(reasons[1]).toBeInstanceOf(Error);
+    expect(reasons[1]).toMatchObject({ message: 'comments down' });
+    expect(reasons[1]).not.toHaveProperty('withheld');
+    const ended = await pending.catch((reason: unknown) => reason);
+    expect(ended).toMatchObject({ message: 'netjes: the page stream ended before deferred value d2 arrived' });
+    expect(ended).not.toHaveProperty('withheld');
   });
 });
 

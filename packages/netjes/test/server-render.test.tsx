@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { usePathname, useSharedProps } from '../src/router.tsx';
 import { SHELL_END_ID } from '../src/payload.ts';
 import { createServerRenderer } from '../src/server-render.tsx';
+import { withheldError } from '../src/errors.ts';
 
 const sharedSchema = z.object({ siteName: z.string() });
 
@@ -441,6 +442,45 @@ describe('streaming', () => {
     expect(html).toContain('<li>&lt;/script&gt;&lt;b&gt;hi&lt;/b&gt;</li>');
     expect(html).toContain('<script>self.__netjes_d("d0",JSON.parse("[\\"\\u003c/script\\u003e\\u003cb\\u003ehi\\u003c/b\\u003e\\"]"))</script>');
     expect(html.indexOf('self.__netjes_d("d0"')).toBeGreaterThan(html.indexOf('</head>'));
+  });
+
+  it('hands the browser a deferred failure whose message was withheld as an empty error, and the others as they are', async () => {
+    function Value({ value }: { value: Promise<string> }) {
+      return <p>{use(value)}</p>;
+    }
+    const streaming = createServerRenderer({
+      '/app/v/page.tsx': async () => ({
+        default: (props: Record<string, unknown>) => (
+          <>
+            <Suspense fallback={<p>first…</p>}>
+              <Value value={props.first as Promise<string>} />
+            </Suspense>
+            <Suspense fallback={<p>second…</p>}>
+              <Value value={props.second as Promise<string>} />
+            </Suspense>
+          </>
+        ),
+      }),
+    });
+    const failures = new Map([
+      ['d0', Promise.reject(withheldError())],
+      ['d1', Promise.reject(new Error('comments down'))],
+    ]);
+    for (const failure of failures.values()) failure.catch(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const stream = await streaming.renderToStream(
+      data({ page: 'app/v/page.tsx', segments: [], props: { first: { $netjes: 'deferred', id: 'd0' }, second: { $netjes: 'deferred', id: 'd1' } } }),
+      { deferred: (id) => failures.get(id) ?? new Promise<never>(() => {}), waitForAll: true },
+    );
+    let html = '';
+    await chunks(stream, (text) => {
+      html += text;
+    });
+    vi.restoreAllMocks();
+
+    expect(html).toContain('<script>self.__netjes_d("d0",null,"")</script>');
+    expect(html).toContain('<script>self.__netjes_d("d1",null,"comments down")</script>');
   });
 
   it('puts the CSP nonce on the deferred-values bootstrap and on each streamed value', async () => {

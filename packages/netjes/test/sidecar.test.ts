@@ -98,6 +98,15 @@ describe('sidecar deferred values', () => {
     expect(await response.text()).toBe('<html>shell error: comments down</html>');
   });
 
+  it('rejects the value with a message of its own when .NET withheld the error (an empty one)', async () => {
+    const sidecar = await start();
+
+    const response = await renderRequest(sidecar, 'deferred', { renderId: 'r3' });
+    await resolveRequest(sidecar, { renderId: 'r3', id: 'd0', error: '' });
+
+    expect(await response.text()).toBe('<html>shell error: Something went wrong</html>');
+  });
+
   it('refuses /resolve without the token', async () => {
     const sidecar = await start();
 

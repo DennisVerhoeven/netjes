@@ -1,4 +1,5 @@
 import { Component, type ReactElement, type ReactNode, Suspense, createContext } from 'react';
+import { withheldError } from './errors.ts';
 import { type Metadata, MetadataTags, resolveMetadata } from './metadata.tsx';
 import type { ErrorPageProps, LoadedSegment, RouteModules } from './modules.ts';
 import type { PageKind, Params, SegmentRef } from './payload.ts';
@@ -53,15 +54,23 @@ export class ErrorBoundary extends Component<BoundaryProps, { error: unknown; fa
   }
 }
 
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Something went wrong');
+/** What a boundary caught, as the Error `error.tsx` gets: an Error as it is, a string as its message, else a stand-in. */
+function asError(error: unknown): ErrorPageProps['error'] {
+  if (error instanceof Error) return error;
+  return typeof error === 'string' ? new Error(error) : withheldError();
 }
 
-/** The error the server reported (props of the error page it rendered), as an Error for `error.tsx`. */
+/**
+ * The error the server reported (props of the error page it rendered), as an Error for `error.tsx`: marked withheld
+ * when the server says its message stands in for the exception's, and with the server's stack or none, never the
+ * stack of the code here that built it.
+ */
 function serverError(props: Record<string, unknown>): ErrorPageProps['error'] {
   const error: ErrorPageProps['error'] = new Error(typeof props.message === 'string' ? props.message : 'Something went wrong');
   if (typeof props.status === 'number') error.status = props.status;
-  if (typeof props.stack === 'string') error.stack = props.stack;
+  if (props.withheld === true) error.withheld = true;
+  // Defined rather than assigned, as an own property: Firefox keeps the stack in an accessor on Error.prototype.
+  Object.defineProperty(error, 'stack', { value: typeof props.stack === 'string' ? props.stack : undefined, writable: true, configurable: true });
   return error;
 }
 

@@ -73,7 +73,7 @@ public class DeferTests
     }
 
     [Fact]
-    public async Task DataRequest_FailedValueInProduction_HidesTheMessage()
+    public async Task DataRequest_FailedValueInProduction_SendsAnEmptyError()
     {
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
@@ -82,7 +82,23 @@ public class DeferTests
 
         var lines = await LinesAsync(await app.GetDataAsync("/"));
 
-        Assert.Equal("Something went wrong", (string?)lines[1]["error"]);
+        // Empty: the message was withheld, and the browser puts a stand-in marked as one in its place.
+        Assert.Equal("", (string?)lines[1]["error"]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DataRequest_ACancelledValue_SaysItWasCancelled(bool details)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.IncludeErrorDetails = details,
+            map: a => a.MapPageLoader("/", () => Page.Props(new { Gone = Page.Defer(Task.FromCanceled<int>(new CancellationToken(canceled: true))) })));
+
+        var lines = await LinesAsync(await app.GetDataAsync("/"));
+
+        Assert.Equal("The value was cancelled", (string?)lines[1]["error"]);
     }
 
     [Fact]

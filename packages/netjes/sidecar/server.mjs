@@ -304,7 +304,10 @@ const server = http.createServer(async (req, res) => {
       const { renderId, id, value, error } = JSON.parse(await readBody(req));
       if (typeof renderId !== 'string' || typeof id !== 'string') throw new Error('renderId and id are required');
       const pending = pendingValue(renderId, id);
-      if (typeof error === 'string') pending.reject(new Error(error));
+      // An empty error is a failure whose message .NET withheld (error details are off): the render gets a stand-in
+      // marked as one, as the browser does (src/errors.ts), and hands the browser an empty error again.
+      if (error === '') pending.reject(Object.assign(new Error('Something went wrong'), { withheld: true }));
+      else if (typeof error === 'string') pending.reject(new Error(error));
       else pending.resolve(value);
       res.writeHead(204).end();
     } catch (error) {
