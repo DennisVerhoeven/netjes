@@ -759,9 +759,7 @@ internal sealed class PageRenderer(
         return rest.Length == 0 ? $"frame-ancestors {sources}" : $"{rest}; frame-ancestors {sources}";
     }
 
-    private static bool HasFrameAncestors(string? policy) =>
-        policy is not null && policy.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Any(d => d.Split([' ', '\t'], 2)[0].Equals("frame-ancestors", StringComparison.OrdinalIgnoreCase));
+    private static bool HasFrameAncestors(string? policy) => CspDirectives.Sources(policy, "frame-ancestors") is not null;
 
     /// <summary>
     /// A stored copy would hand every visitor the same nonce, which anyone can read and reuse: the nonce stops
