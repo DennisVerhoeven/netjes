@@ -31,6 +31,13 @@ async function docs(files) {
   }
 }
 
+/** @param {string[]} args */
+function git(...args) {
+  // A git hook's GIT_ variables would point git at another checkout.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')));
+  execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, env, stdio: 'ignore' });
+}
+
 /** @param {string[]} argv */
 async function run(argv = []) {
   let out = '';
@@ -248,8 +255,6 @@ describe('llms.mjs', () => {
       'NOTES.md': '# Notes\n\nTracked.\n',
       'TODO.md': '# Todo\n\nNot added yet.\n',
     });
-    /** @param {string[]} args */
-    const git = (...args) => execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, stdio: 'ignore' });
     git('init', '-q');
     git('add', 'README.md', 'packages/netjes/README.md', 'docs/README.md', 'NOTES.md');
 
@@ -267,8 +272,6 @@ describe('llms.mjs', () => {
       'docs/README.md': '# Netjes documentation\n\n- [Notes](../NOTES.md): the conventions.\n',
       'NOTES.md': '# Notes\n\nTracked.\n',
     });
-    /** @param {string[]} args */
-    const git = (...args) => execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, stdio: 'ignore' });
     git('init', '-q');
     git('add', 'README.md', 'packages/netjes/README.md', 'NOTES.md');
 
@@ -289,8 +292,6 @@ describe('llms.mjs', () => {
       'docs/private/plan.md': '# Plan\n\nIgnored.\n',
       '.gitignore': 'docs/private/\n',
     });
-    /** @param {string[]} args */
-    const git = (...args) => execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, stdio: 'ignore' });
     git('init', '-q');
     git('add', '.gitignore', 'README.md', 'packages/netjes/README.md', 'docs/guides/routing.md');
 
