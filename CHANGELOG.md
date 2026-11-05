@@ -8,6 +8,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
 
+### Fixed
+
+- A `title.default` on a layout below the root, or on a page, now goes through the nearest `title.template` of the layouts above it, as [the metadata guide](docs/guides/metadata.md#titles) says and Next.js does. It skipped the templates before: below a root template of `'%s · Site'`, a docs layout's `default: 'Docs'` gave the title `Docs`, and it now gives `Docs · Site` (never `Docs · Docs · Site`, since a default does not go through the template next to it). A page's `title: { default: 'Intro' }` goes through the template in the same way, and so do the Open Graph and Twitter titles that fall back to the page's title. An app whose titles change this way and that wants them bare sets `title: { absolute: 'Docs' }` on that layout or page, which skips every template. A `default` on the root layout, and a title with no template above it, are unchanged.
+
 ## [0.0.2] - 2026-11-03
 
 ### Fixed

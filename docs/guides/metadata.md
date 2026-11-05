@@ -30,11 +30,20 @@ Netjes merges the metadata of the layouts above a page (outermost first), then t
 | Title | Effect |
 |---|---|
 | `'Guestbook'` | Goes through the nearest `template` from a layout above. |
-| `{ template: '%s · Docs' }` | In a layout: `%s` is replaced by the title of each page below it. |
-| `{ default: 'Netjes Blog' }` | In a layout: the title of pages below it that set none. A layout's own default does not go through its own template, only through templates from layouts above it. |
+| `{ template: '%s · Docs' }` | In a layout: the first `%s` is replaced by the title of each page below it. |
+| `{ default: 'Netjes Blog' }` | In a layout: the title of the pages below it that set none. In a layout or a page it goes through the nearest `template` from a layout above, like a string title, and never through a `template` in the same object. |
 | `{ absolute: 'Home' }` | Used as it is, skipping every template. |
 
 The Blog's docs layout nests a template inside the root one: `export const metadata: Metadata = { title: { template: '%s · Docs · Netjes Blog' } };` makes a docs page's title `Routing · Docs · Netjes Blog`.
+
+A layout below the root can set a `default` as well. Say the Blog's docs layout set both a default and a template:
+
+```tsx
+// app/docs/layout.tsx
+export const metadata: Metadata = { title: { default: 'Docs', template: '%s · Docs · Netjes Blog' } };
+```
+
+A docs page that sets no title is then `Docs · Netjes Blog`: the default goes through the root layout's template, `%s · Netjes Blog`, and not through the template beside it. A page's `title: 'Routing'` is still `Routing · Docs · Netjes Blog`, and so is `title: { default: 'Routing' }`, since a page's default goes through the nearest template above it like a string. To keep a title bare, set `absolute` instead of `default`: `{ absolute: 'Docs' }` is `Docs`, whatever templates are above it.
 
 ### Fields
 
