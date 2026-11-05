@@ -271,7 +271,7 @@ In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.j
 - `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
 - `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
 
-Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body.
+Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body. Each answers one spelling of its path, as a page does: another case (`/Sitemap.xml`), or a trailing slash under `TrailingSlash.Never`, gets a 308 to `/sitemap.xml` or `/robots.txt`, as `RedirectLiteralCase` and `TrailingSlash` ask ([One URL per page](../guides/routing.md#one-url-per-page)).
 
 ## Server actions
 
@@ -421,7 +421,19 @@ public static class NetjesContentSecurityPolicy
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](options.md).
 
+### TrailingSlash
+
+```csharp
+public enum TrailingSlash
+{
+    Ignore = 0,
+    Never = 1,
+}
+```
+
 `TrailingSlash` is the type of `NetjesOptions.TrailingSlash`, in the `Netjes` namespace: `Ignore` (0, the default) answers a page's URL with and without a trailing slash, and `Never` (1) answers one with a slash with a 308 to the URL without it. Next to it, `NetjesOptions.RedirectLiteralCase` (a `bool`, true by default) redirects another case of a page's literal segments to its file's spelling ([options](options.md#routing), [One URL per page](../guides/routing.md#one-url-per-page)).
+
+Like `Href`, the name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `TrailingSlash` gets CS0104 for it. Qualify one of the two, or give one an alias.
 
 ## Telemetry and headers
 
