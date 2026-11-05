@@ -660,7 +660,7 @@ These are exported for the plugin and the .NET app; app code does not import the
 
 | Import | What it is |
 |---|---|
-| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
+| `netjes/client-entry` | The browser entry the plugin builds: before anything else it turns zod's compiled parsers off ([zod in the browser](../guides/security.md#zod-in-the-browser)), then it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
 | `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. |
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
 
