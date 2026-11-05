@@ -10,10 +10,16 @@ namespace Netjes;
 /// </summary>
 public interface IPageCache
 {
-    /// <summary>Evicts every cached page tagged with <paramref name="tag"/> (<c>.CachePage(duration, tags)</c>).</summary>
+    /// <summary>
+    /// Evicts every output-cache entry tagged with <paramref name="tag"/>: pages (<c>.CachePage(duration, tags)</c>), and
+    /// endpoints of the app (<c>.CacheOutput(p =&gt; p.Tag(tag))</c>).
+    /// </summary>
     ValueTask RevalidateTagAsync(string tag, CancellationToken cancellationToken = default);
 
-    /// <summary>Evicts the cached page at <paramref name="path"/>, both its document and its payload.</summary>
+    /// <summary>
+    /// Evicts the cached page at <paramref name="path"/>, both its document and its payload. It never evicts the entry of
+    /// an endpoint that is not a page: evict that by a tag.
+    /// </summary>
     ValueTask RevalidatePathAsync(string path, CancellationToken cancellationToken = default);
 }
 
