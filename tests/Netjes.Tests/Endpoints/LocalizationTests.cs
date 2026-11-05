@@ -150,6 +150,49 @@ public class LocalizationTests
         Assert.Equal(location, response.Headers.Location?.ToString());
     }
 
+    [Fact]
+    public async Task LocaleRedirect_AnswersHeadAsGet()
+    {
+        await using var app = await StartAsync();
+        Task<HttpResponseMessage> SendAsync(HttpMethod method)
+        {
+            var request = new HttpRequestMessage(method, "/");
+            request.Headers.Add("Accept-Language", "nl-NL,nl;q=0.9");
+            return app.Client.SendAsync(request, Ct);
+        }
+
+        var get = await SendAsync(HttpMethod.Get);
+        var head = await SendAsync(HttpMethod.Head);
+
+        Assert.Equal(get.StatusCode, head.StatusCode);
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, head.StatusCode);
+        Assert.Equal("/nl", head.Headers.Location?.ToString());
+        Assert.Contains("Accept-Language", head.Headers.Vary);
+    }
+
+    [Fact]
+    public async Task SitemapAndRobotsTxt_AnswerHeadAsGet_InALocalizedApp()
+    {
+        // Without HEAD of their own, app/[lang]/page.tsx would take both URLs, as a locale it does not support.
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/page.tsx"],
+            services: s => s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]),
+            configureApp: a => a.UseNetjesLocalization(),
+            map: a =>
+            {
+                a.MapSitemap(new Uri("https://site.example"));
+                a.MapRobotsTxt(new Uri("https://site.example"));
+            });
+
+        var sitemap = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/sitemap.xml"), Ct);
+        var robots = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/robots.txt"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, sitemap.StatusCode);
+        Assert.Equal("application/xml", sitemap.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(HttpStatusCode.OK, robots.StatusCode);
+        Assert.Equal("text/plain", robots.Content.Headers.ContentType?.MediaType);
+    }
+
     [Theory]
     [InlineData("Accept-Language", "nl-NL,nl;q=0.9")]
     [InlineData("Cookie", ".AspNetCore.Culture=c%3Dnl%7Cuic%3Dnl")]

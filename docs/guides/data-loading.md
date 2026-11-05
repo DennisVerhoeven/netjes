@@ -364,6 +364,8 @@ async function fetchStats(slug: string) {
 
 A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slug}/likes").MapGet("/", ...)` is `api['GET /api/posts/{slug}/likes/']`. A JSON endpoint that browsers post to should require a JSON body, so a cross-site form post cannot reach it.
 
+`MapGet` answers `GET` only. A `HEAD` to its URL goes to whatever else matches the URL, often the not-found page. To answer `HEAD` as well, map the endpoint with `MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its key stays `GET` and the route, as for `MapGet` ([HEAD requests](routing.md#head-requests)).
+
 ## Server state with TanStack Query
 
 Netjes provides a TanStack Query `QueryClient`: one per render on the server, and one per page load in the browser, which lasts across client navigations. There is no provider to set up. A loader seeds it with `.WithQuery(key, data)`, and a component that calls `useQuery` with the same key renders that data on the server and on the first client render, without waiting for a fetch:

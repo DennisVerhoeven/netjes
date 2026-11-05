@@ -522,3 +522,20 @@ test.describe('the hydrated mark', () => {
     expect(await isMarked(page)).toBe(true);
   });
 });
+
+test.describe('HEAD requests', () => {
+  test('robots.txt and sitemap.xml answer HEAD as they answer GET', async ({ request }) => {
+    // Crawlers and link checkers ask with HEAD. Kestrel sends the status and headers of a HEAD without the body.
+    for (const url of ['/robots.txt', '/sitemap.xml']) {
+      const get = await request.get(url);
+      const head = await request.head(url);
+
+      expect(head.status(), url).toBe(200);
+      for (const name of ['content-type', 'content-length', 'cache-control']) {
+        expect(head.headers()[name], `${name} of ${url}`).toBe(get.headers()[name]);
+      }
+      expect(get.headers()['content-length'], url).toBeDefined();
+      expect((await head.body()).length, url).toBe(0);
+    }
+  });
+});

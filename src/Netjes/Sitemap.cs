@@ -116,14 +116,14 @@ public static class SitemapEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    /// Serves <c>/sitemap.xml</c>: pages without parameters, and dynamic pages with <c>.StaticParams(...)</c>, as
-    /// absolute URLs under <paramref name="siteUrl"/> (and <c>UsePathBase</c>'s base path). Pages that require
-    /// authorization (their own, or the fallback policy's unless they are <c>.AllowAnonymous()</c>) or call
-    /// <c>.ExcludeFromSitemap()</c> are left out. The result is kept for <paramref name="cacheFor"/> (default an hour),
-    /// so <c>StaticParams</c> does not run on every request, and browsers and CDNs may keep it as long. Under a base path
-    /// longer than 256 characters as the XML writes it (percent-encoded, with <c>&amp;</c> as <c>&amp;amp;</c>), it is
-    /// not found: each URL repeats the base path, which a client can choose through an <c>X-Forwarded-Prefix</c> the app
-    /// accepts.
+    /// Answers GET and HEAD for <c>/sitemap.xml</c>: pages without parameters, and dynamic pages with
+    /// <c>.StaticParams(...)</c>, as absolute URLs under <paramref name="siteUrl"/> (and <c>UsePathBase</c>'s base path).
+    /// Pages that require authorization (their own, or the fallback policy's unless they are <c>.AllowAnonymous()</c>) or
+    /// call <c>.ExcludeFromSitemap()</c> are left out. The result is kept for <paramref name="cacheFor"/> (default an
+    /// hour), so <c>StaticParams</c> does not run on every request, and browsers and CDNs may keep it as long. Under a
+    /// base path longer than 256 characters as the XML writes it (percent-encoded, with <c>&amp;</c> as
+    /// <c>&amp;amp;</c>), it is not found: each URL repeats the base path, which a client can choose through an
+    /// <c>X-Forwarded-Prefix</c> the app accepts.
     /// </summary>
     public static IEndpointConventionBuilder MapSitemap(this IEndpointRouteBuilder endpoints, Uri siteUrl, TimeSpan? cacheFor = null)
     {
@@ -131,7 +131,9 @@ public static class SitemapEndpointRouteBuilderExtensions
         var lifetime = cacheFor ?? TimeSpan.FromHours(1);
         var cache = new SitemapCache(root, lifetime);
         var logger = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Netjes.Sitemap");
-        return endpoints.MapGet("/sitemap.xml", async (HttpContext http, IRouteTableProvider routes, EndpointDataSource all, TimeProvider time) =>
+        // HEAD too, which crawlers and link checkers send: with GET alone, a HEAD would go to whatever else matches the
+        // URL, such as a [lang] page. The handler runs as for a GET, and the server sends no body.
+        return endpoints.MapMethods("/sitemap.xml", [HttpMethods.Get, HttpMethods.Head], async (HttpContext http, IRouteTableProvider routes, EndpointDataSource all, TimeProvider time) =>
             {
                 var basePath = http.Request.PathBase.ToUriComponent();
                 var xml = await cache.GetAsync(basePath, time.GetUtcNow(), () => PublicPathsAsync(http, routes, all));
@@ -188,7 +190,7 @@ public static class SitemapEndpointRouteBuilderExtensions
         return urls;
     }
 
-    /// <summary>Serves <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>.</summary>
+    /// <summary>Answers GET and HEAD for <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>.</summary>
     public static IEndpointConventionBuilder MapRobotsTxt(this IEndpointRouteBuilder endpoints, Uri siteUrl, IReadOnlyList<string>? disallow = null)
     {
         var text = new StringBuilder("User-agent: *\n");
@@ -205,8 +207,8 @@ public static class SitemapEndpointRouteBuilderExtensions
         var head = text.ToString();
         var root = siteUrl.GetLeftPart(UriPartial.Path).TrimEnd('/');
         // The sitemap's URL is built per request from the base path, as MapSitemap does for its pages. ToUriComponent keeps
-        // a base path from a forwarded header from adding lines to this line-based file.
-        return endpoints.MapGet("/robots.txt", (HttpContext http) =>
+        // a base path from a forwarded header from adding lines to this line-based file. HEAD too, as for the sitemap.
+        return endpoints.MapMethods("/robots.txt", [HttpMethods.Get, HttpMethods.Head], (HttpContext http) =>
                 Results.Text($"{head}\nSitemap: {root}{http.Request.PathBase.ToUriComponent()}/sitemap.xml\n", "text/plain", Encoding.UTF8))
             .AllowAnonymous()
             .WithDisplayName("Netjes robots.txt")

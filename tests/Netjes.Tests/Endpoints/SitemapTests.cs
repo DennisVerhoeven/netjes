@@ -103,6 +103,24 @@ public class SitemapTests
     }
 
     [Fact]
+    public async Task Sitemap_AnswersHeadAsGet()
+    {
+        // Crawlers and link checkers ask with HEAD; the server sends a HEAD's status and headers without the body.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/about/page.tsx"],
+            map: a => a.MapSitemap(new Uri("https://blog.example")));
+
+        var get = await app.Client.GetAsync("/sitemap.xml", Ct);
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/sitemap.xml"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("application/xml", head.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(TimeSpan.FromHours(1), head.Headers.CacheControl?.MaxAge);
+        Assert.Equal(get.Headers.CacheControl, head.Headers.CacheControl);
+        Assert.Equal(get.Content.Headers.ContentLength, head.Content.Headers.ContentLength);
+    }
+
+    [Fact]
     public async Task RobotsTxt_PointsAtTheSitemapAndListsDisallowedPaths()
     {
         await using var app = await TestApp.StartAsync(
@@ -120,6 +138,19 @@ public class SitemapTests
         Assert.Equal(
             "User-agent: *\nDisallow: /admin\nDisallow: /_netjes/\n\nSitemap: https://blog.example/sitemap.xml\n",
             await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task RobotsTxt_AnswersHeadAsGet()
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.MapRobotsTxt(new Uri("https://blog.example")));
+
+        var get = await app.Client.GetAsync("/robots.txt", Ct);
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/robots.txt"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("text/plain", head.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(get.Content.Headers.ContentLength, head.Content.Headers.ContentLength);
     }
 
     [Fact]

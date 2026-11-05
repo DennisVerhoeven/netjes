@@ -36,12 +36,14 @@ The configured widths, qualities and the endpoint's path reach the component wit
 
 ## The image endpoint
 
-`app.MapPages()` maps `GET /_netjes/image?url=…&w=…&q=…`. It reads the source, hands it to the registered `IImageProcessor` with the width, quality and an output format the browser accepts, and answers with the result:
+`app.MapPages()` maps `/_netjes/image?url=…&w=…&q=…` for `GET` and `HEAD`. It reads the source, hands it to the registered `IImageProcessor` with the width, quality and an output format the browser accepts, and answers with the result:
 
 - `Cache-Control: public, max-age=…` for `CacheDuration` (7 days), an `ETag` (a matching `If-None-Match` gets 304), and `Vary: Accept`.
 - `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox;`, so an image opened on its own, an SVG above all, runs no script.
 
-If the app uses output caching (`AddOutputCache()` and `UseOutputCache()`), the endpoint's answers are cached: keyed by the width, the quality, the image as it is fetched and the negotiated format, not by the `Host` header. Requests with an `Authorization` header or a signed-in user are cached too, unlike under ASP.NET Core's default policy, since an image from `public/` or an allowed host is the same for everyone. Editors in draft mode share this cache. Serve private images from an endpoint of your own.
+A `HEAD` is answered as a `GET` is, with the same status and headers and without the body. The endpoint reads and processes the image for it all the same ([HEAD requests](routing.md#head-requests)).
+
+If the app uses output caching (`AddOutputCache()` and `UseOutputCache()`), the endpoint's answers are cached: keyed by the width, the quality, the image as it is fetched and the negotiated format, not by the `Host` header. Requests with an `Authorization` header or a signed-in user are cached too, unlike under ASP.NET Core's default policy, since an image from `public/` or an allowed host is the same for everyone. Editors in draft mode share this cache. Serve private images from an endpoint of your own. The output cache keys every entry by the method as well, so a `HEAD` is cached apart from the `GET`: the first `HEAD` for an image processes it once more and stores a copy of its own.
 
 Without an image processor the endpoint serves the original bytes, cached as above. `Netjes:Images:Path` moves the endpoint; it is used with one leading slash and none trailing, and other spellings of it get 400.
 
@@ -112,7 +114,7 @@ Peak memory is about `MaxConcurrency` × (2 × `MaxSourceBytes` + 4 bytes × the
 | 503 | The queue is full; `Retry-After` says when to try again. |
 | 504 | A remote fetch took longer than `RemoteTimeout`. |
 
-Under `UsePathBase` the endpoint answers with and without the base path, so each image can have two cache entries. Size the output cache (`SizeLimit`) for the images it holds as well as the pages ([Caching](caching.md)).
+A `HEAD` takes its slots as a `GET` does, within the same limits. Each image can have a cache entry for `GET` and one for `HEAD`, and under `UsePathBase`, where the endpoint answers with and without the base path, two of each. Size the output cache (`SizeLimit`) for the images it holds as well as the pages ([Caching](caching.md)).
 
 ## Resizing with SkiaSharp
 

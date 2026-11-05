@@ -398,6 +398,29 @@ A `<Link>` to such a URL still works, but the router first asks the server for a
 
 In Next.js, a route handler cannot share a folder with a page, so a Markdown URL below `app/docs/[...path]` takes a rewrite in `next.config.js` to a route handler at another path. Here the endpoint's order does it.
 
+### HEAD requests
+
+Pages answer a `HEAD` as they answer a `GET`, but without the body, and so do the `GET` endpoints Netjes maps: `/sitemap.xml` and `/robots.txt` (`MapSitemap` and `MapRobotsTxt`), the image endpoint `/_netjes/image`, and the locale redirect at `/` (`MapLocaleRedirect`). Files in `public/` (the client build in production) answer `HEAD` too. The exception is `/_netjes/antiforgery`, which answers `GET` only: it is there to send the client router a token in its body, which a `HEAD` would not get, and the router asks for it with `GET`. A `HEAD` there gets the not-found page.
+
+An endpoint you map with `MapGet` answers `GET` only, as in any ASP.NET Core app. A `HEAD` to its URL goes to whatever else matches the URL and takes `HEAD`:
+
+- a dynamic page whose pattern matches it, such as `app/[slug]/page.tsx` for `/feed`. The page answers as it answers a `GET` of that URL: 200 with its HTML, or its not-found page when its loader returns `Page.NotFound()`, or when the page is in a `[lang]` folder and that segment of the URL is not a supported locale;
+- otherwise, for a path without a file extension, the fallback that `MapPages()` adds, which answers with the not-found page (404, HTML);
+- otherwise nothing, and the answer is a 404 without a body.
+
+A `POST` to that URL gets 405 with `Allow: GET, HEAD`, although the endpoint does not answer `HEAD`: `Allow` also lists the methods of the not-found fallback, which takes `GET` and `HEAD`.
+
+To answer `HEAD` from an endpoint of your own, such as a feed that crawlers and link checkers ask for, map it for both methods:
+
+```csharp
+app.MapMethods("/feed.xml", [HttpMethods.Get, HttpMethods.Head], (FeedStore feed) =>
+    Results.Text(feed.ToXml(), "application/rss+xml"));
+```
+
+The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](../decisions/0002-server-owns-routing.md)).
+
+Because Netjes's own endpoints answer `HEAD` themselves, a `HEAD` for `/sitemap.xml` or `/robots.txt` in a localized app reaches the sitemap or `robots.txt`. If they answered `GET` only, `app/[lang]/page.tsx` would take `sitemap.xml` for a locale it does not support and answer with the not-found page.
+
 ## Route warnings
 
 Some mistakes in routes and actions fail without an error, or only when a request meets them, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](../decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0029](../decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md) for endpoints that tie with pages, [ADR 0017](../decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs).

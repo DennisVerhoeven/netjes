@@ -93,6 +93,8 @@ const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => f
 
 Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
 
+`MapGet` answers `GET` only: a `HEAD` to its URL goes to whatever else matches it, often the not-found page. For an endpoint that crawlers, link checkers or monitors ask with `HEAD`, map `app.MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its `api` key stays `GET` and the route. Pages, `/sitemap.xml`, `/robots.txt`, `/_netjes/image` and the locale redirect answer `HEAD` already.
+
 ## More
 
 [Data loading](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/data-loading.md) and [Actions and forms](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/actions-and-forms.md) in the guides.
