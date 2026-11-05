@@ -12,7 +12,7 @@ An app sets up output caching and `CachePage` in its `Program.cs`, which runs in
 - Everything else is as outside Development: the keys are made, a response the cache could store carries no antiforgery token, and the warnings for nonces, unkeyed endpoints and cookies are logged. The cookie warning says that outside Development the render is stored.
 - One difference on purpose: such a page goes out `Cache-Control: no-store, private`, unless it set its own header.
 - Netjes logs once, at Information, that pages are not output-cached in Development.
-- Endpoints that are not pages, such as JSON APIs and images, are output-cached in Development as anywhere.
+- Endpoints that are not pages, such as JSON APIs and images, are output-cached in Development as anywhere, unless `CachePage` marks them: the page rules apply to those ([ADR 0016](0016-page-cache-rules-under-any-output-caching.md)), so they run on each request too.
 - The environment decides, not `Netjes:Mode`: a test host that runs development mode in another environment, as `WebApplicationFactory` tests do, stores pages as production does.
 - There is no switch to cache pages in Development. Data that is slow or costly to load is cached in the service that loads it (`IMemoryCache`, `HybridCache`), which helps in production too. Next.js does the same: `next dev` renders routes on every request and keeps only fetched data between them.
 
