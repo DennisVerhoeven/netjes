@@ -179,6 +179,9 @@ describe('Script with beforeInteractive', () => {
 
     expect(recoverable).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();
+    // Once hydrated, it keeps the markup it hydrated.
+    expect(document.getElementById('escaped')?.nextElementSibling?.outerHTML).toBe('<p>after</p>');
+    expect(document.head.querySelector('meta[name="netjes-before-interactive"]')).not.toBeNull();
   });
 
   it('renders an external beforeInteractive script as an inert entry where it stands, with a preload in the head', () => {
@@ -363,6 +366,7 @@ describe('Script with beforeInteractive', () => {
 
     const [late, ...others] = scripts('/late.js');
     expect(others).toHaveLength(0);
+    expect(document.querySelector('script[type="application/json"][data-netjes-script="/late.js"]')).not.toBeNull();
     expect(late?.parentElement).toBe(document.head);
     expect(late?.async).toBe(false);
     act(() => {
@@ -447,4 +451,3 @@ describe('Script with beforeInteractive', () => {
     expect(String(warn.mock.calls[1]?.[0])).toContain('type="module"');
   });
 });
-
