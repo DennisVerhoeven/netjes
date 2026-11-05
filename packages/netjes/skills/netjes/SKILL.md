@@ -68,6 +68,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 - zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON, `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
+- Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in `app/layout.tsx` that takes the focus: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](references/routing.md)).
 - Never edit `generated/netjes.ts`; regenerate it and commit it with the change.
 - Anything in `Netjes:PublicConfig` or shared props is sent to the browser.
 - Caching, streaming and static export have sharp edges: read [references/caching-and-streaming.md](references/caching-and-streaming.md) before using `.CachePage`, `Page.Defer` or `netjes export`.
