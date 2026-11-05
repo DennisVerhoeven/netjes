@@ -64,6 +64,8 @@ npm run test:e2e                             # Playwright, below
 npm run export                               # netjes export, into out/
 ```
 
+`npm run export` logs one warning, by design: the `/blog` loader reads `tag` from the query string, which the export never sends, so the exported `/blog` lists every post whatever the tag ([loaders that read the query string](../../docs/guides/static-export.md#loaders-that-read-the-query-string)).
+
 `npm run test:e2e` builds the app and runs Playwright against five servers it starts:
 
 | Project | What it runs | Port |
