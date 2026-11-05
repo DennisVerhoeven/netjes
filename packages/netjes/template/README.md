@@ -4,7 +4,7 @@ A React app on ASP.NET Core, built with Netjes: Vite, Tailwind CSS, TanStack Que
 
 ```bash
 npm run dev        # dotnet watch + Vite HMR, http://localhost:5080
-npm test           # Vitest component tests
+npm test           # Vitest: component tests and the home page's document
 npm run typecheck
 npm run routes     # the route table, from C#
 npx netjes build   # types, client and server bundles
@@ -12,7 +12,7 @@ npx netjes info    # check Node.js, the .NET SDK, the packages and this setup
 dotnet publish -c Release
 ```
 
-- `app/` holds the pages, as in the Next.js App Router: `page.tsx` is `/`, `about/page.tsx` is `/about`, `layout.tsx` wraps them all, `not-found.tsx` and `error.tsx` handle the rest.
+- `app/` holds the pages, as in the Next.js App Router: `page.tsx` is `/`, `about/page.tsx` is `/about`, `layout.tsx` wraps them all, `not-found.tsx` and `error.tsx` handle the rest. `app/document.test.ts` renders the home page's whole document, as the server sends it, with `renderDocument` from `netjes/testing`.
 - `public/` is served at the site root. `public/favicon.svg`, which the metadata in `app/layout.tsx` links, is the Netjes mark: replace it with the app's own.
 - `Features/` holds the C# side, one folder per feature: `Features/Home/HomePage.cs` maps the home page's loader and the `home.greet` server action the form calls.
 - `AGENTS.md` tells coding agents how the app is laid out and what the rules are; `CLAUDE.md` imports it for Claude Code.
