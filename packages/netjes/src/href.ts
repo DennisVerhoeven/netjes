@@ -38,9 +38,9 @@ export function isRouteHref(value: string, patterns: readonly string[]): boolean
 
 /**
  * Builds the URL for a route pattern written in file-name syntax (`/blog/[slug]`, `/docs/[...path]`,
- * `/shop/[[...filters]]`), encoding every segment value. `options.hash` adds the fragment after the query: the id of an
- * element in the page, with or without a leading `#`, encoded; an empty one adds nothing. The generated `route()`
- * helper calls this with typed params.
+ * `/shop/[[...filters]]`), encoding every segment value. `options.hash` adds a fragment after the query: the id of an
+ * element in the page, with one leading `#` dropped and the rest encoded; with nothing left, no fragment is added. The
+ * generated `route()` helper calls this with typed params.
  */
 export function buildHref(
   pattern: string,

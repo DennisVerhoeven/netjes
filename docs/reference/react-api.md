@@ -431,10 +431,15 @@ Filled in by the generated file through declaration merging, which types `Href`:
 #### `buildHref`
 
 ```ts
-function buildHref(pattern: string, params: Record<string, unknown>, search?: SearchParamsInput): string;
+function buildHref(
+  pattern: string,
+  params: Record<string, unknown>,
+  search?: SearchParamsInput,
+  options?: { hash?: string | undefined },
+): string;
 ```
 
-The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. The generated `route()` calls it with typed parameters.
+The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'a b'` gives `#a%20b`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
 
 #### `SearchParamsInput`
 
@@ -659,7 +664,7 @@ These are exported for the plugin and the .NET app; app code does not import the
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
-| `route(pattern, params?, search?)` | The URL of a page, values encoded, typed by pattern. |
+| `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |
 | `Route` | The URLs the pages serve, as template literal types. |
 | `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`. |
 | `isHref(value)` | Whether a string is an `Href`. |

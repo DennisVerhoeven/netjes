@@ -848,7 +848,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | `next dev`, `next build`, `next start` | `netjes dev`, `netjes build`, `netjes start`; `dotnet publish` runs the build and ships it. [The netjes command](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md) |
 | `output: 'export'` | `netjes export`. Exported pages navigate with full page loads. [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md) |
 | `next.config.js` | `NetjesOptions` in C# (and the `Netjes` configuration section) for the server, `netjes()` options in `vite.config.ts` for the build. [Options](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md), [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md) |
-| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, and `<Link href>` checks its URL |
+| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL |
 | Fast Refresh, Turbopack | Vite with React Fast Refresh ([ADR 0004](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0004-vite-for-dev-server-and-builds.md)) |
 | Tailwind CSS setup | On by default in `netjes()`: `@import "tailwindcss"` in a stylesheet the root layout imports |
 | Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) |
@@ -1035,7 +1035,7 @@ Netjes has built-in 404 and error pages for apps that have neither file. Special
 
 A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, but route values reach loaders and `params` as the URL spelled them.
 
-Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays:
+Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. The third argument is the query, and `{ hash }` in the fourth is the fragment:
 
 ```tsx
 import { route } from '../generated/netjes.ts';
@@ -1043,6 +1043,7 @@ import { route } from '../generated/netjes.ts';
 route('/blog/[slug]', { slug: post.slug });          // '/blog/hello-world'
 route('/docs/[...path]', { path: ['guides', 'a b'] }); // '/docs/guides/a%20b'
 route('/projects/[id]', { id }, { done: 2 });          // '/projects/web?done=2'
+route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' }); // '/docs/guides/caching#keys'
 ```
 
 ## Route groups and private folders
@@ -1108,12 +1109,14 @@ import { Link } from 'netjes';
 import { route } from '../generated/netjes.ts';
 
 <Link href={route('/blog/[slug]', { slug: post.slug })}>{post.title}</Link>
+<Link href={route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })}>Cache keys</Link>
 <Link href="/about" className="aria-[current=page]:font-bold">About</Link>
 ```
 
 - `href` is typed by the app's routes once `netjes generate` has written `generated/netjes.ts`: a path no page serves is a type error. `Href.parse(value)` from the generated file checks a URL that comes from data, such as a CMS ([Typed links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#typed-links)).
 - The link gets `aria-current="page"` when its path is the current one, for styling the current link.
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
+- To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'a b'` finds `<h2 id="a b">`.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
 
@@ -1679,7 +1682,7 @@ import { Href, route } from '../generated/netjes.ts';
 <Link href={Href.parse(item.href)}>{item.label}</Link>            // a URL from data, checked at the boundary
 ```
 
-`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search)` builds an encoded URL. `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS or shared props.
+`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search, { hash })` builds an encoded URL: `search` is the query and `hash` the id of an element on the page, added as a fragment ([Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links)). `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS or shared props.
 
 ## JSON endpoints
 
@@ -4292,10 +4295,15 @@ Filled in by the generated file through declaration merging, which types `Href`:
 #### `buildHref`
 
 ```ts
-function buildHref(pattern: string, params: Record<string, unknown>, search?: SearchParamsInput): string;
+function buildHref(
+  pattern: string,
+  params: Record<string, unknown>,
+  search?: SearchParamsInput,
+  options?: { hash?: string | undefined },
+): string;
 ```
 
-The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. The generated `route()` calls it with typed parameters.
+The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'a b'` gives `#a%20b`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
 
 #### `SearchParamsInput`
 
@@ -4520,7 +4528,7 @@ These are exported for the plugin and the .NET app; app code does not import the
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
-| `route(pattern, params?, search?)` | The URL of a page, values encoded, typed by pattern. |
+| `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |
 | `Route` | The URLs the pages serve, as template literal types. |
 | `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`. |
 | `isHref(value)` | Whether a string is an `Href`. |
@@ -5916,6 +5924,7 @@ Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route
 ## Links and navigation
 
 - `<Link href={route('/blog/[slug]', { slug })}>`: client navigation with prefetch on hover and focus, `aria-current` on the active link. `route()` and the `Href` type come from `generated/netjes.ts`, so a wrong path or a missing parameter is a type error.
+- `route(pattern, params, search, { hash })` builds the query from `search` and a `#fragment` from `hash`, the id of an element on the page: `route('/docs/[...path]', { path }, undefined, { hash: 'keys' })`. Pass `undefined` as `search` for a link with a fragment and no query.
 - `useRouter()`: `push`, `replace`, `prefetch`, `refresh`, `back`, `forward`.
 - `usePathname()`, `useSearchParams(schema?)`, `useParams(schema?)`: with a schema the values are parsed; catch-all params are arrays. Search values a schema rejects are dropped so its defaults apply; a rejected route param goes to the error page, so constrain route params in C#.
 - `useSelectedLayoutSegment()`, `useSelectedLayoutSegments()`: the active child segment in a layout (tabs).
@@ -6274,6 +6283,10 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Added
+
+- `route()` and `buildHref` take a fourth argument, `{ hash }`, which adds a `#fragment` after the query: `route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The hash is the id of an element on the page. One leading `#` is dropped and the rest is percent-encoded (`'a b'` becomes `#a%20b`, which browsers and the router decode when they look for the element); with nothing left, no fragment is added. The third argument is still the query, so a link with a fragment and no query passes `undefined` there ([routing guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links)). The generated `route()` has a new signature, so run `npx netjes generate` after upgrading, or start the app in Development, and commit `generated/netjes.ts`: `npx netjes generate --check` in CI fails until you do. Until then `route()` keeps its old signature and takes no `hash`. A link whose fragment you write into the string yourself needs no change.
 
 ### Changed
 

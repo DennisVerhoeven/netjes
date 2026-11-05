@@ -124,7 +124,7 @@ Netjes has built-in 404 and error pages for apps that have neither file. Special
 
 A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, but route values reach loaders and `params` as the URL spelled them.
 
-Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays:
+Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. The third argument is the query, and `{ hash }` in the fourth is the fragment:
 
 ```tsx
 import { route } from '../generated/netjes.ts';
@@ -132,6 +132,7 @@ import { route } from '../generated/netjes.ts';
 route('/blog/[slug]', { slug: post.slug });          // '/blog/hello-world'
 route('/docs/[...path]', { path: ['guides', 'a b'] }); // '/docs/guides/a%20b'
 route('/projects/[id]', { id }, { done: 2 });          // '/projects/web?done=2'
+route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' }); // '/docs/guides/caching#keys'
 ```
 
 ## Route groups and private folders
@@ -197,12 +198,14 @@ import { Link } from 'netjes';
 import { route } from '../generated/netjes.ts';
 
 <Link href={route('/blog/[slug]', { slug: post.slug })}>{post.title}</Link>
+<Link href={route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })}>Cache keys</Link>
 <Link href="/about" className="aria-[current=page]:font-bold">About</Link>
 ```
 
 - `href` is typed by the app's routes once `netjes generate` has written `generated/netjes.ts`: a path no page serves is a type error. `Href.parse(value)` from the generated file checks a URL that comes from data, such as a CMS ([Typed links](data-loading.md#typed-links)).
 - The link gets `aria-current="page"` when its path is the current one, for styling the current link.
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
+- To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'a b'` finds `<h2 id="a b">`.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
 

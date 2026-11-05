@@ -334,7 +334,7 @@ import { Href, route } from '../generated/netjes.ts';
 <Link href={Href.parse(item.href)}>{item.label}</Link>            // a URL from data, checked at the boundary
 ```
 
-`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search)` builds an encoded URL. `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS or shared props.
+`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search, { hash })` builds an encoded URL: `search` is the query and `hash` the id of an element on the page, added as a fragment ([Links](routing.md#links)). `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS or shared props.
 
 ## JSON endpoints
 
