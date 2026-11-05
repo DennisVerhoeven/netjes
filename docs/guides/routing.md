@@ -211,7 +211,7 @@ import { route } from '../generated/netjes.ts';
 - An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
-- After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
+- After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
 - A `ref` gets the `<a>` element, as on a plain `<a>`, to focus the link or scroll it into view. `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` in the same way, for the `<form>`, `<button>` and `<img>` they render.
 
@@ -240,7 +240,41 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 
 The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)).
 
-A fragment link to the same page (`#comments`) changes the history entry and scrolls, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
+A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
+
+### Focus and announcements
+
+A page load tells a screen reader which page has opened, and starts the keyboard focus over at the top of the document. A client navigation swaps the page without doing either, so the router does both ([ADR 0033](../decisions/0033-client-navigations-announce-the-page-and-start-the-focus-over.md)).
+
+After a navigation to another path or query, a live region that the router renders after the app's content (`aria-live="polite"`, visually hidden) gets the new page's name: its `document.title`, or else the text of its first `h1`, or else its path. The region speaks only when that name differs from the previous page's, so give each page a title of its own, with `metadata` or with `PageMetadata` from C# ([Titles](metadata.md#titles)): two pages with one title sound like one page. A refresh, a form post that stays on its page and a link to a fragment of the page on screen are not announced. Nor is a page that an intercepting route shows in a modal: the page under it keeps its title, so the modal names itself, as a dialog with a label does. The region renders in the browser only, once the page has hydrated, so the server's HTML does not contain it. It has no role, so a test that looks for a `status` or an `alert` does not find it; an end-to-end test reads it as `page.locator('[data-netjes-route-announcer]')`.
+
+Once it has scrolled, the router moves the focus by the first of these rules that applies:
+
+1. The element the `#fragment` names takes the focus, on the page on screen or on the page the navigation opens. An element that takes no focus of its own, such as a heading or `main`, gets `tabindex="-1"` until it loses the focus again.
+2. On the same page, the focus stays where it is: after a navigation that changes only the query, `router.refresh()`, a form post that stays on its page, and a modal that an intercepting route opens over the page, or that Back closes.
+3. When the focus moved while the navigation ran, it stays where it went: on the new page's `autoFocus` element, or wherever the user or the app's code put it, such as a menu that gives the focus back to its button as it closes. The `onClick` of the `<Link>` that was followed and the `onSubmit` of the `<Form>` that was submitted count as code that runs during the navigation.
+4. When the element that had the focus as the navigation started still has it, it keeps it if the navigation keeps the scroll position, or if the element is a field the user types into (a text field, a `select`, editable content), such as a search box in a layout that navigates as the user types. A link with `scroll={false}` keeps the scroll position, and so does `router.refresh()`, also when the server redirects it to another page.
+5. Otherwise the focus starts over at the top of the document, as after a page load: the next Tab goes to the first element that takes the focus. The router focuses `body` for this, giving it `tabindex="-1"` for that moment only, and leaves a `tabindex` of the app's own on `body` as it was.
+
+No focus call scrolls, so the scroll position the router set stays, the one Back and Forward restore included. Back and Forward follow the same rules as a link: after Back to another page, the next Tab starts from the top of that page, not from the link the user followed from it. A page that wants the focus somewhere else, on its heading say, moves it there in an effect: the page's `useEffect` runs after the router has moved the focus, and the router leaves the focus where the page's layout effects put it (rule 3).
+
+A few things follow from these rules:
+
+- **Skip links.** After each navigation to another page, Tab goes through everything above the page again, such as the header and its navigation, unless the root layout starts with a skip link, as the layout of a new app does:
+
+  ```tsx
+  <Link href="#content" prefetch="none" className="sr-only focus:not-sr-only">
+    Skip to content
+  </Link>
+  {/* the header and its navigation */}
+  <main id="content">{children}</main>
+  ```
+
+  It links a place on the page on screen, which needs no prefetch. Following it focuses `main` (rule 1), so the next Tab goes into the page's content, as it does without JavaScript.
+- **Menus.** A menu or a drawer that closes as one of its links is followed can give the focus back to its button, in the link's `onClick` or as the menu closes, and the router leaves it there (rule 3). A handler that navigates with `router.push` gives the focus back after that call: the router notes where the focus is as the call starts the navigation. If the menu closes later, in an effect that runs after the navigation, give the focus back to its button only while the focus is still inside the menu: by then the router has moved the focus, and the button would take it from the top of the new page.
+- **Modals.** When a modal that an intercepting route shows closes, give the focus back to the link that opened it, as a dialog does. The router leaves the focus alone when the modal opens and when it closes, since the page under it stays (rule 2).
+- **Tabs and pagination.** A link that changes only the query, such as `?page=2`, keeps the focus, since the page stays. A link that changes the path replaces the page, and a tab or pagination link inside the page goes with it, so the focus starts over at the top, even with `scroll={false}`. Tabs in a layout stay mounted, and with `scroll={false}` they keep the focus (rule 4).
+- **End-to-end tests.** After a navigation to another page the focus is on `body`, so a test that types right after one focuses its field first, as `locator.fill()` does. A test that reads the text of a whole container, such as `body`, also gets the region's text: read the element you mean instead.
 
 ### `useRouter`
 
@@ -256,7 +290,7 @@ router.back();
 router.forward();
 ```
 
-`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. `push`, `replace` and `refresh` return promises that settle when the navigation has finished.
+`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. `push`, `replace` and `refresh` return promises that resolve once the router has handed the new page to React, or once the navigation has ended another way: another navigation took its place, the browser loads the URL with a full page load, or the router refused the URL. When a promise resolves, the old page can still be on screen: React shows the new one when it commits it, and inside a transition of the app's own, such as a form action, only once that transition has ended ([ADR 0034](../decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)). Code that needs the new page runs in an effect of that page, or in an effect that depends on `usePathname()` and `useSearchParams()`; a link to a fragment moves the focus to its element without any code.
 
 ### Navigation state
 

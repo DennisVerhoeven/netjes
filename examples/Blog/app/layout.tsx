@@ -1,4 +1,4 @@
-import { type LayoutProps, type Metadata, useBasePath } from 'netjes';
+import { Link, type LayoutProps, type Metadata, useBasePath } from 'netjes';
 import { WebVitals } from 'netjes/vitals';
 import { ProgressBar } from '../components/ProgressBar.tsx';
 import { SiteHeader } from '../components/SiteHeader.tsx';
@@ -15,6 +15,15 @@ export default function RootLayout({ children }: LayoutProps) {
   return (
     <>
       <link rel="icon" href={`${basePath}/favicon.svg`} type="image/svg+xml" />
+      {/* The first element Tab reaches, after a page load and after every client navigation, when the router starts
+          the focus over at the top of the document. It points to a place on this page, which needs no prefetch. */}
+      <Link
+        href="#content"
+        prefetch="none"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-20 focus:rounded-card focus:bg-surface focus:px-4 focus:py-2 focus:text-ink focus:shadow-md"
+      >
+        Skip to content
+      </Link>
       <ProgressBar />
       <WebVitals />
       <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-6">

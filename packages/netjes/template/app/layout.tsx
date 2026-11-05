@@ -14,6 +14,15 @@ export default function RootLayout({ children }: LayoutProps) {
   const site = useSharedProps(sharedProps);
   return (
     <div className="mx-auto min-h-screen max-w-3xl px-6 py-10 font-sans text-slate-900">
+      {/* The first element Tab reaches, after a page load and after every client navigation, when the router starts
+          the focus over at the top of the document. It points to a place on this page, which needs no prefetch. */}
+      <Link
+        href="#content"
+        prefetch="none"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2 focus:shadow"
+      >
+        Skip to content
+      </Link>
       <header className="mb-12 flex items-baseline justify-between">
         <Link href="/" className="text-xl font-semibold no-underline">
           {site.siteName}
@@ -27,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps) {
           </Link>
         </nav>
       </header>
-      <main>{children}</main>
+      <main id="content">{children}</main>
     </div>
   );
 }
