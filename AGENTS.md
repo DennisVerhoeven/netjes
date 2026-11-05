@@ -1,6 +1,6 @@
 # Working on Netjes
 
-Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, server actions, authorization and caching; a supervised Node sidecar renders React; the browser hydrates and navigates. Read [docs/architecture.md](docs/architecture.md) before changing anything structural, and [docs/decisions/](docs/decisions/) for why it is built this way. These instructions are for anyone changing Netjes itself, people and coding agents alike.
+Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, server actions, authorization and caching; a supervised Node sidecar renders React; the browser hydrates and navigates. Read [docs/architecture.md](docs/architecture.md) before changing anything structural, and [docs/decisions/](docs/decisions/README.md) for why it is built this way. These instructions are for anyone changing Netjes itself, people and coding agents alike.
 
 ## Where things are
 

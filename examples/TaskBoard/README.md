@@ -2,7 +2,7 @@
 
 A small multi-tenant project tracker (think Linear-lite) built on Netjes's app router: React pages, ASP.NET Core and Postgres behind them. It is the example to read when you want to see how a real app is put together: authentication, tenancy, forms that work without JavaScript, live data, streaming.
 
-The [Blog](../Blog) is the smaller example; the [Netjes docs](../../docs/README.md) explain each feature it uses.
+The [Blog](../Blog/README.md) is the smaller example; the [Netjes docs](../../docs/README.md) explain each feature it uses.
 
 ## Run it
 
