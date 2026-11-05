@@ -111,7 +111,7 @@ npm run dev          # http://localhost:5080
 
 ## Features
 
-- **Routing** with the App Router file conventions: layouts, templates, `loading`, `error`, `not-found`, `forbidden` and `unauthorized` boundaries, route groups, dynamic, catch-all and optional catch-all segments, parallel and intercepting routes, a client router with prefetching and back and forward from memory, base paths and locale routing. [Routing](docs/guides/routing.md)
+- **Routing** with the App Router file conventions: layouts, templates, `loading`, `error`, `not-found`, `forbidden` and `unauthorized` boundaries, route groups, dynamic, catch-all and optional catch-all segments, parallel and intercepting routes, one URL per page, a client router with prefetching, back and forward from memory, and announcements and focus after each navigation, base paths and locale routing. [Routing](docs/guides/routing.md)
 - **Data loading** in C#: page loaders, layout loaders that are skipped on navigations within their section, shared props for every page, public configuration read at runtime, and TanStack Query seeded from the loader so queries render on the server. [Data loading](docs/guides/data-loading.md)
 - **Server actions and forms**: C# endpoints with typed references, DataAnnotations validation, `<Form>` with a fallback without JavaScript, antiforgery and same-origin checks, revalidation, uploads and downloads. [Actions and forms](docs/guides/actions-and-forms.md)
 - **Rendering and streaming**: streamed documents, `Page.Defer` for slow values, `loading.tsx` and Suspense, complete documents for crawlers, `dynamic()` and `clientOnly()`, and in production a page the browser renders itself while no Node process is ready. [Rendering and streaming](docs/guides/rendering-and-streaming.md)
@@ -120,7 +120,7 @@ npm run dev          # http://localhost:5080
 - **Images**: `<Image>` with an optimiser endpoint, configured widths and allow-listed remote hosts, and optional resizing and WebP with SkiaSharp. [Images](docs/guides/images.md)
 - **Static export**: `netjes export` writes every page as a complete HTML file. [Static export](docs/guides/static-export.md)
 - **Security defaults**: `nosniff` on every response through `UseNetjes()` and the other security headers on every document, an opt-in Content-Security-Policy with nonces or hashes, body limits for actions, safe redirects and a guarded image endpoint. [Security](docs/guides/security.md)
-- **Testing**: Vitest set up by the Vite plugin, a harness that renders pages and components with a fake router and fake actions, and C# tests against the real app. [Testing](docs/guides/testing.md)
+- **Testing**: Vitest set up by the Vite plugin, a harness that renders pages and components with a fake router and fake actions, `renderDocument` for a page's whole document and the hashes of its inline scripts, and C# tests against the real app. [Testing](docs/guides/testing.md)
 - **Deployment**: `dotnet publish` runs the client build and ships it with the app; Docker, health checks, OpenTelemetry traces and metrics, several instances behind a load balancer. [Deployment](docs/guides/deployment.md)
 - **Coding agents**: new apps come with an `AGENTS.md` and a Netjes skill, and the docs are published as `llms.txt` and `llms-full.txt`. [Coding agents](docs/guides/coding-agents.md)
 
@@ -152,7 +152,7 @@ The three are released together under one version. An app uses the same version 
 
 - The .NET 10 SDK. Apps target `net10.0`.
 - Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer (`^22.22.2 || ^24.15.0 || >=26.0.0`), at build time and next to the app in production: the server renders pages in Node processes it starts and supervises.
-- React 19, Vite 7 or newer, and zod 4 for the generated schemas. `netjes new` installs them.
+- React 19, Vite 7 or newer, and zod 4 for the generated schemas: 4.4.0 or newer, so that pages under a Content-Security-Policy without `'unsafe-eval'` report no violation ([zod in the browser](docs/guides/security.md#zod-in-the-browser)). `netjes new` installs them.
 - Docker, only for the template's container setup.
 - Linux, macOS or Windows. CI runs the .NET and JavaScript tests on all three (the ones that need Docker on Linux only), and the end-to-end suites and the package check on Linux.
 

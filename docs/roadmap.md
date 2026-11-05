@@ -12,7 +12,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 - **Instant loading.** On a client navigation, show the target's `loading.tsx` at once inside the layouts it shares with the current page, then stream in the layout loaders' props and the page as they are ready, instead of waiting for the whole payload.
 - **Caching depth.** Stale-while-revalidate for cached pages, cache profiles, tags added by a loader at render time, revalidation by route pattern or layout, and a cached shell that is filled for an anonymous visitor, for pages with a part that differs per visitor.
 - **Metadata and images.** The metadata file conventions in `app/` (`icon`, `apple-icon`, `opengraph-image`, `twitter-image`, `manifest`), generated Open Graph images, richer sitemaps and `robots.txt`, `metadataBase` and `viewport`, and more of `<Image>`: `fill`, blur placeholders and static imports.
-- **Client navigation in static exports.** Write each page's payload next to its HTML, so exported sites navigate without full page loads, with a trailing-slash option, the sitemap and `robots.txt` in the export, and images resized at export time.
+- **Client navigation in static exports.** Write each page's payload next to its HTML, so exported sites navigate without full page loads, files written to match `TrailingSlash` (and a `TrailingSlash.Always`), the sitemap and `robots.txt` in the export, and images resized at export time.
 - **Bundle size.** Smaller first-load JavaScript: generated schemas split per route and free of side effects, so bundlers can drop what a page does not use, and `dynamic()` chunks preloaded from the build manifest.
 - **Error handling.** An id for each server error, logged with the exception and shown to the user, a way to retry the failed segment from `error.tsx`, and a global error boundary in the browser.
 - **Internationalisation.** Redirects from paths without a locale, `hreflang` alternates from the supported cultures, and optional domains per locale.
@@ -23,6 +23,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 - Partial prerendering: a cached HTML shell, resumed by React with the parts that differ per request.
 - valibot as an alternative to zod in the generated file.
 - Navigations that keep what an unmatched parallel-route slot showed, as Next.js does after a soft navigation.
+- Back and Forward that give the focus back to the element that had it when the user left the entry, found again in the page that renders anew ([ADR 0033](decisions/0033-client-navigations-announce-the-page-and-start-the-focus-over.md)).
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.

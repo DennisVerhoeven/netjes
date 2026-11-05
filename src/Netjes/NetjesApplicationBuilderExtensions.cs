@@ -21,9 +21,10 @@ public static class NetjesApplicationBuilderExtensions
     /// output-cache answers and the app's own endpoints included, unless the response has that header when it starts;
     /// a response that middleware registered before it writes without passing the request on does not.
     /// <c>Netjes:SecurityHeaders:Enabled</c> set to false turns that off (<see cref="NetjesOptions.SecurityHeaders"/>).
-    /// Last, after routing, a <c>GET</c> or <c>HEAD</c> for a page, <c>/robots.txt</c> or <c>/sitemap.xml</c> in another case
-    /// of its literal segments gets a 308 to its file's spelling (<see cref="NetjesOptions.RedirectLiteralCase"/>), and so
-    /// does one with a trailing slash under <see cref="TrailingSlash.Never"/>, before the output cache could store it.
+    /// Last, after routing, a <c>GET</c> or <c>HEAD</c> for a page, or for the <c>/robots.txt</c> or <c>/sitemap.xml</c>
+    /// that <c>MapRobotsTxt</c> and <c>MapSitemap</c> map, in another case of its literal segments gets a 308 to its
+    /// spelling (<see cref="NetjesOptions.RedirectLiteralCase"/>), and so does one with a trailing slash under
+    /// <see cref="TrailingSlash.Never"/>, before the output cache could store it.
     /// </summary>
     public static IApplicationBuilder UseNetjes(this IApplicationBuilder app)
     {

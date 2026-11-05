@@ -13,7 +13,7 @@ ASP.NET Core's matcher matches literal segments in any case and ignores one trai
 - `/robots.txt` and `/sitemap.xml` follow both settings, with a plain 308. Other endpoints, the not-found page and other methods are left alone.
 - Only the literal segments change. Route values, the query string and the base path go along as sent, and so does a trailing slash under `Ignore`.
 - It redirects only the URL the client sent. The request target (`IHttpRequestFeature.RawTarget`) must decode to the base path and the path routing matched. A request a rewrite changed, one run again (for a failed form post, a status code page or an exception handler), one whose path the server normalised (dot segments), one whose target is in absolute form (`http://host/path`, which clients send only to a proxy), and one on a server that passes on no target, such as TestServer, get no redirect. The location is built from the target, so a value goes back encoded as it came.
-- No location is sent that a client could read as another site or another page: one that starts with `//` or `/\`, as sent or decoded, or holds a backslash, a `#`, a control character or a character beyond ASCII. Such a request is answered as it was sent.
+- No location is sent that a client could read as another site or another page: one that starts with `//` or `/\`, as sent or decoded, or holds a backslash, a `#`, a space, a control character or a character beyond ASCII. Such a request is answered as it was sent.
 - The case and the slash are two settings, because their risks differ: the case redirect keeps every old link working, while dropping a slash loops behind a proxy that adds one. `TrailingSlash` is an enum so that a value that always adds the slash can follow.
 
 ## Alternatives considered

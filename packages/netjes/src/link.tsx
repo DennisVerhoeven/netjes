@@ -7,9 +7,12 @@ export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   /** Typed by the app's routes once `netjes generate` has registered them. */
   href: Href;
   replace?: boolean;
-  /** Scroll to the top (or the #fragment) after navigating. Default true. */
+  /**
+   * Scroll to the top after navigating, or to the #fragment's element, which then takes the focus. Default true. `false`
+   * keeps the scroll position, and the focus on the link while the link has it.
+   */
   scroll?: boolean;
-  /** `intent` (default) fetches the next page on hover or focus. */
+  /** `intent` (default) fetches the next page on hover, focus or touch. */
   prefetch?: 'intent' | 'none';
   /** Let the browser follow it with a full page load, e.g. for a file download or a page outside Netjes. */
   reloadDocument?: boolean;
@@ -60,7 +63,8 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
 /**
  * An `<a>` that navigates on the client. Ctrl/cmd-click, new tabs and external URLs behave like a normal link. It sets
  * `aria-current="page"` on a link to the page on screen: the same path, one trailing slash aside, and the page's values
- * for each query parameter the link names. A link with a `#` is never marked, and an `aria-current` prop wins.
+ * for each query parameter the link names. A link with a `#` is never marked, and an `aria-current` prop wins. After a
+ * navigation to another page, the router announces the page and starts the focus over at the top of the document.
  */
 export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
   const router = useInternalRouter();

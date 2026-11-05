@@ -268,9 +268,10 @@ async function text(stream: AsyncIterable<unknown>): Promise<string> {
  * Renders a page's whole document, from `<!DOCTYPE html>` to `</html>`, as the Node sidecar renders it for a crawler:
  * the page from `page`, a file of the pages map such as `app/blog/[slug]/page.tsx`, inside the layouts the server
  * would wrap it in, with the head, Netjes's inline scripts and the payload. It waits for every Suspense boundary, and
- * a Promise in the props is a `Page.Defer` value, rendered in place once it settles. The build's stylesheets and
- * scripts, development styles and an antiforgery token are left out, and no C# runs: the props come from `options`.
- * Runs in Vitest's node environment, with the `netjes()` plugin, which provides the pages map.
+ * a Promise in the props or in a layout's props is a `Page.Defer` value: rendered in place once it resolves, left as its
+ * Suspense fallback when it rejects. The build's stylesheets and scripts, development styles and an antiforgery token
+ * are left out, and no C# runs: the props come from `options`. Runs in Vitest's node environment, with the `netjes()`
+ * plugin, which provides the pages map, the app's folder and the query shell, also when `modules` is given.
  */
 export async function renderDocument(page: string, options: RenderDocumentOptions = {}): Promise<string> {
   const { modules, signal, props, layouts, ...rest } = options;

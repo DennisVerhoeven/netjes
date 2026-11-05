@@ -33,7 +33,8 @@ public sealed class NetjesOptions
     /// <summary>
     /// Answer a page's URL in another case of the literal segments its file names (<c>/About</c> for
     /// <c>app/about/page.tsx</c>) with a 308 to the file's spelling (<c>/about</c>), and a client navigation with a redirect
-    /// payload; <c>/robots.txt</c> and <c>/sitemap.xml</c> too. Route values, the query string and the base path go along
+    /// payload; so do the <c>/robots.txt</c> and <c>/sitemap.xml</c> that <c>MapRobotsTxt</c> and <c>MapSitemap</c> serve,
+    /// in another case of their literal segments. Route values, the query string and the base path go along
     /// as sent, and so does a trailing slash unless <see cref="TrailingSlash"/> is <see cref="Netjes.TrailingSlash.Never"/>.
     /// Only a <c>GET</c> or <c>HEAD</c> for the URL the client sent is redirected, never a request a rewrite or a
     /// re-execution changed, nor one on a server that does not pass on the request target as sent, such as TestServer.
@@ -44,7 +45,8 @@ public sealed class NetjesOptions
     /// <summary>
     /// Whether a page's URL may end in a slash. <see cref="Netjes.TrailingSlash.Ignore"/>, the default, answers
     /// <c>/about</c> and <c>/about/</c> alike, as ASP.NET Core routing does. <see cref="Netjes.TrailingSlash.Never"/>
-    /// answers <c>/about/</c> with a 308 to <c>/about</c>, for the requests <see cref="RedirectLiteralCase"/> redirects.
+    /// answers a <c>GET</c> or <c>HEAD</c> for <c>/about/</c> with a 308 to <c>/about</c>, for the same kinds of requests
+    /// as <see cref="RedirectLiteralCase"/>, whether that is on or off.
     /// </summary>
     public TrailingSlash TrailingSlash { get; set; } = TrailingSlash.Ignore;
 
@@ -157,7 +159,10 @@ public sealed class NetjesOptions
     /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> in its <c>script-src</c> to allow Netjes's inline scripts,
     /// as in <c>$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}"</c>; Netjes does not add them. No hash
     /// covers the scripts that stream <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one
-    /// must not stream.
+    /// must not stream. The policy goes out as written in every environment, so in Development it also has to allow the
+    /// Vite dev server's scripts, its HMR socket, the styles inlined there, and the images and fonts it serves. When the
+    /// policy on a document, this one or the app's own, refuses what the document needs, Netjes logs a warning once per
+    /// policy.
     /// </summary>
     public string? ContentSecurityPolicy { get; set; }
 

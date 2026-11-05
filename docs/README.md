@@ -13,14 +13,14 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 
 ### Build
 
-- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings.
+- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, focus and announcements after a navigation, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
 
 ### Render
 
 - [Rendering and streaming](guides/rendering-and-streaming.md): the Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages.
-- [Caching](guides/caching.md): the default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry, revalidation, draft mode and CDNs.
+- [Caching](guides/caching.md): the default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry, endpoints that are not pages, revalidation, draft mode and CDNs.
 - [Images](guides/images.md): `<Image>`, the image endpoint and its limits, and image processing with SkiaSharp.
 
 ### Publish
@@ -31,8 +31,8 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 
 ### Run
 
-- [Security](guides/security.md): the default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults.
-- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, C# tests of loaders and actions, Playwright and waiting for hydration, and the checks for CI.
+- [Security](guides/security.md): the default headers, Content-Security-Policy in production and in Development and the warnings Netjes logs for a policy, zod without compiled parsers in the browser, antiforgery and origin checks, body limits, redirects and the other defaults.
+- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, a page's whole document with `renderDocument`, C# tests of loaders and actions, Playwright and waiting for hydration, and the checks for CI.
 - [Deployment](guides/deployment.md): publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies.
 - [Coding agents](guides/coding-agents.md): `llms.txt`, the `AGENTS.md` and skill that new apps get, and `netjes agents` for existing ones.
 

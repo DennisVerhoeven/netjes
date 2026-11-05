@@ -95,7 +95,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 |---|---|
 | `create-next-app` | `npx netjes new my-app`. [Getting started](getting-started.md) |
 | `next dev`, `next build`, `next start` | `netjes dev`, `netjes build`, `netjes start`; `dotnet publish` runs the build and ships it. [The netjes command](reference/cli.md) |
-| `output: 'export'` | `netjes export`. Exported pages navigate with full page loads. [Static export](guides/static-export.md) |
+| `output: 'export'` | `netjes export`. Exported pages navigate with full page loads, and `useSearchParams()` sees no query string there: read `window.location.search` in an effect ([in the browser](guides/static-export.md#in-the-browser)). The export warns about loaders that read the query string. [Static export](guides/static-export.md) |
 | `next.config.js` | `NetjesOptions` in C# (and the `Netjes` configuration section) for the server, `netjes()` options in `vite.config.ts` for the build. [Options](reference/options.md), [Vite plugin](reference/vite-plugin.md) |
 | Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL |
 | Fast Refresh, Turbopack | Vite with React Fast Refresh ([ADR 0004](decisions/0004-vite-for-dev-server-and-builds.md)) |

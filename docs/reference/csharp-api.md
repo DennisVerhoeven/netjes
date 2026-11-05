@@ -35,7 +35,7 @@ Registers Netjes: options bound from the `Netjes` configuration section and then
 public static IApplicationBuilder UseNetjes(this IApplicationBuilder app)
 ```
 
-Adds static files (`public/` in development; the client build in production, with `immutable` caching for the hashed files in `/assets` and Vite's `.vite/` folder never served), routing, and the middleware that renders the nearest `error.tsx` for exceptions and empty error responses of pages. It also stamps every client payload with the server's clock (`X-Netjes-Now`), and adds `X-Content-Type-Options: nosniff` to every response that passes through it, unless the response has that header when it starts or `Netjes:SecurityHeaders:Enabled` is false ([security](../guides/security.md#security-headers)). Last, after routing, it answers a `GET` or `HEAD` for a page, `/robots.txt` or `/sitemap.xml` in another case of the literal segments its file names with a 308 to the file's spelling, as `RedirectLiteralCase` (on by default) asks, and one with a trailing slash too when `TrailingSlash` is `Never` ([One URL per page](../guides/routing.md#one-url-per-page)). Call it before authentication and before `UseOutputCache()`, which then stores no other spelling that a browser sends. A server action that fails without JavaScript renders its form's page by running the pipeline again from here, so middleware registered before `UseNetjes()` does not run for that render. In production it reads the client build's manifest, and throws when it is missing, saying what to run: an app that does not catch it logs that in one line and exits with code 1. It also stops an app with Next.js pages router files in a `pages/` folder, naming the `app/` file to move each one to, and the API routes in `pages/api/` to map as minimal API endpoints ([Routing](../guides/routing.md#what-is-not-there)).
+Adds static files (`public/` in development; the client build in production, with `immutable` caching for the hashed files in `/assets` and Vite's `.vite/` folder never served), routing, and the middleware that renders the nearest `error.tsx` for exceptions and empty error responses of pages. It also stamps every client payload with the server's clock (`X-Netjes-Now`), and adds `X-Content-Type-Options: nosniff` to every response that passes through it, unless the response has that header when it starts or `Netjes:SecurityHeaders:Enabled` is false ([security](../guides/security.md#security-headers)). Last, after routing, it answers a `GET` or `HEAD` for a page in another case of the literal segments its file names with a 308 to the file's spelling, as `RedirectLiteralCase` (on by default) asks, and does the same for the `/robots.txt` and `/sitemap.xml` that `MapRobotsTxt` and `MapSitemap` serve. When `TrailingSlash` is `Never`, it answers one with a trailing slash in the same way, whether or not `RedirectLiteralCase` is on ([One URL per page](../guides/routing.md#one-url-per-page)). Call it before authentication and before `UseOutputCache()`, which then never stores a spelling these settings redirect: another case of a literal segment, and under `Never` a trailing slash. A server action that fails without JavaScript renders its form's page by running the pipeline again from here, so middleware registered before `UseNetjes()` does not run for that render. In production it reads the client build's manifest, and throws when it is missing, saying what to run: an app that does not catch it logs that in one line and exits with code 1. It also stops an app with Next.js pages router files in a `pages/` folder, naming the `app/` file to move each one to, and the API routes in `pages/api/` to map as minimal API endpoints ([Routing](../guides/routing.md#what-is-not-there)).
 
 ### MapPages
 
@@ -271,7 +271,7 @@ In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.j
 - `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
 - `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
 
-Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body.
+Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body. Each answers one spelling of its path, as a page does: another case (`/Sitemap.xml`), or a trailing slash under `TrailingSlash.Never`, gets a 308 to `/sitemap.xml` or `/robots.txt`, as `RedirectLiteralCase` and `TrailingSlash` ask ([One URL per page](../guides/routing.md#one-url-per-page)).
 
 ## Server actions
 
@@ -325,8 +325,8 @@ public sealed class ServerActionResult : IResult
 
 | Method | What it does |
 |---|---|
-| `Revalidate(tags)` | Evicts output-cached pages with these tags, then the client loads its page again. |
-| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. |
+| `Revalidate(tags)` | Evicts every output-cache entry with these tags, then the client loads its page again: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))` ([endpoints that are not pages](../guides/caching.md#endpoints-that-are-not-pages)). |
+| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. It evicts pages only, never the entry of an endpoint that is not a page. |
 | `Refresh()` | The client loads its current page again (every loader runs) once the action completes. |
 | `Invalidate(queryKeys)` | Invalidates these TanStack Query keys, and those they prefix, on the client, so they are fetched again. |
 | `WithQuery(queryKey, data)` | Sets a TanStack Query entry on the client, such as the updated record, without a fetch. Throws for an empty key. |
@@ -352,7 +352,7 @@ public interface IPageCache
 }
 ```
 
-Evicts output-cached pages from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidatePathAsync` evicts the document and the payloads of the path. Without output caching both do nothing. Inject it.
+Evicts output-cache entries from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidateTagAsync` evicts every entry with the tag: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))`. `RevalidatePathAsync` evicts the document and the payloads of the page at the path, and never the entry of an endpoint that is not a page. Without output caching both do nothing. Inject it.
 
 ### IDraftMode
 
@@ -421,7 +421,19 @@ public static class NetjesContentSecurityPolicy
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](options.md).
 
+### TrailingSlash
+
+```csharp
+public enum TrailingSlash
+{
+    Ignore = 0,
+    Never = 1,
+}
+```
+
 `TrailingSlash` is the type of `NetjesOptions.TrailingSlash`, in the `Netjes` namespace: `Ignore` (0, the default) answers a page's URL with and without a trailing slash, and `Never` (1) answers one with a slash with a 308 to the URL without it. Next to it, `NetjesOptions.RedirectLiteralCase` (a `bool`, true by default) redirects another case of a page's literal segments to its file's spelling ([options](options.md#routing), [One URL per page](../guides/routing.md#one-url-per-page)).
+
+Like `Href`, the name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `TrailingSlash` gets CS0104 for it. Qualify one of the two, or give one an alias.
 
 ## Telemetry and headers
 
