@@ -55,10 +55,16 @@ COPY examples/TaskBoard examples/TaskBoard
 COPY --from=client /src/examples/TaskBoard/dist examples/TaskBoard/dist
 RUN dotnet publish examples/TaskBoard/TaskBoard.csproj -c Release -o /app --no-restore -p:NetjesSkipClientBuild=true
 
+# tini, the production image's PID 1 (below): Ubuntu's package, installed in the SDK image the build stage uses. The
+# production stage takes its static binary, which needs no package manager and no library in RUNTIME_IMAGE.
+FROM ${SDK_IMAGE} AS tini
+RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+
 # Production: ASP.NET Core runtime plus the node binary for the SSR sidecar, as the non-root app user.
 # `docker compose run migrate` (or the migrate service) runs `dotnet TaskBoard.dll migrate` from this image.
 FROM ${RUNTIME_IMAGE} AS production
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=tini /usr/bin/tini-static /usr/bin/tini
 RUN mkdir -p /home/app/.aspnet/DataProtection-Keys && chown -R app:app /home/app/.aspnet
 WORKDIR /app
 COPY --from=build /app ./
@@ -66,4 +72,8 @@ USER $APP_UID
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
-ENTRYPOINT ["dotnet", "TaskBoard.dll"]
+# tini is PID 1 and runs the app as its child. The kernel ignores a signal that a container's PID 1 has no handler for,
+# so an app that is PID 1 never dies of its own abort(): after a crash it spins (arm64) or exits with another code than
+# 134. tini passes signals on (docker stop), reaps orphans and exits with the app's code; -s keeps it reaping when
+# another process is PID 1, as under docker run --init.
+ENTRYPOINT ["tini", "-s", "--", "dotnet", "TaskBoard.dll"]

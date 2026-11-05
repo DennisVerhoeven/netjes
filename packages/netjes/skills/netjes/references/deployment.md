@@ -13,7 +13,7 @@ cd bin/publish && ASPNETCORE_ENVIRONMENT=Production dotnet MyApp.dll
 
 `npx netjes start` runs the app in Production from the source tree (or `--dll bin/publish/MyApp.dll`, which runs from the publish folder). In production the routes come from the built client manifest, so a page file that was not built does not exist.
 
-For these startup failures the app logs one critical entry, saying what is wrong and what to do, and exits with code 1: no build in Production (`npm run build`), a `node` it cannot start (`Netjes:NodeExecutable`), a sidecar script that is not installed or built (`npm install` in development, `npm run build` in production), or in development the Vite dev server's port taken, an error in `vite.config.ts` (with Vite's code frame) or a package it imports that is not installed (`npm install`). Under `WebApplicationFactory` the start throws that message instead. Other exceptions at startup, such as a route conflict, keep their stack.
+For these startup failures the app logs one critical entry, saying what is wrong and what to do, and exits with code 1: no build in Production (`npm run build`), a `node` it cannot start (`Netjes:NodeExecutable`), a sidecar script that is not installed or built (`npm install` in development, `npm run build` in production), or in development the Vite dev server's port taken, an error in `vite.config.ts` (with Vite's code frame) or a package it imports that is not installed (`npm install`). Under `WebApplicationFactory` the start throws that message instead. Other exceptions at startup, such as a route conflict, keep their stack. An exception that nothing catches, at startup or on a thread of the app's own, ends it as a .NET crash does: an abort, exit code 134. ASP.NET Core catches a request's exceptions (a page's renders its `error.tsx`), and the host catches one from a `BackgroundService` and stops the app with exit code 0.
 
 ## Docker
 
@@ -21,6 +21,8 @@ For these startup failures the app logs one critical entry, saying what is wrong
 
 - `docker compose up`: development, with `dotnet watch` and Vite HMR, ports bound to localhost.
 - `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`: the production image, a non-root user on a read-only filesystem, with a health check on `/healthz` and Data Protection keys in a named volume.
+- Both publish the app on host port 8080; `APP_PORT` (in the shell or a `.env` file) moves it. Vite's 5173 stays.
+- The production image runs `tini -s -- dotnet MyApp.dll`: tini is PID 1, passes `docker stop`'s SIGTERM on, and exits with the app's code, so a crash ends the container (134) and `restart: always` acts. When .NET itself is a container's PID 1, its abort does not end it: after a crash it spins at 100% CPU and never exits on arm64, where after a crash later than startup the rest of the app keeps serving and `/healthz` still passes, and it exits with another code than 134 on x86-64. An image of the app's own, or one from an older template, needs an init too: the template's `tini` stage, its `COPY` and the `ENTRYPOINT`, or the host's (`docker run --init`, Compose `init: true`, ECS `initProcessEnabled`).
 
 The image restores Netjes from NuGet and npm, so the app must reference the packages, as an app made with `npx netjes new` does (from a Netjes checkout, pass `--packages`).
 

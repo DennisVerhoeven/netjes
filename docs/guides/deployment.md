@@ -42,7 +42,9 @@ crit: Netjes.Rendering.ViteManifestProvider[0]
       No production build found at '/app/dist/client/.vite/manifest.json'. To develop, run `npm run dev`, or start the app with ASPNETCORE_ENVIRONMENT=Development. To run in production, build first: `npm run build` in '/app'.
 ```
 
-For Node.js the line is `Could not start 'node'. Is Node.js installed and on the PATH? Set Netjes:NodeExecutable to use another executable.`, and for a build without the sidecar script `` Cannot find the netjes sidecar at '/app/dist/server/netjes-sidecar.mjs'. Run `npm run build` in '/app'. ``. A container runtime or process manager sees exit code 1, as for any app that fails to start. In a test host such as `WebApplicationFactory`, the start fails with that message instead ([testing](testing.md#the-app-over-http)).
+For Node.js the line is `Could not start 'node'. Is Node.js installed and on the PATH? Set Netjes:NodeExecutable to use another executable.`, and for a build without the sidecar script `` Cannot find the netjes sidecar at '/app/dist/server/netjes-sidecar.mjs'. Run `npm run build` in '/app'. ``. A container runtime or process manager sees exit code 1 for these failures. In a test host such as `WebApplicationFactory`, the start fails with that message instead ([testing](testing.md#the-app-over-http)).
+
+Exit code 1 is for Netjes's own startup failures only: these, and in Development a Vite dev server that does not start ([the sidecar pool](rendering-and-streaming.md#the-sidecar-pool)). An exception that nothing catches, such as one thrown from `Program.cs` or on a thread the app starts itself, ends the app as .NET ends any process that crashes: it prints the exception with its stack and aborts, which is exit code 134 (SIGABRT) on Linux and macOS. `Environment.FailFast` and a stack overflow end it the same way. A request's exceptions do not end it: ASP.NET Core catches them, and Netjes renders a page's as its [error page](rendering-and-streaming.md#error-pages). The host catches one from a `BackgroundService`, logs it and stops the app with exit code 0. In a container, the abort ends the process only under an init; see [a crash in a container](#a-crash-in-a-container).
 
 ## Docker
 
@@ -50,8 +52,10 @@ Every app made with `netjes new` has a `Dockerfile` and three Compose files. An 
 
 ```bash
 docker compose up                                                     # development: dotnet watch + Vite HMR on http://localhost:8080
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image, on port 8080
 ```
+
+Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way, and Vite's port, 5173, does not move.
 
 The `Dockerfile` has these stages:
 
@@ -61,15 +65,24 @@ The `Dockerfile` has these stages:
 | `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. |
 | `client` | `npm run build`: `dist/client` and `dist/server`. |
 | `build` | `dotnet publish` with `-p:NetjesSkipClientBuild=true`, taking `dist/` from `client`. |
-| `production` | The ASP.NET Core runtime image plus the `node` binary, the published app, running as the non-root `app` user, with a `HEALTHCHECK` on `/healthz`. |
+| `tini` | Ubuntu's `tini` package, installed in the SDK image, for the static binary that `production` copies. |
+| `production` | The ASP.NET Core runtime image plus the `node` and `tini` binaries and the published app. tini starts the app (`tini -s -- dotnet MyApp.dll`, see [below](#a-crash-in-a-container)) as the non-root `app` user, and a `HEALTHCHECK` checks `/healthz`. |
 
 The Compose files:
 
 - `docker-compose.yml` defines the `app` service from the `production` stage, with `pull_policy: build`, so `up -d` always builds and never reuses a stale or development image.
-- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes ports 8080 and 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
-- `docker-compose.prod.yml` publishes port 8080 and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
+- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes the app's port (8080, or `APP_PORT`) and Vite's 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
+- `docker-compose.prod.yml` publishes the app on port 8080, or `APP_PORT`, and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
 
 ASP.NET Core logs a warning at startup that those keys are not encrypted at rest. Encrypt them with one of the `ProtectKeysWith...` methods (a certificate, Azure Key Vault) if that matters where you run.
+
+### A crash in a container
+
+The production image starts the app with `tini -s -- dotnet MyApp.dll`. tini is the container's first process, PID 1, and the app runs as its child. tini passes the signals it gets on to the app, so `docker stop` stops the app at once; it reaps processes left without a parent; and it exits with the app's exit code, or 128 plus the number of the signal that ended the app. A crash then ends the container with code 134, and `restart: always` starts it again.
+
+Without an init, .NET is the container's PID 1, and the kernel ignores a signal that a container's PID 1 has no handler for. A crash, from an exception that nothing catches, `Environment.FailFast` or a stack overflow, makes .NET abort the process with SIGABRT, which then does not end it. On arm64 the thread that crashed spins at 100% of a CPU and the process never exits, so the container stays up and no restart policy acts. After a crash at startup the container is unhealthy, but after a later one, such as on a thread of the app's own, the rest of the app keeps serving and its health check still passes. On x86-64 it ends with another code than 134 (139 under emulation). Netjes's own startup failures exit with code 1 either way.
+
+So any image that runs a Netjes app needs an init as PID 1. In an image of your own, or one made from an earlier template, copy the `tini` stage, its `COPY` into the production stage and the `ENTRYPOINT` from the template's `Dockerfile`. Or have the host start an init: `docker run --init`, `init: true` on a Compose service, or `initProcessEnabled` in the `linuxParameters` of an Amazon ECS container definition. A host's init covers only the containers it starts that way; `docker run` without `--init`, Kubernetes and most other hosts run the image's entry point as PID 1. tini in the image also runs under a host's init: `-s` makes it reap the app's orphaned processes there too, without warning that it is not PID 1.
 
 ## Configuration
 
