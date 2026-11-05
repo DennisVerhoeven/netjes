@@ -62,6 +62,15 @@ describe('Link', () => {
     expect(currentAt('/', ['/', '/docs', '/docs/'])).toEqual({ '/': 'page', '/docs': null, '/docs/': null });
   });
 
+  it('does not mark a link to another site with the same path', () => {
+    expect(currentAt('/', ['/', 'https://example.com/', '//example.com/', 'mailto:hello@example.com'])).toEqual({
+      '/': 'page',
+      'https://example.com/': null,
+      '//example.com/': null,
+      'mailto:hello@example.com': null,
+    });
+  });
+
   it('lets an aria-current prop win', () => {
     render(
       <>
