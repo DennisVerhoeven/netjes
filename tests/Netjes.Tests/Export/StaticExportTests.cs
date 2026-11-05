@@ -681,6 +681,37 @@ public class StaticExportTests
     }
 
     [Fact]
+    public async Task Export_QueryStringKeyReadInTwoCases_IsNamedOnce()
+    {
+        // ASP.NET Core matches query string keys in any case, so both parameters read ?q=.
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/search/page.tsx"],
+            map: a => a.MapPageLoader("/search", (string? q, [FromQuery(Name = "Q")] string? other) => Page.Props(new { q, other })));
+
+        Assert.Equal(0, _exitCode);
+        Assert.StartsWith("app/search/page.tsx reads 'q' from the query string", Assert.Single(QueryStringWarnings(app)).Message);
+    }
+
+    [Fact]
+    public async Task Export_DynamicPageWhoseStaticParamsListIsEmpty_IsNotWarned()
+    {
+        // It writes no file, so neither its loader nor the layout loader above it is warned about.
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/blog/layout.tsx", "app/blog/[slug]/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/blog", (string? sort) => Page.Props(new { sort }));
+                a.MapPageLoader("/blog/[slug]", (string slug, string? highlight) => Page.Props(new PostProps(slug)))
+                    .StaticParams(_ => Array.Empty<object>());
+            });
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("index.html")));
+        Assert.False(Directory.Exists(Out("blog")));
+        Assert.Empty(QueryStringWarnings(app));
+    }
+
+    [Fact]
     public async Task Export_ExcludedPageThatReadsTheQueryString_IsNotWarned()
     {
         // On a layout loader, .ExcludeFromExport() leaves out every page below it.
