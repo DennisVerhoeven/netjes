@@ -1128,6 +1128,7 @@ import { route } from '../generated/netjes.ts';
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
+- A `ref` gets the `<a>` element, as on a plain `<a>`, to focus the link or scroll it into view. `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` in the same way, for the `<form>`, `<button>` and `<img>` they render.
 
 ### The current section
 
@@ -2255,7 +2256,7 @@ A form post is never sent twice: one still on its way when another call's header
 | `replace` | For a GET form: replace the history entry instead of adding one. |
 | `reloadDocument` | Let the browser submit the form itself, with a full page load. |
 
-The other props are those of a `<form>`. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
+The other props are those of a `<form>`, and a `ref` gets the `<form>` element. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
 
 - A page, or a redirect to one, is shown as a navigation.
 - An HTML document that is not a Netjes page is shown as the browser would show it, and is never requested again as a GET.
@@ -2879,7 +2880,7 @@ import { Image } from 'netjes';
 - `quality` (1–100, default 75) is rounded to the nearest quality the server accepts.
 - `unoptimized` serves `src` as it is. SVGs, `data:` URLs and `blob:` URLs are always served as they are.
 
-`src` is a path in `public/` (`/img/hero.png`) or a URL on an allowed remote host. `alt` is required; give `""` for a decorative image. Every other `<img>` attribute, such as `className` or `style`, passes through. Under a [base path](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#base-path), write `src` as if the app were at the root.
+`src` is a path in `public/` (`/img/hero.png`) or a URL on an allowed remote host. `alt` is required; give `""` for a decorative image. Every other `<img>` attribute, such as `className` or `style`, passes through, and a `ref` gets the `<img>` element. Under a [base path](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#base-path), write `src` as if the app were at the root.
 
 The configured widths, qualities and the endpoint's path reach the component with the first document, so the server's configuration is the only one. A static host has no image endpoint, so pages from `netjes export` need `unoptimized` on their images ([Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#what-cannot-be-exported)).
 
