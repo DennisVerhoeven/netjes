@@ -1,5 +1,5 @@
 {
-  "about": "The route and segments the server sends with the document of each case's page: tests/Netjes.Tests/Routing/SegmentFixtureTests.cs requests each url from an app with these files. A new kind of segment file needs a case here.",
+  "about": "The route and segments the server sends with the document of each case's page: tests/Netjes.Tests/Routing/SegmentFixtureTests.cs requests each url from an app with these files, and test/render-document.test.tsx builds the same payload in TypeScript, as renderDocument in netjes/testing does. A change to either rule fails one of the two until this file says what both send. A new kind of segment file needs a case here.",
   "cases": [
     {
       "name": "a page inside a route group",

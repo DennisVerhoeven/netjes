@@ -60,7 +60,8 @@ describe('the page module map', () => {
     const code = await loadVirtual(plugin, 'virtual:netjes/pages');
 
     expect(code).toBe(
-      'export const pages = import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"]);\n',
+      'export const pages = import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"]);\n' +
+        'export const appDir = "app";\n',
     );
   });
 
@@ -78,6 +79,8 @@ describe('the page module map', () => {
     const code = await loadVirtual(plugin, 'virtual:netjes/pages');
 
     expect(code).toContain('"/src/app/**/{page,');
+    // The folder the map's keys start with, which renderDocument needs for routes and segment ids.
+    expect(code).toContain('export const appDir = "src/app";\n');
     expect(code).not.toContain('pages/');
   });
 });

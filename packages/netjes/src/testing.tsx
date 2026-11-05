@@ -1,5 +1,6 @@
 // Test harness for components and pages that use Netjes: `render(<Page />, { wrapper: createTestApp().Wrapper })`.
 // The router is a fake: it records what the component asked for and moves to the new URL, but loads nothing.
+// renderDocument renders a page's whole document instead, as the server would send it.
 import { type DefaultOptions, QueryClient, QueryClientProvider, hydrate } from '@tanstack/react-query';
 import { type ReactNode, useLayoutEffect, useMemo, useState } from 'react';
 import { type ActionClient, type ActionState, setActionClient } from './actions.tsx';
@@ -7,6 +8,8 @@ import type { AntiforgeryToken, PagePayload, Params } from './payload.ts';
 import { PublicConfigProvider } from './public-config.tsx';
 import { dehydratedStateOf, mergeOptions } from './query.tsx';
 import { type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
+
+export { type RenderDocumentOptions, inlineScriptHashes, renderDocument } from './render-document.tsx';
 
 /** What the fake app of `createTestApp` reports to the components under test. */
 export type TestAppOptions = {

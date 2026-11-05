@@ -6,7 +6,9 @@ namespace Netjes.Tests.Routing;
 
 /// <summary>
 /// The route and segments the server sends with a page's document, for each case in
-/// packages/netjes/test/fixtures/segments/cases.json.
+/// packages/netjes/test/fixtures/segments/cases.json. <c>renderDocument</c> in netjes/testing builds that part of the
+/// payload in TypeScript, and packages/netjes/test/render-document.test.tsx checks it against the same cases: a change
+/// to either rule fails one of the two suites until the fixture says what both send.
 /// </summary>
 public class SegmentFixtureTests
 {
