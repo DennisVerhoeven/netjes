@@ -15,8 +15,15 @@ type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode
  */
 export function Document({ info, dataJson, children }: DocumentProps) {
   const { nonce } = info;
+  // Netjes owns <html> and <body>: the app's layout renders inside the body, so its markup cannot give either one an
+  // attribute. A script that runs before hydration can (a theme, a browser extension, a translator), and in development
+  // React logs a mismatch for each attribute on an element that its props do not have. suppressHydrationWarning ends
+  // that check for the element's own attributes and no further, so its children are checked as before. React does not
+  // write the prop into the markup, and production does not check attributes at all. The check is off for `lang` too:
+  // the server and the client read it from the same payload, so it differs only when a script changed it, or when
+  // Netjes has a bug.
   return (
-    <html lang={info.lang}>
+    <html lang={info.lang} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -38,7 +45,7 @@ export function Document({ info, dataJson, children }: DocumentProps) {
           <script key={src} type="module" src={src} async nonce={nonce} />
         ))}
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {/* Already escaped for HTML by the server; the client reads it back verbatim to hydrate. */}
         <script id={DATA_ELEMENT_ID} type="application/json" nonce={nonce} dangerouslySetInnerHTML={{ __html: dataJson }} />
         {children}
