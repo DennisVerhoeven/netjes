@@ -26,9 +26,13 @@ function matches(pattern: readonly string[], path: readonly string[]): boolean {
 
 /**
  * Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or another
- * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data.
+ * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data. A URL with an ASCII
+ * control character, or with a space at either end, is none of these.
  */
 export function isRouteHref(value: string, patterns: readonly string[]): boolean {
+  // Browsers drop tabs and newlines anywhere in a URL, and control characters and spaces at either end: `/\t/host`
+  // would be `//host`. A C# Href refuses the same.
+  if (/[\u0000-\u001F\u007F]/.test(value) || value.startsWith(' ') || value.endsWith(' ')) return false;
   if (/^(https?:|mailto:|tel:)/i.test(value) || value.startsWith('?') || value.startsWith('#')) return true;
   // "//host" and "/\host" are other hosts as far as browsers are concerned.
   if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return false;

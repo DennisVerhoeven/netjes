@@ -21,6 +21,35 @@ describe('isRouteHref', () => {
       expect(isRouteHref(href, patterns), href).toBe(false);
     }
   });
+
+  it('rejects URLs with control characters or edge spaces, which browsers strip or read as another host', () => {
+    // Browsers drop tabs and newlines anywhere in a URL, so `/\t/evil.example` is `//evil.example`, which a root
+    // catch-all or two dynamic segments would match as a path.
+    const everyPath = ['/[a]/[b]', '/[...slug]'];
+    const refused = [
+      '/\t/evil.example',
+      '/\n/evil.example',
+      '/\r/evil.example',
+      '/a\u0000b',
+      '/a\u007Fb',
+      '/docs ',
+      ' /docs',
+      '\u001F/docs',
+      'https://example.com/\r\n',
+      '#top\t',
+      '?q=\n',
+    ];
+
+    expect(refused.filter((href) => isRouteHref(href, everyPath))).toEqual([]);
+    expect(isRouteHref('/a b', everyPath)).toBe(true);
+  });
+
+  it('refuses a root-relative URL that no page serves, which a C# Href may hold', () => {
+    // A C# Href checks only the shape: a file next to the pages, or a path that already has the base path, has it too.
+    expect(isRouteHref('/llms.txt', ['/', '/docs/[...path]'])).toBe(false);
+    expect(isRouteHref('/docs/blog/x', ['/blog/[slug]'])).toBe(false);
+    expect(isRouteHref('/blog/x', ['/blog/[slug]'])).toBe(true);
+  });
 });
 
 describe('buildHref', () => {
