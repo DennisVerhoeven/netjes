@@ -1,6 +1,6 @@
 // @vitest-environment node
-// A page's whole document, as the server sends it: the about page inside the root layout, from the shared props
-// Program.cs sends. renderDocument renders without a DOM, as the server does, hence the node environment.
+// A page's whole document, as the server sends it to a crawler: the about page inside the root layout, from the
+// shared props Program.cs sends. renderDocument renders without a DOM, as the server does, hence the node environment.
 import { CSP_SCRIPT_HASHES } from 'netjes';
 import { inlineScriptHashes, renderDocument } from 'netjes/testing';
 import { describe, expect, it } from 'vitest';
@@ -27,7 +27,7 @@ describe('the about page', () => {
     expect(html).toContain('<title>About · Netjes Blog</title>');
   });
 
-  it('runs no inline script but the one Netjes lists the hash of, for a policy without a nonce', async () => {
+  it('has no inline script in its document but the one Netjes lists the hash of, for a policy without a nonce', async () => {
     expect(await inlineScriptHashes(await about())).toEqual(CSP_SCRIPT_HASHES.split(' '));
   });
 });

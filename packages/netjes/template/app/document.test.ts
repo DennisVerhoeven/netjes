@@ -1,5 +1,5 @@
 // @vitest-environment node
-// The home page's whole document, as the server sends it, from the props its C# loader returns
+// The home page's whole document, as the server sends it to a crawler, from the props its C# loader returns
 // (Features/Home/HomePage.cs). renderDocument renders without a DOM, as the server does, hence the node environment.
 import { CSP_SCRIPT_HASHES } from 'netjes';
 import { inlineScriptHashes, renderDocument } from 'netjes/testing';
@@ -20,8 +20,9 @@ describe('the home page', () => {
     expect(html).toContain('<nav aria-label="Main"');
   });
 
-  it('runs no inline script but the one whose hash Netjes lists for a policy without a nonce', async () => {
-    // NetjesContentSecurityPolicy.ScriptHashes in C# holds the same hashes.
+  it('has no inline script in its document but the one whose hash Netjes lists for a policy without a nonce', async () => {
+    // NetjesContentSecurityPolicy.ScriptHashes in C# holds the same hashes. The inline code of a <Script> is added in
+    // the browser and is in no document: its hash goes in the policy, not here.
     expect(await inlineScriptHashes(await home())).toEqual(CSP_SCRIPT_HASHES.split(' '));
   });
 });
