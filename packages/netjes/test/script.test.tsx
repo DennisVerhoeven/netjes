@@ -263,6 +263,49 @@ describe('Script with beforeInteractive', () => {
     expect(scripts('/second.js')).toHaveLength(1);
   });
 
+  it('neither preloads nor waits for a beforeInteractive script the browser does not run', async () => {
+    const html = renderToString(
+      page(
+        <NonceProvider value="n0nce">
+          <Script src="/legacy.js" strategy="beforeInteractive" noModule />
+          {/* A consent manager's: it turns the type into JavaScript once the visitor agrees. */}
+          <Script src="/consented.js" strategy="beforeInteractive" type="text/plain" data-category="analytics" />
+          <Script src="/blank.js" strategy="beforeInteractive" type=" " />
+          <Script src="/runs.js" strategy="beforeInteractive" type=" Text/JavaScript " />
+          <Script src="/module.js" strategy="beforeInteractive" type="MODULE" />
+        </NonceProvider>,
+      ),
+    );
+
+    // Fetching it would contact a host the visitor has not agreed to.
+    const server = parsed(html);
+    expect([...server.head.querySelectorAll('link[rel="preload"]')].map((link) => link.getAttribute('href'))).toEqual(['/runs.js', '/module.js']);
+
+    load(html);
+    let settled = false;
+    const adopted = adoptServerScripts('n0nce').then(() => {
+      settled = true;
+    });
+    // Each is in the head, where a consent manager finds its own, but only those the browser runs are waited for.
+    expect([...document.head.querySelectorAll('script')].map((script) => script.getAttribute('src'))).toEqual([
+      '/legacy.js',
+      '/consented.js',
+      '/blank.js',
+      '/runs.js',
+      '/module.js',
+    ]);
+    expect(scripts('/legacy.js')[0]?.hasAttribute('nomodule')).toBe(true);
+    expect(scripts('/consented.js')[0]?.type).toBe('text/plain');
+    expect(scripts('/consented.js')[0]?.getAttribute('data-category')).toBe('analytics');
+
+    scripts('/runs.js')[0]?.dispatchEvent(new Event('load'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    scripts('/module.js')[0]?.dispatchEvent(new Event('load'));
+    await Promise.race([adopted, new Promise((resolve) => setTimeout(resolve, 50))]);
+    expect(settled).toBe(true);
+  });
+
   it('adoptServerScripts takes no entry without the page\'s nonce, and from an entry only a src and plain attributes', async () => {
     const entry = (json: string, nonce?: string) =>
       `<script type="application/json" data-netjes-script="${JSON.parse(json).src ?? 'x'}"${nonce ? ` nonce="${nonce}"` : ''}>${json}</script>`;

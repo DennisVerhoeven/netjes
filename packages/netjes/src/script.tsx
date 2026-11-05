@@ -117,6 +117,41 @@ function externalEntry(text: string | null): { src: string; attributes: Attribut
   return { src, attributes: checked };
 }
 
+/** The types besides none that browsers run as JavaScript: the HTML standard's JavaScript MIME types. */
+const JAVASCRIPT_TYPES = new Set([
+  'application/ecmascript',
+  'application/javascript',
+  'application/x-ecmascript',
+  'application/x-javascript',
+  'text/ecmascript',
+  'text/javascript',
+  'text/javascript1.0',
+  'text/javascript1.1',
+  'text/javascript1.2',
+  'text/javascript1.3',
+  'text/javascript1.4',
+  'text/javascript1.5',
+  'text/jscript',
+  'text/livescript',
+  'text/x-ecmascript',
+  'text/x-javascript',
+]);
+
+/**
+ * Whether a browser runs a script with these attributes, by the HTML standard's rules, and so fires its load or error
+ * event. One that runs the client entry, a module, skips a script with `nomodule` and one whose type is neither
+ * JavaScript nor `module`, such as the `text/plain` of a script a consent manager turns on once the visitor agrees, and
+ * fires neither event for it.
+ */
+function runs(attributes: Attributes): boolean {
+  const named: Partial<Record<string, string>> = {};
+  for (const [name, value] of Object.entries(attributes)) named[name.toLowerCase()] = value === true ? '' : value;
+  const type = named.type ?? (named.language ? `text/${named.language}` : '');
+  if (type === '') return named.nomodule === undefined;
+  const essence = type.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '').toLowerCase();
+  return essence === 'module' || (JAVASCRIPT_TYPES.has(essence) && named.nomodule === undefined);
+}
+
 /** Resolves once the script has loaded or failed. */
 function outcome(entry: Entry): Promise<void> {
   if (entry.state !== 'loading') return Promise.resolve();
@@ -141,7 +176,8 @@ export function adoptServerScripts(nonce: string | undefined): Promise<void> {
     if (!key || added.has(key) || (nonce && element.nonce !== nonce)) continue;
     const external = element.type === 'application/json' ? externalEntry(element.textContent) : null;
     if (external) {
-      waits.push(outcome(insert(key, { ...external, ...(nonce ? { nonce } : {}), async: false, parent: document.head })));
+      const entry = insert(key, { ...external, ...(nonce ? { nonce } : {}), async: false, parent: document.head });
+      if (runs(external.attributes)) waits.push(outcome(entry));
     } else {
       added.set(key, { element, state: 'loaded' });
     }
@@ -235,12 +271,16 @@ export function Script(given: ScriptProps) {
       </>
     );
   }
-  // The browser fetches it while it parses; adoptServerScripts runs it from the entry.
-  preload(src, { as: 'script', ...(nonce ? { nonce } : {}), ...(integrity ? { integrity } : {}), ...(crossOrigin ? { crossOrigin } : {}) });
+  const attributes = attributesOf(rest);
+  // The browser fetches it while it parses; adoptServerScripts runs it from the entry. A script the browser will not run
+  // is not fetched: a consent manager's would reach its host before the visitor agreed.
+  if (runs(attributes)) {
+    preload(src, { as: 'script', ...(nonce ? { nonce } : {}), ...(integrity ? { integrity } : {}), ...(crossOrigin ? { crossOrigin } : {}) });
+  }
   return (
     <>
       {marker}
-      <script type="application/json" nonce={nonce} data-netjes-script={key} dangerouslySetInnerHTML={{ __html: htmlSafeJson({ src, attributes: attributesOf(rest) }) }} />
+      <script type="application/json" nonce={nonce} data-netjes-script={key} dangerouslySetInnerHTML={{ __html: htmlSafeJson({ src, attributes }) }} />
     </>
   );
 }
