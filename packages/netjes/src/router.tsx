@@ -47,11 +47,19 @@ export type NavigationState =
 
 /** The client router that `useRouter()` returns. */
 export type Router = {
+  /**
+   * Navigates, adding a history entry. The promise resolves once the router has handed the page to React, which can be
+   * before React shows it, or once the navigation has ended another way.
+   */
   push(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  /** Navigates, replacing the history entry. The promise resolves as `push`'s does. */
   replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
-  /** Fetches the page payload and modules ahead of a navigation. Links do this on hover and focus. */
+  /** Fetches the page payload and modules ahead of a navigation. Links do this on hover, focus and touch. */
   prefetch(href: Href): void;
-  /** Re-runs the current page's loader and re-renders with the new props. */
+  /**
+   * Runs every loader of the page on screen again, layout loaders included, and renders the page with the new props, in
+   * the same history entry and without scrolling. The promise resolves as `push`'s does.
+   */
   refresh(): Promise<void>;
   back(): void;
   forward(): void;
