@@ -4,7 +4,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup, and `e2e/`, `dist/`, `bin/` and `obj/` excluded. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -32,6 +32,8 @@ it('shows the validation error from C# next to the field', async () => {
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
+
+Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`, and let `findBy…` or `waitFor` wait, which moves the fake clock on (their timeout counts fake time). Run a timer that `fireEvent` started with `await act(() => vi.advanceTimersByTimeAsync(ms))`, and call `vi.useRealTimers()` in an `afterEach`.
 
 ## Loaders and actions: C#
 

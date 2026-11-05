@@ -607,6 +607,8 @@ Links and `router.push` move to the new URL, so hooks see it, and are recorded. 
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
+The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](../guides/testing.md#fake-timers)).
+
 ## `netjes/vitals`
 
 Core Web Vitals, measured with the `web-vitals` package, which the app installs (`npm install web-vitals`).

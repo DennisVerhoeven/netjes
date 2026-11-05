@@ -8,9 +8,11 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 - `environment: 'jsdom'`, when `jsdom` is installed;
 - `exclude`: `node_modules/`, `dist/`, `bin/`, `obj/`, `e2e/` (Playwright's folder) and `.git/`;
-- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed.
+- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed and the app sets no `setupFiles` of its own. An app that sets them lists `netjes/testing/setup` there itself.
 
-There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of them ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
+Whatever the app's config says, it also adds a setup file of its own to `setupFiles`, after the app's own setup files. That file lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)).
+
+There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
 
 ## Component and page tests
 
@@ -104,6 +106,39 @@ it('shows the validation errors the action sent back, next to their fields', () 
 ```
 
 A component that fetches its own data with `useQuery` gets seeded data from `queries`. For what it fetches after that, answer the requests with a mock server such as [MSW](https://mswjs.io), as the Blog example's `LikeButton.test.tsx` does.
+
+### Fake timers
+
+A component that waits, such as a search box that searches once the typing stops, is tested with Vitest's fake timers. Testing Library's queries and user-event work with them:
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createTestApp } from 'netjes/testing';
+import { afterEach, expect, it, vi } from 'vitest';
+import { SearchBox } from './SearchBox.tsx';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it('searches once the typing stops', async () => {
+  vi.useFakeTimers();
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const app = createTestApp({ url: '/search' });
+  render(<SearchBox />, { wrapper: app.Wrapper });
+
+  await user.type(screen.getByRole('searchbox'), 'tea');
+
+  await waitFor(() => expect(app.navigations).toEqual([{ type: 'replace', href: '/search?q=tea' }]));
+});
+```
+
+- `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
+- user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, user-event waits out its own delays on the fake clock, and the call never returns.
+- `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 
 ## C# tests of loaders and actions
 

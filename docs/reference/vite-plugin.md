@@ -82,13 +82,13 @@ The TypeScript sources ship in the package too: the declaration maps and source 
 
 ### Vitest defaults
 
-Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset:
+Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset, with one exception: Netjes's own setup file, which it adds to the app's `setupFiles` whatever they are.
 
 | Setting | Value |
 |---|---|
 | `environment` | `'jsdom'`, when `jsdom` is installed |
 | `exclude` | `node_modules`, `dist`, `bin`, `obj`, `e2e` (for Playwright) and `.git` folders |
-| `setupFiles` | A setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed |
+| `setupFiles` | In every app, Netjes's own setup file, which lets Testing Library work with Vitest's fake timers ([Fake timers](../guides/testing.md#fake-timers)); Vite puts it after the app's own setup files. Before it, when `@testing-library/react` is installed and the app sets no `setupFiles`, a setup file that unmounts what each test rendered (Testing Library's `cleanup`, `netjes/testing/setup`); an app that sets them lists `netjes/testing/setup` there itself |
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](../guides/testing.md).
 

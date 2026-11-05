@@ -63,6 +63,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0021 – Signing in or out reaches the app's other tabs](decisions/0021-signing-in-or-out-reaches-the-other-tabs.md)
 - [0022 – The client entry hydrates once the shell is parsed](decisions/0022-hydrate-once-the-shell-is-parsed.md)
 - [0023 – Pages are not output-cached in Development](decisions/0023-pages-are-not-output-cached-in-development.md)
+- [0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on](decisions/0027-testing-library-advances-vitest-fake-timers.md)
 
 ## The project
 
