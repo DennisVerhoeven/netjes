@@ -417,6 +417,23 @@ public class OtherSpellingTests
     }
 
     [Fact]
+    public async Task OnTestServer_ARequestTargetSetAsKestrelSetsIt_IsRedirected()
+    {
+        // What the testing guide shows for WebApplicationFactory tests: the target from the request, ahead of the app.
+        await using var app = await StartAsync(Never, kestrel: false, beforeNetjes: a => a.Use((HttpContext http, RequestDelegate next) =>
+        {
+            http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget =
+                Microsoft.AspNetCore.Http.Extensions.UriHelper.GetEncodedPathAndQuery(http.Request);
+            return next(http);
+        }));
+
+        var response = await app.GetDocumentAsync("/About/?tab=1");
+
+        Assert.Equal(HttpStatusCode.PermanentRedirect, response.StatusCode);
+        Assert.Equal("/about?tab=1", response.Headers.Location?.OriginalString);
+    }
+
+    [Fact]
     public async Task UnderCachePage_AnotherSpellingNeverReachesTheCache()
     {
         var renders = 0;
