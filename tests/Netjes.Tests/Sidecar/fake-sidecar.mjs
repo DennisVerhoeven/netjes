@@ -9,9 +9,19 @@ const waiting = new Map();
 // Like server.mjs: values that arrive before their render are kept for it.
 /** @type {Map<string, string>} */
 const early = new Map();
+// Health pings answered so far, which the `pings` page reports.
+let pings = 0;
+/** Blocks this process's only thread: nothing is answered until it returns, or ever, without a time limit. */
+const block = (/** @type {number | undefined} */ ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const server = http.createServer(async (req, res) => {
   if (req.headers['x-netjes-token'] !== token) {
     res.writeHead(403).end();
+    return;
+  }
+  // Answered before any body is read, as server.mjs does: a ping has none.
+  if (req.method === 'GET' && req.url === '/health') {
+    pings++;
+    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
     return;
   }
   let body = '';
@@ -67,6 +77,28 @@ const server = http.createServer(async (req, res) => {
       // Refuses connections from now on and keeps running, as above but for good.
       server.close();
       res.writeHead(200, { 'content-type': 'text/html', connection: 'close' }).end('<html>stopped</html>');
+      return;
+    case 'withdraw-then-hang': {
+      // Refuses connections for a moment, so that a render takes the process out of the ready ones, then listens
+      // again and stops answering: connections wait in its queue, and nothing reads them.
+      const { port } = server.address();
+      server.close();
+      setTimeout(() => server.listen(port, '127.0.0.1', () => block()), 300);
+      res.writeHead(200, { 'content-type': 'text/html', connection: 'close' }).end('<html>withdrawn</html>');
+      return;
+    }
+    case 'hang':
+      // Stops answering without exiting, as a process stuck in a loop, deadlocked or stopped by a signal does. The
+      // render never gets its answer, and only a kill ends the process.
+      block();
+      return;
+    case 'block':
+      // Busy for a while and then answers, as a long synchronous render is: nothing else is answered meanwhile.
+      block(payload.ms);
+      res.writeHead(200, { 'content-type': 'text/html' }).end('<html>blocked</html>');
+      return;
+    case 'pings':
+      res.writeHead(200, { 'content-type': 'text/html' }).end(`<html>${pings}</html>`);
       return;
     case 'keep-running':
       // Slow to shut down once stdin closes, as Vite can be in development: stopping waits out its grace and kills the
