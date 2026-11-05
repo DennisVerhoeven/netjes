@@ -116,9 +116,14 @@ namespace Microsoft.AspNetCore.Builder
             return app.UseRequestLocalization();
         }
 
-        /// <summary>Redirects <c>/</c> to the best supported locale for the browser's Accept-Language, e.g. <c>/nl</c>.</summary>
+        /// <summary>
+        /// Answers GET and HEAD for <c>/</c> with a redirect to the best supported locale for the browser's
+        /// Accept-Language, e.g. <c>/nl</c>.
+        /// </summary>
         public static IEndpointConventionBuilder MapLocaleRedirect(this IEndpointRouteBuilder endpoints) =>
-            endpoints.MapGet("/", (HttpContext http, IOptions<NetjesLocalizationOptions> options) =>
+            // HEAD too: with GET alone, a HEAD for / would go to whatever else matches it, the not-found page in a
+            // localized app.
+            endpoints.MapMethods("/", [HttpMethods.Get, HttpMethods.Head], (HttpContext http, IOptions<NetjesLocalizationOptions> options) =>
             {
                 var supported = options.Value.SupportedCultures;
                 var preferred = http.Request.GetTypedHeaders().AcceptLanguage

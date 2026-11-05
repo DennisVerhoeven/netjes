@@ -151,6 +151,26 @@ public class LocalizationTests
     }
 
     [Fact]
+    public async Task LocaleRedirect_AnswersHeadAsGet()
+    {
+        await using var app = await StartAsync();
+        Task<HttpResponseMessage> SendAsync(HttpMethod method)
+        {
+            var request = new HttpRequestMessage(method, "/");
+            request.Headers.Add("Accept-Language", "nl-NL,nl;q=0.9");
+            return app.Client.SendAsync(request, Ct);
+        }
+
+        var get = await SendAsync(HttpMethod.Get);
+        var head = await SendAsync(HttpMethod.Head);
+
+        Assert.Equal(get.StatusCode, head.StatusCode);
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, head.StatusCode);
+        Assert.Equal("/nl", head.Headers.Location?.ToString());
+        Assert.Contains("Accept-Language", head.Headers.Vary);
+    }
+
+    [Fact]
     public async Task SitemapAndRobotsTxt_AnswerHeadAsGet_InALocalizedApp()
     {
         // Without HEAD of their own, app/[lang]/page.tsx would take both URLs, as a locale it does not support.
