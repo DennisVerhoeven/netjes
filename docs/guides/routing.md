@@ -475,6 +475,8 @@ A `<Link>` to such a URL still works, but the router first asks the server for a
 
 In Next.js, a route handler cannot share a folder with a page, so a Markdown URL below `app/docs/[...path]` takes a rewrite in `next.config.js` to a route handler at another path. Here the endpoint's order does it.
 
+Such an endpoint is not a page to the output cache either: it gets no `Cache-Control` from Netjes, and `RevalidatePath` does not evict it ([Endpoints that are not pages](caching.md#endpoints-that-are-not-pages)).
+
 ### HEAD requests
 
 Pages answer a `HEAD` as they answer a `GET`, but without the body, and so do the `GET` endpoints Netjes maps: `/sitemap.xml` and `/robots.txt` (`MapSitemap` and `MapRobotsTxt`), the image endpoint `/_netjes/image`, and the locale redirect at `/` (`MapLocaleRedirect`). Files in `public/` (the client build in production) answer `HEAD` too. The exception is `/_netjes/antiforgery`, which answers `GET` only: it is there to send the client router a token in its body, which a `HEAD` would not get, and the router asks for it with `GET`. A `HEAD` there gets the not-found page.
