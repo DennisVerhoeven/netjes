@@ -33,7 +33,7 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
             // key leaves out the path and query values, so it is never the stored page's; a value of its own for each
             // post also keeps visitors whose posts fail at once from waiting for each other (the output cache holds
             // back the requests for a key while one of them renders).
-            context.CacheVaryByRules.VaryByValues["netjes-action-state"] = Guid.NewGuid().ToString("N");
+            CacheBypass.Apply(context, CacheBypass.FailedFormPost);
             return ValueTask.CompletedTask;
         }
 
