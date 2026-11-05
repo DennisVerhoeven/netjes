@@ -1,7 +1,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type APIRequestContext, expect, test } from '@playwright/test';
+import { type APIRequestContext, type Route, expect, test } from '@playwright/test';
 import { isMarked, markWindow, watchForErrors } from './helpers.ts';
 
 test.describe('server rendering', () => {
@@ -355,6 +355,7 @@ test.describe('a page whose module does not load', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'About' })).toBeVisible();
     // The router never started: its links are plain links, which the browser loads in full.
     expect(await page.evaluate(() => window.history.state)).toBeNull();
+    expect(await page.locator('html').getAttribute('data-netjes-hydrated')).toBeNull();
     await page.evaluate(() => {
       (window as unknown as Record<string, unknown>).__beforeTheLink = true;
     });
@@ -463,5 +464,36 @@ test.describe('output caching', () => {
       // already, the first comes from the cache, and the entry (30 seconds) can expire before the second.
       expect(second.headers()['age'] ?? first.headers()['age']).toBeDefined();
     }
+  });
+});
+
+test.describe('the hydrated mark', () => {
+  test('marks <html> as hydrated in every document, a reload included', async ({ page }) => {
+    const html = page.locator('html');
+    await page.goto('/');
+    await expect(html).toHaveAttribute('data-netjes-hydrated', '');
+
+    // Holds every script of the next document, so none of its code runs until the test lets it.
+    let holding = true;
+    const held: Route[] = [];
+    await page.route('**/*', (route) => {
+      if (holding && route.request().resourceType() === 'script') held.push(route);
+      else return route.continue();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(() => document.readyState === 'interactive');
+
+    // The whole document is in and none of its scripts has run. The history entry kept what the router stored in it
+    // before the reload; the new document has no mark yet.
+    expect(held).not.toHaveLength(0);
+    expect(await html.getAttribute('data-netjes-hydrated')).toBeNull();
+
+    holding = false;
+    await Promise.all(held.splice(0).map((route) => route.continue()));
+    await expect(html).toHaveAttribute('data-netjes-hydrated', '');
+    await markWindow(page);
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Blog' }).click();
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    expect(await isMarked(page)).toBe(true);
   });
 });

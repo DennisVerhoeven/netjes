@@ -99,6 +99,8 @@ describe('the client entry', () => {
     expect(createRoot).not.toHaveBeenCalled();
     // The server's HTML stays, with plain links and forms that the browser loads in full.
     expect(document.querySelector('main')?.outerHTML).toBe('<main><a href="/blog">Blog</a></main>');
+    // No router runs in the document, so nothing says it does.
+    expect(document.documentElement.hasAttribute('data-netjes-hydrated')).toBe(false);
     expect(errors).toHaveBeenCalledOnce();
     expect(String(errors.mock.calls[0]?.[0])).toContain('app/about/page.tsx');
   });
