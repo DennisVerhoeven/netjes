@@ -61,6 +61,8 @@ if (app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>
 app.UseNetjes();
 app.UseRateLimiter();
 app.UseAntiforgery();
+// For the posts' .CachePage, in every environment: in Development, Netjes renders every page for each request instead
+// and stores none, so an edit shows on the next request.
 app.UseOutputCache();
 
 app.MapHealthChecks("/healthz");

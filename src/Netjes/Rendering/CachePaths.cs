@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Netjes.Rendering;
@@ -12,7 +13,7 @@ namespace Netjes.Rendering;
 /// key in <see cref="CacheRequestAsync"/> (a policy after it, such as ASP.NET Core's default one, sets the lookup and
 /// storage flags again), and refuses storage once the response is known.
 /// </summary>
-internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolicy
+internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment environment) : IOutputCachePolicy
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedCookies = new(StringComparer.Ordinal);
 
@@ -56,7 +57,8 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
     /// <summary>
     /// The entry is shared by every visitor, so a render that reads a cookie (shared props, a loader, authentication
     /// placed after the output cache) is stored and served to everyone anyway, and the app hears about it once per page. Only reads through
-    /// <c>Request.Cookies</c> are seen, not the raw <c>Cookie</c> header.
+    /// <c>Request.Cookies</c> are seen, not the raw <c>Cookie</c> header. In the Development environment nothing is
+    /// stored, and the warning says what happens outside it, where the same render is.
     /// </summary>
     private void WatchCookies(OutputCacheContext context)
     {
@@ -76,15 +78,30 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
 
             var http = context.HttpContext;
             var page = http.GetEndpoint()?.DisplayName ?? http.Request.Path.Value ?? "";
-            if (_warnedCookies.TryAdd(page, true))
+            if (!_warnedCookies.TryAdd(page, true))
             {
-                logger.LogWarning(
-                    "{Page} is output-cached, and rendering it read {Cookie}. The render was stored and will be served " +
-                    "to every visitor, so one visitor's value reaches all of them. SharedProps and the loaders of cached " +
-                    "pages must not depend on cookies: read per-visitor values on the client or do not cache the page. " +
-                    "See the CachePage docs.",
-                    page, name is null ? "all the request cookies" : $"the request cookie '{name}'");
+                return;
             }
+
+            var cookie = name is null ? "all the request cookies" : $"the request cookie '{name}'";
+            if (environment.IsDevelopment())
+            {
+                // Pages are not stored there (PageCachePolicy), but the same render would be anywhere else.
+                logger.LogWarning(
+                    "{Page} is output-cached, and rendering it read {Cookie}. Nothing is stored in Development; " +
+                    "outside Development the render is stored and served to every visitor, so one visitor's value " +
+                    "reaches all of them. SharedProps and the loaders of cached pages must not depend on cookies: " +
+                    "read per-visitor values on the client or do not cache the page. See the CachePage docs.",
+                    page, cookie);
+                return;
+            }
+
+            logger.LogWarning(
+                "{Page} is output-cached, and rendering it read {Cookie}. The render was stored and will be served " +
+                "to every visitor, so one visitor's value reaches all of them. SharedProps and the loaders of cached " +
+                "pages must not depend on cookies: read per-visitor values on the client or do not cache the page. " +
+                "See the CachePage docs.",
+                page, cookie);
         }));
     }
 

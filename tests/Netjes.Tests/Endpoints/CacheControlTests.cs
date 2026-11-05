@@ -184,4 +184,44 @@ public class CacheControlTests
 
         Assert.Equal("public, max-age=60", response.Headers.CacheControl?.ToString());
     }
+
+    /// <summary>
+    /// In the Development environment an output-cached page renders for every request and is not stored, so the browser
+    /// does not keep it either: Back after an edit would show the page from before it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InDevelopment_AnOutputCachedPage_GoesOutNoStore(bool data)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var response = await ReturningVisitAsync(app, "/", data);
+
+        Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task InDevelopment_AnOutputCachedPageThatSetsItsOwnHeader_KeepsIt()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", (HttpContext http) =>
+            {
+                http.Response.Headers[HeaderNames.CacheControl] = "public, max-age=60";
+                return Page.Props();
+            }).CachePage(TimeSpan.FromMinutes(1)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var response = await ReturningVisitAsync(app, "/", data: true);
+
+        Assert.Equal("public, max-age=60", response.Headers.CacheControl?.ToString());
+    }
 }

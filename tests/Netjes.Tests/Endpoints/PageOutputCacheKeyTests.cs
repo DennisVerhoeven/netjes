@@ -817,4 +817,143 @@ public class PageOutputCacheKeyTests
         Assert.Equal(2, app.Renderer.Payloads.Count);
         Assert.All(app.Renderer.Payloads, payload => Assert.True((bool?)JsonNode.Parse(payload)!["props"]!["together"]));
     }
+
+    /// <summary>
+    /// In the Development environment code is live (Vite serves the sources, the sidecar imports them again, hot reload
+    /// swaps loaders) while the client build in the key stays the same: a stored page would outlive every edit, and its
+    /// markup would no longer match the modules the browser loads. So every request renders, and nothing is stored.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_APageIsRenderedForEveryRequest(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartAsync(
+            policy,
+            () => Interlocked.Increment(ref loads),
+            services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)),
+            development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/core");
+        await visitor.DataAsync("/core");
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+
+        Assert.Equal(4, loads);
+        Assert.Equal(0, store.Writes - before);
+    }
+
+    /// <summary>A redirect a loader returns for a client navigation is not stored there either.</summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_ARedirectALoaderReturns_IsNotStored(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartWithLoaderAsync(
+            policy,
+            PageResult<NoProps> (string team) =>
+            {
+                Interlocked.Increment(ref loads);
+                return Page.Redirect("/core");
+            },
+            services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)),
+            development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var redirect = await visitor.DataAsync("/moved");
+        var redirectAgain = await visitor.DataAsync("/moved");
+
+        Assert.Equal("redirect", (string?)redirect["kind"]);
+        Assert.Equal("redirect", (string?)redirectAgain["kind"]);
+        Assert.Equal(2, loads);
+        Assert.Equal(0, store.Writes - before);
+    }
+
+    /// <summary>CachePage keys an endpoint that is no page by the page rules, and so it renders for every request there too.</summary>
+    [Fact]
+    public async Task InDevelopment_APageRenderedByAnEndpointThatIsNoPage_UnderCachePage_IsRenderedForEveryRequest()
+    {
+        var loads = 0;
+        await using var app = await StartElsewhereAsync(Policy.CachePage, () => Interlocked.Increment(ref loads), development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payload = await visitor.DataAsync("/elsewhere/core");
+        var payloadAgain = await visitor.DataAsync("/elsewhere/core");
+
+        Assert.Equal(1, (int?)payload["props"]!["load"]);
+        Assert.Equal(2, (int?)payloadAgain["props"]!["load"]);
+    }
+
+    /// <summary>
+    /// Nothing is stored, so nothing is worth waiting for: requests for a page in the Development environment have keys
+    /// of their own, and the output cache's lock never holds one back while another renders.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_RequestsForAPageDoNotWaitForEachOther(Policy policy)
+    {
+        var together = new Rendezvous(2);
+        await using var app = await StartWithLoaderAsync(
+            policy, async () => Page.Props(new { Together = await together.ArriveAsync() }), development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payloads = await Task.WhenAll(visitor.DataAsync("/core"), visitor.DataAsync("/core"));
+
+        Assert.All(payloads, payload => Assert.True((bool?)payload["props"]!["together"]));
+    }
+
+    /// <summary>
+    /// The environment decides, not Netjes's mode: a host in another environment with routes from <c>app/</c> on disk, as
+    /// an app's WebApplicationFactory tests run, stores pages as production does.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task OutsideDevelopment_InNetjesDevelopmentMode_PagesAreStillCached(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartAsync(
+            policy, () => Interlocked.Increment(ref loads), services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)));
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/core");
+        await visitor.DataAsync("/core");
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+
+        Assert.Equal(NetjesMode.Development, app.App.Services.GetRequiredService<NetjesContext>().Mode);
+        Assert.Equal(2, loads);
+        Assert.Equal(2, store.Writes - before);
+    }
+
+    /// <summary>
+    /// Nothing is stored in the Development environment, but a page the output cache could store leaves its antiforgery
+    /// token out as it does in production: a form there that needs JavaScript to post needs it in Development too.
+    /// </summary>
+    [Theory]
+    [InlineData(Policy.CacheOutput)]
+    [InlineData(Policy.NamedPolicy)]
+    [InlineData(Policy.PolicyBuilder)]
+    [InlineData(Policy.Attribute)]
+    [InlineData(Policy.BasePolicy)]
+    public async Task InDevelopment_UnderAPolicyOtherThanCachePage_APageTheCacheMayStore_CarriesNoAntiforgeryToken(Policy policy)
+    {
+        await using var app = await StartAsync(policy, () => 0, development: true);
+        // The document embeds its payload, as the real renderer does.
+        app.Renderer.OnRender = json => $"<!DOCTYPE html><html><body><script type=\"application/json\">{json}</script></body></html>";
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payload = await visitor.DataAsync("/core");
+        var document = await (await visitor.DocumentAsync("/core")).Content.ReadAsStringAsync(Ct);
+
+        Assert.Null(payload["antiforgery"]);
+        Assert.StartsWith("<!DOCTYPE html>", document, StringComparison.Ordinal);
+        Assert.DoesNotContain("requestToken", document, StringComparison.Ordinal);
+    }
 }

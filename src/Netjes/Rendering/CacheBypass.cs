@@ -18,6 +18,9 @@ internal static class CacheBypass
     /// <summary>The page rendered in place of a failed form post, with the visitor's errors and input (<see cref="CachePaths"/>).</summary>
     public const string FailedFormPost = "netjes-action-state";
 
+    /// <summary>A page in the Development environment, where code changes between requests (<see cref="PageCachePolicy"/>).</summary>
+    public const string Development = "netjes-development";
+
     /// <summary>Gives the request a key value of its own under <paramref name="reason"/>.</summary>
     public static void Apply(OutputCacheContext context, string reason) =>
         context.CacheVaryByRules.VaryByValues[reason] = Guid.NewGuid().ToString("N");
