@@ -32,4 +32,15 @@ public static class StaticExportEndpointConventionBuilderExtensions
         builder.Add(endpoint => endpoint.Metadata.Add(new ExcludeFromExportMetadata()));
         return builder;
     }
+
+    /// <summary>
+    /// Writes this endpoint's answer to a <c>GET</c> into <c>netjes export</c>'s output, as a file at its URL, like a
+    /// Next.js route handler with <c>dynamic = 'force-static'</c>: <c>app.MapGet("/llms.txt", ...).IncludeInExport()</c>
+    /// writes <c>out/llms.txt</c>. <c>.ExcludeFromExport()</c> wins over it.
+    /// </summary>
+    public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.Add(endpoint => endpoint.Metadata.Add(new IncludeInExportMetadata()));
+        return builder;
+    }
 }
