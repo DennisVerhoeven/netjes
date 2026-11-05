@@ -397,11 +397,12 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     };
 
     /// <summary>
-    /// Whether two endpoints' hosts let a request through to both: neither lists any, or they list one in common, ignoring
-    /// case. Wildcards and ports are compared as written.
+    /// Whether two endpoints' hosts let a request through to both: neither lists any, or they list one in common, as
+    /// written. The host policy keeps two hosts that differ only in case apart, though it matches a request's host in any
+    /// case, and sends each request to one of them. Wildcards and ports are compared as written too.
     /// </summary>
     private static bool Meet(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
-        a is { Count: > 0 } && b is { Count: > 0 } ? a.Intersect(b, StringComparer.OrdinalIgnoreCase).Any() : a is null or [] && b is null or [];
+        a is { Count: > 0 } && b is { Count: > 0 } ? a.Intersect(b, StringComparer.Ordinal).Any() : a is null or [] && b is null or [];
 
     /// <summary>
     /// Server actions and page actions that bind a <c>[FromForm]</c> positional record (a class or record built through

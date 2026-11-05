@@ -690,6 +690,12 @@ public class RouteDiagnosticsTests
                 Pages: p => p.RequireHost("www.example"))
         },
         {
+            // The host policy keeps the two apart, though it matches a request's host in any case, and picks one of them.
+            "a host of the pages in another case",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("WWW.Example"), Request("GET", "http://www.example/about"),
+                Pages: p => p.RequireHost("www.example"))
+        },
+        {
             "no form input where the page action has one",
             new(["app/contact/page.tsx"], a =>
             {
