@@ -72,6 +72,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0030 – Security headers beyond documents](decisions/0030-security-headers-beyond-documents.md)
 - [0031 – A sidecar that stops answering is restarted like one that crashed](decisions/0031-a-sidecar-that-stops-answering-is-restarted.md)
 - [0032 – The release links the package READMEs to its tag](decisions/0032-release-links-package-readmes-to-its-tag.md)
+- [0042 – The app's image runs an init as PID 1, so a crash ends the container](decisions/0042-the-apps-image-runs-an-init-as-pid-1.md)
 
 ## The project
 
