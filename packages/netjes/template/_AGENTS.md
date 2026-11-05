@@ -51,7 +51,7 @@ A page without a loader is a plain default export and gets empty props. Forms ca
 - Server state goes through TanStack Query (`useQuery`), not `useEffect` and `fetch`. Seed it from the loader with `.WithQuery(key, data)` so it is server-rendered; actions update it with `.Invalidate(key)` or `.WithQuery(key, data)`.
 - Internal links are `<Link href={route('/blog/[slug]', { slug })}>`; a typo in an href is a type error.
 - Action inputs are records with `init` properties: `public sealed record NoteInput { [Required] public string? Text { get; init; } public bool Pinned { get; init; } }`. A field the post leaves out, such as an unchecked checkbox, keeps its default; form binding refuses (400) a post that lacks one of a positional record's constructor fields. DataAnnotations on them (`[Required]`, `[StringLength]`) are checked before the action runs and come back as field errors, with no setup, also for a post that has none of the input's fields. Return `ServerAction.Invalid(field, message)` for other errors the user can fix.
-- `.CachePage(...)` only for pages that are the same for every visitor: their loaders and shared props must not depend on cookies or other per-visitor state.
+- `.CachePage(...)` only for pages that are the same for every visitor: their loaders and shared props must not depend on cookies or other per-visitor state. In the Development environment pages are never output-cached (each request renders them), so check caching on `npx netjes build && npx netjes start`, or in a test in the `Testing` environment.
 - `Netjes:PublicConfig` is sent to the browser: never put secrets there.
 - Write the failing test first, then the change.
 

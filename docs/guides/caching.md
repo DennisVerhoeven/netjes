@@ -4,7 +4,7 @@ This guide is for app developers who want pages served from a cache, or need to 
 
 ## What browsers keep by default
 
-Page responses, documents and client payloads alike, go out with `Cache-Control: no-store, private`, unless the page set the header itself or the output cache stores the response. That is what Next.js sends for its dynamic pages, and for the same reason: a page carries per-user data (shared props, an antiforgery token), and browsers show a page they kept on Back and Forward without asking the server again. A kept page would show a signed-in user's page on Back after they signed out.
+Page responses, documents and client payloads alike, go out with `Cache-Control: no-store, private`, unless the page set the header itself or, outside the Development environment, the output cache stores the response. That is what Next.js sends for its dynamic pages, and for the same reason: a page carries per-user data (shared props, an antiforgery token), and browsers show a page they kept on Back and Forward without asking the server again. A kept page would show a signed-in user's page on Back after they signed out.
 
 Back past a full page load therefore fetches the page again, unless the browser's back/forward cache restores it (Chrome restores `no-store` pages while the site's cookies are unchanged). A page that should stay in the browser's cache sets its own `Cache-Control`, in its loader or an endpoint filter, and then can come back on Back after a sign-out.
 
@@ -38,16 +38,22 @@ The order in the pipeline matters:
 - `UseOutputCache()` after `UseNetjes()`. Before it, the output cache runs before routing, so no endpoint's policy applies, `CachePage` included, and Netjes logs a warning naming the order.
 - `UseOutputCache()` after `UseAuthentication()`, so the output cache can see who is signed in. ASP.NET Core's default policy neither serves nor stores a response for a signed-in user or a request with an `Authorization` header.
 
+### In the Development environment
+
+In the Development environment no page is output-cached, under `CachePage` or any other policy: every request renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it set its own header. Code changes between any two requests there (Vite serves the sources, the sidecar imports them again, hot reload swaps loaders), and a stored page would go on serving markup and styles from before an edit, which React then fails to hydrate with the new modules. Everything else is as in production: the keys, the antiforgery token left out of a page the cache could store, and the warnings below. The app logs once, at Information, that pages are not output-cached there, and endpoints that are not pages, images included, are cached as anywhere ([ADR 0023](../decisions/0023-pages-are-not-output-cached-in-development.md)).
+
+So `UseOutputCache()` can stay in every environment. Data that is slow or costly to load, such as a remote API that bills per call, is cached in the service that loads it (`IMemoryCache`, `HybridCache`), which helps in production too. To see what the output cache stores, run the built app (`npx netjes build`, then `npx netjes start`), or test it in a host in another environment with Netjes in development mode ([testing](testing.md#the-app-over-http)): the environment decides, not `Netjes:Mode`.
+
 ### What is stored
 
-The output cache stores a page's response when:
+Outside the Development environment, the output cache stores a page's response when:
 
 - the request is a `GET` or `HEAD` without a signed-in user or an `Authorization` header,
 - the status is 200 and the response sets no cookie,
 - the document carries no CSP nonce (a stored nonce would be every visitor's; Netjes logs a warning once per page, see [security](security.md#content-security-policy)),
 - and the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback.
 
-A render that is not stored is one visitor's page, and gets the default `no-store, private`. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
+A render that is not stored is one visitor's page, and gets the default `no-store, private`, as does every output-cached page in the Development environment. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
 
 ### How entries are keyed
 
@@ -71,7 +77,7 @@ A response the output cache may store carries no antiforgery token, since the st
 
 A stored entry is every visitor's, shared props included. Shared props and the loaders of cached pages must not depend on cookies or other per-visitor state. Shared props built from the signed-in user are fine, since signed-in users never get a cached page.
 
-As a backstop, a render the output cache will store that reads `Request.Cookies` (draft mode's cookie aside) logs a warning once per page: the render was stored and will be served to every visitor. It is still stored, because refusing would turn caching off behind any middleware that reads a cookie on each request (cookie authentication, sessions, a cookie culture provider). Reads of the raw `Cookie` header are not seen. Read per-visitor values on the client, or leave the page uncached. `UseAuthentication()` placed after `UseOutputCache()` also triggers the warning.
+As a backstop, a render the output cache will store that reads `Request.Cookies` (draft mode's cookie aside) logs a warning once per page: the render was stored and will be served to every visitor. It is still stored, because refusing would turn caching off behind any middleware that reads a cookie on each request (cookie authentication, sessions, a cookie culture provider). Reads of the raw `Cookie` header are not seen. Read per-visitor values on the client, or leave the page uncached. `UseAuthentication()` placed after `UseOutputCache()` also triggers the warning. In the Development environment, where nothing is stored, the warning says instead that outside Development the render is stored.
 
 ### Under any output caching
 

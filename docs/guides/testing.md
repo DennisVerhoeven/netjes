@@ -156,6 +156,8 @@ public sealed class FakeRenderer : ISsrRenderer
 }
 ```
 
+The factory runs the app in the `Testing` environment, with Netjes in development mode, rather than in `Development`. In the Development environment Netjes output-caches no page: each request renders the page again, and an output-cached page goes out `no-store` there ([caching](caching.md#in-the-development-environment)). So a test of what `CachePage` or other output caching stores runs in `Testing`, or any environment other than `Development`; a test of what Development does sets `UseEnvironment("Development")`.
+
 The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does.
 
 When the app cannot start, `CreateClient()` throws why, as an `InvalidOperationException` whose message says what to do: `No production build found at …` for a test that runs the app in Production without a build, or `Could not start 'node'. …` for one that renders with the real Node processes where Node.js is not installed. Run as its own program, the app logs that message in one line and exits with code 1 instead ([deployment](deployment.md#what-the-server-needs)).

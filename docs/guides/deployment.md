@@ -216,6 +216,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order). |
 | `Netjes.Rendering.PageErrorMiddleware` | Exceptions while serving a page (errors) and bad requests (warnings). |
 | `Netjes.Rendering.CachePaths` | Output-cached renders that read a request cookie. |
+| `Netjes.Rendering.PageCachePolicy` | Development: once, at Information, that pages are not output-cached there. |
 | `Netjes.Deferred` | `Page.Defer` values that failed or could not be serialized. |
 | `Netjes.ServerActions` | Server action calls that failed (errors) or were refused (warnings). |
 | `Netjes.Routing.RouteDiagnostics` | [Route warnings](routing.md) at startup. |

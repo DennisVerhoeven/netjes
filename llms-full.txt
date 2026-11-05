@@ -835,7 +835,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Next.js | Netjes |
 |---|---|
 | Static by default | Dynamic by default: every page renders per request, and goes out `no-store`, since pages carry per-user shared props and antiforgery tokens. [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md) |
-| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching |
+| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching. In the Development environment every request renders the page, as `next dev` renders routes on each request; where Next.js keeps fetch results there (`force-cache`, `serverComponentsHmrCache`), cache slow data in your services. [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment) |
 | `export const dynamic` and other segment config | Endpoint conventions on the loader: `.CachePage(...)`, `.StaticParams(...)`, `.RequireAuthorization()` |
 | On-demand revalidation in a route handler | `IPageCache.RevalidatePathAsync(path)` and `RevalidateTagAsync(tag)`, from any endpoint or background job |
 | `unstable_cache`, the fetch cache | .NET's own caching (`IMemoryCache`, `HybridCache`) in your services |
@@ -2415,7 +2415,7 @@ This guide is for app developers who want pages served from a cache, or need to 
 
 ## What browsers keep by default
 
-Page responses, documents and client payloads alike, go out with `Cache-Control: no-store, private`, unless the page set the header itself or the output cache stores the response. That is what Next.js sends for its dynamic pages, and for the same reason: a page carries per-user data (shared props, an antiforgery token), and browsers show a page they kept on Back and Forward without asking the server again. A kept page would show a signed-in user's page on Back after they signed out.
+Page responses, documents and client payloads alike, go out with `Cache-Control: no-store, private`, unless the page set the header itself or, outside the Development environment, the output cache stores the response. That is what Next.js sends for its dynamic pages, and for the same reason: a page carries per-user data (shared props, an antiforgery token), and browsers show a page they kept on Back and Forward without asking the server again. A kept page would show a signed-in user's page on Back after they signed out.
 
 Back past a full page load therefore fetches the page again, unless the browser's back/forward cache restores it (Chrome restores `no-store` pages while the site's cookies are unchanged). A page that should stay in the browser's cache sets its own `Cache-Control`, in its loader or an endpoint filter, and then can come back on Back after a sign-out.
 
@@ -2449,16 +2449,22 @@ The order in the pipeline matters:
 - `UseOutputCache()` after `UseNetjes()`. Before it, the output cache runs before routing, so no endpoint's policy applies, `CachePage` included, and Netjes logs a warning naming the order.
 - `UseOutputCache()` after `UseAuthentication()`, so the output cache can see who is signed in. ASP.NET Core's default policy neither serves nor stores a response for a signed-in user or a request with an `Authorization` header.
 
+### In the Development environment
+
+In the Development environment no page is output-cached, under `CachePage` or any other policy: every request renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it set its own header. Code changes between any two requests there (Vite serves the sources, the sidecar imports them again, hot reload swaps loaders), and a stored page would go on serving markup and styles from before an edit, which React then fails to hydrate with the new modules. Everything else is as in production: the keys, the antiforgery token left out of a page the cache could store, and the warnings below. The app logs once, at Information, that pages are not output-cached there, and endpoints that are not pages, images included, are cached as anywhere ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)).
+
+So `UseOutputCache()` can stay in every environment. Data that is slow or costly to load, such as a remote API that bills per call, is cached in the service that loads it (`IMemoryCache`, `HybridCache`), which helps in production too. To see what the output cache stores, run the built app (`npx netjes build`, then `npx netjes start`), or test it in a host in another environment with Netjes in development mode ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-app-over-http)): the environment decides, not `Netjes:Mode`.
+
 ### What is stored
 
-The output cache stores a page's response when:
+Outside the Development environment, the output cache stores a page's response when:
 
 - the request is a `GET` or `HEAD` without a signed-in user or an `Authorization` header,
 - the status is 200 and the response sets no cookie,
 - the document carries no CSP nonce (a stored nonce would be every visitor's; Netjes logs a warning once per page, see [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy)),
 - and the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback.
 
-A render that is not stored is one visitor's page, and gets the default `no-store, private`. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
+A render that is not stored is one visitor's page, and gets the default `no-store, private`, as does every output-cached page in the Development environment. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
 
 ### How entries are keyed
 
@@ -2482,7 +2488,7 @@ A response the output cache may store carries no antiforgery token, since the st
 
 A stored entry is every visitor's, shared props included. Shared props and the loaders of cached pages must not depend on cookies or other per-visitor state. Shared props built from the signed-in user are fine, since signed-in users never get a cached page.
 
-As a backstop, a render the output cache will store that reads `Request.Cookies` (draft mode's cookie aside) logs a warning once per page: the render was stored and will be served to every visitor. It is still stored, because refusing would turn caching off behind any middleware that reads a cookie on each request (cookie authentication, sessions, a cookie culture provider). Reads of the raw `Cookie` header are not seen. Read per-visitor values on the client, or leave the page uncached. `UseAuthentication()` placed after `UseOutputCache()` also triggers the warning.
+As a backstop, a render the output cache will store that reads `Request.Cookies` (draft mode's cookie aside) logs a warning once per page: the render was stored and will be served to every visitor. It is still stored, because refusing would turn caching off behind any middleware that reads a cookie on each request (cookie authentication, sessions, a cookie culture provider). Reads of the raw `Cookie` header are not seen. Read per-visitor values on the client, or leave the page uncached. `UseAuthentication()` placed after `UseOutputCache()` also triggers the warning. In the Development environment, where nothing is stored, the warning says instead that outside Development the render is stored.
 
 ### Under any output caching
 
@@ -3372,6 +3378,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order). |
 | `Netjes.Rendering.PageErrorMiddleware` | Exceptions while serving a page (errors) and bad requests (warnings). |
 | `Netjes.Rendering.CachePaths` | Output-cached renders that read a request cookie. |
+| `Netjes.Rendering.PageCachePolicy` | Development: once, at Information, that pages are not output-cached there. |
 | `Netjes.Deferred` | `Page.Defer` values that failed or could not be serialized. |
 | `Netjes.ServerActions` | Server action calls that failed (errors) or were refused (warnings). |
 | `Netjes.Routing.RouteDiagnostics` | [Route warnings](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md) at startup. |
@@ -3598,6 +3605,8 @@ public sealed class FakeRenderer : ISsrRenderer
     }
 }
 ```
+
+The factory runs the app in the `Testing` environment, with Netjes in development mode, rather than in `Development`. In the Development environment Netjes output-caches no page: each request renders the page again, and an output-cached page goes out `no-store` there ([caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment)). So a test of what `CachePage` or other output caching stores runs in `Testing`, or any environment other than `Development`; a test of what Development does sets `UseEnvironment("Development")`.
 
 The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does.
 
@@ -4833,7 +4842,7 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). See [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` ([caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment)). See [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md).
 
 ### IPageCache
 
@@ -6059,6 +6068,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...)
 - A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream.
 - Keys include the host and the full URL, case included. In production pin `AllowedHosts` and set the output cache's `SizeLimit`.
 - Pages the output cache does not store go out `Cache-Control: no-store, private`, for visitors and signed-in users alike, unless the page sets its own header.
+- In the Development environment pages are never output-cached: each request renders the page, nothing is stored, and an output-cached page goes out `no-store, private`, so keep `UseOutputCache()` in every environment. Cache slow or billed upstream data in the service that loads it (`IMemoryCache`, `HybridCache`). See caching work on the built app (`npx netjes build && npx netjes start`); a `WebApplicationFactory` test of it runs in the `Testing` environment with `Netjes:Mode=Development`.
 - Draft pages and draft redirects (a loader's `Page.Redirect` in draft mode), the client-rendered fallback, the page for a failed form post, action answers and antiforgery tokens always go out `no-store`, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, any other `*-Cache-Control`, `Surrogate-Control`, `Edge-Control`, `X-Accel-Expires`), whatever the page set.
 
 ## TanStack Query
@@ -6253,6 +6263,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0020 – Page actions check their inputs like server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0020-page-actions-check-their-inputs-like-server-actions.md): a failed check renders the page again from its loader, and `usePageActionState()` reads it.
 - [0021 – Signing in or out reaches the app's other tabs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0021-signing-in-or-out-reaches-the-other-tabs.md): a tab that sees a cookie change tells the others on a `BroadcastChannel`, and they forget and reload the same way.
 - [0022 – The client entry hydrates once the shell is parsed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
+- [0023 – Pages are not output-cached in Development](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md): there every request renders the page, nothing is stored, and the page goes out `no-store`, so no edit meets a stale document.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6263,6 +6274,10 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Changed
+
+- Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
 
 ## [0.0.2] - 2026-11-03
 
