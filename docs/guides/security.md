@@ -160,6 +160,8 @@ return Page.IsLocalUrl(returnUrl) ? Page.LocalRedirect(returnUrl) : Page.Redirec
 
 The client router never loads a page from another origin: a redirect or link to another site is a full page load, handed to the browser.
 
+Netjes's own redirect of another spelling of a page's URL ([One URL per page](routing.md#one-url-per-page)) is built from the URL the client sent, and never sends a location that could lead off the site. Under a root catch-all with `TrailingSlash.Never`, `//other.example/` would go to `//other.example`, `/\other.example/` to `/\other.example`, and `/%5Cother.example/` to a location that a client which decodes it reads as `/\other.example`: each of them is answered as it was sent, without a redirect. So is a URL whose location would hold a backslash, which browsers read as a slash, a `#`, which ends the path, a control character such as a tab, which browsers drop, or a character beyond ASCII, and one whose base path comes from a header, such as an `X-Forwarded-Prefix` taken from anyone, and would make the location start with `//` or `/\`.
+
 ## The image endpoint
 
 `/_netjes/image` serves only the widths and qualities you configure, reads local images from `public/` only and only as their files are spelled, fetches remote images only from the hosts in `Netjes:Images:RemoteHosts` (https on the default port, public addresses only, no redirects followed, no proxy, within a size cap and a timeout), serves only PNG, JPEG, GIF, WebP and AVIF bytes (SVG only with `AllowSvg`, sandboxed), and bounds how many images it reads, fetches and processes at once. The [images guide](images.md) has every limit and setting.

@@ -76,6 +76,8 @@ A page whose loader returns `Page.Redirect(url)` is written as a small page that
 
 Exported pages carry no antiforgery token, since there is no server to check it. They hydrate as usual, and links and `router.push` work, but every navigation is a full page load: the client router asks for the next page's data, gets a static HTML file instead, and loads it as a document. Query strings reach no loader, since the loaders ran at export time. Assets are linked from the site root, so serve the export at the root of its host.
 
+The redirect of another spelling of a page's URL ([One URL per page](routing.md#one-url-per-page)) is the server's, and the export writes none. It requests each page at its file's spelling and writes it where it always has, `out/about/index.html` for `/about`, whatever `RedirectLiteralCase` and `TrailingSlash` say. What `/About` or `/about/` answers on a static host is up to that host.
+
 ## Deferred values and Suspense
 
 Each page is exported as a complete document, the one crawlers get (see [rendering](rendering-and-streaming.md#complete-documents)). The export waits for the page's `Page.Defer` values, up to `StreamTimeout`, and writes what they render in place of their Suspense fallback (`loading.tsx`, or a `<Suspense>` in the page), with no script to reveal it. So an exported page shows its deferred content without JavaScript, and under a static host's Content-Security-Policy that runs no inline script.

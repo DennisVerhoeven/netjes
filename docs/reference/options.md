@@ -42,6 +42,13 @@ Configuration adds list items to what a list holds already, while the delegate r
 | `Mode` | `NetjesMode?` | `Development` in the Development environment, else `Production` | `Development` compiles pages on demand with the Vite dev server and reads the routes from the files in `app/`; `Production` serves the build in `dist/` and reads the routes from its manifest. |
 | `TypesFile` | `string?` | `generated/netjes.ts` | The generated TypeScript, relative to `Root`. Written at startup in development when it changed, and by `netjes generate`. `null` (in code) turns generation off. |
 
+### Routing
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `RedirectLiteralCase` | `bool` | `true` | A `GET` or `HEAD` for a page in another case of the literal segments its file names (`/About` for `app/about/page.tsx`) answers 308 with the file's spelling (`/about`); a client navigation gets a redirect payload. `/robots.txt` and `/sitemap.xml` too. Route values, the query string, the base path and, under `TrailingSlash.Ignore`, a trailing slash stay as they were sent. Only the URL the client sent is redirected: not a rewritten or re-executed request, nor any on TestServer. `false` answers every case, as ASP.NET Core routing does. See [One URL per page](../guides/routing.md#one-url-per-page). |
+| `TrailingSlash` | `TrailingSlash` | `Ignore` | `Ignore` answers `/about` and `/about/` alike. `Never` answers a `GET` or `HEAD` for `/about/` with a 308 to `/about`, for the same requests as `RedirectLiteralCase`; a catch-all's value loses its last slash, and `/` stays. Set it in configuration as `Netjes:TrailingSlash=Never`. |
+
 ### Rendering and the sidecar
 
 | Option | Type | Default | What it does |

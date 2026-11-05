@@ -9,7 +9,7 @@ Every page of the Netjes documentation, with a line on what it covers. Start wit
 
 ## Guides
 
-- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings.
+- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
 - [Rendering and streaming](guides/rendering-and-streaming.md): the Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages.
