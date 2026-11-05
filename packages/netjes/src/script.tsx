@@ -48,15 +48,15 @@ function whenIdle(run: () => void) {
 /** A script's own attributes by their HTML names: strings, or true for one without a value. */
 type Attributes = Record<string, string | true>;
 
-/** A name `setAttribute` takes. */
-const ATTRIBUTE_NAME = /^[A-Za-z_:][-\w.:]*$/;
+/** A name `setAttribute` takes, other than an event handler's, which React never renders from a string either. */
+const isAttributeName = (name: string) => /^[A-Za-z_:][-\w.:]*$/.test(name) && !/^on/i.test(name);
 
 function attributesOf(props: Record<string, unknown>): Attributes {
   const attributes: Attributes = {};
   for (const [name, value] of Object.entries(props)) {
     if (value === undefined || value === null || value === false || typeof value === 'function' || typeof value === 'object') continue;
     const html = name === 'className' ? 'class' : name === 'crossOrigin' ? 'crossorigin' : name;
-    if (ATTRIBUTE_NAME.test(html)) attributes[html] = value === true ? true : String(value);
+    if (isAttributeName(html)) attributes[html] = value === true ? true : String(value);
   }
   return attributes;
 }
@@ -111,7 +111,7 @@ function externalEntry(text: string | null): { src: string; attributes: Attribut
   const checked: Attributes = {};
   if (typeof attributes === 'object' && attributes !== null) {
     for (const [name, attribute] of Object.entries(attributes)) {
-      if ((typeof attribute === 'string' || attribute === true) && ATTRIBUTE_NAME.test(name) && name !== 'nonce') checked[name] = attribute;
+      if ((typeof attribute === 'string' || attribute === true) && isAttributeName(name) && name.toLowerCase() !== 'nonce') checked[name] = attribute;
     }
   }
   return { src, attributes: checked };

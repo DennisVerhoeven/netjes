@@ -263,6 +263,28 @@ describe('Script with beforeInteractive', () => {
     expect(scripts('/second.js')).toHaveLength(1);
   });
 
+  it('adoptServerScripts takes no entry without the page\'s nonce, and from an entry only a src and plain attributes', async () => {
+    const entry = (json: string, nonce?: string) =>
+      `<script type="application/json" data-netjes-script="${JSON.parse(json).src ?? 'x'}"${nonce ? ` nonce="${nonce}"` : ''}>${json}</script>`;
+    document.body.innerHTML = [
+      // Markup without the nonce, and with another one in another case.
+      entry('{"src":"/unsigned.js","attributes":{}}'),
+      entry('{"src":"/cased.js","attributes":{}}', 'N0NCE'),
+      // Not an external script's entry.
+      entry('{"src":1,"attributes":{}}', 'n0nce'),
+      entry('{"attributes":{}}', 'n0nce'),
+      // Event handlers, odd names, a nonce of its own and values that are not strings are left out.
+      entry('{"src":"/plain.js","attributes":{"onload":"alert(1)","ONERROR":"alert(2)","a b":"c","nonce":"other","data-n":5,"data-ok":"yes","defer":true}}', 'n0nce'),
+    ].join('');
+
+    void adoptServerScripts('n0nce');
+
+    expect([...document.querySelectorAll('script[src]')].map((script) => script.getAttribute('src'))).toEqual(['/plain.js']);
+    const plain = scripts('/plain.js')[0];
+    expect(plain?.getAttributeNames().filter((name) => name !== 'nonce').sort()).toEqual(['data-ok', 'defer', 'src']);
+    expect(plain?.nonce).toBe('n0nce');
+  });
+
   it('takes over an entry that arrives after the others were, as its component hydrates, and calls onLoad', async () => {
     const onLoad = vi.fn();
     // As in a Suspense boundary that streams in after the client entry took over the shell's entries.
