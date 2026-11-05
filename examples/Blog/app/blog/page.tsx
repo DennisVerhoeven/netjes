@@ -9,11 +9,13 @@ export default definePage(pages['/blog'], function BlogIndex({ tag, tags, posts 
     <>
       <h1>{tag ? `Posts tagged “${tag}”` : 'All posts'}</h1>
       <nav className="mb-7 flex flex-wrap gap-2" aria-label="Filter by tag">
+        {/* Link marks a tag's link as the current page on that tag only. "All" names no tag, so Link would mark it
+            on every tag as well: it sets aria-current itself. */}
         <Link href="/blog" aria-current={tag === null ? 'page' : undefined} className={filterLink}>
           All
         </Link>
         {tags.map((t) => (
-          <Link key={t} href={route('/blog', {}, { tag: t })} aria-current={t === tag ? 'page' : undefined} className={filterLink}>
+          <Link key={t} href={route('/blog', {}, { tag: t })} className={filterLink}>
             {t}
           </Link>
         ))}
