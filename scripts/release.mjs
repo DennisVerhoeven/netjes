@@ -1,6 +1,7 @@
 // @ts-check
-// The checks .github/workflows/release.yml runs before it publishes, also runnable by hand from the repository root.
-// `node scripts/release.mjs` with no arguments prints the usage. Tests: node --test scripts/test/*.test.mjs
+// The checks .github/workflows/release.yml runs before it publishes, and the change it makes to the package READMEs
+// before it packs them, also runnable by hand from the repository root. `node scripts/release.mjs` with no arguments
+// prints the usage. Tests: node --test scripts/test/*.test.mjs
 import { realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
