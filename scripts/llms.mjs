@@ -327,33 +327,67 @@ export function rewriteLinks(text, file, root) {
     const folder = statSync(path.join(root, clean), { throwIfNoEntry: false })?.isDirectory() ?? false;
     return `${folder ? TREE : RAW}${clean}${fragment}`;
   };
-  /** @type {string | null} */
-  let fence = null;
-  return text
-    .split('\n')
-    .map((line) => {
-      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-      if (fence !== null) {
-        if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
-        return line;
-      }
-      if (marker) {
-        fence = marker;
-        return line;
-      }
-      return rewriteTargets(line, absolute);
-    })
-    .join('\n');
+  const lines = text.split('\n');
+  for (const { number, text: line } of proseLines(text)) lines[number - 1] = rewriteTargets(line, absolute);
+  return lines.join('\n');
 }
 
 /**
- * Rewrites the link targets in a line of prose: inline links and images, and a reference definition. They are found
- * with the inline code blanked out, so a link whose text is code (`` [`<Link>`](…) ``) counts and code that looks like
- * a link does not; the code itself is kept as written.
+ * The link targets of a document, in order, each with the number of its line (counted from 1): the inline links and
+ * images and the reference definitions that `rewriteLinks` rewrites. Nothing in fenced code or in an inline code span
+ * is a link.
+ * @param {string} text
+ * @returns {{ line: number; target: string }[]}
+ */
+export function linkTargets(text) {
+  return [...proseLines(text)].flatMap(({ number, text: line }) => targetsIn(line).map(({ target }) => ({ line: number, target })));
+}
+
+/**
+ * The lines of a document outside fenced code, each with its number, counted from 1.
+ * @param {string} text
+ * @returns {Generator<{ number: number; text: string }>}
+ */
+function* proseLines(text) {
+  /** @type {string | null} */
+  let fence = null;
+  for (const [index, line] of text.split('\n').entries()) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== null) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
+    yield { number: index + 1, text: line };
+  }
+}
+
+/**
+ * Rewrites the link targets in a line of prose; the code in it is kept as written.
  * @param {string} line
  * @param {(target: string) => string} absolute
  */
 function rewriteTargets(line, absolute) {
+  let out = '';
+  let last = 0;
+  for (const { at, length, target } of targetsIn(line)) {
+    out += line.slice(last, at) + absolute(target);
+    last = at + length;
+  }
+  return out + line.slice(last);
+}
+
+/**
+ * The link targets in a line of prose, in order, with where each starts and how long it is: inline links and images,
+ * and a reference definition. They are found with the inline code blanked out, so a link whose text is code
+ * (`` [`<Link>`](…) ``) counts and code that looks like a link does not.
+ * @param {string} line
+ * @returns {{ at: number; length: number; target: string }[]}
+ */
+function targetsIn(line) {
   const prose = blankCode(line);
   /** @type {{ at: number; length: number; target: string }[]} */
   const targets = [];
@@ -363,15 +397,8 @@ function rewriteTargets(line, absolute) {
   const definition = /^(\s{0,3}\[[^\]]+\]:\s*)(\S+)/.exec(prose);
   if (definition) targets.push({ at: definition[1]?.length ?? 0, length: definition[2]?.length ?? 0, target: definition[2] ?? '' });
 
-  let out = '';
-  let last = 0;
-  for (const { at, length, target } of targets.sort((a, b) => a.at - b.at)) {
-    // A target that runs into code is not a link GitHub would render.
-    if (target.includes('\0')) continue;
-    out += line.slice(last, at) + absolute(target);
-    last = at + length;
-  }
-  return out + line.slice(last);
+  // A target that runs into code is not a link GitHub would render.
+  return targets.filter(({ target }) => !target.includes('\0')).sort((a, b) => a.at - b.at);
 }
 
 /**

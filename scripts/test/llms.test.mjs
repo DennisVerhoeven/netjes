@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { main, render } from '../llms.mjs';
+import { linkTargets, main, render } from '../llms.mjs';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/';
@@ -292,6 +292,27 @@ describe('llms.mjs', () => {
     ]) {
       assert.ok(full.includes(link), `expected ${link} in:\n${full}`);
     }
+  });
+
+  it('reads the link targets of a text with their lines, as it rewrites them, and none in code', () => {
+    const text = [
+      'See [the guide](guides/a.md#top) and ![logo](img/logo.png "the logo"), not `[code](kept.md)`.',
+      'Code as link text: [`<Link>`](../reference/react-api.md#link) and [a site](https://example.com/x.md).',
+      '',
+      '```md',
+      '[fenced](kept.md)',
+      '```',
+      '',
+      '[ref]: ../reference/options.md',
+    ].join('\n');
+
+    assert.deepEqual(linkTargets(text), [
+      { line: 1, target: 'guides/a.md#top' },
+      { line: 1, target: 'img/logo.png' },
+      { line: 2, target: '../reference/react-api.md#link' },
+      { line: 2, target: 'https://example.com/x.md' },
+      { line: 8, target: '../reference/options.md' },
+    ]);
   });
 
   it("leaves no relative link in the repository's llms-full.txt", async () => {
