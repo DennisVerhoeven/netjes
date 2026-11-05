@@ -93,6 +93,8 @@ Under Vitest, unless `test` is `false`, the plugin sets these, each only if the 
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](../guides/testing.md).
 
+Under Vitest 5, an inline project in `test.projects` that changes no Vite options shares the Vite server of the config that declares it (`sharedViteServer`, on by default), and Vitest builds its `test` options from that config's as written, before any plugin adds to them. Such a project gets none of the plugin's `environment`, `exclude` and setup files, so its tests get neither the [fake-timer bridge](../guides/testing.md#fake-timers) nor the app's query defaults in `createTestApp()`. Set `sharedViteServer: false` in the root's `test` options, and Vitest resolves the config for each project, with the plugin's settings.
+
 ## The dev server
 
 In development the .NET app starts a Node process that runs the Vite dev server with this config, and renders pages through it. The browser loads modules and hot updates from that server, on its own port.

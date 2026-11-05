@@ -27,7 +27,8 @@ export type NetjesPluginOptions = {
    * Vitest defaults (jsdom, Testing Library cleanup, no e2e/ or build output), each only where the app's own `test`
    * settings leave it unset, with two exceptions that are added to what the app sets: Netjes's own setup file, after
    * the app's own `setupFiles`, and `provide['netjes:query']`, the `query` option's `defaultOptions` for
-   * `createTestApp()` (none with `query: false`). Default true; `false` adds none of them.
+   * `createTestApp()` (none with `query: false`). Default true; `false` adds none of them. Under Vitest 5, inline
+   * `test.projects` that share the root's Vite server get none of them unless the root sets `sharedViteServer: false`.
    */
   test?: boolean;
 };

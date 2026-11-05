@@ -3468,6 +3468,8 @@ Whatever the app's config says, it also adds two settings to it:
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#vitest-defaults)).
 
+An inline project in `test.projects` is the exception. Under Vitest 5, one that changes no Vite options shares the Vite server of the config that declares it, and Vitest builds its `test` options from that config's as written, before any plugin adds to them: neither these defaults nor Netjes's setup file reaches its tests. Set `sharedViteServer: false` in the root's `test` options, and each project gets them.
+
 ## Component and page tests
 
 `createTestApp()` from `netjes/testing` gives a component what a Netjes page has around it: the router, the page payload, the query client and the public config. Pass its `Wrapper` to Testing Library:
@@ -4519,7 +4521,7 @@ Links and `router.push` move to the new URL, so hooks see it, and are recorded. 
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
-The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`.
+The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 
@@ -5665,6 +5667,8 @@ Under Vitest, unless `test` is `false`, the plugin sets these, each only if the 
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md).
 
+Under Vitest 5, an inline project in `test.projects` that changes no Vite options shares the Vite server of the config that declares it (`sharedViteServer`, on by default), and Vitest builds its `test` options from that config's as written, before any plugin adds to them. Such a project gets none of the plugin's `environment`, `exclude` and setup files, so its tests get neither the [fake-timer bridge](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers) nor the app's query defaults in `createTestApp()`. Set `sharedViteServer: false` in the root's `test` options, and Vitest resolves the config for each project, with the plugin's settings.
+
 ## The dev server
 
 In development the .NET app starts a Node process that runs the Vite dev server with this config, and renders pages through it. The browser loads modules and hot updates from that server, on its own port.
@@ -6177,7 +6181,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -6341,7 +6345,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ### Changed
 
-- `netjes()` adds a setup file of its own to every app's Vitest `setupFiles`, after the app's own setup files, also when the app sets `setupFiles` itself, `[]` included. The cleanup file (`netjes/testing/setup`) is still added only when the app sets none. An app that set `setupFiles: []` to keep Netjes's setup files out now gets the new one; `netjes({ test: false })` still leaves out every Vitest setting the plugin adds, this file included.
+- `netjes()` adds a setup file of its own to every app's Vitest `setupFiles`, after the app's own setup files, also when the app sets `setupFiles` itself, `[]` included. The cleanup file (`netjes/testing/setup`) is still added only when the app sets none. An app that set `setupFiles: []` to keep Netjes's setup files out now gets the new one; `netjes({ test: false })` still leaves out every Vitest setting the plugin adds, this file included. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it, Vitest's default, gets neither this file nor the plugin's defaults (jsdom, `exclude`, cleanup): set `sharedViteServer: false` in the root's `test` options.
 - In `createTestApp()` tests, a failed query or mutation is tried as often as in the app, with no wait between the tries; retries used to be off. A query that fails once and then succeeds now shows its data, and an error shows once the last try has failed. A test that expects the error after the first request passes `defaultOptions: { queries: { retry: false } }`, the old behaviour, and `mutations: { retry: false }` where the app's `netjes({ query })` retries mutations. The app's `staleTime`, `retry`, refetch options and mutation `retry` now apply in its tests, and its `retryDelay` and its queries' `gcTime` do not. Seeded queries now stay fresh for the app's `staleTime`, counted from when `createTestApp()` is called, instead of one minute. With an app `staleTime` of 0, a component fetches its seeded query again as it mounts, as in the browser; with another one below a minute, only a component that mounts after that time, such as one rendered after the test moved fake timers on. Answer that request, or pass `defaultOptions: { queries: { staleTime: 60_000 } }`.
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
 

@@ -77,7 +77,10 @@ function canResolve(root, name) {
  * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders. Two
  * exceptions, which Vite merges into what the app set: Netjes's own setup file goes into every app's setupFiles,
  * after the app's own, and provide['netjes:query'] holds the app's query defaultOptions, which that file hands to
- * createTestApp. Only that key is returned, so the app's own provide keys are not merged twice.
+ * createTestApp. Only that key is returned, so the app's own provide keys are not merged twice. Vitest 5 builds the
+ * test options of an inline test project that shares the root's Vite server from the root's options as written, before
+ * this hook runs, so such a project gets none of these; with sharedViteServer: false it resolves the config, and this
+ * hook, for each project.
  * @param {Record<string, unknown> | undefined} test
  * @param {string} root
  * @param {{ defaultOptions?: import('@tanstack/react-query').DefaultOptions } | null} query

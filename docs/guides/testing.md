@@ -17,6 +17,8 @@ Whatever the app's config says, it also adds two settings to it:
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
 
+An inline project in `test.projects` is the exception. Under Vitest 5, one that changes no Vite options shares the Vite server of the config that declares it, and Vitest builds its `test` options from that config's as written, before any plugin adds to them: neither these defaults nor Netjes's setup file reaches its tests. Set `sharedViteServer: false` in the root's `test` options, and each project gets them.
+
 ## Component and page tests
 
 `createTestApp()` from `netjes/testing` gives a component what a Netjes page has around it: the router, the page payload, the query client and the public config. Pass its `Wrapper` to Testing Library:

@@ -4,7 +4,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
