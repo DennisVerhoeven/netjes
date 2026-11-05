@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHref, isRouteHref } from '../src/href.ts';
+import { buildEndpointUrl, buildHref, isRouteHref } from '../src/href.ts';
 
 describe('isRouteHref', () => {
   const patterns = ['/', '/about', '/blog/[slug]', '/docs/[...path]', '/shop/[[...filters]]'];
@@ -115,5 +115,49 @@ describe('buildHref', () => {
   it('throws for a missing parameter or an empty catch-all', () => {
     expect(() => buildHref('/blog/[slug]', {})).toThrow("netjes: route '/blog/[slug]' needs the parameter 'slug'");
     expect(() => buildHref('/docs/[...path]', { path: [] })).toThrow("needs the parameter 'path'");
+  });
+});
+
+describe('buildEndpointUrl', () => {
+  it('fills route values, encoding each, and sends the other values as the query string', () => {
+    expect(buildEndpointUrl('/api/items/{id}', { id: 'a b/c', v: 2, tag: ['x', 'y'] })).toBe('/api/items/a%20b%2Fc?v=2&tag=x&tag=y');
+    expect(buildEndpointUrl('/api/items/{id}', { id: 7, draft: undefined, sort: null, flag: false })).toBe('/api/items/7?flag=false');
+    expect(buildEndpointUrl('/api/posts/{slug}/likes', { slug: 'hello' })).toBe('/api/posts/hello/likes');
+  });
+
+  it('keeps the slashes of {**name}, encodes those of {*name}, fills complex segments and middle defaults, and drops a missing optional value', () => {
+    expect(buildEndpointUrl('/docs/{**path}', { path: 'guides/a b' })).toBe('/docs/guides/a%20b');
+    expect(buildEndpointUrl('/one/{*path}', { path: 'guides/a b' })).toBe('/one/guides%2Fa%20b');
+    expect(buildEndpointUrl('/openapi/{documentName}.json', { documentName: 'v1' })).toBe('/openapi/v1.json');
+    expect(buildEndpointUrl('/opt/{id?}', {})).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: null })).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: '' })).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: 3 })).toBe('/opt/3');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: 'a' })).toBe('/files/a');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: 'a', ext: 'md' })).toBe('/files/a.md');
+    expect(buildEndpointUrl('/a/{page=1}/z', {})).toBe('/a/1/z');
+    expect(buildEndpointUrl('/a/{page=1}/z', { page: 4 })).toBe('/a/4/z');
+    expect(buildEndpointUrl('/list/{page=1}', {})).toBe('/list');
+    expect(buildEndpointUrl('/list/{page=1}/{size=10}', { size: 20 })).toBe('/list/1/20');
+    expect(buildEndpointUrl('/{**path}', {})).toBe('/');
+    expect(buildEndpointUrl('/', {})).toBe('/');
+  });
+
+  it('throws for a missing or empty required route value, naming the endpoint', () => {
+    expect(() => buildEndpointUrl('/api/items/{id}', {}, undefined, 'GET /api/items/{id:int}')).toThrow(
+      "netjes: endpoint 'GET /api/items/{id:int}' needs the route value 'id'",
+    );
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: '' }, undefined, 'GET /api/items/{id:int}')).toThrow("needs the route value 'id'");
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: null })).toThrow("netjes: endpoint '/api/items/{id}' needs the route value 'id'");
+    expect(() => buildEndpointUrl('/files/{name}.{ext?}', { ext: 'md' })).toThrow("needs the route value 'name'");
+  });
+
+  it('appends the open search values after the typed ones', () => {
+    expect(buildEndpointUrl('/api/search', { q: 'a b', page: 2 }, { sort: ['x', 'y'], q: 'c' })).toBe('/api/search?q=a+b&page=2&sort=x&sort=y&q=c');
+    expect(buildEndpointUrl('/api/search', {}, { q: undefined, page: null })).toBe('/api/search');
+  });
+
+  it('writes the literal parts of a template as they are, with their braces encoded', () => {
+    expect(buildEndpointUrl('/a%7Bb%7D/{id}', { id: 'c' })).toBe('/a%7Bb%7D/c');
   });
 });
