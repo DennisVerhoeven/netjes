@@ -77,7 +77,8 @@ export async function renderToStream(data, { signal, waitForAll = false, deferre
     output.write('<html>shell ');
     deferred?.('d0').then(
       (value) => output.end(`${JSON.stringify(value)}</html>`),
-      (error) => output.end(`error: ${error.message}</html>`),
+      // A withheld one is marked as isWithheld (src/errors.ts) reads it: server-render.tsx asks it before writing the error.
+      (error) => output.end(`error: ${error.message}${error instanceof Error && error.withheld === true ? ' (withheld)' : ''}</html>`),
     );
     return output;
   }
