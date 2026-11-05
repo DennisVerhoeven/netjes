@@ -68,7 +68,7 @@ function Link(props: LinkProps): JSX.Element;
 type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   href: Href;
   replace?: boolean;            // replace the history entry instead of adding one
-  scroll?: boolean;             // default true: scroll to the top, or to the #fragment
+  scroll?: boolean;             // default true: scroll to the top, or to the #fragment and focus it
   prefetch?: 'intent' | 'none'; // default 'intent': fetch the page on hover, focus and touch
   reloadDocument?: boolean;     // let the browser load the URL with a full page load
 };
@@ -561,7 +561,7 @@ The value `deferred()` parses to: a thenable that records `status`, `value` and 
 
 ## `netjes/testing`
 
-The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it.
+The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
 
 #### `createTestApp`
 
@@ -640,7 +640,7 @@ type RenderDocumentOptions = {
 
 Renders the document of `page`, a file of the pages map named from the app's root (`'app/blog/[slug]/page.tsx'`), as the Node sidecar renders it for a crawler, and resolves with its HTML, from `<!DOCTYPE html>` to `</html>`: the page inside the layouts the server wraps it in, with the head, Netjes's inline scripts and the payload. It builds the payload's route and segments from the pages map by the server's rules, and takes everything else from `options`; no C# runs. It waits for every Suspense boundary, and a Promise in the props or a layout's props is a `Page.Defer` value: rendered in place once it resolves, left as its Suspense fallback when it rejects, and waited for while it is pending, until `signal` aborts. What the server adds and `options` cannot set is left out: the build's stylesheets and scripts, development styles, the query entries a loader seeds with `.WithQuery`, metadata from C#, an antiforgery token, the locale, draft mode, the base path and the image optimiser's settings.
 
-It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. A boundary file renders inside the layouts down to its own folder, as the server renders it in place of a page in or below that folder, but with a `null` route in the payload, and a section's own `forbidden` or `unauthorized` file inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization. It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map ([the document](../guides/testing.md#the-document)).
+It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. A boundary file renders inside the layouts down to its own folder, as the server renders it in place of a page in or below that folder, but with a `null` route in the payload, and a section's own `forbidden` or `unauthorized` file inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization. It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map, the app's folder and the query shell, also when `modules` is given ([the document](../guides/testing.md#the-document)).
 
 #### `inlineScriptHashes`
 
@@ -648,7 +648,7 @@ It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized`
 function inlineScriptHashes(html: string): Promise<string[]>;
 ```
 
-The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and `nomodule` scripts are left out. It runs in any environment. It sees only the scripts in `html`: a document from `renderDocument` is a crawler's, without the scripts React streams to reveal a Suspense boundary for a visitor, and the inline code of a `<Script>`, which `<Script>` adds in the browser, is in no document ([the document](../guides/testing.md#the-document)).
+The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and classic scripts with `nomodule` are left out. It runs in any environment. It sees only the scripts in `html`: a document from `renderDocument` is a crawler's, without the scripts React streams to reveal a Suspense boundary for a visitor, and the inline code of a `<Script>`, which `<Script>` adds in the browser, is in no document ([the document](../guides/testing.md#the-document)).
 
 ## `netjes/testing/setup`
 
@@ -697,6 +697,8 @@ These are exported for the plugin and the .NET app; app code does not import the
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
 
 The entry is internal, but the mark is public. The client router puts `data-netjes-hydrated`, with an empty value, on `<html>` once it runs in the document: after React has hydrated the page (the content of its Suspense boundaries can follow), or rendered it when no sidecar was ready, and after the router has registered as the page's action client. It is the sign end-to-end tests wait for before they click ([testing](../guides/testing.md#wait-for-hydration)). The server never renders it, a client navigation keeps it, and the router takes it off if it unmounts. The name is reserved: an app does not set, change or remove it, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser sees it.
+
+The route announcer is public in the same way. After a client navigation to another path or query, the router puts the new page's name in a visually hidden live region, `<div aria-live="polite" aria-atomic="true" data-netjes-route-announcer="">`, which it renders after the app's content, in the browser only, once the page has hydrated, so the server's HTML does not contain it. It has no role, so `getByRole('status')` does not find it; an end-to-end test finds it by its attribute ([Focus and announcements](../guides/routing.md#focus-and-announcements)). The attribute is reserved, and a test that reads the text of a whole container, such as `body`, gets the region's text too.
 
 ## The generated module
 
