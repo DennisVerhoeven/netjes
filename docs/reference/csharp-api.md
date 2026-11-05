@@ -191,9 +191,9 @@ The type of a `Page.Defer` prop. Declare props with it (`Deferred<IReadOnlyList<
 ```csharp
 public sealed class Href : IEquatable<Href>
 {
-    public Href(string value);
+    public Href(string url);
     public string Value { get; }
-    public static bool TryCreate(string? value, out Href? href);
+    public static bool TryCreate(string? url, out Href? href);
     public bool Equals(Href? other);
     public override string ToString();
     public static bool operator ==(Href? left, Href? right);
@@ -204,11 +204,11 @@ public sealed class Href : IEquatable<Href>
 
 A link in props, to one of the app's pages or to another site: a root-relative URL without the base path (`/blog/hello`, `/docs/guides/caching#keys`), a query or a fragment of the page on screen (`?page=2`, `#top`), or an `http:`, `https:`, `mailto:` or `tel:` URL. The generated TypeScript types a property of this type as the `Href` schema, which checks it against the app's pages where the props are parsed, so a component passes it to `<Link>` without `Href.parse` or a cast ([Links from C#](../guides/data-loading.md#links-from-c)). `Href?`, lists, dictionaries and `Deferred<Href>` are generated as `Href.nullable()`, `z.array(Href)`, `z.record(z.string(), Href)` and `deferred(Href)`.
 
-- `new Href(value)` throws `ArgumentException` for a URL that starts with none of `/`, `?`, `#`, `http:`, `https:`, `mailto:` and `tel:` (the schemes in any case); starts with `//` or `/\`, which browsers read as another host; holds an ASCII control character, such as a tab or a newline, which browsers drop (`/\t/evil.example` goes to `evil.example`); or starts or ends with a space. It throws `ArgumentNullException` for `null`. `TryCreate` checks the same and returns `false`, with `href` set to `null`, where the constructor would throw.
+- `new Href(url)` throws `ArgumentException` for a URL that starts with none of `/`, `?`, `#`, `http:`, `https:`, `mailto:` and `tel:` (the schemes in any case); starts with `//` or `/\`, which browsers read as another host; holds an ASCII control character, such as a tab or a newline, which browsers drop (`/\t/evil.example` goes to `evil.example`); or starts or ends with a space. It throws `ArgumentNullException` for `null`. `TryCreate` checks the same and returns `false`, with `href` set to `null`, where the constructor would throw.
 - C# checks the shape of the URL, not whether it is a page: `/llms.txt` and a URL that already has the base path are valid here. Where the props are parsed, on the server and in the browser, a root-relative `Href` that no page serves fails the parse with `Invalid props: …` (or `Invalid shared props: …`), which goes to the nearest error boundary, with status 500 from the server. Make an `Href` only of a URL the code knows to be a page; a link to an endpoint or a file stays a `string`.
 - It has no base path: the client router adds the app's, as it does for every root-relative link. `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so a URL from them needs `pathBase: PathString.Empty`.
 - JSON holds it as a plain string, in props and in any other JSON written with the app's options. Reading a string without that shape, or a number, an object or an array, throws `JsonException` (`null` reads as `null`), so a minimal API answers a JSON request body that holds one with 400.
-- No request value binds to it: it has no conversion from `string`, no `TryParse` and no `BindAsync`. A loader parameter of type `Href` stops the app at startup, and form binding reads no `Href` from a field of its name, so in an action input an `Href` binds from JSON only. A URL from the request, such as a `returnUrl`, stays a `string`: check it with `Page.IsLocalUrl` and redirect with `Page.LocalRedirect`.
+- Minimal APIs bind no query value, route value or header to it: it has no conversion from `string`, no `TryParse` and no `BindAsync`. The constructor's parameter, `url`, matches no property, so `[AsParameters]` refuses the type as well, and a loader parameter of type `Href`, with or without `[AsParameters]`, stops the app at startup. Form binding reads no `Href` from the field of a property's name, so an action input binds an `Href` from JSON only. A URL from the request, such as a `returnUrl`, stays a `string`: check it with `Page.IsLocalUrl` and redirect with `Page.LocalRedirect`.
 - Two values are equal when their URLs are the same, character by character. `Value` and `ToString()` return the URL, and an `Href` converts to `string` wherever one is expected.
 
 The name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `Href` gets CS0104 for it. Qualify one of the two, or give one an alias (`using SiteHref = MyCms.Href;`).

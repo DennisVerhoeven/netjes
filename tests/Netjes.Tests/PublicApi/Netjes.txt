@@ -36,13 +36,13 @@ public static class Microsoft.Extensions.Hosting.NetjesHostExtensions
 namespace Netjes
 public sealed class Netjes.Deferred<T>
 public sealed class Netjes.Href : IEquatable<Netjes.Href>
-  public Href(string value)
+  public Href(string url)
   public string Value { get; }
   public bool Equals(Netjes.Href? other)
   public override bool Equals(object? obj)
   public override int GetHashCode()
   public override string ToString()
-  public static bool TryCreate(string? value, out Netjes.Href? href)
+  public static bool TryCreate(string? url, out Netjes.Href? href)
   public static bool operator ==(Netjes.Href? left, Netjes.Href? right)
   public static implicit operator string?(Netjes.Href? href)
   public static bool operator !=(Netjes.Href? left, Netjes.Href? right)

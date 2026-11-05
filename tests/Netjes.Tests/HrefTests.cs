@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Netjes.Tests.Endpoints;
 
 namespace Netjes.Tests;
@@ -27,9 +28,9 @@ public class HrefTests
             "Https://example.com", "mailto:team@example.com", "tel:+31201234567", "/a b",
         ];
 
-        Assert.All(refused, value => Assert.Throws<ArgumentException>("value", () => new Href(value)));
+        Assert.All(refused, value => Assert.Throws<ArgumentException>("url", () => new Href(value)));
         Assert.All(accepted, value => Assert.Equal(value, new Href(value).Value));
-        Assert.Throws<ArgumentNullException>("value", () => new Href(null!));
+        Assert.Throws<ArgumentNullException>("url", () => new Href(null!));
     }
 
     [Fact]
@@ -70,5 +71,20 @@ public class HrefTests
         await app.GetDocumentAsync("/");
 
         Assert.Equal("\"/a\"", app.Renderer.LastPayload["props"]!["next"]!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task ALoader_BindsNoHrefFromTheRequest()
+    {
+        // A URL from the request would look checked as an Href while it can be any https URL. A plain parameter is read
+        // from the body, which loaders do not read; [AsParameters], which that error suggests, would build one from the
+        // query through the constructor, whose parameter matches no property, so minimal APIs refuse it.
+        var inferred = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"], map: a => a.MapPageLoader("/", (Href next) => Page.Props(new NextProps(next)))));
+        var asParameters = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"], map: a => a.MapPageLoader("/", ([AsParameters] Href next) => Page.Props(new NextProps(next)))));
+
+        Assert.Contains("parameter 'next' of type Href", inferred.Message);
+        Assert.Contains("type 'Href'", asParameters.Message);
     }
 }

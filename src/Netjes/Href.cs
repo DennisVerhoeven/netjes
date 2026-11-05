@@ -12,46 +12,47 @@ namespace Netjes;
 /// <remarks>
 /// C# checks the shape of the URL only. Whether a root-relative URL is one of the app's pages is not known here: a link to
 /// an endpoint or a file, such as <c>/llms.txt</c>, has the shape too. JSON holds it as a plain string, and reading one
-/// checks it as the constructor does. There is no conversion from a string and no <c>TryParse</c>, so minimal APIs and
-/// form binding never read a request value into it: check a URL from the request with <see cref="Page.IsLocalUrl"/>
-/// instead.
+/// checks it as the constructor does. It is not made from the request: there is no conversion from a string and no
+/// <c>TryParse</c>, so minimal APIs bind no query value, route value or header to it; the constructor's parameter
+/// matches no property, so <c>[AsParameters]</c> refuses it; and form binding reads none from a field of the property's
+/// name. Check a URL from the request, such as a <c>returnUrl</c>, with <see cref="Page.IsLocalUrl"/> instead.
 /// </remarks>
 [JsonConverter(typeof(HrefJsonConverter))]
 public sealed class Href : IEquatable<Href>
 {
-    // "http:" and "https:" in any case, as browsers read a scheme.
+    // Compared in any case, as browsers read a scheme.
     private static readonly string[] Schemes = ["http:", "https:", "mailto:", "tel:"];
 
-    /// <summary>The link <paramref name="value"/>, which must have the shape of one.</summary>
+    /// <summary>The link <paramref name="url"/>, which must have the shape of one.</summary>
     /// <exception cref="ArgumentException">
-    /// <paramref name="value"/> starts with none of <c>/</c>, <c>?</c>, <c>#</c>, <c>http:</c>, <c>https:</c>, <c>mailto:</c>
+    /// <paramref name="url"/> starts with none of <c>/</c>, <c>?</c>, <c>#</c>, <c>http:</c>, <c>https:</c>, <c>mailto:</c>
     /// and <c>tel:</c>; starts with <c>//</c> or <c>/\</c>, which browsers read as another host; holds an ASCII control
     /// character, such as a tab or a newline, which browsers drop; or starts or ends with a space.
     /// </exception>
-    public Href(string value)
+    public Href(string url)
     {
-        ArgumentNullException.ThrowIfNull(value);
-        if (!HasTheShape(value))
+        ArgumentNullException.ThrowIfNull(url);
+        if (!HasTheShape(url))
         {
             throw new ArgumentException(
-                $"'{value}' is not a link: start it with '/' (but not '//' or '/\\'), '?', '#', 'http:', 'https:', 'mailto:' or 'tel:', " +
+                $"'{url}' is not a link: start it with '/' (but not '//' or '/\\'), '?', '#', 'http:', 'https:', 'mailto:' or 'tel:', " +
                 "and leave out control characters and spaces at either end.",
-                nameof(value));
+                nameof(url));
         }
 
-        Value = value;
+        Value = url;
     }
 
     /// <summary>The URL, as given.</summary>
     public string Value { get; }
 
     /// <summary>
-    /// The link <paramref name="value"/> when it has the shape the constructor asks for; false, with
+    /// The link <paramref name="url"/> when it has the shape the constructor asks for; false, with
     /// <paramref name="href"/> null, otherwise and for null.
     /// </summary>
-    public static bool TryCreate([NotNullWhen(true)] string? value, [NotNullWhen(true)] out Href? href)
+    public static bool TryCreate([NotNullWhen(true)] string? url, [NotNullWhen(true)] out Href? href)
     {
-        href = value is not null && HasTheShape(value) ? new Href(value) : null;
+        href = url is not null && HasTheShape(url) ? new Href(url) : null;
         return href is not null;
     }
 
