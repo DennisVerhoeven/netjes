@@ -59,7 +59,7 @@ That is the form `netjes new` writes. With JavaScript it calls the action with `
 | `ServerAction.Ok()` | Success without a result. |
 | `ServerAction.Invalid(field, message)`, `ServerAction.Invalid(errors)` | Status 422 with the errors per field: `{ ok: false, status: 422, errors }`. |
 | `ServerAction.Redirect(url)` | Success, then the client navigates to `url` (relative or http(s), checked as `Page.Redirect` checks it). |
-| `ServerAction.Forbidden()`, `ServerAction.NotFound()` | 403 or 404. A call from React throws `ServerActionError` to the nearest error boundary; a post without JavaScript gets the error page. |
+| `ServerAction.Forbidden()`, `ServerAction.NotFound()` | 403 or 404. A call from React throws `ServerActionError`, with the reason phrase (`Forbidden`, `Not Found`) as its message, to the nearest error boundary; a post without JavaScript gets the error page. |
 
 Field names in `errors` are written with the app's JSON naming policy, so `Title` comes back as `title`, matching the field and the zod schema. Chain these on any result:
 
@@ -89,7 +89,7 @@ export const serverActions = {
 } as const;
 ```
 
-Call a reference with an object, sent as JSON, or with `FormData`, sent as a form post. It resolves to an `ActionState`: `{ ok: true, result }`, or `{ ok: false, status, errors, values }` after a 422. Any other failure (403, 404, 413, 500, a refused token) throws a `ServerActionError` with the `status`. The Blog's like button calls its action from a click, with an optimistic count:
+Call a reference with an object, sent as JSON, or with `FormData`, sent as a form post. It resolves to an `ActionState`: `{ ok: true, result }`, or `{ ok: false, status, errors, values }` after a 422. Any other failure (403, 404, 413, 500, a refused token) throws a `ServerActionError` with the `status`. Its `withheld` is true when the server sent no message, as for an exception in the action while error details are off: the message is then Netjes's own, `Server action <name> failed with status 500`, which an error page that renders the message only when `!error.withheld` leaves out ([`ServerActionError`](../reference/react-api.md#serveractionerror)). The Blog's like button calls its action from a click, with an optimistic count:
 
 ```tsx
 const likePost = serverActions['posts.like'];

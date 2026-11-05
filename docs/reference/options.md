@@ -64,7 +64,7 @@ Configuration adds list items to what a list holds already, while the delegate r
 | `CrawlerUserAgents` | `string` | a regular expression matching search engine bots, social previews, validators and Lighthouse | A regular expression, matched without regard to case against the `User-Agent`; matching requests get complete documents. |
 | `ClientRenderFallback` | `bool` | `true` | In production, a document request that finds no sidecar process ready is answered with a shell .NET writes, and the browser renders the page. `false` waits for a restart and shows the error page if none comes in time. See [rendering](../guides/rendering-and-streaming.md#when-no-sidecar-is-ready). |
 | `Lang` | `string` | `en` | The `lang` attribute of `<html>`. With `AddNetjesLocalization` the request's locale is used instead. |
-| `IncludeErrorDetails` | `bool?` | `true` in the Development environment, else `false` | Show exception messages and stacks in error pages and in failed actions' and deferred values' messages. |
+| `IncludeErrorDetails` | `bool?` | `true` in the Development environment, else `false` | Show exception messages and stacks in error pages and in failed actions' and deferred values' messages. Without them, the error the browser gets for an exception carries a stand-in message and `withheld` true ([`ErrorPageProps`](react-api.md#errorpageprops)). |
 
 ### Actions and forms
 

@@ -245,7 +245,7 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 ## Errors and configuration
 
-- Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`.
+- Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`, marked with `error.withheld`, and no stack. A failed `Page.Defer` value goes to the browser with an empty message, and a server action's 5xx with none; the browser marks both as withheld.
 - Everything in `Netjes:PublicConfig` is sent to the browser as it is. Never put a secret there.
 - Output-cached pages are served to every visitor; keep per-visitor data out of them. See [caching](caching.md#shared-props-and-cookies).
 
