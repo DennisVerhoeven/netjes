@@ -1,6 +1,7 @@
 // @ts-check
 // Checks on the repository's docs that the link check cannot make: node --test scripts/test/docs.test.mjs
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -8,6 +9,26 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const DECISIONS = 'docs/decisions';
+
+/** Folders whose Markdown is not the repository's docs: installed packages, and test fixtures that hold text on purpose. */
+const NOT_DOCS = new Set(['node_modules', 'fixtures', '__fixtures__']);
+
+/**
+ * The `*.md` files git tracks (posix, from the root), or null when ROOT is not the top of a git checkout. The `GIT_`
+ * variables a git hook sets would point git at another checkout, so they are left out.
+ * @returns {string[] | null}
+ */
+function trackedMarkdown() {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')));
+  /** @param {string[]} args */
+  const git = (...args) => execFileSync('git', args, { cwd: ROOT, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    if (git('rev-parse', '--show-prefix').trim() !== '') return null;
+    return git('ls-files', '-z', '--', '*.md').split('\0').filter(Boolean);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The lines of each Mermaid block (a fenced code block whose language is `mermaid`) in a Markdown text, without the
@@ -97,6 +118,25 @@ describe('the docs', () => {
     const inlined = JSON.parse(block[1] ?? '');
     const template = JSON.parse(await readFile(path.join(ROOT, 'packages/netjes/template/tsconfig.json'), 'utf8'));
     assert.deepEqual(inlined, template);
+  });
+
+  // Mermaid draws a diagram with a `;` in a message as a syntax error, and cuts a message at a `#` without a word.
+  // This reads the characters that end a message; parsing the diagram would take Mermaid as a dependency.
+  it('write no ; or lone # in Mermaid sequence diagrams, where either ends the message', async (t) => {
+    const files = trackedMarkdown();
+    if (!files) return t.skip('not a git checkout');
+    /** @type {string[]} */
+    const found = [];
+    for (const file of files.filter((file) => !file.split('/').some((segment) => NOT_DOCS.has(segment)))) {
+      const text = await readFile(path.join(ROOT, file), 'utf8');
+      found.push(...sequenceDiagramBreaks(text).map((line) => `${file}:${line}`));
+    }
+
+    assert.deepEqual(
+      found,
+      [],
+      'In a sequence diagram a ; ends the message and a # starts a comment: write #59; for a ; and #35; for a #, or reword',
+    );
   });
 });
 
