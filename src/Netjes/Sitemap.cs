@@ -15,6 +15,9 @@ namespace Netjes;
 
 internal sealed class ExcludeFromSitemapMetadata;
 
+/// <summary>On <c>MapSitemap</c> and <c>MapRobotsTxt</c>: the site URL their links start with, which the export checks.</summary>
+internal sealed record SiteUrlMetadata(Uri SiteUrl);
+
 /// <summary>
 /// What <c>MapSitemap</c> keeps between requests: the page paths (so <c>StaticParams</c> runs once per lifetime) and the
 /// XML built from them for a few base paths. A client can choose the base path through <c>X-Forwarded-Prefix</c>, so
@@ -153,7 +156,7 @@ public static class SitemapEndpointRouteBuilderExtensions
             })
             .AllowAnonymous()
             // Another case of it, or a trailing slash under TrailingSlash.Never, is redirected here, as for a page.
-            .WithMetadata(new OneSpellingMetadata())
+            .WithMetadata(new OneSpellingMetadata(), new SiteUrlMetadata(siteUrl))
             .IncludeInExport()
             .WithDisplayName("Netjes sitemap.xml")
             .ExcludeFromDescription();
@@ -229,7 +232,7 @@ public static class SitemapEndpointRouteBuilderExtensions
         return endpoints.MapMethods("/robots.txt", [HttpMethods.Get, HttpMethods.Head], (HttpContext http) =>
                 Results.Text($"{head}\nSitemap: {root}{http.Request.PathBase.ToUriComponent()}/sitemap.xml\n", "text/plain", Encoding.UTF8))
             .AllowAnonymous()
-            .WithMetadata(new OneSpellingMetadata())
+            .WithMetadata(new OneSpellingMetadata(), new SiteUrlMetadata(siteUrl))
             .IncludeInExport()
             .WithDisplayName("Netjes robots.txt")
             .ExcludeFromDescription();

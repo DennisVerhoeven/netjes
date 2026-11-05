@@ -1011,6 +1011,32 @@ public class StaticExportTests
         Assert.True(File.Exists(Out("sitemap.xml")));
     }
 
+    [Theory]
+    [InlineData("http://localhost:5080", "http://localhost:5080")]
+    [InlineData("http://127.0.0.1:8080/", "http://127.0.0.1:8080")]
+    [InlineData("http://[::1]/", "http://[::1]")]
+    [InlineData("https://app.localhost/", "https://app.localhost")]
+    [InlineData("http://LOCALHOST./", "http://localhost.")]
+    public async Task Export_SitemapWithALoopbackSiteUrl_IsWrittenAndWarned(string siteUrl, string root)
+    {
+        await using var app = await ExportAsync(map: a =>
+        {
+            a.MapSitemap(new Uri(siteUrl));
+            a.MapRobotsTxt(new Uri(siteUrl));
+        });
+
+        Assert.Equal(0, _exitCode);
+        Assert.Contains($"{root}/about", await SitemapLocsAsync());
+        var warnings = app.Logs.Where(l => l.Level == LogLevel.Warning && l.Message.Contains("loopback")).ToList();
+        Assert.Equal(["/sitemap.xml", "/robots.txt"], warnings.Select(w => w.Message.Split(' ')[0]).Order().Reverse());
+        Assert.All(warnings, w => Assert.Equal("Netjes.Export.StaticExportService", w.Category));
+        Assert.Equal(
+            $"/sitemap.xml is written with the site URL {root}, a loopback address, so its links point at the machine of whoever opens them. " +
+            "Pass the static host's URL to MapSitemap and MapRobotsTxt in the Production environment that netjes export runs in, for example through configuration.",
+            warnings.Single(w => w.Message.StartsWith("/sitemap.xml ")).Message);
+        Assert.Empty(QueryStringWarnings(app));
+    }
+
     [Fact]
     public async Task Export_SitemapExcludedFromExport_IsNotWritten()
     {

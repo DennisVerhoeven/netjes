@@ -76,6 +76,11 @@ internal sealed class StaticExportService(
         "{Route} requires {Parameters} from the query string, but netjes export requests {Url} without one, so the app answers 400 and the export fails. " +
         "To export it without one, give each such parameter a default value or a nullable type; to keep it on a server, exclude it with .ExcludeFromExport().";
 
+    // For MapSitemap and MapRobotsTxt; {SiteUrl} is what their links start with, as http://localhost:5080.
+    private const string LoopbackSiteUrl =
+        "{Url} is written with the site URL {SiteUrl}, a loopback address, so its links point at the machine of whoever opens them. " +
+        "Pass the static host's URL to MapSitemap and MapRobotsTxt in the {Environment} environment that netjes export runs in, for example through configuration.";
+
     /// <summary>A URL no page serves, so the app answers with its 404 page.</summary>
     private const string NotFoundProbe = "/__netjes_export_404";
 
@@ -151,6 +156,16 @@ internal sealed class StaticExportService(
         {
             // The template is one of the constants above, so log sinks keep the file, the keys and the URLs as fields.
             queryStrings.LogWarning(warning.Template, warning.Arguments);
+        }
+
+        // A warning, not a problem: an export checked on the machine that made it has nowhere else to point.
+        foreach (var file in endpointFiles)
+        {
+            if (file.Endpoint.Metadata.GetMetadata<SiteUrlMetadata>() is { } site && IsLoopback(site.SiteUrl))
+            {
+                logger.LogWarning(LoopbackSiteUrl, file.Url, site.SiteUrl.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                    services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            }
         }
 
         if (Directory.Exists(output))
@@ -419,6 +434,18 @@ internal sealed class StaticExportService(
         }
 
         return files;
+    }
+
+    /// <summary>
+    /// Whether a URL's host is this machine: <c>localhost</c> and the names below it, with or without the final dot, and
+    /// the loopback addresses.
+    /// </summary>
+    private static bool IsLoopback(Uri url)
+    {
+        var host = url.IdnHost.TrimEnd('.');
+        return url.IsLoopback
+            || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Whether a file name has an extension: a dot with something after it (<c>feed.xml</c>, <c>.htaccess</c>).</summary>
