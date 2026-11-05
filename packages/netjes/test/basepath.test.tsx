@@ -98,6 +98,22 @@ describe('a base path', () => {
     expect(window.location.pathname).toBe('/base/contact');
   });
 
+  it('marks a link whose href already has the base path as the current page', async () => {
+    await renderApp(payload('/contact', 'Contact'));
+
+    expect(screen.getByRole('link', { name: 'Prefixed' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'About' }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('compares a link with the page under the base path when the page path starts with the base path too', async () => {
+    // At /base/base/contact the page path is /base/contact. The Prefixed link keeps its href, /base/contact,
+    // which is the app's /contact: another page.
+    await renderApp(payload('/base/contact', 'Nested'));
+
+    expect(screen.getByRole('heading', { name: 'Nested at /base/contact' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Prefixed' }).getAttribute('aria-current')).toBeNull();
+  });
+
   it('is left out of the navigation state, like usePathname', async () => {
     let release: () => void = () => {};
     const slow = new Promise<void>((resolve) => {
