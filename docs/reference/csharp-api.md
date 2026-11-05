@@ -325,8 +325,8 @@ public sealed class ServerActionResult : IResult
 
 | Method | What it does |
 |---|---|
-| `Revalidate(tags)` | Evicts output-cached pages with these tags, then the client loads its page again. |
-| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. |
+| `Revalidate(tags)` | Evicts every output-cache entry with these tags, then the client loads its page again: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))` ([endpoints that are not pages](../guides/caching.md#endpoints-that-are-not-pages)). |
+| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. It evicts pages only, never the entry of an endpoint that is not a page. |
 | `Refresh()` | The client loads its current page again (every loader runs) once the action completes. |
 | `Invalidate(queryKeys)` | Invalidates these TanStack Query keys, and those they prefix, on the client, so they are fetched again. |
 | `WithQuery(queryKey, data)` | Sets a TanStack Query entry on the client, such as the updated record, without a fetch. Throws for an empty key. |
@@ -352,7 +352,7 @@ public interface IPageCache
 }
 ```
 
-Evicts output-cached pages from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidatePathAsync` evicts the document and the payloads of the path. Without output caching both do nothing. Inject it.
+Evicts output-cache entries from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidateTagAsync` evicts every entry with the tag: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))`. `RevalidatePathAsync` evicts the document and the payloads of the page at the path, and never the entry of an endpoint that is not a page. Without output caching both do nothing. Inject it.
 
 ### IDraftMode
 
