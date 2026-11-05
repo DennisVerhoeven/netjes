@@ -31,7 +31,8 @@ internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
     /// Kills a process and the processes it started, for each sidecar; tests hand in their own. Internal, so the
     /// container, which only uses public constructors, never fills it in.
     /// </param>
-    internal SidecarPool(NetjesContext context, ILoggerFactory loggers, Action<Process>? killTree)
+    /// <param name="watchdog">How each sidecar checks its process for answers; tests hand in a quicker one.</param>
+    internal SidecarPool(NetjesContext context, ILoggerFactory loggers, Action<Process>? killTree, SidecarWatchdog? watchdog = null)
     {
         if (context.Options.SidecarProcesses < 1)
         {
@@ -41,7 +42,7 @@ internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
 
         var count = context.Mode == NetjesMode.Development ? 1 : context.Options.SidecarProcesses;
         _members = [.. Enumerable.Range(0, count)
-            .Select(_ => new Member(new NodeSidecar(context, loggers.CreateLogger<NodeSidecar>(), killTree: killTree)))];
+            .Select(_ => new Member(new NodeSidecar(context, loggers.CreateLogger<NodeSidecar>(), killTree: killTree, watchdog: watchdog)))];
     }
 
     public int Count => _members.Length;

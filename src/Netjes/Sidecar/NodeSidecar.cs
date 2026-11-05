@@ -21,8 +21,13 @@ namespace Netjes.Sidecar;
 /// </summary>
 /// <param name="handler">Sends the requests; tests hand in one that fails on purpose.</param>
 /// <param name="killTree">Kills a process and the processes it started; tests hand in one that fails on purpose.</param>
+/// <param name="watchdog">How the process is checked for answers; tests hand in a quicker one.</param>
 internal sealed partial class NodeSidecar(
-    NetjesContext context, ILogger<NodeSidecar> logger, HttpMessageHandler? handler = null, Action<Process>? killTree = null)
+    NetjesContext context,
+    ILogger<NodeSidecar> logger,
+    HttpMessageHandler? handler = null,
+    Action<Process>? killTree = null,
+    SidecarWatchdog? watchdog = null)
     : ISsrRenderer, IAsyncDisposable
 {
     internal const string TokenHeader = "X-Netjes-Token";
@@ -49,6 +54,7 @@ internal sealed partial class NodeSidecar(
 
     private readonly HttpClient _http = new(handler ?? new HttpClientHandler()) { Timeout = Timeout.InfiniteTimeSpan };
     private readonly Action<Process> _killTree = killTree ?? (process => process.Kill(entireProcessTree: true));
+    private readonly SidecarWatchdog _watchdog = watchdog ?? SidecarWatchdog.Default;
     private readonly string _token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
     private readonly Lock _gate = new();
     private readonly Queue<string> _recentStderr = new();
