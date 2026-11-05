@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Netjes;
 
@@ -9,10 +11,12 @@ namespace Netjes;
 /// </summary>
 /// <remarks>
 /// C# checks the shape of the URL only. Whether a root-relative URL is one of the app's pages is not known here: a link to
-/// an endpoint or a file, such as <c>/llms.txt</c>, has the shape too. There is no conversion from a string and no
-/// <c>TryParse</c>, so minimal APIs and form binding never read a request value into it: check a URL from the request
-/// with <see cref="Page.IsLocalUrl"/> instead.
+/// an endpoint or a file, such as <c>/llms.txt</c>, has the shape too. JSON holds it as a plain string, and reading one
+/// checks it as the constructor does. There is no conversion from a string and no <c>TryParse</c>, so minimal APIs and
+/// form binding never read a request value into it: check a URL from the request with <see cref="Page.IsLocalUrl"/>
+/// instead.
 /// </remarks>
+[JsonConverter(typeof(HrefJsonConverter))]
 public sealed class Href : IEquatable<Href>
 {
     // "http:" and "https:" in any case, as browsers read a scheme.
@@ -87,4 +91,18 @@ public sealed class Href : IEquatable<Href>
             _ => Schemes.Any(scheme => value.StartsWith(scheme, StringComparison.OrdinalIgnoreCase)),
         };
     }
+}
+
+/// <summary>An <see cref="Href"/> as the plain string it holds; reading one that is not a link throws.</summary>
+internal sealed class HrefJsonConverter : JsonConverter<Href>
+{
+    public override Href Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && Href.TryCreate(reader.GetString(), out var href)
+            ? href
+            // The value is left out of the message: it comes from whoever sent the JSON.
+            : throw new JsonException(
+                "Not a link: an Href starts with '/' (but not '//' or '/\\'), '?', '#', 'http:', 'https:', 'mailto:' or 'tel:', " +
+                "and has no control characters and no spaces at either end.");
+
+    public override void Write(Utf8JsonWriter writer, Href value, JsonSerializerOptions options) => writer.WriteStringValue(value.Value);
 }
