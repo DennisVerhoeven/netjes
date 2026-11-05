@@ -49,6 +49,26 @@ internal static class LoaderBinding
     }
 
     /// <summary>
+    /// The query string key minimal API binding reads a parameter's value from, or null when it reads none. A
+    /// <c>[FromQuery]</c> attribute is read first, after only <c>[FromRoute]</c>, as minimal APIs read them: they report
+    /// <see cref="IParameterBindingMetadata.HasTryParse"/> only for a binding they infer, so a <c>[FromQuery]</c>
+    /// parameter has it false and <see cref="SourceOf"/> sees no query string there. The attribute's <c>Name</c> is the
+    /// key when it has one. Otherwise the parameter's name is the key when its binding from the query string is inferred.
+    /// Members of an <c>[AsParameters]</c> type count: minimal APIs give each its own entry, named after the property and
+    /// carrying its attributes, while the <c>[AsParameters]</c> parameter itself has none.
+    /// </summary>
+    public static string? QueryKeyOf(IParameterBindingMetadata parameter, IReadOnlyList<string> routeParameters)
+    {
+        var attributes = Attribute.GetCustomAttributes(parameter.ParameterInfo);
+        if (!attributes.Any(a => a is IFromRouteMetadata) && attributes.OfType<IFromQueryMetadata>().FirstOrDefault() is { } query)
+        {
+            return query.Name ?? parameter.Name;
+        }
+
+        return SourceOf(parameter, routeParameters).Query ? parameter.Name : null;
+    }
+
+    /// <summary>
     /// How a loader's request delegate binds: like a minimal API GET handler, from the given route parameters (null when
     /// they are not known, as minimal APIs take them when they build no endpoint), the query string and services, and
     /// never from an inferred body.

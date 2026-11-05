@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Netjes.Export;
 using Netjes.Rendering;
 using Netjes.Tests.Endpoints;
@@ -558,6 +560,149 @@ public class StaticExportTests
 
         Assert.Equal(1, _exitCode);
         Assert.Contains(app.Logs, l => l.Message.Contains("/broken") && l.Message.Contains("404"));
+    }
+
+    /// <summary>The category of the warnings about loaders that read the query string, which the export requests without one.</summary>
+    private const string QueryString = "Netjes.Export.QueryString";
+
+    private static List<LogEntry> QueryStringWarnings(TestApp app) => [.. app.Logs.Where(l => l.Category == QueryString)];
+
+    [Fact]
+    public async Task Export_PageWhoseLoaderReadsTheQueryString_IsWrittenAndWarned()
+    {
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/search/page.tsx"],
+            map: a => a.MapPageLoader("/search", (string? q, int page = 1) => Page.Props(new { q, page })));
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("search/index.html")));
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.StartsWith("app/search/page.tsx reads 'q' and 'page' from the query string", warning.Message);
+        Assert.Contains(" /search ", warning.Message);
+        Assert.Contains(".StaticParams(...)", warning.Message);
+        Assert.Contains(".ExcludeFromExport()", warning.Message);
+    }
+
+    public sealed record SearchQuery(string? Q, int? Page);
+
+    [Fact]
+    public async Task Export_QueryParametersBoundByAttributeArrayAsParametersOrUnderStaticParams_AreWarned()
+    {
+        await using var app = await ExportAsync(
+            ["app/find/page.tsx", "app/search/page.tsx", "app/tags/page.tsx", "app/blog/[slug]/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/find", ([FromQuery(Name = "term")] string? search) => Page.Props(new { search }));
+                a.MapPageLoader("/search", ([AsParameters] SearchQuery query) => Page.Props(new { query.Q, query.Page }));
+                a.MapPageLoader("/tags", (string[] tags) => Page.Props(new { tags }));
+                a.MapPageLoader("/blog/[slug]", (string slug, string? highlight) => Page.Props(new PostProps(slug)))
+                    .StaticParams(_ => [new { slug = "hello" }, new { slug = "world" }]);
+            });
+
+        Assert.Equal(0, _exitCode);
+        var warnings = QueryStringWarnings(app).Select(w => w.Message).ToList();
+        Assert.Equal(4, warnings.Count);
+        Assert.Contains(warnings, w => w.StartsWith("app/find/page.tsx reads 'term' from the query string", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.StartsWith("app/search/page.tsx reads 'Q' and 'Page' from the query string", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.StartsWith("app/tags/page.tsx reads 'tags' from the query string", StringComparison.Ordinal));
+        // One warning for the loader, not one for each URL it is exported for, and the route value is no query.
+        var post = Assert.Single(warnings, w => w.StartsWith("app/blog/[slug]/page.tsx ", StringComparison.Ordinal));
+        Assert.StartsWith("app/blog/[slug]/page.tsx reads 'highlight' from the query string", post);
+        Assert.Contains("each URL of /blog/[slug]", post);
+        Assert.DoesNotContain("'slug'", post);
+    }
+
+    [Fact]
+    public async Task Export_LayoutLoaderThatReadsTheQueryString_IsWarnedOnceNamingThePagesBelowIt()
+    {
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/docs/layout.tsx", "app/docs/page.tsx", "app/docs/intro/page.tsx", "app/docs/draft/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/docs", (string? version) => Page.Props(new { version }));
+                a.MapPageLoader("/docs/draft", () => Page.Props()).ExcludeFromExport();
+            });
+
+        Assert.Equal(0, _exitCode);
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.StartsWith("app/docs/layout.tsx reads 'version' from the query string", warning.Message);
+        Assert.Contains("the 2 pages below it (/docs, /docs/intro)", warning.Message);
+    }
+
+    [Theory]
+    [InlineData(new string[0], "the page below it (/docs)")]
+    [InlineData(new[] { "a", "b", "c", "d" }, "the 5 pages below it (/docs, /docs/a, /docs/b, and 2 more)")]
+    public async Task Export_LayoutLoaderThatReadsTheQueryString_NamesOnePageOrTheFirstThree(string[] slugs, string pages)
+    {
+        await using var app = await ExportAsync(
+            ["app/docs/layout.tsx", "app/docs/page.tsx", "app/docs/[slug]/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/docs", (string? version) => Page.Props(new { version }));
+                var docs = a.MapPageLoader("/docs/[slug]", (string slug) => Page.Props(new PostProps(slug)));
+                if (slugs.Length == 0) docs.ExcludeFromExport();
+                else docs.StaticParams(_ => slugs.Select(slug => new { slug }));
+            });
+
+        Assert.Equal(0, _exitCode);
+        Assert.Contains(pages, Assert.Single(QueryStringWarnings(app)).Message);
+    }
+
+    [Fact]
+    public async Task Export_LoaderThatReadsNoQueryString_IsNotWarned()
+    {
+        // Route values (in another case too, or through [FromRoute], which minimal APIs read before [FromQuery]), a
+        // header, services and the request: nothing that a static file leaves out.
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/docs/layout.tsx", "app/docs/page.tsx", "app/blog/[slug]/page.tsx", "app/tags/[tag]/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/", (HttpContext http, CancellationToken cancellationToken) => Page.Props());
+                a.MapLayoutLoader("/docs", (Slugs slugs, [FromHeader(Name = "Accept-Language")] string? language) => Page.Props(new { language }));
+                a.MapPageLoader("/blog/[slug]", (string Slug, Slugs slugs) => Page.Props(new PostProps(Slug)))
+                    .StaticParams<Slugs>(slugs => slugs.All.Select(s => new { slug = s }));
+                a.MapPageLoader("/tags/[tag]", ([FromRoute(Name = "tag"), FromQuery(Name = "t")] string name) => Page.Props(new PostProps(name)))
+                    .StaticParams(_ => [new { tag = "dotnet" }]);
+            },
+            services: s => s.AddSingleton(new Slugs(["one", "two"])));
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("blog/two/index.html")));
+        Assert.Empty(QueryStringWarnings(app));
+    }
+
+    [Fact]
+    public async Task Export_ExcludedPageThatReadsTheQueryString_IsNotWarned()
+    {
+        // On a layout loader, .ExcludeFromExport() leaves out every page below it.
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/search/page.tsx", "app/admin/layout.tsx", "app/admin/page.tsx", "app/admin/users/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/search", (string? q) => Page.Props(new { q })).ExcludeFromExport();
+                a.MapLayoutLoader("/admin", (string? tab) => Page.Props(new { tab })).ExcludeFromExport();
+                a.MapPageLoader("/admin/users", (string? sort) => Page.Props(new { sort }));
+            });
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("index.html")));
+        Assert.False(File.Exists(Out("search/index.html")));
+        Assert.False(File.Exists(Out("admin/users/index.html")));
+        Assert.Empty(QueryStringWarnings(app));
+    }
+
+    [Fact]
+    public async Task Export_ThatCannotBeExported_SaysWhyWithoutQueryStringWarnings()
+    {
+        await using var app = await ExportAsync(
+            ["app/search/page.tsx", "app/blog/[slug]/page.tsx"],
+            map: a => a.MapPageLoader("/search", (string? q) => Page.Props(new { q })));
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Message.Contains("/blog/[slug] is dynamic"));
+        Assert.Empty(QueryStringWarnings(app));
     }
 
     [Fact]
