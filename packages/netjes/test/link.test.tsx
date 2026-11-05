@@ -1,5 +1,8 @@
 import { render, screen } from '@testing-library/react';
+import { createRef } from 'react';
 import { describe, expect, it } from 'vitest';
+import { Form, SubmitButton } from '../src/form.tsx';
+import { Image } from '../src/image.tsx';
 import { Link } from '../src/link.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
@@ -74,5 +77,30 @@ describe('Link', () => {
 
     expect(screen.getByRole('link', { name: 'Intro' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'Docs' }).getAttribute('aria-current')).toBe('true');
+  });
+
+  it('passes a ref to its element: Link, Form, SubmitButton and Image', () => {
+    const link = createRef<HTMLAnchorElement>();
+    const form = createRef<HTMLFormElement>();
+    const button = createRef<HTMLButtonElement>();
+    const image = createRef<HTMLImageElement>();
+
+    render(
+      <>
+        <Link ref={link} href="/">
+          Home
+        </Link>
+        <Form ref={form} aria-label="Search">
+          <SubmitButton ref={button}>Search</SubmitButton>
+        </Form>
+        <Image ref={image} src="/hero.png" alt="Hero" width={640} height={360} />
+      </>,
+      { wrapper: createTestApp().Wrapper },
+    );
+
+    expect(link.current).toBe(screen.getByRole('link', { name: 'Home' }));
+    expect(form.current).toBe(screen.getByRole('form', { name: 'Search' }));
+    expect(button.current).toBe(screen.getByRole('button', { name: 'Search' }));
+    expect(image.current).toBe(screen.getByRole('img', { name: 'Hero' }));
   });
 });

@@ -1,9 +1,9 @@
-import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import type { ComponentPropsWithRef, MouseEvent } from 'react';
 import type { Href } from './href.ts';
 import { useBasePath, useInternalRouter, usePathname, useSearchParams, withBasePath } from './router.tsx';
 
-/** The props of `<Link>`: an anchor's own, with a typed `href` and the client navigation options. */
-export type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+/** The props of `<Link>`: an anchor's own and its ref, with a typed `href` and the client navigation options. */
+export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   /** Typed by the app's routes once `netjes generate` has registered them. */
   href: Href;
   replace?: boolean;
