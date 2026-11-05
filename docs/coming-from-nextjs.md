@@ -154,4 +154,4 @@ Next.js prerenders what it can. Netjes renders every page per request and sends 
 3. Turn `'use server'` functions into `MapAction` endpoints, and route handlers into minimal APIs.
 4. Move `middleware.ts` and the `next.config.js` redirects, rewrites and headers into `Program.cs`.
 5. Replace `NEXT_PUBLIC_` variables with `Netjes:PublicConfig`.
-6. Run `npm run routes`: it prints the route table as ASP.NET Core sees it, with warnings for loader parameters that miss a route value, for pages that match the same URLs, and for form inputs that refuse a post without a checkbox.
+6. Run `npm run routes`: it prints the route table as ASP.NET Core sees it, with warnings for loader parameters that miss a route value, for pages that match the same URLs, for endpoints that tie with a page, and for form inputs that refuse a post without a checkbox.

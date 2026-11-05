@@ -318,12 +318,13 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
 
     /// <summary>
     /// Endpoints of the app that tie with a page or a page action, which ASP.NET Core finds only on a request that
-    /// matches both. It ranks the endpoints a URL matches by order, then route precedence, then its matcher policies (an
-    /// endpoint with hosts, HTTP methods or accepted content types ahead of one without), and a request that the two first
-    /// in rank both fit fails with an AmbiguousMatchException, a 500. Every endpoint without the page marker is compared
-    /// with the pages (the not-found fallback and the server actions carry it without a pattern), Netjes's own included:
-    /// the locale redirect ties with <c>app/page.tsx</c>. One that names no HTTP method ranks after the pages, and has no
-    /// method in common with them. Endpoints the matcher skips (<see cref="ISuppressMatchingMetadata"/>) are left out.
+    /// matches both. It ranks the endpoints a URL matches by order, then route precedence, then its matcher policies in
+    /// turn (an endpoint with HTTP methods ahead of one without, then one with hosts, then one with accepted content
+    /// types), and a request that the two first in rank both fit fails with an AmbiguousMatchException, a 500. Every
+    /// endpoint without the page marker is compared with the pages (the not-found fallback and the server actions carry it
+    /// without a pattern), Netjes's own included: the locale redirect ties with <c>app/page.tsx</c>. One that names no
+    /// HTTP method ranks after the pages, and has no method in common with them. Endpoints the matcher skips
+    /// (<see cref="ISuppressMatchingMetadata"/>) are left out.
     /// </summary>
     private static IEnumerable<RouteWarning> EndpointTieWarnings(RouteTable table, IEnumerable<RouteEndpoint> endpoints)
     {
@@ -363,8 +364,10 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     /// Whether a request can match both endpoints with neither ranked ahead: an HTTP method in common, the same order and
     /// route precedence, the same literals, a host in common or none on either, and accepted content types listed by both
     /// or by neither. One route precedence means one number of segments and one kind of segment at each position: a
-    /// literal, a parameter or a catch-all, each with or without a constraint. Constraints are not compared: a page's only one is a catch-all's
-    /// <c>minlength(1)</c>, so the two share URLs unless the endpoint's constraint there allows nothing but an empty value.
+    /// literal, a parameter or a catch-all, each with or without a constraint. Constraints are not compared. A page's own
+    /// are a catch-all's <c>minlength(1)</c>, which shares URLs with any constraint of the endpoint there but one that
+    /// allows only an empty value, and those of a route group's prefix, which can share none: the endpoint's
+    /// <c>{org:alpha}</c> next to a page under <c>/{tenant:int}</c> is a tie no request meets.
     /// </summary>
     private static bool Tie(RouteEndpoint a, RouteEndpoint b) =>
         Methods(a).Intersect(Methods(b), StringComparer.OrdinalIgnoreCase).Any()
@@ -387,7 +390,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         a.PathSegments.Zip(b.PathSegments).All(s =>
             Literal(a, s.First) is not { } x || Literal(b, s.Second) is not { } y || string.Equals(x, y, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The segment's literal; a parameter with a required value, as MVC's conventional routes have, is matched as that value.</summary>
+    /// <summary>The segment's literal; a parameter with a required value, as MVC gives a controller action's route, is matched as that value.</summary>
     private static string? Literal(RoutePattern pattern, RoutePatternPathSegment segment) => segment.Parts switch
     {
         [RoutePatternLiteralPart literal] => literal.Content,

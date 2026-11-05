@@ -545,7 +545,10 @@ public class RouteDiagnosticsTests
 
     public sealed record JsonInput(string? Text);
 
-    /// <summary>A pattern as MVC's conventional routes build them: each parameter has a required value, matched as a literal.</summary>
+    /// <summary>
+    /// A pattern as MVC builds for a controller action whose attribute route is <c>{controller}/{action}</c>: each
+    /// parameter has a required value, matched as a literal, and the order is 0. Conventional routes have an order above 0.
+    /// </summary>
     private static RoutePattern HomeAction(string action) =>
         RoutePatternFactory.Parse("/{controller}/{action}", defaults: null, parameterPolicies: null, requiredValues: new { controller = "Home", action });
 
