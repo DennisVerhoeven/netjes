@@ -152,6 +152,9 @@ curl -sf -o /dev/null "http://127.0.0.1:$port/about"
 # The template's favicon: Vite copies public/ into the build, Netjes serves it at the root, the root layout links it.
 curl -sf "http://127.0.0.1:$port/" | grep '<link rel="icon" href="/favicon.svg"' >/dev/null || { echo "the home page does not link /favicon.svg"; exit 1; }
 [[ "$(curl -sf -o /dev/null -w '%{content_type}' "http://127.0.0.1:$port/favicon.svg")" == image/svg+xml* ]] || { echo "/favicon.svg is not served as an SVG"; cat "$work/app.log"; exit 1; }
+# The template's skip link, which the server renders: the first element Tab reaches, after a page load and after a
+# client navigation, when the router starts the focus over at the top of the document.
+curl -sf "http://127.0.0.1:$port/" | grep 'href="#content"' >/dev/null || { echo "the home page has no skip link to #content"; exit 1; }
 # A page that is not found carries one <title>: its own, through metadata, with the layout template applied.
 titles=$(curl -s "http://127.0.0.1:$port/no/such/page" | grep -o "<title>[^<]*</title>")
 [[ "$titles" =~ ^\<title\>Not\ found\ ·\ [^\<]+\</title\>$ ]] || { echo "not-found titles: $titles"; exit 1; }
