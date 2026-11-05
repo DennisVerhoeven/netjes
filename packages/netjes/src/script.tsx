@@ -278,7 +278,7 @@ export function Script(given: ScriptProps) {
   // The browser fetches it while it parses; adoptServerScripts runs it from the entry. A script the browser will not run
   // is not fetched: a consent manager's would reach its host before the visitor agreed.
   if (runs(attributes)) {
-    preload(src, { as: 'script', ...(nonce ? { nonce } : {}), ...(integrity ? { integrity } : {}), ...(crossOrigin ? { crossOrigin } : {}) });
+    preload(src, { as: 'script', ...(nonce ? { nonce } : {}), ...(integrity ? { integrity } : {}), ...(crossOrigin !== undefined ? { crossOrigin } : {}) });
   }
   return (
     <>

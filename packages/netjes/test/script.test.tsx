@@ -212,6 +212,12 @@ describe('Script with beforeInteractive', () => {
     expect(JSON.parse(entry?.textContent ?? '')).toMatchObject({ src: '/polyfills.js?v=</script>' });
   });
 
+  it('preloads an external beforeInteractive script in the CORS mode it runs in, an empty crossOrigin included', () => {
+    const server = parsed(renderToString(page(<Script src="/anonymous.js" strategy="beforeInteractive" crossOrigin="" />)));
+
+    expect(server.head.querySelector('link[rel="preload"][href="/anonymous.js"]')?.getAttribute('crossorigin')).toBe('');
+  });
+
   it("adoptServerScripts runs external entries in order with the page's nonce and records their outcome", async () => {
     document.body.innerHTML = renderToString(
       <>
