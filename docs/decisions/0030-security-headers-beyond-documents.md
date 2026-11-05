@@ -29,7 +29,7 @@ With `frame-ancestors` in the policy, Netjes added no `X-Frame-Options`, so as n
 
 ## Consequences
 
-- A script or stylesheet served with the wrong `Content-Type`, from `public/` or an endpoint, is now refused by the browser; the fix is the type.
+- A script or stylesheet served with the wrong `Content-Type`, or with none, from `public/` or an endpoint, is now refused by the browser, and a page that an endpoint writes without a `Content-Type` shows as plain text, its scripts not run; the fix is the type.
 - With `frame-ancestors` in the policy, documents carry `DENY` or `SAMEORIGIN`. A partner named in `frame-ancestors` can no longer frame the app in a browser that knows only `X-Frame-Options`, as draft mode already accepted for a CMS.
 - A host source that names the app's own origin without `'self'` gets `DENY`. App code that stores antiforgery tokens before the render gets antiforgery's `SAMEORIGIN` on a first visit, which Netjes keeps, unless `SuppressXFrameOptionsHeader` is set. A policy that a middleware writes in a response-start callback, after the render, is not seen.
 - Every request that reaches `UseNetjes` registers one more response-start callback.
