@@ -46,6 +46,10 @@ public sealed class Netjes.Href : IEquatable<Netjes.Href>
   public static bool operator ==(Netjes.Href? left, Netjes.Href? right)
   public static implicit operator string?(Netjes.Href? href)
   public static bool operator !=(Netjes.Href? left, Netjes.Href? right)
+public sealed class Netjes.HrefJsonConverter : System.Text.Json.Serialization.JsonConverter<Netjes.Href>
+  public HrefJsonConverter()
+  public override Netjes.Href Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  public override void Write(System.Text.Json.Utf8JsonWriter writer, Netjes.Href value, System.Text.Json.JsonSerializerOptions options)
 public interface Netjes.IDraftMode
   bool IsEnabled { get; }
   void Disable()

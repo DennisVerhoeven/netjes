@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Netjes.Tests.Endpoints;
@@ -90,6 +92,22 @@ public class HrefTests
     }
 
     [Fact]
+    public void Json_ThroughASourceGeneratedContext_UsesTheConverter_WhichAnAppCanReach()
+    {
+        // The context an app generates creates the converter the type names. One it cannot reach (an internal one) gets
+        // only warnings, SYSLIB1220 and SYSLIB1030, and the context then leaves the property out of what it writes, or
+        // throws NotSupportedException without a resolver behind it. This assembly sees Netjes's internals, an app does not.
+        var converter = typeof(Href).GetCustomAttribute<JsonConverterAttribute>()?.ConverterType;
+
+        Assert.NotNull(converter);
+        Assert.True(converter.IsPublic, $"{converter.Name} is not public");
+        Assert.NotNull(converter.GetConstructor(Type.EmptyTypes));
+        Assert.Equal("""{"next":"/a","previous":null}""", JsonSerializer.Serialize(new Links(new Href("/a"), null), HrefJsonContext.Default.Links));
+        Assert.Equal(new Links(new Href("/b"), null), JsonSerializer.Deserialize("""{"next":"/b"}""", HrefJsonContext.Default.Links));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize("""{"next":"javascript:alert(1)"}""", HrefJsonContext.Default.Links));
+    }
+
+    [Fact]
     public async Task PageProps_WriteAnHrefAsAPlainString()
     {
         await using var app = await TestApp.StartAsync(
@@ -115,3 +133,8 @@ public class HrefTests
         Assert.Contains("type 'Href'", asParameters.Message);
     }
 }
+
+/// <summary>A source-generated context, as an app may have for the JSON of its own endpoints.</summary>
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(HrefTests.Links))]
+internal sealed partial class HrefJsonContext : JsonSerializerContext;

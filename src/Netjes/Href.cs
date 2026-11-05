@@ -95,7 +95,11 @@ public sealed class Href : IEquatable<Href>
 }
 
 /// <summary>An <see cref="Href"/> as the plain string it holds; reading one that is not a link throws.</summary>
-internal sealed class HrefJsonConverter : JsonConverter<Href>
+/// <remarks>
+/// <see cref="Href"/> names it, so apps never need to. It is public for a System.Text.Json source-generated context in
+/// an app, which creates the converter in the app's own code: one it could not reach would leave the property out.
+/// </remarks>
+public sealed class HrefJsonConverter : JsonConverter<Href>
 {
     public override Href Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
         reader.TokenType == JsonTokenType.String && Href.TryCreate(reader.GetString(), out var href)
