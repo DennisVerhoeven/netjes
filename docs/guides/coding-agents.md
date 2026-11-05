@@ -5,7 +5,7 @@ Netjes gives coding agents (Claude Code, Codex, Cursor, Copilot and the like) th
 ## The docs as text
 
 - [llms.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms.txt) is an index of the docs in the [llms.txt](https://llmstxt.org) format: a summary, then a link and a line for each document, the `netjes` skill below included, so an agent can read it in an app that does not have it.
-- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks and the example apps' READMEs, which an agent building an app does not need.
+- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks, the example apps' READMEs and the contributing guide, which an agent building an app does not need.
 
 Both follow the `main` branch, so they can describe a newer version than the one an app uses. The installed version's sources and types are in the app's `node_modules/netjes/`.
 

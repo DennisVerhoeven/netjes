@@ -106,11 +106,14 @@ export const SECTIONS = [
   {
     title: 'Optional',
     entries: [
-      // For people who change Netjes, so not in llms-full.txt: an agent building an app does not need the internals.
+      // For people who change Netjes, so not in llms-full.txt: an agent building an app does not need the internals or
+      // the contributing guide.
       { path: 'docs/architecture.md', full: false },
       { path: 'docs/decisions/README.md', title: 'Design decisions', description: 'The index of the decision records: why Netjes is built the way it is' },
       { path: 'CHANGELOG.md' },
       { path: 'docs/roadmap.md' },
+      { path: 'CONTRIBUTING.md', full: false },
+      { path: 'SECURITY.md' },
       { path: 'docs/benchmarks.md', full: false },
       { path: 'examples/Blog/README.md', title: 'Blog example', full: false },
       { path: 'examples/TaskBoard/README.md', title: 'TaskBoard example', full: false },

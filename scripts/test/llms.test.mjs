@@ -206,6 +206,40 @@ describe('llms.mjs', () => {
     assert.ok(!full.includes('The internals.'));
   });
 
+  it('gives CONTRIBUTING.md and SECURITY.md a place under Optional, the contributing guide in llms.txt only', async () => {
+    await docs({
+      ...minimal,
+      'docs/README.md': [
+        '# Netjes documentation',
+        '',
+        'Every page, with a line on what it covers.',
+        '',
+        '- [Contributing](../CONTRIBUTING.md): how to propose and make a change.',
+        '- [Security policy](../SECURITY.md): how to report a vulnerability, and the security model.',
+        '',
+      ].join('\n'),
+      'CHANGELOG.md': '# Changelog\n\n## 0.0.1\n',
+      'docs/roadmap.md': '# Roadmap\n\nNow, next, later.\n',
+      'CONTRIBUTING.md': '# Contributing to Netjes\n\nHow to propose a change.\n',
+      'SECURITY.md': '# Security policy\n\nHow to report a vulnerability.\n',
+    });
+
+    await run();
+
+    const index = await read('llms.txt');
+    const optional = index.slice(index.indexOf('## Optional'));
+    assert.deepEqual(
+      [...optional.matchAll(/^- \[[^\]]*\]\((\S+)\)/gm)].map((m) => m[1]?.replace(RAW, '')),
+      ['CHANGELOG.md', 'docs/roadmap.md', 'CONTRIBUTING.md', 'SECURITY.md'],
+    );
+    assert.ok(optional.includes(`(${RAW}CONTRIBUTING.md): How to propose and make a change (not in llms-full.txt)\n`), optional);
+    assert.ok(optional.includes(`(${RAW}SECURITY.md): How to report a vulnerability, and the security model\n`), optional);
+    const full = await read('llms-full.txt');
+    assert.deepEqual(sources(full), ['README.md', 'packages/netjes/README.md', 'CHANGELOG.md', 'docs/roadmap.md', 'SECURITY.md']);
+    assert.ok(full.includes('How to report a vulnerability.'));
+    assert.ok(!full.includes('How to propose a change.'));
+  });
+
   it("takes each page's line in llms.txt from its bullet in the docs index", async () => {
     await docs({
       ...minimal,

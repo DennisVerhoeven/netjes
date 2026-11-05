@@ -57,6 +57,8 @@ Netjes ships as the npm package `netjes` (the Vite plugin, the client router, th
 - [Design decisions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/README.md): The index of the decision records: why Netjes is built the way it is
 - [Changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md): What each release contains
 - [Roadmap](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/roadmap.md): What is planned, and what is left out by design
+- [Contributing to Netjes](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CONTRIBUTING.md): How to propose and make a change (not in llms-full.txt)
+- [Security policy](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/SECURITY.md): How to report a vulnerability, and the security model
 - [Benchmarks](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/benchmarks.md): How Netjes is benchmarked, and the results (not in llms-full.txt)
 - [Blog example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/Blog/README.md): A blog with a docs section, a guestbook, a JSON API, streaming, images and a static export (not in llms-full.txt)
 - [TaskBoard example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/README.md): A multi-tenant project tracker on Postgres, with authentication and a production Docker Compose stack (not in llms-full.txt)

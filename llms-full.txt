@@ -4049,7 +4049,7 @@ Netjes gives coding agents (Claude Code, Codex, Cursor, Copilot and the like) th
 ## The docs as text
 
 - [llms.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms.txt) is an index of the docs in the [llms.txt](https://llmstxt.org) format: a summary, then a link and a line for each document, the `netjes` skill below included, so an agent can read it in an app that does not have it.
-- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks and the example apps' READMEs, which an agent building an app does not need.
+- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks, the example apps' READMEs and the contributing guide, which an agent building an app does not need.
 
 Both follow the `main` branch, so they can describe a newer version than the one an app uses. The installed version's sources and types are in the app's `node_modules/netjes/`.
 
@@ -6659,6 +6659,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - A Node process that stops answering without exiting (stuck in a loop, deadlocked, stopped by a signal) is now restarted, as one that crashed is. It used to stay ready: every server-rendered page waited out `RenderTimeout`, and its error page as long again, before a plain 500 went out; `/healthz` answered Healthy; and the client-rendered fallback never stepped in. In production Netjes now pings a process that has answered no render for 5 seconds, on a loopback connection of its own rather than through the HTTP client, so a ping records no HTTP client span or metric, and kills and restarts a process that sends nothing back within `RenderTimeout`, never less than 5 seconds ([ADR 0031](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0031-a-sidecar-that-stops-answering-is-restarted.md)). From the moment the process is taken out, `/healthz` reports Unhealthy (Degraded while other processes are ready), documents get the client-rendered fallback while no process is ready, and `Netjes.Sidecar.NodeSidecar` logs an error. Development is unchanged. Apps have nothing to do: a restart policy that acts when the container exits, as the template's `restart: always` does, is all a host needs. A synchronous render that holds a process for longer than `RenderTimeout`, which fails at that time limit as before, can now get the process restarted as well.
 - `netjes export` with an output folder outside the app now exits 1 at once, with one line that names the folder and the app, and builds nothing. It used to build first (the types, both Vite bundles and a Release compile) and start the app with its Node sidecar, and only then did the app refuse the folder. The CLI compares the paths as .NET does, ignoring letter case on macOS and Windows. On macOS and Linux it takes the app's folder by its real path, with any symlink resolved, as the app sees its own folder, and resolves a relative output folder against it, with or without `--no-build`, so `out` now exports when `--cwd` names the app through a symlink, where the app used to refuse it. `netjes export --no-build` still leaves the check to the app, against `Netjes:Root`. A script that passes a folder outside the app now fails before the build: pass a folder inside the app, such as `out`.
 - `netjes export` takes an output folder whose name starts with two dots, such as `..site`, as a folder inside the app; it used to refuse it as outside the app. For the same reason, such a folder inside one the app needs, such as `app/..site`, was not seen to overlap it, and the export wrote into it: it is now refused like any other folder there. `netjes new ..shop` now shows the new app's folder as `..shop` rather than by its absolute path. Apps have nothing to change.
+- `llms.txt` lists `CONTRIBUTING.md` and `SECURITY.md`, which the docs index links. The generator named neither, and it lists a document it was not told about only when it is under `docs/`, so both were missing from `llms.txt` and `llms-full.txt`. Both are under Optional, after the roadmap. `CONTRIBUTING.md` is in `llms.txt` only, marked as not in `llms-full.txt` as the architecture page is, and `SECURITY.md` is in `llms-full.txt` too: an agent that reads that file now also reads the security policy, with the address it gives for reporting a vulnerability. Apps have nothing to change.
 
 ## [0.0.2] - 2026-11-03
 
@@ -6729,3 +6730,50 @@ Netjes leaves these out by design. Taking one up would need a new decision recor
 - React Server Components. C# loaders do their job: data comes from C# as props, and every component ships to the browser ([ADR 0010](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0010-app-router-with-csharp-layout-loaders.md)).
 - The pages router, and its hooks for code moving from `pages/`: `useRouter().query`, `asPath`, router events and shallow routing ([ADR 0010](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0010-app-router-with-csharp-layout-loaders.md)).
 - Serverless and edge hosts. Pages render in long-lived Node processes next to the .NET app ([ADR 0001](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0001-react-renders-in-node-sidecars.md)).
+
+<!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/SECURITY.md -->
+
+# Security policy
+
+## Supported versions
+
+Netjes is at 0.0.x. Only the latest 0.0.x release gets security fixes; upgrade to it before reporting something you found in an older one. This covers the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released at the same version.
+
+## Reporting a vulnerability
+
+Please do not open a public issue, pull request or discussion for a vulnerability.
+
+1. **Preferred:** use GitHub's private vulnerability reporting: <https://github.com/DennisVerhoeven/netjes/security/advisories/new>.
+2. **Fallback:** e-mail dennis.verhoeven@proton.me.
+
+Please include:
+
+- the Netjes version (npm and NuGet), the .NET SDK and Node.js versions, and the operating system;
+- what you found and what an attacker gains from it;
+- the smallest app or request sequence that shows it (a repository, a test, or `curl` commands);
+- whether it needs a particular configuration, such as output caching, a CSP, or a reverse proxy;
+- anything you already know about a fix.
+
+## What to expect
+
+- An acknowledgement within a week.
+- A first assessment, and questions if the report is unclear, after that.
+- Coordinated disclosure: we agree on a date with you, fix the issue in a new release, publish a GitHub security advisory, and credit you unless you prefer not to be named.
+
+Netjes is maintained by one person in spare time, so the time to a fix depends on the severity and the size of the change; reports about the defaults and about code that guards a trust boundary come first.
+
+## Security model
+
+What Netjes does by default, so you can tell a bug from a documented limit. The [security guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md), the [options reference](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md) and [docs/architecture.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/architecture.md) have the details and the settings.
+
+- **Server actions and page actions** require a valid antiforgery token and a same-origin request (`Origin` or `Sec-Fetch-Site`); `Netjes:AllowedActionOrigins` adds origins. A page action can opt out with `.DisableAntiforgery()`, which turns off both checks (for a provider that posts back from its own site); on a server action it turns off the token check only. A failed form never hands back fields that look like secrets (`Netjes:PrivateFormFields`).
+- **Server action bodies** are limited to 1 MB by default (`Netjes:ActionBodySizeLimit`). Page actions keep the server's own request size limit.
+- **Layout segment keys**, which let the client router skip layouts it already has, are signed with HMAC-SHA256 using `Netjes:SegmentKeySecret` (at least 32 bytes, random per process unless you set one), so a client cannot make up a key for a segment it was not given.
+- **The Node sidecar** listens on the loopback interface only, and every request to it must carry a random token generated when the app starts; it does not start without one.
+- **The output cache** (`CachePage`, and the same rules under any output-cache policy) keys page entries on the scheme, the host, the path and query string as sent, whether the response is a document or a client payload, the layouts the client holds, and the client build. It does not store responses it cannot safely share: signed-in users, requests with an `Authorization` header, responses that set cookies, non-200 statuses, and documents carrying a CSP nonce. A cached page that reads request cookies is still stored and served to everyone; Netjes logs a warning. Cached pages carry no antiforgery token; forms fetch one first.
+- **The image endpoint** accepts only configured widths and qualities, reads local images from `public/` only, fetches remote images only from hosts you list (https only, listed ports, public addresses only, no redirects followed, with a timeout), caps the source size and, with the SkiaSharp processor, the pixel count, bounds concurrency and queue length, and serves SVG only when you turn it on, sandboxed.
+- **Security headers:** `X-Content-Type-Options: nosniff` on every response that passes through `UseNetjes()` (documents, client payloads, static files, the app's own endpoints and answers from the output cache, but not a response that middleware registered before it writes itself), and on rendered documents `Referrer-Policy: strict-origin-when-cross-origin` and a same-origin framing policy, each unless your app sets that header itself. With `frame-ancestors` in the Content-Security-Policy that goes out, documents carry the `X-Frame-Options` it implies instead: `SAMEORIGIN` when the list holds `'self'`, `*` or a scheme source, `DENY` otherwise. Netjes sends every page response the output cache does not store, for visitors and signed-in users alike, with `Cache-Control: no-store, private` unless the page sets its own (the response that sets the antiforgery cookie carries ASP.NET Core's `no-cache, no-store` instead).
+- **Content Security Policy** is opt-in: set `Netjes:ContentSecurityPolicy` with `{nonce}` and Netjes sends the header and puts a per-request nonce on the scripts and styles it renders. Netjes does not send a CSP until you configure one.
+- **Redirects and static export:** `Page.Redirect` accepts relative and absolute http(s) URLs and rejects encoded schemes, so use `Page.LocalRedirect` for URLs taken from the request; static export does not follow redirects, and writes a redirect only when the page itself issued it and its target is site-relative or http(s).
+
+Out of scope: vulnerabilities in your own loaders and actions, in a reverse proxy or CDN in front of the app, or in a dependency (report those upstream, and tell us if Netjes should pin or work around it).
