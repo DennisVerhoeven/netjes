@@ -74,8 +74,8 @@ function repo(version = '0.0.1', files = {}) {
 const READMES = ['packages/netjes/README.md', 'src/Netjes/README.md', 'src/Netjes.Images.SkiaSharp/README.md'];
 
 /**
- * The package READMEs, with every link to this repository's files at `ref`, among text and links that name main
- * without being such a link.
+ * The package READMEs, with every link to this repository's files at `ref`, among text and links that are no such
+ * link, though some name main or look like one.
  * @param {string} ref
  * @returns {Record<string, string>}
  */
@@ -90,6 +90,7 @@ The npm half of [Netjes](${repository}), whose main branch moves on. See [TypeSc
 - [The examples](${repository}/tree/${ref}/examples)
 - The docs as text: <https://raw.githubusercontent.com/DennisVerhoeven/netjes/${ref}/llms.txt>
 - Another repository's guide: https://github.com/someone/netjes/blob/main/docs/README.md
+- \`netjes --help\` links \`${repository}/blob/v<version>/docs/reference/cli.md\`, the page of its own version
 
 Report bugs in the [issue tracker](${repository}/issues), and security problems as the [security policy](${repository}/security/policy) describes.
 `,
@@ -232,6 +233,18 @@ describe('checkSources', () => {
     assert.deepEqual(await checkSources(root, '0.0.1'), [
       'src/Netjes/README.md links v0.0.0 in https://github.com/DennisVerhoeven/netjes/tree/v0.0.0: link main, which the release moves to its tag.',
     ]);
+  });
+
+  // The docs write the address of a version's page with a placeholder for the version.
+  it('takes a URL to this repository with a placeholder for its ref for no link', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'packages/netjes/README.md':
+        `${docs['packages/netjes/README.md']}` +
+        '`netjes --help` links `https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`, and ' +
+        '`https://github.com/DennisVerhoeven/netjes/blob/<ref>/<path>` is any file at any ref.\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), []);
   });
 });
 

@@ -100,10 +100,11 @@ const PACKAGE_READMES = ['packages/netjes/README.md', 'src/Netjes/README.md', 's
  * URL up to the ref, the repository (in the github.com or the raw form), the ref, and the rest of the URL, which ends
  * where a link in Markdown ends: at a space, a bracket, a quote or a backtick (\x60). The ref ends at a slash, ? or #,
  * or with the URL, before the punctuation that can follow a bare URL at the end of a sentence or of emphasis
- * (`…/tree/main.`, `**…/tree/main**`), which GitHub leaves out of the link too.
+ * (`…/tree/main.`, `**…/tree/main**`), which GitHub leaves out of the link too. A ref that runs into `<`, as in
+ * `blob/v<version>/`, is a placeholder in text about such URLs, not a link.
  */
 const REF_LINK =
-  /(https?:\/\/(?:(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/(?:blob|tree)|raw\.githubusercontent\.com\/([\w.-]+\/[\w.-]+))\/)([^\s/?#<>()[\]"'\x60]+?)(?=[/?#]|[.,:;!?*_~]*(?:[\s<>()[\]"'\x60]|$))([^\s<>()[\]"'\x60]*)/gi;
+  /(https?:\/\/(?:(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/(?:blob|tree)|raw\.githubusercontent\.com\/([\w.-]+\/[\w.-]+))\/)([^\s/?#<>()[\]"'\x60]+?)(?=[/?#]|[.,:;!?*_~]*(?:[\s>()[\]"'\x60]|$))([^\s<>()[\]"'\x60]*)/gi;
 
 /**
  * Whether a REF_LINK match is to this repository. The owner and the name match in any case, as on GitHub.
