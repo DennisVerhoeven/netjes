@@ -433,6 +433,15 @@ internal sealed class StaticExportService(
     private static bool Contains(string directory, string path)
     {
         var relative = Path.GetRelativePath(directory, path);
-        return relative == "." || (!relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative));
+        return relative == "." || (!LeadsUp(relative) && !Path.IsPathRooted(relative));
     }
+
+    /// <summary>
+    /// Whether a relative path climbs out of its directory: <c>..</c>, or <c>..</c> and a separator. A name that only
+    /// starts with two dots (<c>..out</c>) is inside it.
+    /// </summary>
+    private static bool LeadsUp(string relative) =>
+        relative == ".."
+        || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
 }
