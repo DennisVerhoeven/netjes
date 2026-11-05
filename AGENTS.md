@@ -9,7 +9,7 @@ Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, s
 | `src/Netjes/` | The ASP.NET Core library: routing (`Routing/`), rendering and the payload (`Rendering/`), the sidecar pool (`Sidecar/`), typegen (`TypeGen/`), images, export, server actions |
 | `src/Netjes.Images.SkiaSharp/` | The optional SkiaSharp image processor |
 | `packages/netjes/` | The npm package: the Vite plugin (`vite/`), the client router and components (`src/`, compiled into `dist/`, which the package exports), the sidecar (`sidecar/server.mjs`), the CLI (`cli/`), the app template (`template/`), the skill for agents building apps (`skills/netjes/`) |
-| `tests/Netjes.Tests/` | xUnit tests for the library: endpoints, rendering, typegen golden files, sidecar lifecycle |
+| `tests/Netjes.Tests/` | xUnit tests for the library: endpoints, rendering, typegen golden files, sidecar lifecycle, and the packaging (`Packaging/`: the build targets, the template's and the examples' Docker images and the template's Compose files) |
 | `tests/TaskBoard.Tests/`, `tests/Blog.Tests/` | The examples' server tests (TaskBoard against Postgres in Testcontainers) |
 | `examples/Blog/`, `examples/TaskBoard/` | Example apps with Vitest and Playwright suites; TaskBoard has Docker Compose for dev and production |
 | `docs/` | The tutorial, guides and reference pages ([docs/README.md](docs/README.md) lists them), architecture, decisions (ADRs), roadmap, benchmarks |
@@ -19,7 +19,7 @@ Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, s
 
 ## Build and test
 
-After cloning, and after changing `packages/netjes`: `npm ci && npm run build`. The examples and their tests import the package's build in `packages/netjes/dist/`, so an edit to `packages/netjes/src/` reaches them once it is built again; `npm run build --workspace=packages/netjes -- --watch` rebuilds on every change, and the examples' development containers (`docker compose up`) run it themselves. Requirements: .NET SDK 10.0.403 or newer (`global.json`; apps need only a 10.x SDK), Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (the `engines` of the package and the template), Docker for the Postgres-backed tests and the tests that build the template's and the examples' production images. Those carry `[Trait("Category", "Docker")]`, and `dotnet test Netjes.slnx -c Release --filter-not-trait Category=Docker` leaves them out.
+After cloning, and after changing `packages/netjes`: `npm ci && npm run build`. The examples and their tests import the package's build in `packages/netjes/dist/`, so an edit to `packages/netjes/src/` reaches them once it is built again; `npm run build --workspace=packages/netjes -- --watch` rebuilds on every change, and the examples' development containers (`docker compose up`) run it themselves. Requirements: .NET SDK 10.0.403 or newer (`global.json`; apps need only a 10.x SDK), Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (the `engines` of the package and the template), Docker for the Postgres-backed tests and the tests of the template's and the examples' production images and of the template's Compose files. Those carry `[Trait("Category", "Docker")]`, and `dotnet test Netjes.slnx -c Release --filter-not-trait Category=Docker` leaves them out.
 
 ```bash
 dotnet test Netjes.slnx -c Release             # every .NET test project; also compiles the examples and the benchmark app
