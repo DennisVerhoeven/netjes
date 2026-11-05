@@ -1,12 +1,14 @@
 # 0028 – The test harness starts from the app's query defaults and keeps its retries, without the waits
 
-Status: accepted
+Status: accepted; amends [ADR 0005](0005-a-small-default-stack.md)
 
 ## Context
 
 `createTestApp()` from `netjes/testing` gives the components under test a TanStack Query `QueryClient`. It built that client from the Netjes defaults (a `staleTime` of one minute), then `retry: false` and an infinite `gcTime`, then the test's own `defaultOptions`. It never saw the app's `netjes({ query })` options, which the plugin writes into the browser bundle only. So tests ran with other defaults than the app. A failed query showed its error after one request, where the app tries it three more times, after 1, 2 and 4 seconds (TanStack Query's defaults). A query that failed once and then succeeded showed an error in the test and the data in the app. An app's own `staleTime`, `retry` or refetch options did not apply. Tests passed for behaviour the app's users do not get.
 
 Taking the app's waits along is no answer either: under TanStack Query's defaults they add 7 seconds to every query that keeps failing, more than a test's timeout.
+
+By [ADR 0005](0005-a-small-default-stack.md), the app's own `test` config overrides the plugin's test defaults. The `provide` key this record adds is an exception to that rule: it is set next to the app's own `provide` keys, which do not replace it, and only `test: false` or `query: false` leaves it out.
 
 ## Decision
 
