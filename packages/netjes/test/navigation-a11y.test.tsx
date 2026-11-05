@@ -94,6 +94,26 @@ function Menu() {
         >
           Results, from the menu
         </button>
+        {/* These give the focus back in their own handlers, before the router navigates. */}
+        <Link
+          href="/contact"
+          onClick={() => {
+            setOpen(false);
+            button.current?.focus();
+          }}
+        >
+          Contact, from the menu
+        </Link>
+        <Form
+          action="/search"
+          onSubmit={() => {
+            setOpen(false);
+            button.current?.focus();
+          }}
+        >
+          <input name="q" aria-label="Words to find" />
+          <button type="submit">Find</button>
+        </Form>
       </div>
     </>
   );
@@ -572,6 +592,30 @@ describe('the focus after a navigation', () => {
     await user.click(menu);
     await user.click(screen.getByRole('button', { name: 'Results, from the menu' }));
     await screen.findByRole('heading', { name: 'Results' });
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("leaves the focus where a link's own onClick put it", async () => {
+    server.use(pageHandler('/contact', payload('contact', '/contact')));
+    const { user } = await renderApp();
+    const menu = screen.getByRole('button', { name: 'Menu' });
+
+    // The app's onClick runs as the link is followed, so what it does with the focus is part of the navigation.
+    await user.click(menu);
+    await user.click(screen.getByRole('link', { name: 'Contact, from the menu' }));
+    await screen.findByRole('heading', { name: 'Contact' });
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("leaves the focus where a form's own onSubmit put it", async () => {
+    server.use(http.get(`${origin}/search`, ({ request }) => HttpResponse.json(payload('search', `/search${new URL(request.url).search}`))));
+    const { user } = await renderApp();
+    const menu = screen.getByRole('button', { name: 'Menu' });
+
+    await user.click(menu);
+    await user.type(screen.getByRole('textbox', { name: 'Words to find' }), 'ab');
+    await user.click(screen.getByRole('button', { name: 'Find' }));
+    await screen.findByRole('heading', { name: 'Results for ab' });
     expect(document.activeElement).toBe(menu);
   });
 });

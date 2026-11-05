@@ -18,7 +18,7 @@ Next.js 16.4 announces the new page in an assertive live region, by its title or
   4. When the element that had the focus at the start still has it, it keeps it with `scroll={false}`, or when the user types into it (a text field, a `select`, editable content).
   5. Otherwise the focus starts over at the top of the document: `body` takes it, with `tabindex="-1"` for that moment, and gets its own `tabindex` back.
 - Every focus call passes `preventScroll`, so the scroll position the router set stays, the one Back restores included. Back and Forward follow the same rules as a link.
-- The router reads which element has the focus as a navigation starts, before its first `await`: inside the click or keypress that started it, before React has handled that event's own state updates, such as a menu that closes.
+- The router reads which element has the focus as a navigation starts, before its first `await`: inside the click or keypress that started it, before React has handled that event's own state updates, such as a menu that closes. `<Link>` and `<Form>` read it before the app's own `onClick` or `onSubmit`, which run as part of following the link or submitting the form.
 - There is no new API. The rules leave the focus in fields, menus, modals, `autoFocus` elements and `scroll={false}` tabs, and a page that wants it elsewhere moves it in its own effect, which runs after the router's.
 - The template's root layout and the Blog's start with a skip link to `<main id="content">`.
 

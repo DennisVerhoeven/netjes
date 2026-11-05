@@ -73,11 +73,14 @@ export function Link({ href, replace = false, scroll = true, prefetch = 'intent'
       aria-current={isCurrentPage(href, pathname, search, basePath) ? 'page' : undefined}
       {...rest}
       onClick={(event) => {
+        // Read before the app's own onClick, which runs as the link is followed: where it moves the focus, such as
+        // back to the button of a menu that closes, the router leaves it.
+        const focusedAtStart = document.activeElement;
         onClick?.(event);
         if (event.defaultPrevented || reloadDocument || !isPlainLeftClick(event)) return;
         if (new URL(href, window.location.href).origin !== window.location.origin) return;
         event.preventDefault();
-        void (replace ? router.replace(href, { scroll }) : router.push(href, { scroll }));
+        void (replace ? router.replace(href, { scroll, focusedAtStart }) : router.push(href, { scroll, focusedAtStart }));
       }}
       onMouseEnter={(event) => {
         onMouseEnter?.(event);

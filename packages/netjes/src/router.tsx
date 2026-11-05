@@ -62,8 +62,17 @@ export type SubmitBody = EncodedForm;
 /** Called with every server action response, e.g. by the query shell to apply query updates. */
 export type ActionListener = (response: ActionResponse) => void;
 
-export type InternalRouter = Router & {
-  submit(action: URL, body: SubmitBody): Promise<void>;
+/**
+ * What `<Link>` and `<Form>` also pass: what had the focus before the app's own `onClick` or `onSubmit` ran. Those run
+ * as the navigation starts, so where they move the focus, such as back to the button of a menu that closes, is where
+ * the navigation put it.
+ */
+type FocusAtStart = { focusedAtStart?: Element | null };
+
+export type InternalRouter = Omit<Router, 'push' | 'replace'> & {
+  push(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  replace(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  submit(action: URL, body: SubmitBody, options?: FocusAtStart): Promise<void>;
   onActionResponse(listener: ActionListener): () => void;
   /**
    * Called as soon as a server action call or form post says it set or deleted a cookie (signed someone in or out),
@@ -312,6 +321,8 @@ type GoOptions = {
   reuseSegments: boolean;
   /** Refreshing an intercepted page: load this page under it again too, and show the result in its slot again. */
   interceptOver?: URL;
+  /** What had the focus as the navigation started, when the caller read it: else go() reads it as it starts. */
+  focusedAtStart?: Element | null;
 };
 
 /**
@@ -387,7 +398,8 @@ class Navigator {
     this.channel = null;
   }
 
-  async navigate(href: string, history: 'push' | 'replace', scroll: boolean): Promise<void> {
+  /** `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called. */
+  async navigate(href: string, history: 'push' | 'replace', scroll: boolean, focusedAtStart = document.activeElement): Promise<void> {
     const url = new URL(withBasePath(href, this.deps.basePath), window.location.href);
     if (!isWebUrl(url)) {
       console.error(`netjes: refusing to navigate to ${url.protocol} URL`);
@@ -405,7 +417,7 @@ class Navigator {
       const key = createKey();
       window.history[history === 'push' ? 'pushState' : 'replaceState']({ [STATE_KEY]: key }, '', url.href);
       this.setCurrent(key, { ...this.current, url });
-      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, document.activeElement);
+      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart);
       return;
     }
 
@@ -415,11 +427,16 @@ class Navigator {
       pending: 'loading',
       usePrefetch: true,
       reuseSegments: true,
+      focusedAtStart,
     });
   }
 
-  submit(action: URL, body: SubmitBody): Promise<void> {
-    return this.go(action, { method: 'POST', ...body }, { history: 'auto', scroll: 'auto', pending: 'submitting', usePrefetch: false, reuseSegments: false });
+  submit(action: URL, body: SubmitBody, focusedAtStart = document.activeElement): Promise<void> {
+    return this.go(
+      action,
+      { method: 'POST', ...body },
+      { history: 'auto', scroll: 'auto', pending: 'submitting', usePrefetch: false, reuseSegments: false, focusedAtStart },
+    );
   }
 
   /**
@@ -579,8 +596,9 @@ class Navigator {
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
     // Read before anything this navigation starts can move it: inside the click (or the keypress) that started it,
-    // before React has handled that event's own state updates, such as a menu that closes.
-    const focusedAtStart = document.activeElement;
+    // before React has handled that event's own state updates, such as a menu that closes. navigate() and submit()
+    // pass what they read, or what a link or a form read before the app's own handler ran.
+    const focusedAtStart = options.focusedAtStart === undefined ? document.activeElement : options.focusedAtStart;
     if (url.origin !== window.location.origin) {
       // navigate() and Form hand other origins to the browser, and every page URL the router keeps is on this one.
       // Refuse one that gets here all the same: a failed load would send the browser to it.
@@ -1021,13 +1039,13 @@ export function RouterProvider({
 
   const router = useMemo<InternalRouter>(
     () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true),
+      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart),
+      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
       forward: () => window.history.forward(),
-      submit: (action, body) => navigator.submit(action, body),
+      submit: (action, body, options) => navigator.submit(action, body, options?.focusedAtStart),
       onActionResponse: (listener) => {
         actionListeners.add(listener);
         return () => actionListeners.delete(listener);

@@ -74,6 +74,9 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
   }
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
+    // Read before the app's own onSubmit, which runs as the form is submitted: where it moves the focus, the router
+    // leaves it, as after a link's onClick.
+    const focusedAtStart = document.activeElement;
     onSubmit?.(event);
     if (event.defaultPrevented || reloadDocument) return;
     const form = event.currentTarget;
@@ -88,7 +91,7 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
     const data = formDataOf(form, submitter);
     const submitMethod = (submitter?.getAttribute('formmethod') ?? method).toLowerCase();
     if (submitMethod === 'post') {
-      void router.submit(url, encodeForm(data, form.enctype === 'multipart/form-data'));
+      void router.submit(url, encodeForm(data, form.enctype === 'multipart/form-data'), { focusedAtStart });
       return;
     }
     const query = new URLSearchParams();
@@ -97,7 +100,7 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
     url.hash = '';
     // Built from the form's own action, which is not one of the app's typed routes.
     const href = url.href as Href;
-    void (replace ? router.replace(href) : router.push(href));
+    void (replace ? router.replace(href, { focusedAtStart }) : router.push(href, { focusedAtStart }));
   }
 
   return (
