@@ -4507,7 +4507,7 @@ The type of `export const metadata` in pages, layouts and special pages. See [Me
 type MetadataTitle = string | { default?: string; template?: string; absolute?: string };
 ```
 
-A title, or a layout's default and template (`'%s · Site'`), or an absolute title that skips templates.
+A title, a layout's `template` (`'%s · Site'`) and `default`, or an `absolute` title that skips templates. A `default`, on a layout or a page, goes through the nearest `template` of the layouts above it like a string title, never through the one beside it; a layout's `default` is also the title of the pages below it that set none. See [Titles](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md#titles).
 
 #### `MetadataImage`
 

@@ -3,7 +3,11 @@
 
 import { Fragment } from 'react';
 
-/** A title, or a layout's `default` and `template` (`'%s · Site'`), or an `absolute` title that skips templates. */
+/**
+ * A title, a layout's `template` (`'%s · Site'`) and `default`, or an `absolute` title that skips templates. A
+ * `default`, on a layout or a page, goes through the nearest `template` of the layouts above it like a string title,
+ * never through the one beside it; a layout's `default` is also the title of the pages below it that set none.
+ */
 export type MetadataTitle = string | { default?: string; template?: string; absolute?: string };
 
 /** An image for a link preview: `og:image` with `og:image:width`, `og:image:height` and `og:image:alt` when given, or `twitter:image` with `twitter:image:alt`. */
