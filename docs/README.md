@@ -72,6 +72,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0030 – Security headers beyond documents](decisions/0030-security-headers-beyond-documents.md)
 - [0031 – A sidecar that stops answering is restarted like one that crashed](decisions/0031-a-sidecar-that-stops-answering-is-restarted.md)
 - [0032 – The release links the package READMEs to its tag](decisions/0032-release-links-package-readmes-to-its-tag.md)
+- [0037 – Netjes keeps an app's Content-Security-Policy as written in Development, and warns](decisions/0037-csp-kept-as-written-in-development-with-warnings.md)
 
 ## The project
 
