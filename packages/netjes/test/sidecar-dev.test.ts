@@ -133,8 +133,10 @@ beforeAll(async () => {
       // Each Vite environment builds a CSS file on its own, and a plugin can build it differently in each (Tailwind CSS
       // keeps its classes per environment): this one says in the CSS which environment built it.
       "const environmentMark = { name: 'environment-mark', transform(code, id) { if (id.split('?')[0].endsWith('.css')) return `${code}/* built for ${this.environment.name} */`; } };",
-      // No watcher: nothing tells Vite about files added after it started. Its caches stay in this folder.
-      "export default { plugins: [netjes({ tailwind: false }), port, environmentMark], cacheDir: '.vite', logLevel: 'error', server: { watch: null } };",
+      // Source maps for development CSS, which an app can turn on: only the module the browser imports for a CSS file
+      // carries one, at the end of its text. No watcher: nothing tells Vite about files added after it started. Its
+      // caches stay in this folder.
+      "export default { plugins: [netjes({ tailwind: false }), port, environmentMark], css: { devSourcemap: true }, cacheDir: '.vite', logLevel: 'error', server: { watch: null } };",
       '',
     ].join('\n'),
   );
@@ -307,6 +309,8 @@ describe('the development sidecar', () => {
     expect([...styles.keys()]).toEqual([id]);
     expect(styles.get(id)).toBe(moduleString(cssModule, '__vite__css'));
     expect(styles.get(id)).toContain('built for client');
+    // With css.devSourcemap on, the text ends with the source map that only the browser's build of the file has.
+    expect(styles.get(id)).toMatch(/\/\*# sourceMappingURL=data:application\/json;base64,[^*]+ \*\/$/);
   });
 
   it("inlines the client's build of a stylesheet that contains U+2028", async () => {
