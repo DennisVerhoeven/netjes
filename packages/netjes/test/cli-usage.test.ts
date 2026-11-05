@@ -38,6 +38,15 @@ describe('netjes help', () => {
     expect(out().split('\n')[0]).toBe(`netjes ${version}: React apps and sites on ASP.NET Core`);
   });
 
+  // The page on main can describe commands and options that this version does not have.
+  it('links the reference docs of its own version', async () => {
+    const { io, out } = recordingIo(temp);
+
+    expect(await run(['help'], io)).toBe(0);
+
+    expect(out().split('\n')).toContain(`Docs: https://github.com/DennisVerhoeven/netjes/blob/v${version}/docs/reference/cli.md`);
+  });
+
   it.each(COMMANDS)('shows the usage of %s, every option with its default, and an example', async (command, usage, options) => {
     const { io, out, err, calls } = recordingIo(temp);
 
