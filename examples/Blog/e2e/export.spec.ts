@@ -16,8 +16,11 @@ const output = path.join(app, 'test-results', 'export');
 const SITE = 'http://export.netjes.test';
 const REPORT = 'Report ready: 42 items, from a deliberately slow C# task.';
 
-/** What the CLI's `netjes export --no-build` runs, on the Debug build the other servers use. */
-async function exportBlog() {
+/** What the export logged, its standard output and error as they came. */
+let exportLog = '';
+
+/** What the CLI's `netjes export --no-build` runs, on the Debug build the other servers use; returns what it logged. */
+async function exportBlog(): Promise<string> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ASPNETCORE_ENVIRONMENT: 'Production',
@@ -40,6 +43,7 @@ async function exportBlog() {
     child.on('exit', resolve);
   });
   if (code !== 0) throw new Error(`The export exited with ${code}:\n${log}`);
+  return log;
 }
 
 /**
@@ -64,7 +68,7 @@ function inlineScriptHashes(file: string): string[] {
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  await exportBlog();
+  exportLog = await exportBlog();
 });
 
 test.describe('without JavaScript', () => {
@@ -120,4 +124,11 @@ test('an exported page with deferred content hydrates', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'clicks 1' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText(REPORT);
   expect(errors).toEqual([]);
+});
+
+test('the export warns that /blog reads tag from the query string', () => {
+  // The export requests /blog without a query string, so its file lists every post, and a static host serves it for
+  // every tag link. The Blog keeps the filter as its example of a loader that reads the query string (PostPages.cs).
+  expect(exportLog.split('Netjes.Export.QueryString').length - 1).toBe(1);
+  expect(exportLog).toContain("app/blog/page.tsx reads 'tag'");
 });
