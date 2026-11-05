@@ -157,6 +157,128 @@ describe('llms.mjs', () => {
     assert.ok(index.indexOf(`(${RAW}docs/decisions/README.md)`) > index.indexOf('## Optional'), 'the decisions index is optional');
   });
 
+  it('lists a page the docs index links outside docs/, though no entry names it', async () => {
+    await docs({
+      ...minimal,
+      'docs/README.md': [
+        '# Netjes documentation',
+        '',
+        'Every page, with a line on what it covers.',
+        '',
+        '## More',
+        '',
+        '- [Notes](../NOTES.md): the conventions of the project.',
+        '- [FAQ](faq.md): the questions people ask.',
+        '- [Changelog](../CHANGELOG.md): what each release contains.',
+        '- [The first decision](decisions/0001-react-renders-in-node-sidecars.md)',
+        '- See [the about page](../ABOUT.md#who), [the notes](../NOTES.md#top) again, [the start](/START.md) and [the extras](../..extra.md).',
+        '',
+      ].join('\n'),
+      'NOTES.md': '# Notes\n\nHow the project works.\n',
+      'ABOUT.md': '# About\n\nWho maintains it.\n',
+      'START.md': '# Start\n\nWhere to begin.\n',
+      // A name that starts with two dots is a name, not a way out of the repository.
+      '..extra.md': '# Extra\n\nNot finished.\n',
+      'CHANGELOG.md': '# Changelog\n\n## 0.0.1\n',
+      'docs/decisions/0001-react-renders-in-node-sidecars.md': '# 0001 – Sidecar\n\nStatus: accepted\n',
+      'docs/faq.md': '# FAQ\n\nQuestions.\n',
+    });
+
+    await run();
+
+    // After the docs under docs/ (the FAQ, though the index links it too), in the order the index links them, once each;
+    // the changelog stays at its own entry.
+    const full = await read('llms-full.txt');
+    assert.deepEqual(sources(full), [
+      'README.md',
+      'packages/netjes/README.md',
+      'docs/faq.md',
+      'NOTES.md',
+      'ABOUT.md',
+      'START.md',
+      '..extra.md',
+      'CHANGELOG.md',
+    ]);
+    assert.ok(!full.includes('0001 – Sidecar'), 'a decision record stays out');
+    const index = await read('llms.txt');
+    assert.ok(
+      index.includes(
+        `## More\n\n- [FAQ](${RAW}docs/faq.md): The questions people ask\n- [Notes](${RAW}NOTES.md): The conventions of the project\n` +
+          `- [About](${RAW}ABOUT.md): Who maintains it.\n- [Start](${RAW}START.md): Where to begin.\n- [Extra](${RAW}..extra.md): Not finished.\n\n## Optional`,
+      ),
+      index,
+    );
+  });
+
+  it('lists nothing for a link in the docs index that is no Markdown file of the repository, or is in code', async () => {
+    await docs({
+      ...minimal,
+      'docs/README.md': [
+        '# Netjes documentation',
+        '',
+        '- [A site](https://example.com/docs/other.md): not a file of the repository.',
+        '- [This page](#netjes-documentation) and [a heading](README.md#more): the index itself.',
+        '- [The licence](../LICENSE) and [the examples](../examples/): not Markdown files.',
+        '- [Gone](gone.md) and [above the repository](../../elsewhere.md): no file to list.',
+        `- [Out and back in](../../${path.basename(root)}/INSIDE.md) and [a protocol-relative URL](//OTHER.md): not paths in the repository.`,
+        '- In code: `[Sample](../SAMPLE.md)`.',
+        '',
+        '```md',
+        '[Fenced](../FENCED.md)',
+        '```',
+        '',
+      ].join('\n'),
+      LICENSE: 'MIT\n',
+      'INSIDE.md': '# Inside\n\nLinked by a path that leaves the repository.\n',
+      'OTHER.md': '# Other\n\nLinked as a URL.\n',
+      'SAMPLE.md': '# Sample\n\nOnly in code.\n',
+      'FENCED.md': '# Fenced\n\nOnly in a fence.\n',
+    });
+
+    await run();
+
+    assert.deepEqual(sources(await read('llms-full.txt')), ['README.md', 'packages/netjes/README.md']);
+    assert.ok(!(await read('llms.txt')).includes('## More'));
+  });
+
+  it('in a git checkout, leaves out a file the docs index links but git does not track, and says which', async () => {
+    await docs({
+      ...minimal,
+      'docs/README.md': '# Netjes documentation\n\n- [Notes](../NOTES.md): the conventions.\n- [Todo](../TODO.md): not added yet.\n',
+      'NOTES.md': '# Notes\n\nTracked.\n',
+      'TODO.md': '# Todo\n\nNot added yet.\n',
+    });
+    /** @param {string[]} args */
+    const git = (...args) => execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, stdio: 'ignore' });
+    git('init', '-q');
+    git('add', 'README.md', 'packages/netjes/README.md', 'docs/README.md', 'NOTES.md');
+
+    const { code, err } = await run();
+
+    assert.equal(code, 0);
+    assert.deepEqual(sources(await read('llms-full.txt')), ['README.md', 'packages/netjes/README.md', 'NOTES.md']);
+    assert.match(err, /TODO\.md/);
+    assert.match(err, /git does not track/);
+  });
+
+  it('in a git checkout, reads no links from a docs index that git does not track', async () => {
+    await docs({
+      ...minimal,
+      'docs/README.md': '# Netjes documentation\n\n- [Notes](../NOTES.md): the conventions.\n',
+      'NOTES.md': '# Notes\n\nTracked.\n',
+    });
+    /** @param {string[]} args */
+    const git = (...args) => execFileSync('git', ['-c', 'init.defaultBranch=main', ...args], { cwd: root, stdio: 'ignore' });
+    git('init', '-q');
+    git('add', 'README.md', 'packages/netjes/README.md', 'NOTES.md');
+
+    const { code, err } = await run();
+
+    assert.equal(code, 0);
+    assert.deepEqual(sources(await read('llms-full.txt')), ['README.md', 'packages/netjes/README.md']);
+    assert.match(err, /docs\/README\.md/);
+  });
+
   it('in a git checkout, takes only the docs git tracks, and says which it left out', async () => {
     await docs({
       ...minimal,
