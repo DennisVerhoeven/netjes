@@ -2965,7 +2965,11 @@ Server actions, minimal APIs, `/_netjes/antiforgery`, web vitals collection and 
 
 ## Where the output goes
 
-The output directory is replaced as a whole, so the export checks it first. It must be inside the app, and must not overlap `app/`, `public/`, `dist/` or the folder of the generated types. An existing directory is replaced only when it is empty or a previous export, which the export marks with a `.netjes-export` file.
+The output directory is replaced as a whole, so it is checked before anything is written to it. It must be inside the app, and must not overlap `app/`, `public/`, `dist/` or the folder of the generated types. An existing directory is replaced only when it is empty or a previous export, which the export marks with a `.netjes-export` file. A folder name that starts with two dots, such as `..site`, is an ordinary name; only `..` itself means the folder above.
+
+`netjes export` checks the first rule before it builds, against the project folder: the folder it runs in, with the app's `.csproj`, or the one `--cwd` names. A folder outside the project folder, or the project folder itself, ends the command with exit code 1 before anything is built. On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks every rule before it renders a page, against `Netjes:Root`, which is the project folder unless it is set.
+
+`netjes export --no-build` builds nothing, and leaves the folder to the app alone. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
 
 ## Redirects
 
@@ -5418,8 +5422,17 @@ Builds the app (as `netjes build` does), then runs it once in Production and wri
 
 | Argument or option | What it does | Default |
 |---|---|---|
-| `[dir]` | The folder to write the site to, inside the app. | `out` |
+| `[dir]` | The folder to write the site to, inside the app. A relative path is resolved against the folder `netjes` runs in, or `--cwd`. | `out` |
 | `--no-build` | Export the build already in `dist/`. | off: build first |
+
+Before it builds, netjes checks that `dir` is inside the folder it runs in. A folder outside it, such as `..`, `../site` or a path elsewhere on the disk, or that folder itself, ends the command with one line on stderr and exit code 1, and nothing is built:
+
+```console
+$ netjes export ../site
+netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
+```
+
+On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
@@ -6278,6 +6291,11 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 ### Changed
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
+
+### Fixed
+
+- `netjes export` with an output folder outside the app now exits 1 at once, with one line that names the folder and the app, and builds nothing. It used to build first (the types, both Vite bundles and a Release compile) and start the app with its Node sidecar, and only then did the app refuse the folder. The CLI compares the paths as .NET does, ignoring letter case on macOS and Windows. `netjes export --no-build` is unchanged: only the app checks the folder, against `Netjes:Root`. A script that passes a folder outside the app now fails before the build: pass a folder inside the app, such as `out`.
+- `netjes export` takes an output folder whose name starts with two dots, such as `..site`, as a folder inside the app; it used to refuse it as outside the app. For the same reason, such a folder inside one the app needs, such as `app/..site`, was not seen to overlap it, and the export wrote into it: it is now refused like any other folder there. `netjes new ..shop` now shows the new app's folder as `..shop` rather than by its absolute path. Apps have nothing to change.
 
 ## [0.0.2] - 2026-11-03
 
