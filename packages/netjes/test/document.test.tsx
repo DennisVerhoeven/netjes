@@ -1,4 +1,5 @@
 import { act } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { type Root, createRoot, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,20 +12,24 @@ const info: DocumentInfo = {
   errorPage: null,
 };
 
-const page = (
+const documentWith = (content: ReactNode) => (
   <Document info={info} dataJson="{}">
-    <main>Hi</main>
+    {content}
   </Document>
 );
 
+const page = documentWith(<main>Hi</main>);
+
 let root: Root | undefined;
 
-// The document as the server sent it: React's output for the page, parsed into the test's document.
-beforeEach(() => {
+/** The document as the server sent it: React's output for `tree`, parsed into the test's document. */
+function serve(tree: ReactElement) {
   document.open();
-  document.write(renderToString(page));
+  document.write(renderToString(tree));
   document.close();
-});
+}
+
+beforeEach(() => serve(page));
 
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -32,12 +37,12 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-/** Hydrates the document the way the client entry does, and returns what React reported. */
-async function hydrate() {
+/** Hydrates the document with `tree` the way the client entry does, and returns what React reported. */
+async function hydrate(tree: ReactElement = page) {
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   const recoverable = vi.fn();
   await act(async () => {
-    root = hydrateRoot(document, page, { onRecoverableError: recoverable });
+    root = hydrateRoot(document, tree, { onRecoverableError: recoverable });
   });
   return { errors, recoverable };
 }
@@ -71,6 +76,30 @@ describe('the document', () => {
     const { errors } = await hydrate();
 
     expect(errors).toHaveBeenCalled();
+  });
+
+  it('does not compare the text that sits directly in <body> either, outside any element', async () => {
+    // The prop on <body> also covers the text nodes that are its own children, and React's production build skips them
+    // too. A layout or a page puts text there when it renders it at its top level, outside any element or Suspense
+    // boundary: nothing that Netjes renders between <body> and the app is an element.
+    serve(documentWith('Rendered on the server'));
+
+    const { errors, recoverable } = await hydrate(documentWith('Rendered in the browser'));
+
+    expect(recoverable).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+    // Nothing renders it again either: the page keeps the server's text.
+    expect(document.body.textContent).toContain('Rendered on the server');
+    expect(document.body.textContent).not.toContain('Rendered in the browser');
+  });
+
+  it('still reports text that differs inside an element in the body', async () => {
+    serve(documentWith(<p>Rendered on the server</p>));
+
+    const { recoverable } = await hydrate(documentWith(<p>Rendered in the browser</p>));
+
+    expect(recoverable).toHaveBeenCalled();
+    expect(recoverable.mock.calls[0]?.[0]).toMatchObject({ message: expect.stringContaining("rendered text didn't match") });
   });
 
   it('renders <html> with its language and <body> with nothing, as the client-render shell writes them', () => {
