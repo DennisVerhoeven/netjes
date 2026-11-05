@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
-import { markWindow, watchForErrors } from './helpers.ts';
+import { markWindow, watchForErrors, watchForViolations } from './helpers.ts';
 
 /**
  * The Blog as `netjes export` writes it, served from the files as a static host would: the export runs once, on the
@@ -97,6 +97,8 @@ test('an exported page hydrates its deferred content under a policy that lists i
   // can allow it by its hash. Without it the value never arrives, and the click below, which renders the Suspense
   // boundary again, would bring the fallback back for good.
   const hashes = inlineScriptHashes(path.join(output, 'streaming', 'index.html'));
+  // The policy has no 'unsafe-eval'. A violation the page's code catches logs nothing to the console.
+  const violations = await watchForViolations(page);
   await serveExport(page, { 'Content-Security-Policy': `script-src 'self' ${hashes.join(' ')}` });
   await page.goto(`${SITE}/streaming`);
   await markWindow(page);
@@ -106,6 +108,7 @@ test('an exported page hydrates its deferred content under a policy that lists i
   await expect(page.getByRole('button', { name: 'clicks 1' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText(REPORT);
   await expect(page.getByText('Preparing the slow report…')).toHaveCount(0);
+  expect(violations).toEqual([]);
 });
 
 test('an exported page with deferred content hydrates', async ({ page }) => {

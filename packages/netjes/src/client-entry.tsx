@@ -1,4 +1,6 @@
-// Must come first: installs the React Fast Refresh runtime before any component module runs (empty in builds).
+// Must come first, ahead of anything that could make a zod schema: turns zod's compiled parsers off (ADR 0036).
+import './zod-jitless.ts';
+// Must come before any component module: installs the React Fast Refresh runtime before one runs (empty in builds).
 import '@vitejs/plugin-react/preamble';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { pages } from 'virtual:netjes/pages';

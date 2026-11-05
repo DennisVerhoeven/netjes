@@ -230,6 +230,35 @@ describe('server rendering', () => {
     await expect(failing.render(data({ page: 'app/broken/page.tsx' }))).rejects.toBe(thrown);
     await expect(failing.renderToStream(data({ page: 'app/broken/page.tsx' }))).rejects.toBe(thrown);
   });
+
+  it("leaves zod's compiled parsers on in the sidecar", async () => {
+    // The client entry turns them off in the browser (ADR 0036). The sidecar runs the server entry, so a page's object
+    // schema compiles its parser from a string there, as zod does without that setting.
+    vi.doMock('virtual:netjes/pages', () => ({
+      pages: {
+        '/app/post/page.tsx': async () => {
+          const post = z.object({ title: z.string() });
+          return { default: (props: Record<string, unknown>) => <h1>{post.parse(props).title}</h1> };
+        },
+      },
+    }));
+    const callers: string[] = [];
+    const Original = globalThis.Function;
+    vi.spyOn(globalThis, 'Function').mockImplementation(function (...args: string[]) {
+      callers.push(new Error().stack ?? '');
+      return new Original(...args);
+    } as unknown as FunctionConstructor);
+    try {
+      const { render } = await import('../src/server-entry.tsx');
+
+      expect(await render(data({ page: 'app/post/page.tsx', segments: [] }))).toContain('<h1>Hello &lt;/script&gt;</h1>');
+    } finally {
+      vi.restoreAllMocks();
+      vi.doUnmock('virtual:netjes/pages');
+    }
+    expect(z.config().jitless).not.toBe(true);
+    expect(callers.filter((stack) => /node_modules[\\/]zod[\\/]/.test(stack)).length).toBeGreaterThan(0);
+  });
 });
 
 describe('the server QueryClient', () => {
