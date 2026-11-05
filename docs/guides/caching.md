@@ -1,6 +1,6 @@
 # Caching
 
-This guide is for app developers who want pages served from a cache, or need to know what browsers and proxies keep. It covers the `Cache-Control` Netjes sends by default, `CachePage` on ASP.NET Core output caching, the rules that apply to a page under any output caching, revalidation, draft mode, and what to watch for with CDNs and cookies. The client's own cache of server state (TanStack Query) is in [data loading](data-loading.md).
+This guide is for app developers who want pages served from a cache, or need to know what browsers and proxies keep. It covers the `Cache-Control` Netjes sends by default, `CachePage` on ASP.NET Core output caching, the rules that apply to a page under any output caching, what differs for the endpoints that are not pages (JSON APIs, text files), revalidation, draft mode, and what to watch for with CDNs and cookies. The client's own cache of server state (TanStack Query) is in [data loading](data-loading.md).
 
 ## What browsers keep by default
 
@@ -94,6 +94,73 @@ A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow t
 
 `CachePage` and `.CacheOutput(...)` on one endpoint do not combine. Of the output-cache policies on an endpoint, ASP.NET Core applies the last, so a `.CacheOutput(...)` after `CachePage` replaces the policy `CachePage` set: the later policy decides how long the page is kept and how its entries are tagged, and revalidating one of `CachePage`'s tags no longer evicts the page (`RevalidatePath` still does). The rest of `CachePage` stays: the page carries no antiforgery token, and its `CachedPageMetadata` still holds the duration and tags `CachePage` was given, not those that apply.
 
+## Endpoints that are not pages
+
+The sections above are about pages. This section is about the minimal API endpoints an app maps next to them to return data or files: a JSON API, a text file such as `llms.txt`, a webhook. Netjes adds no `Cache-Control` to their answers, and its page rules do not apply to the entries the output cache keeps for them: ASP.NET Core's own keys and rules decide ([ADR 0016](../decisions/0016-page-cache-rules-under-any-output-caching.md) says why the page rules stop at pages). An endpoint that `CachePage` is put on, directly or through its route group, gets the page rules for its entries, and one that renders a page with `Page.Render` is covered above; this section is about the rest. The differences from a page, each explained below:
+
+| | A page | An endpoint that is not a page |
+|---|---|---|
+| `Cache-Control` | `no-store, private`, unless the page sets its own or the output cache stores the response | The handler's own; none when the handler sets none |
+| The path in an entry's key | As sent | Compared without regard to case: all spellings share one entry |
+| The query string in the key | The whole query string, as sent | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
+| `RevalidatePath` | Evicts the page | Does not evict it: evict by tag |
+| The Development environment | Rendered on each request, never stored | Output-cached as anywhere |
+
+### Headers
+
+Netjes adds no `Cache-Control` to the answer of such an endpoint. The header its handler sets goes out as set. When the handler sets none, Netjes adds none, also to the 400 that minimal API binding answers for a value that does not bind (`take=x` for an `int?`). `CachePage` does not change that. A JSON endpoint in a group it is put on gets the page rules for its cache entries, but no `Cache-Control` from Netjes, in the Development environment too: the default `no-store, private` is a page's. Without a `Cache-Control`, a browser or a CDN uses its own defaults, so set one on an answer that may be kept, in the handler or in an endpoint filter:
+
+```csharp
+app.MapGet("/api/search", (string q, SearchIndex index, HttpContext http) =>
+{
+    http.Response.Headers.CacheControl = "public, max-age=300";
+    return TypedResults.Ok(index.Search(q));
+});
+```
+
+Output caching adds no `Cache-Control` either. It stores the response headers that are set before the body is written, and sends them again with every answer it serves, with an `Age` header added. So a stored answer goes out with the `Cache-Control` of the response it was stored from, or with none when that response had none.
+
+For the endpoints Netjes maps itself:
+
+- `/_netjes/image` sends `public, max-age=` the image option `CacheDuration` (7 days) and an `ETag` with an image or a 304 ([images](images.md#the-image-endpoint)). Its error answers, such as the 400 for a width it does not allow, send none.
+- `MapSitemap` sends `public, max-age=` its `cacheFor` (an hour by default), and `no-store` on the 404 it answers under a base path that is too long ([metadata](metadata.md#sitemap-and-robots)). `MapRobotsTxt` and `MapLocaleRedirect` ([locales](routing.md#locales)) send none.
+- Server action answers and `/_netjes/antiforgery` send `no-store` ([above](#what-browsers-keep-by-default)).
+
+### Keys and the query string
+
+The output cache keys the entry of such an endpoint on the method, the scheme, the host, the path and the query string, by ASP.NET Core's rules, without the build and the other parts of a page's key. A page's entry is keyed on its path and query string as sent. Two things differ for the endpoint.
+
+The path is compared without regard to case, route values included. `/llms.txt` and `/LLMS.TXT` share one entry, and so do `/codes/Ab` and `/codes/aB` for `MapGet("/codes/{code}", ...)`. The handler answers whichever spelling arrives first, and every other spelling is served that answer until the entry expires or is evicted, so a handler that answers two spellings differently, such as one that compares a route value exactly, runs only for the spelling that arrives first. There are two ways to change that:
+
+- A condition on the policy stores one spelling. `.CacheOutput(p => p.With(context => context.HttpContext.Request.Path.Value == "/llms.txt"))` stores the answer for the path `/llms.txt` only. A request for `/LLMS.TXT` is neither served from the cache nor stored in it, so the handler answers each one.
+- `AddOutputCache(options => options.UseCaseSensitivePaths = true)` gives each spelling an entry of its own. It applies to every endpoint the output cache handles, not to one.
+
+Every query key varies the entry. `?page=1`, `?page=2` and `?page=1&utm_source=feed` are three entries, and a visitor, a crawler or a link can make up more. The cache's size limit counts response bodies, not keys ([How entries are keyed](#how-entries-are-keyed)), so enough query strings for a large body fill it: a 400 KB text file takes about 100 MB, ASP.NET Core's default limit, once 256 query strings have stored it. While the cache is full, no new response is stored, a page's included, until older entries expire or are evicted. `SetVaryByQuery` narrows the key:
+
+- `p.SetVaryByQuery([])` keeps one entry whatever the query string says. The call has no form without arguments, so an empty array stands for no keys.
+- `p.SetVaryByQuery("page")` varies the entry on the keys it lists and ignores the others, so `?page=1` and `?page=1&utm_source=feed` share one.
+
+That is safe for an endpoint whose answer does not depend on the keys it leaves out and whose body does not repeat the URL. A page's payload repeats its URL, which is why a page's key cannot be narrowed this way ([Under any output caching](#under-any-output-caching)).
+
+### What is stored, and how to evict it
+
+ASP.NET Core's default policy decides what is stored. It stores the answer to a `GET` or `HEAD` request that has no `Authorization` header and no signed-in user (which is why `UseOutputCache()` goes after `UseAuthentication()`), when the status is 200 and the response sets no cookie. Any other answer reaches the handler again on the next request.
+
+`RevalidatePath` and `IPageCache.RevalidatePathAsync` evict by a tag that the page rules add to the entries of pages, so they never evict the entry of an endpoint that is not a page. Give the policy a tag instead, and evict that: `.Revalidate("docs")` on a server action's result, or `IPageCache.RevalidateTagAsync("docs")` from anywhere else ([Revalidating](#revalidating)).
+
+For example, a text file that is stored once whatever the query string, for ten minutes, and evicted when the docs change:
+
+```csharp
+app.MapGet("/llms.txt", (DocsStore docs) => Results.Text(docs.AsText(), "text/plain; charset=utf-8"))
+    .CacheOutput(p => p.SetVaryByQuery([]).Expire(TimeSpan.FromMinutes(10)).Tag("docs"));
+```
+
+### In the Development environment and in draft mode
+
+In the Development environment these endpoints are output-cached as anywhere: only pages, and the endpoints `CachePage` marks, render on each request there ([In the Development environment](#in-the-development-environment)). A change to what a handler returns shows once its entry has expired or been evicted, or the app has restarted.
+
+Draft mode bypasses them as it bypasses pages: while the draft cookie is on, nothing is served from the cache to that visitor, and nothing that answers the request is stored. The image endpoint is the one exception ([Draft mode](#draft-mode)).
+
 ## Revalidating
 
 A server action evicts cached pages with `.Revalidate(tags)` or `.RevalidatePath(paths)` on its result. The client then loads the page on screen again:
@@ -148,7 +215,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, IDraftMode draft, PostStore post
 ```
 
 - `Enable()` sets a cookie signed with ASP.NET Core Data Protection that lasts `NetjesOptions.DraftModeDuration` (one hour). It is `HttpOnly`, and outside Development `SameSite=None; Secure`, so a CMS on another site can show the preview in a frame (allow that with `SecurityHeaders.DraftFrameAncestors`, see [security](security.md#security-headers)).
-- While it is on, output caching is bypassed for that visitor under any policy: nothing is looked up, and nothing that answers a draft request is stored, a redirect a loader returns included. Each draft request has a cache key of its own, so editors previewing a page at once do not wait for each other.
+- While it is on, output caching is bypassed for that visitor under any policy, for [endpoints that are not pages](#endpoints-that-are-not-pages) as well: nothing is looked up, and nothing that answers a draft request is stored, a redirect a loader returns included. Each draft request has a cache key of its own, so editors previewing a page at once do not wait for each other.
 - Draft pages go out `Cache-Control: no-store, private`, without the headers a CDN reads ahead of it ([CDNs and proxies](#cdns-and-proxies)). So does a redirect a page or layout loader returns while draft mode is on, since where a draft leads (an unpublished slug, say) is draft content too.
 - In React, `useDraftMode()` returns `{ isEnabled }`, for a "Leave preview" banner.
 - The image endpoint is the exception: an image is the same for editors and visitors, so editors share its cache.
