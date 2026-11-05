@@ -40,6 +40,11 @@ describe('Link', () => {
       '/search?q=cache': 'page',
       '?q=cache': 'page',
     });
+    expect(currentAt('/search', ['/search?q=cache', '?q=cache', '/search'])).toEqual({
+      '/search?q=cache': null,
+      '?q=cache': null,
+      '/search': 'page',
+    });
   });
 
   it('ignores parameters the link does not name', () => {
