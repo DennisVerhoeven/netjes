@@ -2967,9 +2967,9 @@ Server actions, minimal APIs, `/_netjes/antiforgery`, web vitals collection and 
 
 The output directory is replaced as a whole, so it is checked before anything is written to it. It must be inside the app, and must not overlap `app/`, `public/`, `dist/` or the folder of the generated types. An existing directory is replaced only when it is empty or a previous export, which the export marks with a `.netjes-export` file. A folder name that starts with two dots, such as `..site`, is an ordinary name; only `..` itself means the folder above.
 
-`netjes export` checks the first rule before it builds, against the project folder: the folder it runs in, with the app's `.csproj`, or the one `--cwd` names. A folder outside the project folder, or the project folder itself, ends the command with exit code 1 before anything is built. On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks every rule before it renders a page, against `Netjes:Root`, which is the project folder unless it is set.
+`netjes export` checks the first rule before it builds, against the project folder: the folder it runs in, with the app's `.csproj`, or the one `--cwd` names. On macOS and Linux it takes that folder by its real path, with any symlink resolved, as the app sees its own folder, and resolves a relative output folder against it. A folder outside the project folder, or the project folder itself, ends the command with exit code 1 before anything is built. On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks every rule before it renders a page, against `Netjes:Root`, which is the project folder unless it is set.
 
-`netjes export --no-build` builds nothing, and leaves the folder to the app alone. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
+`netjes export --no-build` skips what `netjes build` does (the types and both Vite bundles), and leaves the folder to the app alone. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
 
 ## Redirects
 
@@ -5432,7 +5432,7 @@ $ netjes export ../site
 netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
 ```
 
-On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
+On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
@@ -6294,7 +6294,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ### Fixed
 
-- `netjes export` with an output folder outside the app now exits 1 at once, with one line that names the folder and the app, and builds nothing. It used to build first (the types, both Vite bundles and a Release compile) and start the app with its Node sidecar, and only then did the app refuse the folder. The CLI compares the paths as .NET does, ignoring letter case on macOS and Windows. `netjes export --no-build` is unchanged: only the app checks the folder, against `Netjes:Root`. A script that passes a folder outside the app now fails before the build: pass a folder inside the app, such as `out`.
+- `netjes export` with an output folder outside the app now exits 1 at once, with one line that names the folder and the app, and builds nothing. It used to build first (the types, both Vite bundles and a Release compile) and start the app with its Node sidecar, and only then did the app refuse the folder. The CLI compares the paths as .NET does, ignoring letter case on macOS and Windows. On macOS and Linux it takes the app's folder by its real path, with any symlink resolved, as the app sees its own folder, and resolves a relative output folder against it, with or without `--no-build`, so `out` now exports when `--cwd` names the app through a symlink, where the app used to refuse it. `netjes export --no-build` still leaves the check to the app, against `Netjes:Root`. A script that passes a folder outside the app now fails before the build: pass a folder inside the app, such as `out`.
 - `netjes export` takes an output folder whose name starts with two dots, such as `..site`, as a folder inside the app; it used to refuse it as outside the app. For the same reason, such a folder inside one the app needs, such as `app/..site`, was not seen to overlap it, and the export wrote into it: it is now refused like any other folder there. `netjes new ..shop` now shows the new app's folder as `..shop` rather than by its absolute path. Apps have nothing to change.
 
 ## [0.0.2] - 2026-11-03

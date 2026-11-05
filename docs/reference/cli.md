@@ -198,7 +198,7 @@ $ netjes export ../site
 netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
 ```
 
-On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
+On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
