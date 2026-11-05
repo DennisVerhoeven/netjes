@@ -607,6 +607,7 @@ public class StaticExportTests
     [InlineData("dist/server")]
     [InlineData("generated")]
     [InlineData(".")]
+    [InlineData("app/..sub")]
     public async Task Export_OutputOverlappingTheAppsFiles_FailsWithoutTouchingThem(string output)
     {
         _output = output;
@@ -625,6 +626,16 @@ public class StaticExportTests
         Assert.True(File.Exists(Path.Combine(_root, "public", "keep.txt")));
         Assert.True(File.Exists(Path.Combine(_root, "dist", "client", "favicon.svg")));
         Assert.True(File.Exists(Path.Combine(_root, "generated", "keep.txt")));
+    }
+
+    [Fact]
+    public async Task Export_OutputWhoseNameStartsWithTwoDots_IsInsideTheApp()
+    {
+        _output = "..out";
+        await using var app = await ExportAsync();
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("index.html")));
     }
 
     [Fact]

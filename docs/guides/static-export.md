@@ -57,7 +57,11 @@ Server actions, minimal APIs, `/_netjes/antiforgery`, web vitals collection and 
 
 ## Where the output goes
 
-The output directory is replaced as a whole, so the export checks it first. It must be inside the app, and must not overlap `app/`, `public/`, `dist/` or the folder of the generated types. An existing directory is replaced only when it is empty or a previous export, which the export marks with a `.netjes-export` file.
+The output directory is replaced as a whole, so it is checked before anything is written to it. It must be inside the app, and must not overlap `app/`, `public/`, `dist/` or the folder of the generated types. An existing directory is replaced only when it is empty or a previous export, which the export marks with a `.netjes-export` file. A folder name that starts with two dots, such as `..site`, is an ordinary name; only `..` itself means the folder above.
+
+`netjes export` checks the first rule before it builds, against the project folder: the folder it runs in, with the app's `.csproj`, or the one `--cwd` names. On macOS and Linux it takes that folder by its real path, with any symlink resolved, as the app sees its own folder, and resolves a relative output folder against it. A folder outside the project folder, or the project folder itself, ends the command with exit code 1 before anything is built. On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks every rule before it renders a page, against `Netjes:Root`, which is the project folder unless it is set.
+
+`netjes export --no-build` skips what `netjes build` does (the types and both Vite bundles), and leaves the folder to the app alone. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
 
 ## Redirects
 

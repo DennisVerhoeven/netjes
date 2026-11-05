@@ -188,8 +188,17 @@ Builds the app (as `netjes build` does), then runs it once in Production and wri
 
 | Argument or option | What it does | Default |
 |---|---|---|
-| `[dir]` | The folder to write the site to, inside the app. | `out` |
+| `[dir]` | The folder to write the site to, inside the app. A relative path is resolved against the folder `netjes` runs in, or `--cwd`. | `out` |
 | `--no-build` | Export the build already in `dist/`. | off: build first |
+
+Before it builds, netjes checks that `dir` is inside the folder it runs in. A folder outside it, such as `..`, `../site` or a path elsewhere on the disk, or that folder itself, ends the command with one line on stderr and exit code 1, and nothing is built:
+
+```console
+$ netjes export ../site
+netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
+```
+
+On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
