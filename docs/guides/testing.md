@@ -419,6 +419,14 @@ What the mark says, and what it does not:
 
 Do not wait for the router's key in `history.state` instead. It is internal, and the browser keeps a history entry's state when it loads the document again, so after a reload the key is there before any of the page's scripts has run.
 
+### Focus, announcements and other spellings
+
+A browser sees a few things that a component test does not:
+
+- After a client navigation to another page, the focus starts over at the top of the document, on `body` ([Focus and announcements](routing.md#focus-and-announcements)). A test that types right after one focuses its field first, as `locator.fill()` does; `page.keyboard.type()` on its own types into `body`.
+- After a navigation to another path or query, the router puts the new page's name in a live region after the app's content. A test that reads the text of a whole container, such as `body`, gets the region's text too, so read the element you mean. The region has no role; find it as `page.locator('[data-netjes-route-announcer]')`.
+- A URL in another case of a page's literal segments, such as `/About` for `app/about/page.tsx`, answers 308 to the file's spelling on Kestrel, where the `WebApplicationFactory` tests above get the page ([One URL per page](routing.md#one-url-per-page)).
+
 ## In CI
 
 ```bash
