@@ -97,7 +97,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | `next dev`, `next build`, `next start` | `netjes dev`, `netjes build`, `netjes start`; `dotnet publish` runs the build and ships it. [The netjes command](reference/cli.md) |
 | `output: 'export'` | `netjes export`. Exported pages navigate with full page loads. [Static export](guides/static-export.md) |
 | `next.config.js` | `NetjesOptions` in C# (and the `Netjes` configuration section) for the server, `netjes()` options in `vite.config.ts` for the build. [Options](reference/options.md), [Vite plugin](reference/vite-plugin.md) |
-| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL |
+| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL. Endpoints get typed URLs from their C# handlers: `endpointUrl('GET /api/posts/{slug}/likes/', { slug })` ([Endpoint URLs](guides/data-loading.md#endpoint-urls)) |
 | Fast Refresh, Turbopack | Vite with React Fast Refresh ([ADR 0004](decisions/0004-vite-for-dev-server-and-builds.md)) |
 | Tailwind CSS setup | On by default in `netjes()`: `@import "tailwindcss"` in a stylesheet the root layout imports |
 | Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](guides/testing.md) |

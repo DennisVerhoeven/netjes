@@ -451,13 +451,26 @@ function buildHref(
 
 The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'über-uns'` gives `#%C3%BCber-uns`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
 
+#### `buildEndpointUrl`
+
+```ts
+function buildEndpointUrl(
+  template: string,
+  values: Readonly<Record<string, unknown>>,
+  search?: SearchParamsInput,
+  endpoint?: string,
+): string;
+```
+
+The URL of one of the app's endpoints from its route template as the generated file writes it: literals as they are, with `%`, `{` and `}` encoded, and `{name}`, `{name?}`, `{name=default}` (the default encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded with `encodeURIComponent`; a `{**name}` value keeps its slashes. A missing, `null` or `''` optional value drops its segment, or its part with the `.` before it; a missing value with a default is filled in where segments follow it and left out at the end; a missing required value throws `netjes: endpoint '<endpoint>' needs the route value '<name>'` (the template when `endpoint` is not given). The values the template does not name are the query string, followed by `search`. The result is root-relative, without the base path: `buildEndpointUrl('/api/items/{id}', { id: 'a b', v: 2 })` is `/api/items/a%20b?v=2`. The generated `endpointUrl()` calls it with typed values ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)).
+
 #### `SearchParamsInput`
 
 ```ts
 type SearchParamsInput = Record<string, SearchValue | readonly SearchValue[]>;
 ```
 
-The query of `buildHref` and `route()`. An array repeats the key; `null` and `undefined` are left out.
+The query of `buildHref`, `route()`, `buildEndpointUrl` and `endpointUrl()`. An array repeats the key; `null` and `undefined` are left out.
 
 #### `SearchValue`
 
@@ -708,6 +721,8 @@ The entry is internal, but the mark is public. The client router puts `data-netj
 | `layouts` | Each layout loader's props schema by folder, for `defineLayout`. Only when the app has layout loaders. |
 | `sharedProps` | The shared props schema, for `useSharedProps`; `z.unknown()` without `UseSharedProps<T>`. |
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
+| `endpointUrl(key, params?, search?)` | The URL of one of the app's endpoints, values encoded, without the base path (pass it through [`useHref`](#usehref)). `key` is the method and route as in `api`; every endpoint of the app that is not a page has one, JSON or not ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)). `search` adds query values the endpoint does not bind. |
+| `EndpointParams`, `EndpointKey` | The route values and the query values each endpoint binds, typed from its C# handler, and its keys as a type. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
 | `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |

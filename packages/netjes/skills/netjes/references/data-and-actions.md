@@ -84,15 +84,16 @@ app.MapGet("/api/projects/{slug}/stats", async Task<Results<Ok<ProjectStats>, No
 ```
 
 ```ts
-async function fetchStats(slug: string) {
-  const response = await fetch(`/api/projects/${encodeURIComponent(slug)}/stats`);
+async function fetchStats(url: string) {
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Stats request failed with ${response.status}`);
   return api['GET /api/projects/{slug}/stats'].response.parse(await response.json());
 }
-const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => fetchStats(slug) });
+const url = useHref(endpointUrl('GET /api/projects/{slug}/stats', { slug }));
+const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => fetchStats(url) });
 ```
 
-Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
+Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. `endpointUrl(key, params, search)` builds the URL of any endpoint of the app that is not a page, JSON or not (a JSON endpoint has a key per method, any other endpoint one for `GET`), by the same key: the route values and the query values its handler binds are typed from C#, an enum as its C# names and values, and `search` adds others. It has no base path: `useHref` adds it, for a `fetch` or an `<a href>`. `<Link>` refuses it, as an endpoint is not a page. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
 
 `MapGet` answers `GET` only: a `HEAD` to its URL goes to whatever else matches it, often the not-found page. For an endpoint that crawlers, link checkers or monitors ask with `HEAD`, map `app.MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its `api` key stays `GET` and the route. Pages, `/sitemap.xml`, `/robots.txt`, `/_netjes/image` and the locale redirect answer `HEAD` already.
 

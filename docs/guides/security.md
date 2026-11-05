@@ -247,6 +247,7 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 - Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`.
 - Everything in `Netjes:PublicConfig` is sent to the browser as it is. Never put a secret there.
+- The generated file names the app's endpoints: `api` its JSON endpoints, and `endpointUrl()` the method and route of every endpoint the app maps that is not a page, an endpoint the app maps only in Development included, since the file is generated in Development. A page that imports `endpointUrl` ships those routes to the browser in its chunk, as one that imports `api` ships its keys. A route in the file is no easier to reach than one outside it: authorization stays on the endpoint (`RequireAuthorization()`) ([Endpoint URLs](data-loading.md#endpoint-urls)).
 - Output-cached pages are served to every visitor; keep per-visitor data out of them. See [caching](caching.md#shared-props-and-cookies).
 
 ## The development server
