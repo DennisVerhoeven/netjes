@@ -49,6 +49,33 @@ public class HrefTests
     }
 
     [Fact]
+    public void Equality_ComparesTheUrlCharacterByCharacter_AndAnHrefIsItsUrlAsAString()
+    {
+        Href first = new("/blog?tag=react");
+        Href same = new("/blog?tag=react");
+        Href otherCase = new("/Blog?tag=react");
+        Href? none = null;
+
+        Assert.True(first == same);
+        Assert.False(first != same);
+        Assert.False(first == otherCase);
+        Assert.True(first != otherCase);
+        Assert.False(first == none);
+        Assert.True(none != first);
+        Assert.True(first.Equals((object)same));
+        Assert.False(first.Equals((object)"/blog?tag=react"));
+        Assert.Equal(first.GetHashCode(), same.GetHashCode());
+        Assert.Single(new HashSet<Href> { first, same });
+
+        string text = first;
+        string? noText = none;
+        Assert.Equal("/blog?tag=react", text);
+        Assert.Null(noText);
+        Assert.Equal("/blog?tag=react", first.ToString());
+        Assert.Equal("/blog?tag=react", $"{first}");
+    }
+
+    [Fact]
     public void Json_WritesAPlainString_AndRefusesAnInvalidOneOnRead()
     {
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
