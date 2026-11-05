@@ -15,7 +15,7 @@ A link is the current page when the URL its `href` goes to is the page on screen
 - An `href` with a `#` is never current, `#` and `/#` included: it points to a place in a page, not to the page.
 - The `href` is resolved under the base path, against the page's URL, on a fixed origin. An `href` with a scheme or host of its own (`https://…`, `//host/…`, `mailto:`) is never current, even one on the app's own host, which a server render cannot be sure of.
 - The paths are compared with one trailing slash removed from each, so `/docs` and `/docs/` are one page, and `/` stays `/`.
-- For each query parameter the link names, the page has the same values, decoded, in any order and as often each: `?t=x&t=y` matches `?t=y&t=x` but not `?t=x`, and `q=a+b` matches `q=a%20b`. Parameters the link does not name do not count, so `/blog?tag=react` stays current on `/blog?tag=react&utm_source=nl`.
+- For each query parameter the link names, the page has the same values, decoded, in any order and as often each: `?t=x&t=y` matches `?t=y&t=x` but not `?t=x`, and `q=a+b` matches `q=a%20b`. Parameters the link does not name do not count, so `/blog?tag=react` stays current on `/blog?tag=react&utm_source=nl`. Names and values are compared with their case, as `useSearchParams()` reads them: ASP.NET Core binds query names in any case, so a loader's `tag` parameter gets `react` on `/blog?Tag=react` too, but `/blog?tag=react` is not current there.
 - An `aria-current` prop wins: `undefined` leaves the attribute off, and `"true"` marks a link to a section on the pages below it.
 
 ## Alternatives considered
