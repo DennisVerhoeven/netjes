@@ -13,7 +13,7 @@ An app sets up output caching and `CachePage` in its `Program.cs`, which runs in
 - One difference on purpose: such a page goes out `Cache-Control: no-store, private`, unless it set its own header.
 - Netjes logs once, at Information, that pages are not output-cached in Development.
 - Endpoints that are not pages, such as JSON APIs and images, are output-cached in Development as anywhere, unless `CachePage` marks them: the page rules apply to those ([ADR 0016](0016-page-cache-rules-under-any-output-caching.md)), so they run on each request too.
-- The environment decides, not `Netjes:Mode`: a test host that runs development mode in another environment, as `WebApplicationFactory` tests do, stores pages as production does.
+- The environment decides, not `Netjes:Mode`: a test host that runs development mode in another environment, as the testing guide's `WebApplicationFactory` does (`UseEnvironment("Testing")` with `Netjes:Mode` set to `Development`), stores pages as production does. A `WebApplicationFactory` left in its default environment, `Development`, stores none.
 - There is no switch to cache pages in Development. Data that is slow or costly to load is cached in the service that loads it (`IMemoryCache`, `HybridCache`), which helps in production too. Next.js does the same: `next dev` renders routes on every request and keeps only fetched data between them.
 
 ## Alternatives considered
@@ -31,4 +31,4 @@ An app sets up output caching and `CachePage` in its `Program.cs`, which runs in
 - Output-cached pages differ in one header between Development (`no-store, private`) and production (none, when stored). A page that sets its own `Cache-Control` keeps it, and can still come back from before an edit on Back.
 - Caching is tried on the built app (`netjes build`, then `netjes start`), or in a test host in another environment. `netjes routes` still lists `CachePage` pages as cached.
 - A host that runs development mode with a live Vite dev server outside the Development environment still stores pages, which can then be older than the code. It is rare, and a test host that does so asks for caching.
-- Netjes's own test app refuses output caching in the Development environment unless a test asks for it, so a test of what the cache stores cannot pass because nothing was stored.
+- Netjes's own test app refuses output caching in the Development environment unless a test asks for it, so that no test of what the cache stores can pass just because nothing was stored.
