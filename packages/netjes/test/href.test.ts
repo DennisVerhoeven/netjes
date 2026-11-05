@@ -31,12 +31,14 @@ describe('isRouteHref', () => {
       '/\n/evil.example',
       '/\r/evil.example',
       '/a\u0000b',
+      '/a\u001Fb',
       '/a\u007Fb',
       '/docs ',
       ' /docs',
       '\u001F/docs',
       'https://example.com/\r\n',
       '#top\t',
+      '#top\u001F',
       '?q=\n',
     ];
 
