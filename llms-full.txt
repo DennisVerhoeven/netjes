@@ -3103,7 +3103,7 @@ Each page is exported as a complete document, the one crawlers get (see [renderi
 The values also follow in inline scripts, for the client to hydrate that content. Under a policy that blocks those scripts, the content shows on load but its boundary does not hydrate: the first update that renders the boundary again (a state change in the page around it) replaces it with the fallback, for good. Two ways out:
 
 - keep `Page.Defer` out of exported pages that update around their deferred content, or
-- list the scripts' hashes in the host's policy, next to the bootstrap's (see [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy)). In an exported file those scripts are fixed text, and change only when a value does, so their hashes change only when you export again with other data.
+- list the scripts' hashes in the host's policy, next to `CSP_SCRIPT_HASHES` from `netjes`, the hashes of the inline scripts that every document carries with the same text, such as the bootstrap (`NetjesContentSecurityPolicy.ScriptHashes` in C#; see [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based)). In an exported file those scripts are fixed text, and change only when a value does, so their hashes change only when you export again with other data.
 
 A value that fails, or misses `StreamTimeout`, leaves its fallback in the file, and the nearest `error.tsx` replaces it once JavaScript runs. The export logs a warning and still succeeds.
 
@@ -3200,14 +3200,29 @@ If you write the policy yourself, for example with a headers library, call `Http
 
 ### Hash-based
 
-A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow the one inline script Netjes puts in every document's head, the bootstrap that collects streamed values, by its hash:
+A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow, by their hashes, the inline scripts that Netjes writes with the same text into every document. `NetjesContentSecurityPolicy.ScriptHashes` lists those hashes:
 
 ```csharp
 options.ContentSecurityPolicy =
-    "script-src 'self' 'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='; object-src 'none'; base-uri 'self'";
+    $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
 ```
 
-That is the hash of the bootstrap in this version; a Netjes version that changes its text changes the hash. Inline `<Script>` code of your own needs its hash listed too.
+`ScriptHashes` holds a `'sha256-…'` source for each such script, in its quotes and separated by spaces. In this version there is one, the bootstrap in the head that collects streamed values, so the value is `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`. A Netjes version that changes the bootstrap, or adds a script like it, changes the value. So build the policy from `ScriptHashes` rather than pasting the hash: a pasted hash would block the script after such an upgrade. A policy written in JavaScript, such as a static host's headers for [exported pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md), gets the same value from the npm package: `import { CSP_SCRIPT_HASHES } from 'netjes'`.
+
+Keep `'self'`: a hash allows only the inline script it was computed from, and the built app's module scripts are files the app serves, which `'self'` allows. Leave out `'strict-dynamic'`, which needs a nonce here: next to it, browsers ignore `'self'`, and the module scripts carry no nonce under this policy and no `integrity` attribute for a hash to match, so browsers refuse them and the page does not hydrate. Inline `<Script>` code of your own needs its hash listed too.
+
+In the Development environment the module scripts come from the Vite dev server, on another origin, so a policy there lists that origin as well, or browsers refuse them and the page does not hydrate. The origin is `http://localhost:5173`, on another port when `ViteDevPort` moves it, or the one in `NETJES_VITE_ORIGIN` when browsers reach the dev server at another address:
+
+```csharp
+builder.Services.AddNetjes(options =>
+{
+    var devServer = builder.Environment.IsDevelopment() ? $" http://localhost:{options.ViteDevPort}" : "";
+    options.ContentSecurityPolicy =
+        $"script-src 'self'{devServer} {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
+});
+```
+
+A form action that is a function makes React add an inline script of its own, which replays a submission made before the page hydrates. A server action from `useAction` in `<Form action>` adds none, since Netjes renders that form with the action's URL. Any other function does, in `<Form action>`, in `<SubmitButton formAction>` (server actions included) or on a plain `<form>` or `<button>`. The script's text follows the React version, so `ScriptHashes` leaves it out. List its hash for the React version you run (Chromium names the hash in the console when it blocks the script), or keep such actions off pages under the policy. While the script is blocked, a submission made before the page hydrates is lost; after hydration, React runs the action without it.
 
 No hash covers what streams after the shell: each script that delivers a `Page.Defer` value carries that value, and React's scripts that reveal Suspense boundaries name the boundaries of that render. A hash-based policy blocks both, so a page served under one must not stream: no `Page.Defer`, and no Suspense boundary still waiting when the shell goes out (lazy code under `loading.tsx` included). Pages from `netjes export` are the exception, since their scripts are fixed text; see [static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#deferred-values-and-suspense).
 
@@ -4076,7 +4091,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 
 | Import | What it holds |
 |---|---|
-| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types |
+| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
 | [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
@@ -4371,6 +4386,16 @@ function useNonce(): string | undefined;
 ```
 
 The page's Content-Security-Policy nonce, for inline scripts and styles of your own; `undefined` without a policy, or under one without `{nonce}`. `<Script>` uses it by itself. See [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md).
+
+### Content-Security-Policy
+
+#### `CSP_SCRIPT_HASHES`
+
+```ts
+const CSP_SCRIPT_HASHES: string;
+```
+
+The `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: one `'sha256-…'` per script, in its quotes and separated by spaces, as in `` `script-src 'self' ${CSP_SCRIPT_HASHES}` ``. It is for a policy that JavaScript writes, such as a static host's headers for [exported pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#deferred-values-and-suspense); in C#, the same value is [`NetjesContentSecurityPolicy.ScriptHashes`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#netjescontentsecuritypolicy). A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. React's script for form actions that are functions is left out too, since its text follows the React version. See [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based).
 
 ### Components
 
@@ -5126,6 +5151,17 @@ public static string GetCspNonce(this HttpContext http)
 
 This request's Content-Security-Policy nonce, created on first use. Netjes puts it on every script and stylesheet it renders, and `useNonce()` returns it, so a policy you write yourself can allow exactly those. A document with a nonce is never stored in the output cache. With `NetjesOptions.ContentSecurityPolicy` containing `{nonce}`, Netjes calls it for you. See [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy).
 
+### NetjesContentSecurityPolicy
+
+```csharp
+public static class NetjesContentSecurityPolicy
+{
+    public static string ScriptHashes { get; }
+}
+```
+
+`ScriptHashes` holds the `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: one `'sha256-…'` per script, in its quotes and separated by spaces, as in `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. React's script for form actions that are functions is left out too, since its text follows the React version. It is a property, not a constant, because the compiler copies a constant's value into the assemblies that use it: an assembly compiled against one version of Netjes would keep that version's hashes when it runs with another. The npm package exports the same value as [`CSP_SCRIPT_HASHES`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#csp_script_hashes). See [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based).
+
 ## Options
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md).
@@ -5382,7 +5418,7 @@ Configuration adds list items to what a list holds already, while the delegate r
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `ContentSecurityPolicy` | `string?` | `null`: no policy | A Content-Security-Policy for documents. With `{nonce}`, each document gets a nonce in its place and on everything Netjes renders, and is never output-cached. Without it (hash-based), no nonce is made and pages can be cached, but must not stream. `frame-ancestors 'self'` is added when the policy has none. Not sent when the app set the header itself. See [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy). |
+| `ContentSecurityPolicy` | `string?` | `null`: no policy | A Content-Security-Policy for documents. With `{nonce}`, each document gets a nonce in its place and on everything Netjes renders, and is never output-cached. Without it (hash-based), no nonce is made and pages can be cached, but must not stream, and the policy's `script-src` must list the hashes of Netjes's inline scripts: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}"`. `frame-ancestors 'self'` is added when the policy has none. Not sent when the app set the header itself. See [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy). |
 | `SecurityHeaders` | `NetjesSecurityHeaderOptions` | below | The headers Netjes adds: `nosniff` to every response through `UseNetjes()`, the rest to documents. |
 | `SegmentKeySecret` | `string?` | random per process | The secret that signs layout keys, at least 32 bytes of UTF-8 (shorter stops the app at startup). Set the same value on every instance so they accept each other's keys and share cached payloads that reuse layouts. See [deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#the-segment-key-secret). |
 
@@ -6343,7 +6379,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...)
 - A stored page is served to every visitor, shared props included. Cache only pages that are the same for everyone: their loaders and shared props must not depend on cookies or other per-visitor state (Netjes warns once per page when a cached render reads `Request.Cookies`). Signed-in users and requests with an `Authorization` header bypass the cache.
 - Evict from an action with `ServerAction.Ok().Revalidate("posts")` or `.RevalidatePath("/blog/hello")`, and from anywhere else (a webhook, a background job) with `IPageCache.RevalidateTagAsync(tag)` / `RevalidatePathAsync(path)`.
 - Cached pages carry no antiforgery token: forms on them fetch one first, so they need JavaScript.
-- A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream.
+- A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream. Build it from `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts, never from a pasted hash, which a Netjes upgrade can make stale: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. Keep `'self'` for the built app's module scripts, and leave out `'strict-dynamic'`, which needs a nonce. In the Development environment the module scripts come from the Vite dev server, so add its origin there, and only there: insert `builder.Environment.IsDevelopment() ? $" http://localhost:{options.ViteDevPort}" : ""` after `'self'`. Under such a policy, give forms server actions through `useAction` and `<Form action={formAction}>`: any other function action, and any function on `<SubmitButton formAction>`, makes React add an inline script whose hash follows the React version and is not in `ScriptHashes`. In JavaScript, such as a static host's headers for exported pages, the same value is `CSP_SCRIPT_HASHES` from `netjes`.
 - Keys include the host and the full URL, case included. In production pin `AllowedHosts` and set the output cache's `SizeLimit`.
 - Pages the output cache does not store go out `Cache-Control: no-store, private`, for visitors and signed-in users alike, unless the page sets its own header.
 - In the Development environment pages are never output-cached: each request renders the page, nothing is stored, and an output-cached page goes out `no-store, private` unless it sets its own `Cache-Control`, so keep `UseOutputCache()` in every environment. Cache slow or billed upstream data in the service that loads it (`IMemoryCache`, `HybridCache`). See caching work on the built app (`npx netjes build && npx netjes start`); a `WebApplicationFactory` test of it runs in the `Testing` environment with `Netjes:Mode=Development`.
@@ -6581,6 +6617,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - A route warning for an endpoint of the app that ties with a page or a page action. Such an endpoint ranks the same as the page in ASP.NET Core's matcher: it has an HTTP method in common with it, the same order, route precedence and literals, a host in common or no host on either, and accepted content types listed by both or by neither (two endpoints that both list content types tie for a request without one, such as a POST without a body). ASP.NET Core cannot choose between the two and answers each request that both match with 500 (`AmbiguousMatchException`), as it did before. Now the app also logs a warning at startup, in the category `Netjes.Routing.RouteDiagnostics`, and `netjes routes` lists it (the kind `ambiguous-endpoint` in `--json`), naming the endpoint's methods and route and the page file. Netjes's own `MapLocaleRedirect()` next to an `app/page.tsx` is one such endpoint. Give the endpoint `.WithOrder(-1)` if it should answer those URLs, or change its route. An app that keeps the tie, or whose own matcher policies tell the two endpoints apart, can raise the category's log level, which hides every route warning ([ADR 0029](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md)). The routing guide has a new section, [Endpoints next to pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#endpoints-next-to-pages), on which endpoint answers a URL and how to link to a file next to a page.
 - `PageRouteMetadata` and `CachedPageMetadata` in `Netjes.Routing`, so app code and tests can find the app's pages by walking `EndpointDataSource`, as `netjes routes` does ([endpoint metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#endpoint-metadata)). Every endpoint that serves a page carries `PageRouteMetadata`, with the page's `Pattern` as its file names it and `IsLoader`, true on the endpoint `MapPageLoader` maps. Every endpoint `CachePage` is put on carries `CachedPageMetadata`, with the `Duration` and `Tags` it was given. `CachePage` now keeps its own copy of the tags, for the page's cache entries as for the metadata, so the two agree: changing the array after the call used to change the tags the entries got, and no longer does. An app that did that passes the tags it means to `CachePage` instead. Otherwise this is new API only, and nothing else changes at runtime. Code that finds a page's endpoint by its display name (`Page /blog/[slug]`), which is not part of the API, can read `PageRouteMetadata` instead.
 - `route()` and `buildHref` take a fourth argument, `{ hash }`, which adds a `#fragment` after the query: `route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The hash is the id of an element on the page. One leading `#` is dropped and the rest is percent-encoded (`'über-uns'` becomes `#%C3%BCber-uns`, which browsers and the router decode when they look for the element); with nothing left, no fragment is added. The third argument is still the query, so a link with a fragment and no query passes `undefined` there ([routing guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links)). The generated `route()` has a new signature, so run `npx netjes generate` after upgrading, or start the app in Development, and commit `generated/netjes.ts`: `npx netjes generate --check` in CI fails until you do. Until then `route()` keeps its old signature and takes no `hash`. A link whose fragment you write into the string yourself needs no change.
+- `NetjesContentSecurityPolicy.ScriptHashes` in C# and `CSP_SCRIPT_HASHES` from `netjes` hold the `script-src` sources that allow, by their hashes, the inline scripts Netjes writes with the same text into every document, for a Content-Security-Policy without a nonce: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"` ([security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based)). In this version they hold one hash, of the bootstrap that collects streamed `Page.Defer` values: `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`, the hash the docs gave for apps to paste, unchanged since 0.0.1. An app that pasted it into its policy replaces it with the constant. Nothing changes in this version, but a pasted hash blocks the bootstrap once a Netjes version changes the script, while the constants change with it. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, are still covered by no hash. Nor do the constants hold the hash of React's script for form actions that are functions, whose text follows the React version; the security guide says what a page with such an action needs.
 
 ### Changed
 

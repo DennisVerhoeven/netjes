@@ -89,14 +89,29 @@ If you write the policy yourself, for example with a headers library, call `Http
 
 ### Hash-based
 
-A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow the one inline script Netjes puts in every document's head, the bootstrap that collects streamed values, by its hash:
+A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow, by their hashes, the inline scripts that Netjes writes with the same text into every document. `NetjesContentSecurityPolicy.ScriptHashes` lists those hashes:
 
 ```csharp
 options.ContentSecurityPolicy =
-    "script-src 'self' 'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='; object-src 'none'; base-uri 'self'";
+    $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
 ```
 
-That is the hash of the bootstrap in this version; a Netjes version that changes its text changes the hash. Inline `<Script>` code of your own needs its hash listed too.
+`ScriptHashes` holds a `'sha256-…'` source for each such script, in its quotes and separated by spaces. In this version there is one, the bootstrap in the head that collects streamed values, so the value is `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`. A Netjes version that changes the bootstrap, or adds a script like it, changes the value. So build the policy from `ScriptHashes` rather than pasting the hash: a pasted hash would block the script after such an upgrade. A policy written in JavaScript, such as a static host's headers for [exported pages](static-export.md), gets the same value from the npm package: `import { CSP_SCRIPT_HASHES } from 'netjes'`.
+
+Keep `'self'`: a hash allows only the inline script it was computed from, and the built app's module scripts are files the app serves, which `'self'` allows. Leave out `'strict-dynamic'`, which needs a nonce here: next to it, browsers ignore `'self'`, and the module scripts carry no nonce under this policy and no `integrity` attribute for a hash to match, so browsers refuse them and the page does not hydrate. Inline `<Script>` code of your own needs its hash listed too.
+
+In the Development environment the module scripts come from the Vite dev server, on another origin, so a policy there lists that origin as well, or browsers refuse them and the page does not hydrate. The origin is `http://localhost:5173`, on another port when `ViteDevPort` moves it, or the one in `NETJES_VITE_ORIGIN` when browsers reach the dev server at another address:
+
+```csharp
+builder.Services.AddNetjes(options =>
+{
+    var devServer = builder.Environment.IsDevelopment() ? $" http://localhost:{options.ViteDevPort}" : "";
+    options.ContentSecurityPolicy =
+        $"script-src 'self'{devServer} {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
+});
+```
+
+A form action that is a function makes React add an inline script of its own, which replays a submission made before the page hydrates. A server action from `useAction` in `<Form action>` adds none, since Netjes renders that form with the action's URL. Any other function does, in `<Form action>`, in `<SubmitButton formAction>` (server actions included) or on a plain `<form>` or `<button>`. The script's text follows the React version, so `ScriptHashes` leaves it out. List its hash for the React version you run (Chromium names the hash in the console when it blocks the script), or keep such actions off pages under the policy. While the script is blocked, a submission made before the page hydrates is lost; after hydration, React runs the action without it.
 
 No hash covers what streams after the shell: each script that delivers a `Page.Defer` value carries that value, and React's scripts that reveal Suspense boundaries name the boundaries of that render. A hash-based policy blocks both, so a page served under one must not stream: no `Page.Defer`, and no Suspense boundary still waiting when the shell goes out (lazy code under `loading.tsx` included). Pages from `netjes export` are the exception, since their scripts are fixed text; see [static export](static-export.md#deferred-values-and-suspense).
 

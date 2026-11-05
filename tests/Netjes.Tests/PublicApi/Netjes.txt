@@ -42,6 +42,8 @@ public interface Netjes.IDraftMode
 public interface Netjes.IPageCache
   System.Threading.Tasks.ValueTask RevalidatePathAsync(string path, System.Threading.CancellationToken cancellationToken = default)
   System.Threading.Tasks.ValueTask RevalidateTagAsync(string tag, System.Threading.CancellationToken cancellationToken = default)
+public static class Netjes.NetjesContentSecurityPolicy
+  public static string ScriptHashes { get; }
 public static class Netjes.NetjesHeaders
   public const string Antiforgery = "X-Netjes-Antiforgery"
   public const string Cookies = "X-Netjes-Cookies"

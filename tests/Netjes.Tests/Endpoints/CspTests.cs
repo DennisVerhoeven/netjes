@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -137,7 +139,7 @@ public partial class CspTests
     }
 
     /// <summary>A hash-based policy, as output-cached pages need: no <c>{nonce}</c> anywhere.</summary>
-    private const string HashPolicy = "script-src 'self' 'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='; object-src 'none'";
+    private static readonly string HashPolicy = $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'";
 
     [Fact]
     public async Task APolicyWithoutTheNoncePlaceholder_GetsNoNonce()
@@ -171,6 +173,35 @@ public partial class CspTests
         Assert.DoesNotContain(app.Logs, l => l.Message.Contains("hash-based", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/missing")]
+    public async Task ScriptHashes_AreTheHashesOfTheInlineScriptsTheClientRenderShellCarries(string url)
+    {
+        // The document .NET writes itself while no sidecar is ready, for a page and for the not-found page;
+        // packages/netjes/test/csp.test.ts hashes the scripts of the documents the sidecar renders.
+        await using var app = await ClientRenderFallbackTests.StartAsync(configure: o => o.ContentSecurityPolicy = HashPolicy);
+
+        var html = await (await app.GetDocumentAsync(url)).Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Contains("No Node sidecar was ready", html);
+        var hashes = InlineScripts(html).Select(HashSource).Distinct().Order(StringComparer.Ordinal);
+        Assert.Equal(NetjesContentSecurityPolicy.ScriptHashes.Split(' ').Order(StringComparer.Ordinal), hashes);
+    }
+
+    /// <summary>
+    /// The text of each inline script in a document that a browser runs, and that a policy's script-src governs: every
+    /// script element without <c>src</c>, except the <c>application/json</c> payload, which is data.
+    /// </summary>
+    private static IEnumerable<string> InlineScripts(string html) =>
+        ScriptRegex().Matches(html)
+            .Where(m => !m.Groups["attributes"].Value.Contains(" src=", StringComparison.Ordinal)
+                && !m.Groups["attributes"].Value.Contains(" type=\"application/json\"", StringComparison.Ordinal))
+            .Select(m => m.Groups["text"].Value);
+
+    /// <summary>The source that allows a script by its text, as a browser hashes it: SHA-256 of its UTF-8 bytes.</summary>
+    private static string HashSource(string script) => $"'sha256-{Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(script)))}'";
+
     [Fact]
     public async Task PagesThatAreNotOutputCached_DoNotWarn()
     {
@@ -189,4 +220,7 @@ public partial class CspTests
 
     [GeneratedRegex("'nonce-([^']+)'")]
     private static partial Regex NonceRegex();
+
+    [GeneratedRegex("<script(?<attributes>[^>]*)>(?<text>.*?)</script>", RegexOptions.Singleline)]
+    private static partial Regex ScriptRegex();
 }
