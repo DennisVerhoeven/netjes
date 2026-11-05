@@ -56,7 +56,7 @@ The guestbook keeps the newest 200 entries in memory. Signing is anonymous, so i
 ## Tests
 
 ```bash
-npm test                                     # Vitest: components and the guestbook page, with createTestApp
+npm test                                     # Vitest: components, the post index and the guestbook page, with createTestApp
 npm run typecheck                            # TypeScript against the generated types
 npx netjes generate --check                  # fails when generated/netjes.ts is out of date
 dotnet test --project ../../tests/Blog.Tests # the guestbook store's cap and the rate limit
