@@ -61,6 +61,14 @@ describe('Link', () => {
     expect(currentAt('/s?q=a+b', ['/s?q=a%20b'])).toEqual({ '/s?q=a%20b': 'page' });
   });
 
+  it('compares query names and values with their case, as useSearchParams reads them', () => {
+    expect(currentAt('/blog?Tag=react', ['/blog?tag=react', '/blog?Tag=React', '/blog?Tag=react'])).toEqual({
+      '/blog?tag=react': null,
+      '/blog?Tag=React': null,
+      '/blog?Tag=react': 'page',
+    });
+  });
+
   it('treats one trailing slash as the same page', () => {
     expect(currentAt('/docs/', ['/docs'])).toEqual({ '/docs': 'page' });
     expect(currentAt('/docs', ['/docs/'])).toEqual({ '/docs/': 'page' });
