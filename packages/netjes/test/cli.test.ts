@@ -152,6 +152,15 @@ describe('netjes new', () => {
     expect(await run(['new', 'taken', '--skip-install'], io)).toBe(1);
     expect(err()).toContain('is not empty');
   });
+
+  it('names a folder whose name starts with two dots by its relative path', async () => {
+    const { io, out } = recordingIo(temp);
+
+    expect(await run(['new', '..shop', '--skip-install'], io)).toBe(0);
+
+    expect(out()).toContain('Created Shop in ..shop (');
+    expect(out()).toContain('\n  cd ..shop\n');
+  });
 });
 
 describe('netjes agents', () => {

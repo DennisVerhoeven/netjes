@@ -117,13 +117,23 @@ async function build(io, cwd) {
 }
 
 /**
+ * Whether a path that path.relative returned leads below the folder it started from: not the folder itself (''), not
+ * up out of it (`..`, `../site`) and not on another drive (absolute). A name that only starts with two dots (`..site`)
+ * is below.
+ * @param {string} relative
+ */
+function isBelow(relative) {
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/**
  * `target` as the user would type it from `from`: relative when it is below, else absolute.
  * @param {string} from
  * @param {string} target
  */
 function displayPath(from, target) {
   const relative = path.relative(from, target);
-  return relative.startsWith('..') || path.isAbsolute(relative) ? target : relative || '.';
+  return relative === '' ? '.' : isBelow(relative) ? relative : target;
 }
 
 /**
