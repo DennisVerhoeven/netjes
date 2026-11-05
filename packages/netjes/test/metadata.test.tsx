@@ -21,6 +21,62 @@ describe('resolveMetadata', () => {
     expect(resolveMetadata([{ title: { template: '%s · Acme' } }], { title: 'Save $& more, $$ off' }).title).toBe('Save $& more, $$ off · Acme');
   });
 
+  describe('title.default', () => {
+    const root: Metadata = { title: { default: 'Site', template: '%s · Site' } };
+    const docs: Metadata = { title: { default: 'Docs', template: '%s · Docs · Site' } };
+
+    it("puts a nested layout's default title through the templates of the layouts above it, not its own", () => {
+      expect(resolveMetadata([root, docs], {}).title).toBe('Docs · Site');
+      expect(resolveMetadata([root, docs], { title: 'Intro' }).title).toBe('Intro · Docs · Site');
+      expect(resolveMetadata([root, docs], { title: { absolute: 'Home' } }).title).toBe('Home');
+      expect(resolveMetadata([root], {}).title).toBe('Site');
+    });
+
+    it("puts a page's default title through the templates above it", () => {
+      expect(resolveMetadata([root, docs], { title: { default: 'Intro' } }).title).toBe('Intro · Docs · Site');
+      expect(resolveMetadata([root], { title: { default: 'Intro' } }).title).toBe('Intro · Site');
+    });
+
+    it('puts a default title into a template literally, even with $ patterns in it', () => {
+      const acme: Metadata = { title: { default: 'Acme', template: '%s · Acme' } };
+
+      expect(resolveMetadata([acme, { title: { default: 'Save $& more, $$ off' } }], {}).title).toBe('Save $& more, $$ off · Acme');
+      expect(resolveMetadata([acme], { title: { default: 'Save $& more, $$ off' } }).title).toBe('Save $& more, $$ off · Acme');
+    });
+
+    it('is used as it is where no template is above it', () => {
+      expect(resolveMetadata([{ title: { default: 'Site' } }, { title: { default: 'Docs' } }], {}).title).toBe('Docs');
+      expect(resolveMetadata([{ title: { default: 'Site' } }], { title: { default: 'Intro' } }).title).toBe('Intro');
+      expect(resolveMetadata([], { title: { default: 'Intro' } }).title).toBe('Intro');
+    });
+
+    it('leaves a title.absolute out of every template, beside a default or not, on a layout or a page', () => {
+      expect(resolveMetadata([root, { title: { absolute: 'Docs home' } }], {}).title).toBe('Docs home');
+      expect(resolveMetadata([root, { title: { default: 'Docs', absolute: 'Docs home' } }], {}).title).toBe('Docs home');
+      expect(resolveMetadata([root], { title: { default: 'Intro', absolute: 'Start here' } }).title).toBe('Start here');
+    });
+
+    it('leaves the title from above alone when a layout sets only a template', () => {
+      expect(resolveMetadata([root, { title: { template: '%s · Docs · Site' } }], {}).title).toBe('Site');
+    });
+  });
+
+  // The two rules of title templates that differ from Next.js and that resolveMetadata alone decides; the third, a
+  // layout's template reaching the page in its own folder, is checked through the router below.
+  describe('title templates, where Netjes differs from Next.js', () => {
+    const root: Metadata = { title: { default: 'Site', template: '%s · Site' } };
+
+    it('keeps the template from above for the titles below a layout whose title sets none', () => {
+      expect(resolveMetadata([root, { title: 'Docs' }], { title: 'Intro' }).title).toBe('Intro · Site');
+      expect(resolveMetadata([root, { title: { default: 'Docs' } }], { title: 'Intro' }).title).toBe('Intro · Site');
+      expect(resolveMetadata([root, { title: { absolute: 'Docs' } }], { title: 'Intro' }).title).toBe('Intro · Site');
+    });
+
+    it('replaces only the first %s in a template', () => {
+      expect(resolveMetadata([{ title: { template: '%s | %s' } }], { title: 'Intro' }).title).toBe('Intro | %s');
+    });
+  });
+
   it('lets the server metadata from C# override the files, field by field', () => {
     const resolved = resolveMetadata([{ title: { template: '%s · Acme' } }], { title: 'Post', description: 'static' }, { title: 'From C#' });
 
@@ -248,6 +304,54 @@ describe('metadata exports and tags', () => {
       '<meta name="twitter:title" content="Hello · Acme"/>',
       '<meta name="twitter:description" content="A post"/>',
     ]);
+  });
+
+  const siteLayout: Metadata = { title: { default: 'Site', template: '%s · Site' } };
+  const docsLayout: Metadata = { title: { default: 'Docs', template: '%s · Docs · Site' } };
+
+  it("writes a nested layout's default title through the template above it into the head", async () => {
+    const html = await headFor({}, [siteLayout, docsLayout]);
+
+    expect(html.match(/<title>[^<]*<\/title>/g)).toEqual(['<title>Docs · Site</title>']);
+  });
+
+  it("falls back to a nested layout's default title, as the template above made it, for the Open Graph and Twitter titles", async () => {
+    const html = await headFor({ openGraph: { siteName: 'Site' } }, [siteLayout, docsLayout]);
+
+    expect(html.match(/<meta (?:property|name)="(?:og|twitter):title"[^>]*>/g)).toEqual([
+      '<meta property="og:title" content="Docs · Site"/>',
+      '<meta name="twitter:title" content="Docs · Site"/>',
+    ]);
+  });
+
+  it("applies a layout's title template to the page in the layout's own folder", async () => {
+    const Layout = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
+    const modules = {
+      '/app/layout.tsx': async () => ({ default: Layout, metadata: siteLayout }),
+      '/app/docs/layout.tsx': async () => ({ default: Layout, metadata: docsLayout }),
+      '/app/docs/page.tsx': async () => ({ default: () => <h1>Intro</h1>, metadata: { title: 'Intro' } satisfies Metadata }),
+    };
+    const initial: PagePayload = {
+      kind: 'page',
+      route: '/docs',
+      page: 'app/docs/page.tsx',
+      segments: [
+        { id: 'app', layout: 'app/layout.tsx' },
+        { id: 'docs', layout: 'app/docs/layout.tsx' },
+      ],
+      props: {},
+      params: {},
+      shared: null,
+      status: 200,
+      url: '/docs',
+      version: 'v1',
+    };
+    const loader = createModuleLoader(modules);
+
+    const html = renderToString(<RouterProvider initial={initial} initialModules={await loader.loadRoute(initial)} loader={loader} errorPage={null} />);
+
+    // Next.js applies a layout's template only to the segments below it: there this page is "Intro · Site".
+    expect(html.match(/<title>[^<]*<\/title>/g)).toEqual(['<title>Intro · Docs · Site</title>']);
   });
 
   it('gives an empty Open Graph title or description the page title and description, and writes no empty one, as Next.js does', async () => {
