@@ -15,10 +15,6 @@ public class CspChecksTests
     private static readonly CspDocument DevelopmentOverHttps = new(
         ["https://vite.example.test/@vite/client", "https://vite.example.test/@netjes/client-entry"], "https", "app.example.test", "https://vite.example.test");
 
-    /// <summary>Development with the dev server on the app's own origin, as a proxy in front of both could put it.</summary>
-    private static readonly CspDocument DevelopmentOnTheAppsOrigin = new(
-        ["http://localhost:5000/@vite/client", "http://localhost:5000/@netjes/client-entry"], "http", "localhost:5000", "http://localhost:5000");
-
     /// <summary>
     /// What the checks find, one finding after the other: its problem, the directive whose sources were judged and the
     /// URL it names, if any. <c>ScriptHashes</c> in the policy stands for <see cref="NetjesContentSecurityPolicy.ScriptHashes"/>,
@@ -90,6 +86,8 @@ public class CspChecksTests
     // The dev server's scripts: *, its scheme, or a host source naming its host and port.
     [InlineData("script-src 'self' ScriptHashes", "DevServerScripts script-src http://localhost:5173")]
     [InlineData("script-src 'self'", "Bootstrap script-src, DevServerScripts script-src http://localhost:5173")]
+    // They are on another origin than the app's, so they need no 'self'.
+    [InlineData("script-src ScriptHashes", "DevServerScripts script-src http://localhost:5173")]
     [InlineData("script-src 'self' http://localhost:5173 ScriptHashes", "")]
     [InlineData("script-src localhost:5173 ScriptHashes", "")]
     [InlineData("script-src http://localhost:* ScriptHashes", "")]
@@ -145,16 +143,32 @@ public class CspChecksTests
     [InlineData("script-src https: ScriptHashes", "")]
     [InlineData("script-src *.example.test ScriptHashes", "")]
     [InlineData("script-src 'self' ScriptHashes", "DevServerScripts script-src https://vite.example.test")]
+    [InlineData("script-src ScriptHashes", "DevServerScripts script-src https://vite.example.test")]
     [InlineData("script-src https://vite.example.test:8443 ScriptHashes", "DevServerScripts script-src https://vite.example.test")]
     public void Check_ForADocumentInDevelopmentOverHttps_FindsWhatThePolicyRefuses(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, DevelopmentOverHttps));
 
     [Theory]
-    // There 'self' is the dev server too, for its scripts and its socket.
-    [InlineData("script-src 'self' ScriptHashes; connect-src 'self'", "")]
-    [InlineData("script-src ScriptHashes; connect-src 'self'", "ModuleScripts script-src http://localhost:5000/@vite/client")]
-    public void Check_WithTheDevServerOnTheAppsOrigin_CountsSelfForIt(string policy, string findings) =>
-        Assert.Equal(findings, Findings(policy, DevelopmentOnTheAppsOrigin));
+    // On the app's own origin, as a proxy in front of both could put it, 'self' is the dev server too, for its scripts
+    // and its socket.
+    [InlineData("http://localhost:5000", "http://localhost:5000", "script-src 'self' ScriptHashes; connect-src 'self'", "")]
+    [InlineData("http://localhost:5000", "http://localhost:5000", "script-src ScriptHashes; connect-src 'self'", "ModuleScripts script-src http://localhost:5000/@vite/client")]
+    // 'self' also matches the secure scheme on the app's host, wss for the socket, on the same port or on the default
+    // ports of both.
+    [InlineData("https://app.example.test", "https://app.example.test", "script-src 'self' ScriptHashes; connect-src 'self'", "")]
+    [InlineData("http://app.example.test", "https://app.example.test", "script-src 'self' ScriptHashes; connect-src 'self'", "")]
+    // But not the other way round, nor from another port.
+    [InlineData("https://app.example.test", "http://app.example.test", "script-src 'self' ScriptHashes; connect-src 'self'",
+        "DevServerScripts script-src http://app.example.test, HmrSocket connect-src ws://app.example.test")]
+    [InlineData("http://app.example.test:8080", "https://app.example.test", "script-src 'self' ScriptHashes; connect-src 'self'",
+        "DevServerScripts script-src https://app.example.test, HmrSocket connect-src wss://app.example.test")]
+    public void Check_WithTheDevServerOnTheAppsHost_CountsSelfAsBrowsersDo(string page, string devServer, string policy, string findings)
+    {
+        var app = new Uri(page);
+        var document = new CspDocument([$"{devServer}/@vite/client", $"{devServer}/@netjes/client-entry"], app.Scheme, app.Authority, devServer);
+
+        Assert.Equal(findings, Findings(policy, document));
+    }
 
     [Theory]
     [InlineData("script-src 'nonce-abc' 'strict-dynamic'", "script-src 'nonce' 'strict-dynamic'")]
