@@ -1256,6 +1256,31 @@ const locale = useLocale(); // 'nl' at /nl/about; null without AddNetjesLocaliza
 
 [Redirects, rewrites and headers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/redirects-rewrites-headers.md) shows how to send translated strings to the client through shared props.
 
+## Endpoints next to pages
+
+### HEAD requests
+
+Pages answer a `HEAD` as they answer a `GET`, but without the body, and so do the `GET` endpoints Netjes maps: `/sitemap.xml` and `/robots.txt` (`MapSitemap` and `MapRobotsTxt`), the image endpoint `/_netjes/image`, and the locale redirect at `/` (`MapLocaleRedirect`). Files in `public/` (the client build in production) answer `HEAD` too. The exception is `/_netjes/antiforgery`, which answers `GET` only: it stores the antiforgery cookie and sends the token in the body, so a `HEAD` would store the cookie and get no token. A `HEAD` there gets the not-found page.
+
+An endpoint you map with `MapGet` answers `GET` only, as in any ASP.NET Core app. A `HEAD` to its URL goes to whatever else matches the URL and takes `HEAD`:
+
+- a dynamic page whose pattern matches it, such as `app/[slug]/page.tsx` for `/feed`. The page answers as it answers a `GET` of that URL: 200 with its HTML, or its not-found page when its loader returns `Page.NotFound()`, or when the page is in a `[lang]` folder and that segment of the URL is not a supported locale;
+- otherwise, for a path without a file extension, the fallback that `MapPages()` adds, which answers with the not-found page (404, HTML);
+- otherwise nothing, and the answer is a 404 without a body.
+
+A `POST` to that URL gets 405 with `Allow: GET, HEAD`, although the endpoint does not answer `HEAD`: `Allow` also lists the methods of the not-found fallback, which takes `GET` and `HEAD`.
+
+To answer `HEAD` from an endpoint of your own, such as a feed that crawlers and link checkers ask for, map it for both methods:
+
+```csharp
+app.MapMethods("/feed.xml", [HttpMethods.Get, HttpMethods.Head], (FeedStore feed) =>
+    Results.Text(feed.ToXml(), "application/rss+xml"));
+```
+
+The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0002-server-owns-routing.md)).
+
+Because Netjes's own endpoints answer `HEAD` themselves, a `HEAD` for `/sitemap.xml` or `/robots.txt` in a localized app reaches the sitemap or `robots.txt`. If they answered `GET` only, `app/[lang]/page.tsx` would take `sitemap.xml` for a locale it does not support and answer with the not-found page.
+
 ## Route warnings
 
 Some mistakes in routes and actions fail without an error, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0017](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs).
@@ -1708,6 +1733,8 @@ async function fetchStats(slug: string) {
 ```
 
 A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slug}/likes").MapGet("/", ...)` is `api['GET /api/posts/{slug}/likes/']`. A JSON endpoint that browsers post to should require a JSON body, so a cross-site form post cannot reach it.
+
+`MapGet` answers `GET` only. A `HEAD` to its URL goes to whatever else matches the URL, often the not-found page. To answer `HEAD` as well, map the endpoint with `MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its key stays `GET` and the route, as for `MapGet` ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
 
 ## Server state with TanStack Query
 
@@ -2700,7 +2727,7 @@ app.MapPages();
 
 URLs are absolute, under `siteUrl` and the app's base path, with the base path percent-encoded as a URL path. The list of pages is built at most once per `cacheFor` (an hour by default), so `StaticParams` does not run on every request. The XML is kept for the first eight base paths it is requested under in each `cacheFor`, which is one in a normal app. When the base path can come from a client (an `X-Forwarded-Prefix` the app accepts from untrusted addresses), any further one is built from the kept list on each request instead. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), `/sitemap.xml` is not found (404, `Cache-Control: no-store`, logged at debug level) and nothing is built: every URL would repeat the base path, so one small request could ask for a large answer. The sitemap itself is sent with `Cache-Control: public, max-age` set to `cacheFor`.
 
-`MapRobotsTxt(siteUrl, disallow)` serves `/robots.txt`: `Disallow` for each path given (or `Allow: /` when none is), and a `Sitemap:` line with the URL `MapSitemap` is served at: `/sitemap.xml` under `siteUrl` and the app's base path. Both endpoints allow anonymous requests.
+`MapRobotsTxt(siteUrl, disallow)` serves `/robots.txt`: `Disallow` for each path given (or `Allow: /` when none is), and a `Sitemap:` line with the URL `MapSitemap` is served at: `/sitemap.xml` under `siteUrl` and the app's base path. Both endpoints allow anonymous requests. Both answer `HEAD` as well as `GET`, since crawlers and link checkers send `HEAD` too: a `HEAD` gets the status and headers of a `GET`, without the body ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
 
 Crawlers read `robots.txt` only at the root of the host. Under a base path, serve the root file from whatever answers the root, with the `Sitemap:` line from the app's own `robots.txt`. The `disallow` paths are written as given, so include the base path in them.
 
@@ -2769,12 +2796,14 @@ The configured widths, qualities and the endpoint's path reach the component wit
 
 ## The image endpoint
 
-`app.MapPages()` maps `GET /_netjes/image?url=…&w=…&q=…`. It reads the source, hands it to the registered `IImageProcessor` with the width, quality and an output format the browser accepts, and answers with the result:
+`app.MapPages()` maps `/_netjes/image?url=…&w=…&q=…` for `GET` and `HEAD`. It reads the source, hands it to the registered `IImageProcessor` with the width, quality and an output format the browser accepts, and answers with the result:
 
 - `Cache-Control: public, max-age=…` for `CacheDuration` (7 days), an `ETag` (a matching `If-None-Match` gets 304), and `Vary: Accept`.
 - `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox;`, so an image opened on its own, an SVG above all, runs no script.
 
-If the app uses output caching (`AddOutputCache()` and `UseOutputCache()`), the endpoint's answers are cached: keyed by the width, the quality, the image as it is fetched and the negotiated format, not by the `Host` header. Requests with an `Authorization` header or a signed-in user are cached too, unlike under ASP.NET Core's default policy, since an image from `public/` or an allowed host is the same for everyone. Editors in draft mode share this cache. Serve private images from an endpoint of your own.
+A `HEAD` is answered as a `GET` is, with the same status and headers and without the body. The endpoint reads and processes the image for it all the same ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
+
+If the app uses output caching (`AddOutputCache()` and `UseOutputCache()`), the endpoint's answers are cached: keyed by the width, the quality, the image as it is fetched and the negotiated format, not by the `Host` header. Requests with an `Authorization` header or a signed-in user are cached too, unlike under ASP.NET Core's default policy, since an image from `public/` or an allowed host is the same for everyone. Editors in draft mode share this cache. Serve private images from an endpoint of your own. The output cache keys every entry by the method as well, so a `HEAD` is cached apart from the `GET`: the first `HEAD` for an image processes it once more and stores a copy of its own.
 
 Without an image processor the endpoint serves the original bytes, cached as above. `Netjes:Images:Path` moves the endpoint; it is used with one leading slash and none trailing, and other spellings of it get 400.
 
@@ -2845,7 +2874,7 @@ Peak memory is about `MaxConcurrency` × (2 × `MaxSourceBytes` + 4 bytes × the
 | 503 | The queue is full; `Retry-After` says when to try again. |
 | 504 | A remote fetch took longer than `RemoteTimeout`. |
 
-Under `UsePathBase` the endpoint answers with and without the base path, so each image can have two cache entries. Size the output cache (`SizeLimit`) for the images it holds as well as the pages ([Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md)).
+A `HEAD` takes its slots as a `GET` does, within the same limits. Each image can have a cache entry for `GET` and one for `HEAD`, and under `UsePathBase`, where the endpoint answers with and without the base path, two of each. Size the output cache (`SizeLimit`) for the images it holds as well as the pages ([Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md)).
 
 ## Resizing with SkiaSharp
 
@@ -4575,7 +4604,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`), the antiforgery token endpoint (`/_netjes/antiforgery`), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
 
 ### AddNetjes (health checks)
 
@@ -4770,10 +4799,10 @@ public static TBuilder ExcludeFromSitemap<TBuilder>(this TBuilder builder) where
 
 In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.js's `app/sitemap.ts` and `app/robots.ts`.
 
-- `MapSitemap` serves `/sitemap.xml`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
-- `MapRobotsTxt` serves `/robots.txt`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
+- `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
+- `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
 
-Both endpoints allow anonymous access.
+Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body.
 
 ## Server actions
 
@@ -4894,7 +4923,7 @@ public static IEndpointConventionBuilder MapLocaleRedirect(this IEndpointRouteBu
 
 - `AddNetjesLocalization` turns on locale routing: request localization driven only by the `[lang]` route value, with parent-culture fallback off. With it, the payload carries the locale, `<html lang>` follows it, and `useLocale()` returns it.
 - `UseNetjesLocalization`, after `UseNetjes()`, sets the request culture from the route value. An unsupported locale gets the not-found page (in the default culture) on a page, and a bare 404 on any other endpoint with the parameter; a supported one in another case is replaced by its configured name.
-- `MapLocaleRedirect` maps `GET /` to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
+- `MapLocaleRedirect` maps `/`, for `GET` and `HEAD`, to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
 
 `NetjesLocalizationOptions` has `SupportedCultures` (default `["en"]`, the first is the default) and `RouteParameter` (default `lang`). See [redirects, rewrites and headers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/redirects-rewrites-headers.md#internationalized-routing).
 
@@ -6039,6 +6068,8 @@ const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => f
 
 Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
 
+`MapGet` answers `GET` only: a `HEAD` to its URL goes to whatever else matches it, often the not-found page. For an endpoint that crawlers, link checkers or monitors ask with `HEAD`, map `app.MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its `api` key stays `GET` and the route. Pages, `/sitemap.xml`, `/robots.txt`, `/_netjes/image` and the locale redirect answer `HEAD` already.
+
 ## More
 
 [Data loading](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/data-loading.md) and [Actions and forms](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/actions-and-forms.md) in the guides.
@@ -6278,6 +6309,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 ### Changed
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
+
+### Fixed
+
+- `/robots.txt`, `/sitemap.xml`, `/_netjes/image` and the locale redirect at `/` answer `HEAD` as they answer `GET`, with the same status and headers and without the body. They answered `GET` only, so a `HEAD`, which crawlers and link checkers send, went to whatever else matched the URL: for `/robots.txt` and `/sitemap.xml` an empty 404, or a dynamic page at the root (`app/[lang]/page.tsx` answered with its not-found page); for the image endpoint and the redirect, the not-found page. Apps have nothing to change. `netjes routes` now lists a `HEAD` row next to the `GET` row of each. Under output caching, a `HEAD` for an image is stored apart from the `GET`, so the first `HEAD` processes the image once more. `/_netjes/antiforgery` still answers `GET` only, and so does an endpoint an app maps with `MapGet`: map it with `MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)` to answer `HEAD` too ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
 
 ## [0.0.2] - 2026-11-03
 

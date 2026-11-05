@@ -43,7 +43,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`), the antiforgery token endpoint (`/_netjes/antiforgery`), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
 
 ### AddNetjes (health checks)
 
@@ -238,10 +238,10 @@ public static TBuilder ExcludeFromSitemap<TBuilder>(this TBuilder builder) where
 
 In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.js's `app/sitemap.ts` and `app/robots.ts`.
 
-- `MapSitemap` serves `/sitemap.xml`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
-- `MapRobotsTxt` serves `/robots.txt`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
+- `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
+- `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
 
-Both endpoints allow anonymous access.
+Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body.
 
 ## Server actions
 
@@ -362,7 +362,7 @@ public static IEndpointConventionBuilder MapLocaleRedirect(this IEndpointRouteBu
 
 - `AddNetjesLocalization` turns on locale routing: request localization driven only by the `[lang]` route value, with parent-culture fallback off. With it, the payload carries the locale, `<html lang>` follows it, and `useLocale()` returns it.
 - `UseNetjesLocalization`, after `UseNetjes()`, sets the request culture from the route value. An unsupported locale gets the not-found page (in the default culture) on a page, and a bare 404 on any other endpoint with the parameter; a supported one in another case is replaced by its configured name.
-- `MapLocaleRedirect` maps `GET /` to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
+- `MapLocaleRedirect` maps `/`, for `GET` and `HEAD`, to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
 
 `NetjesLocalizationOptions` has `SupportedCultures` (default `["en"]`, the first is the default) and `RouteParameter` (default `lang`). See [redirects, rewrites and headers](../guides/redirects-rewrites-headers.md#internationalized-routing).
 
