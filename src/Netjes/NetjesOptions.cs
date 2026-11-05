@@ -159,7 +159,10 @@ public sealed class NetjesOptions
     /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> in its <c>script-src</c> to allow Netjes's inline scripts,
     /// as in <c>$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}"</c>; Netjes does not add them. No hash
     /// covers the scripts that stream <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one
-    /// must not stream.
+    /// must not stream. The policy goes out as written in every environment, so in Development it also has to allow the
+    /// Vite dev server's scripts, its HMR socket, the styles inlined there, and the images and fonts it serves. When the
+    /// policy on a document, this one or the app's own, refuses what the document needs, Netjes logs a warning once per
+    /// policy.
     /// </summary>
     public string? ContentSecurityPolicy { get; set; }
 
