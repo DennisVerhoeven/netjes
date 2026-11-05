@@ -241,7 +241,9 @@ public class AppRouterRegressionTests
             ["app/layout.tsx", "app/page.tsx", "app/guestbook/page.tsx"],
             map: a => a.MapAction("sign", ([FromForm] string? name) => ServerAction.Invalid("name", "required")),
             services: s => s.AddOutputCache(o => o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(1)))),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var token = await FetchedTokenAsync(app);
 
         var response = await app.Client.SendAsync(NoJsPost("sign", token, ("name", ""), ("__netjes_return", "/guestbook")), Ct);
@@ -255,7 +257,9 @@ public class AppRouterRegressionTests
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
             services: s => s.AddOutputCache(o => o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(1)))),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.Client.GetAsync("/_netjes/antiforgery", Ct);
         var second = await app.Client.GetAsync("/_netjes/antiforgery", Ct);

@@ -273,7 +273,9 @@ public class TypeGenHostedServiceTests
                 a.MapPageAction("/blog/[slug]", () => Page.Redirect("/"));
             },
             configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
-            services: s => s.AddSingleton(new CommandExit(code => exitCode = code)).AddOutputCache());
+            services: s => s.AddSingleton(new CommandExit(code => exitCode = code)).AddOutputCache(),
+            // netjes routes lists a CachePage page as cached in every environment, Development included.
+            developmentOutputCache: true);
 
         var text = await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken);
         var json = JsonNode.Parse(text)!;

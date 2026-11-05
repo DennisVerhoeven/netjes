@@ -84,7 +84,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Next.js | Netjes |
 |---|---|
 | Static by default | Dynamic by default: every page renders per request, and goes out `no-store`, since pages carry per-user shared props and antiforgery tokens. [Caching](guides/caching.md) |
-| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching |
+| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching. In the Development environment every request renders the page, as `next dev` renders routes on each request; where Next.js keeps fetch results there (`force-cache`, `serverComponentsHmrCache`), cache slow data in your services. [Caching](guides/caching.md#in-the-development-environment) |
 | `export const dynamic` and other segment config | Endpoint conventions on the loader: `.CachePage(...)`, `.StaticParams(...)`, `.RequireAuthorization()` |
 | On-demand revalidation in a route handler | `IPageCache.RevalidatePathAsync(path)` and `RevalidateTagAsync(tag)`, from any endpoint or background job |
 | `unstable_cache`, the fetch cache | .NET's own caching (`IMemoryCache`, `HybridCache`) in your services |

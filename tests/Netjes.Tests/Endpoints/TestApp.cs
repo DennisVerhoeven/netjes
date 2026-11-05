@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Netjes.Rendering;
 
@@ -12,7 +13,10 @@ namespace Netjes.Tests.Endpoints;
 
 /// <summary>
 /// A Netjes app on TestServer, rooted in a temporary directory, with SSR replaced by a recording fake (or, with
-/// <c>sidecar</c>, rendered by the real sidecar pool running a test script).
+/// <c>sidecar</c>, rendered by the real sidecar pool running a test script). It runs in the Development environment
+/// unless a test names another, and refuses output caching there, where pages are never output-cached: tests of the
+/// output cache run in the Testing environment with <c>mode: NetjesMode.Development</c>, and tests of what Development
+/// does pass <c>developmentOutputCache: true</c>. Its services are validated on build in every environment.
 /// </summary>
 internal sealed class TestApp : IAsyncDisposable
 {
@@ -47,7 +51,9 @@ internal sealed class TestApp : IAsyncDisposable
         bool kestrel = false,
         string? sidecar = null,
         Action<FakeSsrRenderer>? renderer = null,
-        Action<WebApplication>? beforeNetjes = null)
+        Action<WebApplication>? beforeNetjes = null,
+        NetjesMode? mode = null,
+        bool developmentOutputCache = false)
     {
         var root = Directory.CreateTempSubdirectory("netjes-test-").FullName;
         WebApplication? app = null;
@@ -77,10 +83,33 @@ internal sealed class TestApp : IAsyncDisposable
                 builder.WebHost.UseTestServer();
             }
 
+            // As in Development, in every environment: a service that cannot be resolved fails the start, not a request.
+            builder.Host.UseDefaultServiceProvider(o =>
+            {
+                o.ValidateScopes = true;
+                o.ValidateOnBuild = true;
+            });
             var logs = new ListLoggerProvider();
             builder.Logging.AddProvider(logs);
+            if (mode is { } netjesMode)
+            {
+                // What Netjes:Mode sets; the test's own configure still has the last word.
+                builder.Services.Configure<NetjesOptions>(o => o.Mode = netjesMode);
+            }
+
             builder.Services.AddNetjes(configure);
             services?.Invoke(builder.Services);
+            if (builder.Environment.IsDevelopment() && !developmentOutputCache
+                && builder.Services.Any(d => d.ServiceType == typeof(Microsoft.AspNetCore.OutputCaching.IOutputCacheStore)))
+            {
+                // There every page renders for each request and none is stored, so a test of what the output cache does
+                // with pages would pass or fail for that reason alone.
+                throw new InvalidOperationException(
+                    "The test app has output caching in the Development environment, where Netjes never output-caches " +
+                    "pages. To test the output cache, start it with environment: \"Testing\", mode: NetjesMode.Development; " +
+                    "to test what Development does, pass developmentOutputCache: true.");
+            }
+
             var fake = new FakeSsrRenderer();
             // Before the app starts: hosted services such as the export render while it does.
             renderer?.Invoke(fake);

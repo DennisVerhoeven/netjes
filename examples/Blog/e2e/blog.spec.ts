@@ -442,3 +442,26 @@ test.describe('development only', () => {
     }
   });
 });
+
+test.describe('output caching', () => {
+  test('a cached post is rendered for every request in development, and stored in production', async ({ request }, testInfo) => {
+    // A client navigation's payload: the Blog's documents carry a CSP nonce, so they are never stored.
+    const url = '/blog/forms-that-work-without-javascript';
+    const first = await request.get(url, { headers: { 'X-Netjes-Data': '1' } });
+    const second = await request.get(url, { headers: { 'X-Netjes-Data': '1' } });
+
+    expect(first.status()).toBe(200);
+    expect(second.status()).toBe(200);
+    if (testInfo.project.name === 'development') {
+      // The code behind the page can change between any two requests there.
+      for (const response of [first, second]) {
+        expect(response.headers()['age']).toBeUndefined();
+        expect(response.headers()['cache-control']).toBe('no-store, private');
+      }
+    } else {
+      // The first answer is stored and the second comes from the output cache. When an earlier request stored the post
+      // already, the first comes from the cache, and the entry (30 seconds) can expire before the second.
+      expect(second.headers()['age'] ?? first.headers()['age']).toBeDefined();
+    }
+  });
+});

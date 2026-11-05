@@ -62,6 +62,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0020 – Page actions check their inputs like server actions](decisions/0020-page-actions-check-their-inputs-like-server-actions.md)
 - [0021 – Signing in or out reaches the app's other tabs](decisions/0021-signing-in-or-out-reaches-the-other-tabs.md)
 - [0022 – The client entry hydrates once the shell is parsed](decisions/0022-hydrate-once-the-shell-is-parsed.md)
+- [0023 – Pages are not output-cached in Development](decisions/0023-pages-are-not-output-cached-in-development.md)
 
 ## The project
 

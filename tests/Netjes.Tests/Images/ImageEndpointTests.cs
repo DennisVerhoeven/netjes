@@ -330,7 +330,9 @@ public class ImageEndpointTests
             ["app/page.tsx"],
             prepareRoot: WritePublicFiles,
             services: s => s.AddOutputCache().AddSingleton<IImageProcessor>(processor),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            // Images are output-cached in Development too: only pages are not.
+            developmentOutputCache: true);
 
         await GetAsync(app, "url=/img/hero.png&w=640", accept: "image/webp,*/*");
         await GetAsync(app, "url=/img/hero.png&w=640", accept: "image/avif,image/webp;q=0.9,image/png;q=0.5");
@@ -349,7 +351,9 @@ public class ImageEndpointTests
             {
                 before?.Invoke(a);
                 a.UseOutputCache();
-            });
+            },
+            // Images are output-cached in Development too: only pages are not.
+            developmentOutputCache: true);
 
     [Fact]
     public async Task OutputCache_IsNotKeyedByTheHost()
@@ -413,7 +417,9 @@ public class ImageEndpointTests
                 return Microsoft.AspNetCore.Http.Results.Ok();
             }),
             services: s => s.AddOutputCache().AddSingleton<IImageProcessor>(processor),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            // Images are output-cached in Development too: only pages are not.
+            developmentOutputCache: true);
         var on = await app.Client.GetAsync("/api/draft/on", Ct);
         var draft = on.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(DraftMode.CookieName + "=", StringComparison.Ordinal)).Split(';')[0];
 
@@ -531,7 +537,9 @@ public class ImageEndpointTests
             ["app/page.tsx"],
             configure: o => o.Images.RemoteHosts = ["cdn.example.com"],
             services: s => s.AddOutputCache().AddHttpClient(ImageEndpoint.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => upstream),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            // Images are output-cached in Development too: only pages are not.
+            developmentOutputCache: true);
 
         foreach (var url in new[]
         {

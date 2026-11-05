@@ -34,7 +34,9 @@ public class PageCacheTests
                 });
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         await app.GetDataAsync("/posts/1");
         await app.GetDataAsync("/posts/2");
 
@@ -59,7 +61,9 @@ public class PageCacheTests
             map: a => a.MapPageLoader("/s/[code]", (string code) => Page.Props(new { Value = codes.GetValueOrDefault(code) }))
                 .CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDataJsonAsync("/s/Ab");
         var second = await app.GetDataJsonAsync("/s/aB");
@@ -79,13 +83,20 @@ public class PageCacheTests
         return System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
     }
 
-    private static Task<TestApp> StartWithCookieSharedPropsAsync() =>
+    /// <summary>
+    /// A cached page whose shared props read a cookie. In the Testing environment, with Netjes in development mode
+    /// (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the Development environment.
+    /// </summary>
+    private static Task<TestApp> StartWithCookieSharedPropsAsync(bool development = false) =>
         TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
             configure: o => o.SharedProps = http => ValueTask.FromResult<object?>(new { Theme = http.Request.Cookies["theme"] }),
             map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>
     /// CachePage keeps storing: a render that reads a cookie is stored and served to everyone (the warning says so),
@@ -124,7 +135,9 @@ public class PageCacheTests
             {
                 a.UseOutputCache();
                 a.UseAuthentication();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDataAsync("/");
         await app.GetDataAsync("/");
@@ -141,7 +154,9 @@ public class PageCacheTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await DataWithCookieAsync(app, "/", "theme=dark; __netjes_draft=forged");
         var second = await DataWithCookieAsync(app, "/", "theme=light");
@@ -170,7 +185,9 @@ public class PageCacheTests
                     Interlocked.Increment(ref reads);
                 });
                 a.UseOutputCache();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         for (var i = 0; i < 3; i++)
         {
@@ -202,5 +219,113 @@ public class PageCacheTests
         await using var app = await TestApp.StartAsync(["app/page.tsx"]);
 
         await app.App.Services.GetRequiredService<IPageCache>().RevalidateTagAsync("anything", Ct);
+    }
+
+    /// <summary>
+    /// In the Development environment no page is stored, which would puzzle anyone who watches a cached page render
+    /// for every request there: the app says why, once.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_AnOutputCachedPage_LogsOnceThatPagesAreNotCachedThere()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/about/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+                a.MapPageLoader("/about", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        foreach (var url in new[] { "/", "/about", "/", "/about" })
+        {
+            await app.GetDataAsync(url);
+        }
+
+        var told = Assert.Single(app.Logs, l => l.Category == "Netjes.Rendering.PageCachePolicy");
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Information, told.Level);
+        Assert.Contains("Development", told.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Output caching that caches no page is no cause to say so: no page was going to be stored.</summary>
+    [Fact]
+    public async Task InDevelopment_WithOutputCachingButNoCachedPage_LogsNothing()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/time", () => "now").CacheOutput(),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        await app.GetDocumentAsync("/");
+        await app.GetDataAsync("/");
+        await app.Client.GetStringAsync("/api/time", Ct);
+
+        Assert.DoesNotContain(app.Logs, l => l.Category == "Netjes.Rendering.PageCachePolicy");
+    }
+
+    /// <summary>
+    /// Only pages render for every request in the Development environment: other endpoints, unless <c>CachePage</c>
+    /// marks them, are output-cached as anywhere.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_EndpointsThatAreNotPages_AreStillOutputCached()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/count", () => Interlocked.Increment(ref calls)).CacheOutput(),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var first = await app.Client.GetStringAsync("/api/count", Ct);
+        var second = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal(("1", "1"), (first, second));
+        Assert.Equal(1, calls);
+    }
+
+    /// <summary>
+    /// An endpoint that is no page but that <c>CachePage</c> marks, such as a JSON endpoint in a group it is put on, is
+    /// under the page rules, so in the Development environment it runs for every request as pages do.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_AnEndpointThatIsNoPage_UnderCachePage_RunsForEveryRequest()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup("/api").CachePage(TimeSpan.FromMinutes(5)).MapGet("/count", () => Interlocked.Increment(ref calls)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var first = await app.Client.GetStringAsync("/api/count", Ct);
+        var second = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal(("1", "2"), (first, second));
+        Assert.Equal(2, calls);
+    }
+
+    /// <summary>
+    /// Nothing is stored in the Development environment, so the cookie a render read reaches no other visitor there,
+    /// but it would elsewhere: the warning says both.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_ARenderThatReadsACookie_WarnsThatOutsideDevelopmentItIsStored()
+    {
+        await using var app = await StartWithCookieSharedPropsAsync(development: true);
+
+        await DataWithCookieAsync(app, "/posts/1", "theme=dark");
+        await DataWithCookieAsync(app, "/posts/1", "theme=light");
+
+        var warning = Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+        Assert.Contains("outside Development", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("stored", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("every visitor", warning.Message, StringComparison.Ordinal);
     }
 }

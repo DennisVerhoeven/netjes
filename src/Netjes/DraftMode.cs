@@ -107,8 +107,6 @@ internal sealed class DraftMode(
 /// </summary>
 internal sealed class DraftModeCachePolicy(IDataProtectionProvider protection, TimeProvider time) : IOutputCachePolicy
 {
-    private const string Key = "netjes-draft";
-
     private readonly IDataProtector _protector = protection.CreateProtector("Netjes.DraftMode.v1");
 
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
@@ -119,7 +117,7 @@ internal sealed class DraftModeCachePolicy(IDataProtectionProvider protection, T
         {
             context.AllowCacheLookup = false;
             context.AllowCacheStorage = false;
-            context.CacheVaryByRules.VaryByValues[Key] = Guid.NewGuid().ToString("N");
+            Rendering.CacheBypass.Apply(context, Rendering.CacheBypass.Draft);
         }
 
         return ValueTask.CompletedTask;
@@ -129,7 +127,7 @@ internal sealed class DraftModeCachePolicy(IDataProtectionProvider protection, T
 
     public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        if (context.CacheVaryByRules.VaryByValues.ContainsKey(Key))
+        if (Rendering.CacheBypass.Applied(context, Rendering.CacheBypass.Draft))
         {
             context.AllowCacheStorage = false;
         }

@@ -81,7 +81,9 @@ public class QueryTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props().WithQuery(["a"], 1)).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddSingleton<TimeProvider>(time).AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDataAsync("/");
         time.Advance(TimeSpan.FromMinutes(2));

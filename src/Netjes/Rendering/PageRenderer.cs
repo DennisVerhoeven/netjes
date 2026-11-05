@@ -833,11 +833,13 @@ internal sealed class PageRenderer(
     /// document stays when the client router signs the visitor in, and then shows their pages (ADR 0014). Pages that
     /// chose their own header keep theirs, and so do responses the output cache stores. A render of an output-cached
     /// page that is not stored (a signed-in user, an Authorization header, a nonce) is one visitor's page, so it gets
-    /// the default too.
+    /// the default too, and so does an output-cached page in the Development environment, which renders for every
+    /// request and is never stored (ADR 0023): a browser that kept it would show it from before an edit on Back.
     /// </summary>
     private static void DefaultCacheControl(HttpContext http, int status)
     {
-        if (http.Response.Headers.ContainsKey(HeaderNames.CacheControl) || IsStoredByOutputCache(http, status))
+        if (http.Response.Headers.ContainsKey(HeaderNames.CacheControl)
+            || (IsStoredByOutputCache(http, status) && !PageCachePolicy.RendersEachTimeInDevelopment(http)))
         {
             return;
         }

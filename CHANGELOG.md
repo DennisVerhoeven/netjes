@@ -4,6 +4,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Changed
+
+- Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
+
 ## [0.0.2] - 2026-11-03
 
 ### Fixed
