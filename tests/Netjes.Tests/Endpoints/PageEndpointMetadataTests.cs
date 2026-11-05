@@ -101,6 +101,11 @@ public class PageEndpointMetadataTests
         Assert.Equal((2, 1), (loads["posts"], loads["news"]));
         Assert.NotNull(news.Headers.Age);
         Assert.Equal(["content"], Get(app, "/news").Metadata.GetMetadata<CachedPageMetadata>()?.Tags ?? []);
+
+        // The page rules tag every entry with its path, under any policy.
+        await app.App.Services.GetRequiredService<IPageCache>().RevalidatePathAsync("/news", TestContext.Current.CancellationToken);
+        await app.GetDataAsync("/news");
+        Assert.Equal(2, loads["news"]);
     }
 
     private static PageResult<NoProps> Load(Dictionary<string, int> loads, string page)
