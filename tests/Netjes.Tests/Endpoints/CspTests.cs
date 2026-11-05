@@ -231,14 +231,20 @@ public partial class CspTests
     /// An app whose documents go out under <paramref name="policy"/> (<see cref="WithScriptHashes"/>): a client build in
     /// Production, whose module script is <c>/assets/client-entry-AAA.js</c>, or in Development the Vite dev server at
     /// <c>http://localhost:5173</c>. With <paramref name="inItsOwnHeader"/>, the app writes the policy itself, and
-    /// <c>{nonce}</c> stands for <see cref="NetjesHttpContextExtensions.GetCspNonce"/>.
+    /// <c>{nonce}</c> stands for <see cref="NetjesHttpContextExtensions.GetCspNonce"/>. <paramref name="configure"/>
+    /// changes the options after that.
     /// </summary>
-    private static Task<TestApp> StartWithPolicyAsync(string policy, string environment = "Development", bool inItsOwnHeader = false)
+    private static Task<TestApp> StartWithPolicyAsync(
+        string policy, string environment = "Development", bool inItsOwnHeader = false, Action<NetjesOptions>? configure = null)
     {
         var written = WithScriptHashes(policy);
         return TestApp.StartAsync(
             environment == "Production" ? [] : ["app/page.tsx"],
-            configure: o => o.ContentSecurityPolicy = inItsOwnHeader ? null : written,
+            configure: o =>
+            {
+                o.ContentSecurityPolicy = inItsOwnHeader ? null : written;
+                configure?.Invoke(o);
+            },
             configureApp: a =>
             {
                 if (inItsOwnHeader)
@@ -369,6 +375,47 @@ public partial class CspTests
         await app.GetDocumentAsync("/");
 
         Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task InDevelopment_TheWarnings_NameTheDevServerOnThePortItWasGiven()
+    {
+        await using var app = await StartWithPolicyAsync("script-src 'self' ScriptHashes; connect-src 'self'", configure: o => o.ViteDevPort = 5174);
+
+        await app.GetDocumentAsync("/");
+
+        var warnings = PolicyWarnings(app);
+        Assert.Equal(2, warnings.Count);
+        Assert.Contains(warnings, w => w.Contains("Vite dev server at http://localhost:5174,", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.Contains("HMR WebSocket at ws://localhost:5174,", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InDevelopment_APolicyThatAllowsTheDevServerOnThePortItWasGiven_IsNotWarnedAbout()
+    {
+        await using var app = await StartWithPolicyAsync(
+            "script-src 'self' http://localhost:5174 ScriptHashes; connect-src 'self' ws://localhost:5174", configure: o => o.ViteDevPort = 5174);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task InDevelopment_TheWarnings_NameTheDevServerWhereTheSidecarReportsIt()
+    {
+        // At http://127.0.0.1:5199, as the sidecar reports the dev server when NETJES_VITE_ORIGIN puts it there.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = WithScriptHashes("script-src 'self' ScriptHashes; connect-src 'self'"),
+            sidecar: "vite-origin-sidecar.mjs");
+
+        await app.GetDocumentAsync("/");
+
+        var warnings = PolicyWarnings(app);
+        Assert.Equal(2, warnings.Count);
+        Assert.Contains(warnings, w => w.Contains("Vite dev server at http://127.0.0.1:5199,", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.Contains("HMR WebSocket at ws://127.0.0.1:5199,", StringComparison.Ordinal));
     }
 
     [Theory]
