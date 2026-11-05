@@ -56,7 +56,7 @@ COPY --from=client /src/examples/TaskBoard/dist examples/TaskBoard/dist
 RUN dotnet publish examples/TaskBoard/TaskBoard.csproj -c Release -o /app --no-restore -p:NetjesSkipClientBuild=true
 
 # tini, the production image's PID 1 (below): Ubuntu's package, installed in the SDK image the build stage uses. The
-# production stage takes its static binary, which runs on any RUNTIME_IMAGE, one without a package manager included.
+# production stage takes its static binary, which needs no package manager and no library in RUNTIME_IMAGE.
 FROM ${SDK_IMAGE} AS tini
 RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 

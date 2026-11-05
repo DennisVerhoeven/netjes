@@ -18,8 +18,8 @@ Compose's `init: true` and `docker run --init` put Docker's init in front of the
 
 ## Alternatives considered
 
-- **Install tini in the production stage.** It ties that stage to a runtime image with a package manager, which a chiseled image does not have. The static binary from a builder stage runs on any `RUNTIME_IMAGE`.
-- **A tini stage from the runtime image.** It breaks the same way with a chiseled `RUNTIME_IMAGE`, and the SDK image is there for the build anyway.
+- **Install tini in the production stage.** It ties that stage to a `RUNTIME_IMAGE` with apt, an Ubuntu or Debian one. The static binary from a builder stage needs no package manager and no library in the runtime image.
+- **A tini stage from the runtime image.** It ties the build to a `RUNTIME_IMAGE` with apt in the same way, and the SDK image is there for the build anyway.
 - **tini's release binary, downloaded in the Dockerfile.** It needs a checksum for each architecture, kept up to date by hand.
 - **A pinned package version.** A version belongs to one Ubuntu release, so moving `SDK_IMAGE` to the next one would break the build, and a pin holds back fixes.
 - **An exit handler in the app**, `AppDomain.UnhandledException` calling `Environment.Exit(1)`. It covers exceptions only: `Environment.FailFast` and a stack overflow still abort, and spin. Registered by the library for every exception, it would also report every crash as code 1, where ADR 0018 keeps code 1 for Netjes's own failures and leaves the rest to .NET.
