@@ -80,12 +80,17 @@ export function buildHref(
     });
 
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(search ?? {})) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      if (item !== undefined && item !== null) query.append(key, String(item));
-    }
-  }
+  appendSearch(query, search);
   const queryString = query.toString();
   const fragment = (options?.hash ?? '').replace(/^#/, '');
   return `/${segments.join('/')}${queryString ? `?${queryString}` : ''}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`;
+}
+
+/** Appends each value of `search`, a list repeating its key; `null` and `undefined` leave the key out. */
+function appendSearch(query: URLSearchParams, search: Readonly<Record<string, unknown>> | undefined): void {
+  for (const [key, value] of Object.entries(search ?? {})) {
+    for (const item of Array.isArray(value) ? (value as readonly unknown[]) : [value]) {
+      if (item !== undefined && item !== null) query.append(key, String(item));
+    }
+  }
 }
