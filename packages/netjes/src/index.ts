@@ -9,6 +9,7 @@ export {
   usePageActionState,
 } from './actions.tsx';
 export { defineLayout, definePage } from './define-page.tsx';
+export { CSP_SCRIPT_HASHES } from './deferred.ts';
 export { useDraftMode } from './draft-mode.ts';
 export { type DynamicOptions, clientOnly, dynamic } from './dynamic.tsx';
 export { Form, type FormAction, type FormProps, SubmitButton, type SubmitButtonProps } from './form.tsx';

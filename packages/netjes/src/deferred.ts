@@ -115,6 +115,16 @@ export function deferredRegistry() {
 export const DEFERRED_BOOTSTRAP =
   "self.__netjes_d=self.__netjes_d||function(i,v,e){self.__netjes_v[i]=[v,e]};Object.prototype.hasOwnProperty.call(self,'__netjes_v')||(self.__netjes_v={})";
 
+/**
+ * The `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: each
+ * `'sha256-…'` in its quotes, separated by spaces, as in `` `script-src 'self' ${CSP_SCRIPT_HASHES}` ``. A fixed script
+ * has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer`
+ * values, and a Netjes version that changes it or adds another changes the value. The scripts that deliver those
+ * values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them.
+ * The same value as `NetjesContentSecurityPolicy.ScriptHashes` in C#.
+ */
+export const CSP_SCRIPT_HASHES: string = "'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='";
+
 const UNSAFE = /[<>&\u2028\u2029]/g;
 
 /** JSON that can sit inside a <script> element. */
