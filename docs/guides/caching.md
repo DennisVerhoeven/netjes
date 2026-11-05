@@ -31,7 +31,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore store) => /* ... */)
     .CachePage(TimeSpan.FromSeconds(30), "posts");
 ```
 
-`CachePage(duration, params tags)` works on anything that takes endpoint conventions: a page loader, `MapPages()` for every file page, a group, or a minimal API that returns `Page.Render`.
+`CachePage(duration, params tags)` works on anything that takes endpoint conventions: a page loader, `MapPages()` for every file page, a group, or a minimal API that returns `Page.Render`. Each endpoint it is put on carries the duration and tags as `CachedPageMetadata`, which app code and tests can read ([endpoint metadata](../reference/csharp-api.md#endpoint-metadata)).
 
 The order in the pipeline matters:
 
@@ -91,6 +91,8 @@ The keys and rules above hold however a page is output-cached, not only with `Ca
 The differences: under those, a response the output cache will not store keeps its antiforgery token, while `CachePage` pages never carry one. And an endpoint that is no page but renders one (a minimal API returning `Page.Render` or `Page.Redirect`) gets these keys only from `CachePage`. Under other output caching its pages are not stored, and Netjes logs a warning once per endpoint.
 
 A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow the key, since the query string as sent is part of it already. ([ADR 0016](../decisions/0016-page-cache-rules-under-any-output-caching.md) explains why the rules apply under every policy.)
+
+`CachePage` and `.CacheOutput(...)` on one endpoint do not combine. Of the output-cache policies on an endpoint, ASP.NET Core applies the last, so a `.CacheOutput(...)` after `CachePage` replaces the policy `CachePage` set: the later policy decides how long the page is kept and how its entries are tagged, and revalidating one of `CachePage`'s tags no longer evicts the page (`RevalidatePath` still does). The rest of `CachePage` stays: the page carries no antiforgery token, and its `CachedPageMetadata` still holds the duration and tags `CachePage` was given, not those that apply.
 
 ## Revalidating
 

@@ -242,10 +242,16 @@ public sealed record Netjes.Rendering.SsrStreamOptions : IEquatable<Netjes.Rende
   public bool WaitForAll { get; init; }
 
 namespace Netjes.Routing
+public sealed class Netjes.Routing.CachedPageMetadata
+  public TimeSpan Duration { get; }
+  public System.Collections.Generic.IReadOnlyList<string> Tags { get; }
 public sealed class Netjes.Routing.InvalidPageFileException : Exception
   public InvalidPageFileException(string message)
 public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public void Add(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> convention)
   public void Finally(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> finallyConvention)
+public sealed class Netjes.Routing.PageRouteMetadata
+  public bool IsLoader { get; }
+  public string Pattern { get; }
 public sealed class Netjes.Routing.RouteConflictException : Exception
   public RouteConflictException(string message)

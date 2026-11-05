@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Netjes.Tests.Endpoints;
@@ -265,7 +266,7 @@ public class TypeGenHostedServiceTests
         int? exitCode = null;
         var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
         await using var app = await TestApp.StartAsync(
-            ["app/layout.tsx", "app/page.tsx", "app/blog/[slug]/page.tsx"],
+            ["app/layout.tsx", "app/page.tsx", "app/blog/[slug]/page.tsx", "app/about/page.tsx"],
             map: a =>
             {
                 HomeLoader(a);
@@ -280,6 +281,7 @@ public class TypeGenHostedServiceTests
         var text = await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken);
         var json = JsonNode.Parse(text)!;
         var blog = json["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == "/blog/[slug]")!;
+        var about = json["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == "/about")!;
 
         Assert.Equal(0, exitCode);
         // The same bytes on every system, as netjes routes --json prints them.
@@ -291,8 +293,38 @@ public class TypeGenHostedServiceTests
         Assert.True((bool?)blog["action"]);
         Assert.True((bool?)blog["cached"]);
         Assert.Equal("HomeProps", (string?)blog["props"]);
+        // A page file without MapPageLoader is served by its own endpoint.
+        Assert.False((bool?)about["loader"]);
         Assert.False((bool?)json["routes"]![0]!["action"]);
         File.Delete(output);
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ListsAPageAsCached_OnlyWhenItsEndpointCarriesAnOutputCachePolicy()
+    {
+        int? exitCode = null;
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/policy/page.tsx", "app/attribute/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/policy", () => Page.Props()).CacheOutput(policy => policy.Expire(TimeSpan.FromMinutes(1)));
+                a.MapPageLoader("/attribute", [OutputCache(Duration = 60)] () => Page.Props());
+            },
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new CommandExit(code => exitCode = code))
+                .AddOutputCache(o => o.AddBasePolicy(policy => policy.Expire(TimeSpan.FromHours(1)))),
+            developmentOutputCache: true);
+
+        var routes = JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!["routes"]!.AsArray();
+        File.Delete(output);
+        bool? Cached(string pattern) => (bool?)routes.Single(r => (string?)r!["pattern"] == pattern)!["cached"];
+
+        Assert.Equal(0, exitCode);
+        Assert.True(Cached("/policy"));
+        Assert.True(Cached("/attribute"));
+        // The base policy applies to the home page's requests too, but no endpoint carries it.
+        Assert.False(Cached("/"));
     }
 
     [Fact]

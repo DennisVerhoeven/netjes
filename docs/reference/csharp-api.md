@@ -310,7 +310,7 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
 
 ### IPageCache
 
@@ -490,6 +490,55 @@ public sealed class SsrRenderException(string message, string? jsStack, Exceptio
 
 Server rendering failed in the Node sidecar, or the sidecar could not be reached or took too long. `JsStack` holds the JavaScript stack when there is one; error pages show it in development.
 
+## Endpoint metadata
+
+```csharp
+namespace Netjes.Routing;
+
+public sealed class PageRouteMetadata
+{
+    public string Pattern { get; }
+    public bool IsLoader { get; }
+}
+
+public sealed class CachedPageMetadata
+{
+    public TimeSpan Duration { get; }
+    public IReadOnlyList<string> Tags { get; }
+}
+```
+
+What app code and tests read from the endpoints to find the app's pages, their loaders and their `CachePage` settings, as `netjes routes` does. Netjes puts them on the endpoints, and their constructors are internal.
+
+- `PageRouteMetadata` is on every endpoint that serves a page: the `GET` and `HEAD` endpoint of a page file or of `MapPageLoader`, and the `POST` endpoint of `MapPageAction`. `Pattern` is the page's URL as its file names it (`/blog/[slug]`), without the prefix of a route group the endpoint is mapped in, which the endpoint's own route pattern includes. `IsLoader` is true on the endpoint `MapPageLoader` maps, and false on a page file's own endpoint (a page without a loader) and on a page action's. No other endpoint carries it: not the not-found fallback, a server action, a minimal API that returns `Page.Render`, or Netjes's own endpoints, such as `/_netjes/image` and `/sitemap.xml`.
+- `CachedPageMetadata` is on every endpoint `CachePage` is put on (a page loader, each file page under `MapPages().CachePage(...)`, a minimal API that returns `Page.Render`, the endpoints of a route group), with the `duration` and the `tags` it was given, in the order given. An endpoint output-cached without `CachePage` (`CacheOutput`, `[OutputCache]`, a base policy) carries none. A `CacheOutput(...)` after `CachePage` on the same endpoint replaces the policy `CachePage` set, and the metadata still holds what `CachePage` was given ([caching](../guides/caching.md#under-any-output-caching)).
+
+Read them from `Endpoint.Metadata` once the app has started, in a test through the [factory](../guides/testing.md#the-app-over-http) and in the app through an injected `EndpointDataSource`:
+
+```csharp
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Netjes.Routing;
+
+public sealed class CachedPageTests(AppFactory app) : IClassFixture<AppFactory>
+{
+    [Fact]
+    public void EveryCachedPage_HasATagToRevalidateItBy()
+    {
+        foreach (var endpoint in app.Services.GetRequiredService<EndpointDataSource>().Endpoints)
+        {
+            if (endpoint.Metadata.GetMetadata<PageRouteMetadata>() is { } page
+                && endpoint.Metadata.GetMetadata<CachedPageMetadata>() is { } cached)
+            {
+                Assert.True(cached.Tags.Count > 0, $"{page.Pattern} is cached for {cached.Duration} without a tag.");
+            }
+        }
+    }
+}
+```
+
+A page with a page action has two endpoints with the same `Pattern`, its `GET` one and the action's `POST` one, so a walk that counts pages takes the endpoints whose `IHttpMethodMetadata` lists `GET`. The endpoints' display names, such as `Page /blog/[slug]`, are not part of the API.
+
 ## Route errors
 
 ```csharp
@@ -506,4 +555,4 @@ Netjes throws these when the files in `app/` break the file conventions. The mes
 
 `MapPages` reads the routes as the app starts, from `app/` in development and from the client build's manifest in production, so either exception stops the app there, and a test that starts the app can catch it by type. When a file changes while the development server runs, Netjes logs the error instead and keeps the previous routes.
 
-The route table that Netjes builds from `app/` is not part of the API. A tool that needs the routes runs `netjes routes --json` ([the netjes command](cli.md#netjes-routes)).
+The route table that Netjes builds from `app/` is not part of the API. A tool that needs the routes runs `netjes routes --json` ([the netjes command](cli.md#netjes-routes)); app code and tests read the pages from their endpoints ([endpoint metadata](#endpoint-metadata)).
