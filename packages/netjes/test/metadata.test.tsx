@@ -61,8 +61,8 @@ describe('resolveMetadata', () => {
     });
   });
 
-  // The two rules of title templates that differ from Next.js and that resolveMetadata alone decides; the third, a
-  // layout's template reaching the page in its own folder, is checked through the router below.
+  // Two rules of title templates that differ from Next.js and that resolveMetadata alone decides; another, a layout's
+  // template reaching the page in its own folder, is checked through the router below.
   describe('title templates, where Netjes differs from Next.js', () => {
     const root: Metadata = { title: { default: 'Site', template: '%s · Site' } };
 
