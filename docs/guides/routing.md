@@ -303,7 +303,7 @@ Forms that post are covered in [Actions and forms](actions-and-forms.md).
 | `useSelectedLayoutSegment()` | In a layout: the segment one level below it, or `null` at the layout's own page. |
 | `useSelectedLayoutSegments()` | In a layout: all the segments below it. |
 
-The [React API](../reference/react-api.md#navigation) has their signatures. Visitors type URLs, so parse what you read with a schema. `useSearchParams(schema)` gets each value as a string, or an array of strings when a key repeats, and drops the values the schema rejects so its defaults and optional fields apply, rather than failing the page. `useParams(schema)` throws to the error page when a value is rejected, so constrain route values in C# (a loader returning `Page.NotFound()`) instead. Define schemas at module level: a new schema object on every render parses again.
+The [React API](../reference/react-api.md#navigation) has their signatures. Visitors type URLs, so parse what you read with a schema. `useSearchParams(schema)` gets each value as a string, or an array of strings when a key repeats, and drops the values the schema rejects so its defaults and optional fields apply, rather than failing the page. `useParams(schema)` throws to the error page when a value is rejected, so constrain route values in C# (a loader returning `Page.NotFound()`) instead. Define schemas at module level: a new schema object on every render parses again. On a page that `netjes export` wrote, `useSearchParams()` sees no query string, whatever the address bar shows; [static export](static-export.md#in-the-browser) says what to read there instead.
 
 ```tsx
 import { definePage, useParams, useSearchParams } from 'netjes';

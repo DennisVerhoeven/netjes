@@ -1218,7 +1218,7 @@ Forms that post are covered in [Actions and forms](https://raw.githubusercontent
 | `useSelectedLayoutSegment()` | In a layout: the segment one level below it, or `null` at the layout's own page. |
 | `useSelectedLayoutSegments()` | In a layout: all the segments below it. |
 
-The [React API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#navigation) has their signatures. Visitors type URLs, so parse what you read with a schema. `useSearchParams(schema)` gets each value as a string, or an array of strings when a key repeats, and drops the values the schema rejects so its defaults and optional fields apply, rather than failing the page. `useParams(schema)` throws to the error page when a value is rejected, so constrain route values in C# (a loader returning `Page.NotFound()`) instead. Define schemas at module level: a new schema object on every render parses again.
+The [React API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#navigation) has their signatures. Visitors type URLs, so parse what you read with a schema. `useSearchParams(schema)` gets each value as a string, or an array of strings when a key repeats, and drops the values the schema rejects so its defaults and optional fields apply, rather than failing the page. `useParams(schema)` throws to the error page when a value is rejected, so constrain route values in C# (a loader returning `Page.NotFound()`) instead. Define schemas at module level: a new schema object on every render parses again. On a page that `netjes export` wrote, `useSearchParams()` sees no query string, whatever the address bar shows; [static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#in-the-browser) says what to read there instead.
 
 ```tsx
 import { definePage, useParams, useSearchParams } from 'netjes';
@@ -3065,7 +3065,7 @@ Every listed page must answer 200. A loader that returns `Page.NotFound()` for a
 
 ## What cannot be exported
 
-`.ExcludeFromExport()` leaves a page out, on its loader, its page action or `MapPages()`:
+`.ExcludeFromExport()` leaves a page out, on its loader, its page action or `MapPages()`. On a layout loader, it leaves out every page below the layout:
 
 ```csharp
 app.MapPageLoader("/guestbook", (GuestbookStore store) => /* ... */).ExcludeFromExport(); // needs a server
@@ -3080,6 +3080,24 @@ Without it, the export stops before it writes anything, naming each problem, whe
 - has a path segment that Windows reserves for a device (`con`, `nul.txt`, `com1`).
 
 Server actions, minimal APIs, `/_netjes/antiforgery`, web vitals collection and the image endpoint have no static counterpart: an exported page that calls them gets the static host's 404. `<Image>` points its `src` and `srcset` at the image endpoint, so give images on exported pages `unoptimized`, which uses the file as it is.
+
+### Loaders that read the query string
+
+The export requests each URL without a query string, and a static host serves the file it wrote for every query string: `/blog?tag=react` gets `blog/index.html`, which the loader rendered with no tag. A page whose loader reads the query string is still exported, as the page without one, and the export logs a warning in the category `Netjes.Export.QueryString` for that loader. It does the same for a layout loader that reads the query string above a page it writes, naming the pages below the layout. The exit code does not change:
+
+```text
+warn: Netjes.Export.QueryString[0]
+      app/blog/page.tsx reads 'tag' from the query string, but netjes export writes /blog without one, and a static host serves that file for every query string. To export a page for each value, make it a route parameter with .StaticParams(...); to keep the page on a server, exclude it with .ExcludeFromExport().
+```
+
+There are two fixes:
+
+- Make the value a route parameter and list its values with `.StaticParams(...)`: `/blog/tags/[tag]` instead of `/blog?tag=`, exported once for each tag.
+- Keep the page on a server: `.ExcludeFromExport()` on its loader, or on the layout loader for every page below the layout.
+
+If the page without a query string is what the static site should show, keep it, and set the category's log level to `Error` (`Logging:LogLevel:Netjes.Export.QueryString`, see [logs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#logs)) to silence the warning. That silences it for every loader, including those added later; the export's own messages, in `Netjes.Export.StaticExportService`, still appear.
+
+A parameter counts when minimal API binding takes its value from the query string: one marked `[FromQuery]`, which the warning names by the attribute's `Name` when it has one, or one without a binding attribute whose type is a string, a type with `TryParse` or an array of those, and whose name is no route parameter's. Members of an `[AsParameters]` type count as parameters. The check cannot see a loader that reads `HttpContext.Request.Query` itself, or a parameter whose type binds itself with `BindAsync`. Nor can it see code in the browser, where `useSearchParams()` sees no query string on an exported page either (see [In the browser](#in-the-browser)).
 
 ## Where the output goes
 
@@ -3100,7 +3118,28 @@ A page whose loader returns `Page.Redirect(url)` is written as a small page that
 
 ## In the browser
 
-Exported pages carry no antiforgery token, since there is no server to check it. They hydrate as usual, and links and `router.push` work, but every navigation is a full page load: the client router asks for the next page's data, gets a static HTML file instead, and loads it as a document. Query strings reach no loader, since the loaders ran at export time. Assets are linked from the site root, so serve the export at the root of its host.
+Exported pages carry no antiforgery token, since there is no server to check it. They hydrate as usual, and links and `router.push` work, but every navigation is a full page load: the client router asks for the next page's data, gets a static HTML file instead, and loads it as a document. Assets are linked from the site root, so serve the export at the root of its host.
+
+Query strings reach no loader, since the loaders ran at export time (see [above](#loaders-that-read-the-query-string)), and no hook either. On an exported page, `useSearchParams()` reads the URL the page was exported for, which has no query string, whatever the address bar shows: it returns an empty `URLSearchParams`, and with a schema, what the schema makes of no values. For the same reason, `<Link>` never marks a link with a query parameter as the current page there. Until the router reads the address itself, read `window.location.search` in an effect, and parse it with the schema you would give `useSearchParams`:
+
+```tsx
+import { useEffect, useState } from 'react';
+import { z } from 'zod';
+
+const filters = z.object({ tag: z.string().optional() });
+
+// On an exported page: the query string in the address bar, once the page has hydrated.
+function useExportedSearch() {
+  const [search, setSearch] = useState<z.infer<typeof filters>>({});
+  useEffect(() => {
+    const parsed = filters.safeParse(Object.fromEntries(new URLSearchParams(window.location.search)));
+    if (parsed.success) setSearch(parsed.data);
+  }, []);
+  return search;
+}
+```
+
+The first render matches the exported HTML, as hydration needs, and the effect then renders the page again with the values. Every navigation on an exported site loads a document, so the effect runs for each URL. `Object.fromEntries` keeps the last value of a key that repeats; `getAll(key)` on the `URLSearchParams` reads every value.
 
 ## Deferred values and Suspense
 
@@ -3541,6 +3580,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
 | `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
 | `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, and why a page could not be exported. |
+| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages that read the query string, which the export never sends ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#loaders-that-read-the-query-string)). |
 
 Set their levels as for any category:
 
@@ -4215,7 +4255,7 @@ function useSearchParams(): URLSearchParams;
 function useSearchParams<Schema extends StandardSchemaV1>(schema: Schema): StandardSchemaV1.InferOutput<Schema>;
 ```
 
-The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level.
+The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level. On a page that `netjes export` wrote, it sees no query string, whatever the address bar shows; [static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#in-the-browser) says what to read there instead.
 
 #### `useParams`
 
@@ -6436,6 +6476,8 @@ function ActivityFeed({ activity }: { activity: PromiseLike<ActivityItem[]> }) {
 
 `npx netjes export [dir]` builds, runs the app once in Production and writes every page as static HTML (default `out/`). Dynamic pages need `.StaticParams(...)` (`.StaticParams<PostStore>(s => s.All.Select(p => new { slug = p.Slug }))`, arrays for catch-all parameters); pages that need a server take `.ExcludeFromExport()`. The export fails before writing anything for a dynamic page without static params, a page with a page action, or a page that requires authorization. Exported pages navigate with full page loads and carry no antiforgery token.
 
+The export requests every URL without a query string, and a static host serves each file for every query string. A page whose loader, or a layout loader above it, reads the query string is still exported, as the page without one, and the export logs a warning in `Netjes.Export.QueryString`. To export a page for each value, make it a route parameter with `.StaticParams(...)` (`/blog/tags/[tag]`, not `/blog?tag=`); to keep the page on a server, exclude it. On an exported page `useSearchParams()` sees no query string either, whatever the address bar shows: read `window.location.search` in an effect there, and parse it with the same schema.
+
 ## Sitemap and robots
 
 `app.MapSitemap(siteUrl)` serves `/sitemap.xml` from the route table (dynamic pages through `.StaticParams`, pages that need authorization or call `.ExcludeFromSitemap()` left out) and `app.MapRobotsTxt(siteUrl, disallow)` serves `/robots.txt`.
@@ -6617,6 +6659,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0030 – Security headers beyond documents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0030-security-headers-beyond-documents.md): `nosniff` goes on every response through `UseNetjes`, and documents carry the `X-Frame-Options` their `frame-ancestors` implies, set before antiforgery could add its own.
 - [0031 – A sidecar that stops answering is restarted like one that crashed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0031-a-sidecar-that-stops-answering-is-restarted.md): in production a Node process silent for five seconds is pinged, and killed and restarted when no answer comes within `RenderTimeout`.
 - [0032 – The release links the package READMEs to its tag](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0032-release-links-package-readmes-to-its-tag.md): the READMEs link the docs on `main`, and the release job moves those links to `v<version>` in the packages it publishes, so npm and NuGet show each version with links to its own docs.
+- [0041 – The export warns about loaders that read the query string](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0041-the-export-warns-about-loaders-that-read-the-query-string.md): a static host serves an exported page's file for every query string, so `netjes export` logs a warning for each such loader, in `Netjes.Export.QueryString`, and still writes the page.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6638,6 +6681,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `PageRouteMetadata` and `CachedPageMetadata` in `Netjes.Routing`, so app code and tests can find the app's pages by walking `EndpointDataSource`, as `netjes routes` does ([endpoint metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#endpoint-metadata)). Every endpoint that serves a page carries `PageRouteMetadata`, with the page's `Pattern` as its file names it and `IsLoader`, true on the endpoint `MapPageLoader` maps. Every endpoint `CachePage` is put on carries `CachedPageMetadata`, with the `Duration` and `Tags` it was given. `CachePage` now keeps its own copy of the tags, for the page's cache entries as for the metadata, so the two agree: changing the array after the call used to change the tags the entries got, and no longer does. An app that did that passes the tags it means to `CachePage` instead. Otherwise this is new API only, and nothing else changes at runtime. Code that finds a page's endpoint by its display name (`Page /blog/[slug]`), which is not part of the API, can read `PageRouteMetadata` instead.
 - `route()` and `buildHref` take a fourth argument, `{ hash }`, which adds a `#fragment` after the query: `route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The hash is the id of an element on the page. One leading `#` is dropped and the rest is percent-encoded (`'über-uns'` becomes `#%C3%BCber-uns`, which browsers and the router decode when they look for the element); with nothing left, no fragment is added. The third argument is still the query, so a link with a fragment and no query passes `undefined` there ([routing guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links)). The generated `route()` has a new signature, so run `npx netjes generate` after upgrading, or start the app in Development, and commit `generated/netjes.ts`: `npx netjes generate --check` in CI fails until you do. Until then `route()` keeps its old signature and takes no `hash`. A link whose fragment you write into the string yourself needs no change.
 - `NetjesContentSecurityPolicy.ScriptHashes` in C# and `CSP_SCRIPT_HASHES` from `netjes` hold the `script-src` sources that allow, by their hashes, the inline scripts Netjes writes with the same text into every document, for a Content-Security-Policy without a nonce: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"` ([security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based)). In this version they hold one hash, of the bootstrap that collects streamed `Page.Defer` values: `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`, the hash the docs gave for apps to paste, unchanged since 0.0.1. An app that pasted it into its policy replaces it with the constant. Nothing changes in this version, but a pasted hash blocks the bootstrap once a Netjes version changes the script, while the constants change with it. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, are still covered by no hash. Nor do the constants hold the hash of React's script for form actions that are functions, whose text follows the React version; the security guide says what a page with such an action needs.
+- `netjes export` warns about each loader that reads the query string: a page loader of a page it writes, or a layout loader above one. The export requests every URL without a query string, and a static host serves the file it wrote for every query string, so such a page shows what its loader returned without one, whatever the address holds: `/blog?tag=react` gets the page written for `/blog`. The page is still written and the exit code is unchanged. The warning, in the new category `Netjes.Export.QueryString`, names the file, the query string keys, and the page's route or the pages below the layout ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#loaders-that-read-the-query-string), [ADR 0041](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0041-the-export-warns-about-loaders-that-read-the-query-string.md)). A parameter counts when minimal API binding reads it from the query string, `[FromQuery]` and members of an `[AsParameters]` type included; a loader that reads `HttpContext.Request.Query` itself, or takes a type that binds itself with `BindAsync`, is not reported. To act on it, make the value a route parameter with `.StaticParams(...)` to export a page for each value, or exclude the page with `.ExcludeFromExport()` (on a layout loader, it leaves out every page below the layout). For a page meant to be exported without its query string, set `Logging:LogLevel:Netjes.Export.QueryString` to `Error`, which silences the warning for every loader. The Blog example's export now logs one, for `/blog`, whose tag filter it keeps as its example. The docs now also say that `useSearchParams()` sees no query string on an exported page, whatever the address bar shows, and show `window.location.search` read in an effect as the remedy ([in the browser](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#in-the-browser)).
 
 ### Changed
 

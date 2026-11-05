@@ -122,7 +122,7 @@ function useSearchParams(): URLSearchParams;
 function useSearchParams<Schema extends StandardSchemaV1>(schema: Schema): StandardSchemaV1.InferOutput<Schema>;
 ```
 
-The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level.
+The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level. On a page that `netjes export` wrote, it sees no query string, whatever the address bar shows; [static export](../guides/static-export.md#in-the-browser) says what to read there instead.
 
 #### `useParams`
 

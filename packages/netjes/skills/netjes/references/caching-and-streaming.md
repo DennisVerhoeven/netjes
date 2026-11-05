@@ -58,6 +58,8 @@ function ActivityFeed({ activity }: { activity: PromiseLike<ActivityItem[]> }) {
 
 `npx netjes export [dir]` builds, runs the app once in Production and writes every page as static HTML (default `out/`). Dynamic pages need `.StaticParams(...)` (`.StaticParams<PostStore>(s => s.All.Select(p => new { slug = p.Slug }))`, arrays for catch-all parameters); pages that need a server take `.ExcludeFromExport()`. The export fails before writing anything for a dynamic page without static params, a page with a page action, or a page that requires authorization. Exported pages navigate with full page loads and carry no antiforgery token.
 
+The export requests every URL without a query string, and a static host serves each file for every query string. A page whose loader, or a layout loader above it, reads the query string is still exported, as the page without one, and the export logs a warning in `Netjes.Export.QueryString`. To export a page for each value, make it a route parameter with `.StaticParams(...)` (`/blog/tags/[tag]`, not `/blog?tag=`); to keep the page on a server, exclude it. On an exported page `useSearchParams()` sees no query string either, whatever the address bar shows: read `window.location.search` in an effect there, and parse it with the same schema.
+
 ## Sitemap and robots
 
 `app.MapSitemap(siteUrl)` serves `/sitemap.xml` from the route table (dynamic pages through `.StaticParams`, pages that need authorization or call `.ExcludeFromSitemap()` left out) and `app.MapRobotsTxt(siteUrl, disallow)` serves `/robots.txt`.
