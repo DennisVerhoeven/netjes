@@ -13,7 +13,7 @@ Taking the app's waits along is no answer either: under TanStack Query's default
 - `netjes()` sets `test.provide['netjes:query']` to the `query` option's `defaultOptions`: `{}` when there are none, and nothing with `query: false`. It returns only that key, which Vite merges next to the app's own `provide` keys.
 - Netjes's setup file, which the plugin adds to every app's setup files ([ADR 0027](0027-testing-library-advances-vitest-fake-timers.md)), reads the value with `inject()` and keeps it under a global symbol, `Symbol.for('netjes.testing.queryDefaults')`, where `createTestApp` reads it. Vitest loads the setup file by its path and the tests import `netjes/testing` through the package, so the two need not share module instances; a global does not depend on that.
 - `createTestApp` merges four sets of defaults, each over the ones before it: the Netjes defaults, the app's, the harness's (`retryDelay: 0` for queries and mutations, `gcTime: Infinity` for queries), and the test's `defaultOptions`. The harness's `retry: false` is gone.
-- So the app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests, an app-wide `retryDelay` or `gcTime` does not, and a test's `defaultOptions` and a query's own options still win over all of them.
+- So the app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests, its `retryDelay` and its queries' `gcTime` do not, and a test's `defaultOptions` and a query's own options still win over all of them.
 
 ## Alternatives considered
 
