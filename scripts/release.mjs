@@ -115,7 +115,7 @@ const isThisRepository = (blobRepository, rawRepository) =>
   (blobRepository ?? rawRepository ?? '').toLowerCase() === REPOSITORY.toLowerCase();
 
 /**
- * The links to this repository's files and folders in `text`, with the ref each one names, as written.
+ * The links to this repository's files and folders in `text` (REF_LINK), with the ref each one names, as written.
  * @param {string} text
  * @returns {{ url: string, ref: string }[]}
  */
@@ -137,8 +137,8 @@ function readReadmes(root) {
 }
 
 /**
- * What is wrong with the links in the package READMEs: each link to this repository must name `main`, which the
- * release moves to its tag.
+ * What is wrong with the links in the package READMEs: each link to this repository's files (repositoryLinks) must
+ * name `main`, which the release moves to its tag.
  * @param {{ file: string, text: string | null }[]} readmes
  * @returns {string[]}
  */
@@ -161,10 +161,10 @@ async function checkReadmeLinks(root) {
 }
 
 /**
- * Moves every link to this repository in the package READMEs at `root` from `main` to the tag of `version`, in
- * place: what the release does just before it packs them. Nothing is written when `version` is not a version, or
- * when a README is missing or links another ref. The files are read back afterwards, and a link that names anything
- * but the tag then is an error too.
+ * Moves every link to this repository's files (REF_LINK) in the package READMEs at `root` from `main` to the tag of
+ * `version`, in place: what the release does just before it packs them. Nothing is written when `version` is not a
+ * version, or when a README is missing or links another ref. The files are read back afterwards, and a link that
+ * names anything but the tag then is an error too.
  * @param {string} root
  * @param {string} version
  * @returns {Promise<{ errors: string[], moved: { file: string, count: number }[] }>}
@@ -201,9 +201,9 @@ async function moveReadmeLinks(root, version) {
 /**
  * What is wrong with the repository at `root` for releasing `version`: the npm package, its lockfile entry and the
  * NuGet packages' Directory.Build.props must all carry that version, the docs' pinned versions (VERSION_PINS) must
- * match it, the package READMEs must link this repository on `main` only (checkReadmeLinks), CHANGELOG.md needs an
- * entry for it, and with `repository` (owner/name, as in GITHUB_REPOSITORY) the npm package must name that GitHub
- * repository. An empty list means ready.
+ * match it, the package READMEs must link this repository's files on `main` only (checkReadmeLinks), CHANGELOG.md
+ * needs an entry for it, and with `repository` (owner/name, as in GITHUB_REPOSITORY) the npm package must name that
+ * GitHub repository. An empty list means ready.
  * @param {string} root
  * @param {string} version
  * @param {{ repository?: string }} [options]
@@ -300,12 +300,13 @@ export async function checkPackages(dir, version) {
 const USAGE = `Usage:
   node scripts/release.mjs check <tag> [--repository <owner/name>] [--root <dir>]
       Checks that every package source and every version the docs pin is the tag's version, that the package
-      READMEs link this repository on main only, that CHANGELOG.md has its entry and, with
-      --repository, that packages/netjes/package.json names that GitHub repository. Then prints version=<version>
-      and prerelease=<true|false> (for GITHUB_OUTPUT).
+      READMEs' blob, tree and raw.githubusercontent.com links to this repository are on main, that CHANGELOG.md
+      has its entry and, with --repository, that packages/netjes/package.json names that GitHub repository. Then
+      prints version=<version> and prerelease=<true|false> (for GITHUB_OUTPUT).
   node scripts/release.mjs links <version> [--root <dir>]
-      Moves every link to this repository in the package READMEs from main to the tag v<version>, in place, as the
-      release does just before it packs them. Writes nothing when a README links another ref.
+      Moves the package READMEs' blob, tree and raw.githubusercontent.com links to this repository from main to
+      the tag v<version>, in place, as the release does just before it packs them. Writes nothing when a README is
+      missing or one of those links names another ref.
   node scripts/release.mjs packages <version> <dir>
       Checks that <dir> holds exactly the npm and NuGet packages of <version>, with the NuGet symbol packages.
   node scripts/release.mjs notes <version> [--root <dir>]

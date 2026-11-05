@@ -12,8 +12,8 @@ A release is a tag on a commit of `main` whose CI run passed, and that run check
 
 - The READMEs in the repository keep linking `main`. GitHub shows them there with links that resolve, the link check covers those links, and `llms-full.txt`, which includes the three READMEs, links `main` throughout.
 - The release workflow moves those links to the tag just before it packs: `node scripts/release.mjs links <version>` changes the ref of every `github.com/DennisVerhoeven/netjes/blob/main/…`, `tree/main/…` and `raw.githubusercontent.com/DennisVerhoeven/netjes/main/…` link in the three READMEs from `main` to `v<version>`, and leaves the rest of each file as it is. Every check and test has run on the tag's own sources by then, and the change stays in the job's checkout. Each moved link points at the file the link check found in the tag's commit.
-- `links` writes nothing when a README links this repository on another ref, and reads the files back afterwards. After the pack, the workflow compares the README in each package with the moved one (`cmp`), so a package whose README still links `main` stops the job before anything is published.
-- `node scripts/release.mjs check`, which the release runs first and a test runs on the repository in every pull request, refuses a link to this repository in those READMEs on any ref but `main`, and says to link `main`. Another test runs `links` on copies of the READMEs in every pull request.
+- `links` writes nothing when such a link names another ref, and reads the files back afterwards. After the pack, the workflow compares the README in each package with the moved one (`cmp`), so a package whose README still links `main` stops the job before anything is published.
+- `node scripts/release.mjs check`, which the release runs first and a test runs on the repository in every pull request, refuses such a link in those READMEs on any ref but `main`, and says to link `main`. Another test runs `links` on copies of the READMEs in every pull request.
 - The READMEs link the security policy at GitHub's policy page (`/security/policy`), which has no ref, so a published README shows the current policy rather than the one at its tag.
 - `netjes --help` links the CLI reference at the tag of the installed version.
 - The files that `netjes new` and `netjes agents` copy into apps, the `netjes` skill and `AGENTS.md`, keep linking `main`. They stay in an app after it upgrades Netjes, and pinned links would then point at the version that wrote them. Linking the installed version needs a way to refresh them, which the roadmap lists.
@@ -31,6 +31,6 @@ A release is a tag on a commit of `main` whose CI run passed, and that run check
 
 - The READMEs on npm and NuGet link the docs at their version's tag (`blob/v<version>/…`), and the security policy at `/security/policy`. Those of 0.0.2 and earlier keep their links to `main`.
 - Only the packed copies link the tag. The READMEs in the repository link `main`, also in the tag's own files: a reader of the tag's README on GitHub follows `main`.
-- A link to this repository in a package README on any ref but `main` fails `npm test` and the release check.
+- A `blob`, `tree` or `raw.githubusercontent.com` link to this repository in a package README on any ref but `main` fails `npm test` and the release check. Other links to its files, such as `github.com/…/raw/<ref>/…`, are neither refused nor moved.
 - `scripts/check-packages.sh` packs the READMEs as they are, with links on `main`; it publishes nothing.
 - A release workflow run for a tag cut before this change fails at the move, since that tag's `scripts/release.mjs` has no `links` command.
