@@ -291,6 +291,26 @@ public class OtherSpellingTests
         Assert.Equal(["GET /Oops/: 308 /oops"], await AnswersAsync(exceptions, "/Oops/"));
     }
 
+    [Fact]
+    public async Task NormalisedAndAbsoluteFormTargets_AreNotRedirected()
+    {
+        await using var app = await StartAsync(Never);
+        var origin = app.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
+
+        // Browsers send neither: they resolve dot segments themselves, and send the absolute form only to a proxy. The
+        // server resolves dot segments before routing, so the path routing matched is not the target, as after a rewrite.
+        Assert.Equal(
+            [
+                "GET /./ABOUT: 200",
+                "GET /x/../ABOUT/: 200",
+                "GET /%2E/About: 200",
+                "GET /about/.: 200",
+                $"GET {origin}/ABOUT/: 200",
+                "GET /ABOUT/: 308 /about",
+            ],
+            await AnswersAsync(app, "/./ABOUT", "/x/../ABOUT/", "/%2E/About", "/about/.", $"{origin}/ABOUT/", "/ABOUT/"));
+    }
+
     public sealed record NoteInput
     {
         [Required(ErrorMessage = "Write something.")]
