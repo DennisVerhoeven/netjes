@@ -571,3 +571,78 @@ test.describe('HEAD requests', () => {
     }
   });
 });
+
+test.describe('focus and announcements', () => {
+  test("a client navigation announces the new page's title and starts the focus over at the top of the document", async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/');
+    await markWindow(page);
+    const announcer = page.locator('[data-netjes-route-announcer]');
+    await expect(announcer).toHaveText('');
+
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Blog' }).click();
+
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await expect(announcer).toHaveText('Blog · Netjes Blog');
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+    expect(await isMarked(page)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('the skip link moves the focus to the main content, as without JavaScript', async ({ page, browser }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+    const main = page.getByRole('main');
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    // main takes the focus for as long as it has it.
+    await expect(main).toBeFocused();
+    await expect(main).toHaveAttribute('tabindex', '-1');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: '← All posts' })).toBeFocused();
+    await expect(main).not.toHaveAttribute('tabindex');
+    expect(await isMarked(page)).toBe(true);
+    expect(errors).toEqual([]);
+
+    // The browser's own fragment navigation, without JavaScript, gets the same next Tab.
+    const context = await browser.newContext({ javaScriptEnabled: false, baseURL: test.info().project.use.baseURL });
+    try {
+      const plain = await context.newPage();
+      await plain.goto('/blog/react-pages-on-dotnet');
+      await plain.keyboard.press('Tab');
+      await expect(plain.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+      await plain.keyboard.press('Enter');
+      await plain.keyboard.press('Tab');
+      await expect(plain.getByRole('link', { name: '← All posts' })).toBeFocused();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Back restores the scroll position, and the router's focus does not move it", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 320 });
+    await page.goto('/blog');
+    await markWindow(page);
+    const last = page.getByRole('article').last().getByRole('heading').getByRole('link');
+    await last.scrollIntoViewIfNeeded();
+    const scrolled = await page.evaluate(() => window.scrollY);
+    expect(scrolled).toBeGreaterThan(0);
+    const title = (await last.textContent()) ?? '';
+
+    await last.click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+    await page.goBack();
+
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await expect(page.locator('[data-netjes-route-announcer]')).toHaveText('Blog · Netjes Blog');
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    expect(await isMarked(page)).toBe(true);
+  });
+});
