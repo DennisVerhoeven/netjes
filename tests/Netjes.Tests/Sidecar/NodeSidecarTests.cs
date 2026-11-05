@@ -1019,6 +1019,24 @@ public class NodeSidecarTests
     }
 
     [Fact]
+    public async Task AProcessBusyForLongerThanAShortRenderTimeout_IsNotRestarted()
+    {
+        // A ping waits as long as a render may take, and never less than five seconds, as in production.
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create(
+            "fake-sidecar.mjs", renderTimeout: TimeSpan.FromSeconds(1), loggers: loggers, watchdog: new SidecarWatchdog(Quick.Interval));
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Busy for twice the render timeout: the render fails at its time limit, and a ping waits behind it.
+        await Assert.ThrowsAsync<SsrRenderException>(() => sidecar.RenderAsync("""{"page":"block","ms":2000}""", Ct));
+
+        Assert.Equal(pid, await PidOnceAnsweredAsync(sidecar));
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
     public async Task OnlyAProcessThatHasNotAnsweredLately_IsPinged()
     {
         var handler = new FailingHandler(_ => null);
@@ -1067,6 +1085,31 @@ public class NodeSidecarTests
         Assert.NotNull(warning);
         Assert.Contains("GET /health", warning.Message, StringComparison.Ordinal);
         Assert.Contains("Netjes:SidecarScript", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ASidecarScriptThatAnswersThePingWith404_IsNotRestarted()
+    {
+        // Any answer will do, whatever its status: this script of an app's own knows only renders.
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("not-found-sidecar.mjs", loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var (pid, _) = await PidAndNotFoundAsync(sidecar);
+
+        // Idle, it is pinged at every look. A ping goes out only once the last one has its answer, or has timed out and
+        // got the process killed, so three 404s from one process were all taken as answers. Reading the count is a
+        // render, so the reads are four intervals apart.
+        var (now, notFound) = (pid, 0);
+        for (var waited = Stopwatch.StartNew(); notFound < 3 && waited.Elapsed < TimeSpan.FromSeconds(10);)
+        {
+            await Task.Delay(Quick.Interval * 4, Ct);
+            (now, notFound) = await PidAndNotFoundAsync(sidecar);
+        }
+
+        Assert.Equal(pid, now);
+        Assert.InRange(notFound, 3, int.MaxValue);
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
     }
 
     [Fact]
@@ -1122,6 +1165,34 @@ public class NodeSidecarTests
     /// <summary>The number of health pings the fake sidecar has answered.</summary>
     private static async Task<int> PingsAsync(NodeSidecar sidecar) =>
         int.Parse((await sidecar.RenderAsync("""{"page":"pings"}""", Ct))["<html>".Length..^"</html>".Length], System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The not-found sidecar's pid, and how many requests it has answered with a 404.</summary>
+    private static async Task<(int Pid, int NotFound)> PidAndNotFoundAsync(NodeSidecar sidecar)
+    {
+        var html = await sidecar.RenderAsync("""{"page":"x"}""", Ct);
+        var answer = html["<html>".Length..^"</html>".Length].Split(' ');
+        return (int.Parse(answer[0], System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(answer[1], System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// The fake sidecar's pid, once a render gets it in time: while the process is busy, each one fails at the render
+    /// timeout. Up to ten seconds.
+    /// </summary>
+    private static async Task<int> PidOnceAnsweredAsync(NodeSidecar sidecar)
+    {
+        for (var waited = Stopwatch.StartNew(); ;)
+        {
+            try
+            {
+                return await SidecarPoolTests.PidAsync(sidecar);
+            }
+            catch (SsrRenderException) when (waited.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                // Busy still.
+            }
+        }
+    }
 
     /// <summary>Waits until <paramref name="condition"/> holds, up to ten seconds.</summary>
     private static async Task WaitUntilAsync(Func<bool> condition, string failure)
