@@ -6,12 +6,12 @@ Status: accepted
 
 The npm package and both NuGet packages carry a README, which npmjs.com and nuget.org show on each version's page. Neither site resolves a relative link, so the three READMEs (`packages/netjes/README.md`, `src/Netjes/README.md` and `src/Netjes.Images.SkiaSharp/README.md`) link the docs with absolute URLs to this repository's files on GitHub, on `main`. The README of a published version therefore sent its readers to whatever `main` said later, which can describe APIs that version does not have. `netjes --help` did the same: it ended with a link to the CLI reference on `main`.
 
-A release is a tag on a commit of `main` whose CI run passed, and that run checked every link to this repository's files on `main` against the files of that commit (`npm run docs:check`).
+A release is a tag on a commit of `main` whose CI run passed, and that run checked the `https://github.com/…` and `https://raw.githubusercontent.com/…` links to this repository's files on `main` against the files of that commit (`npm run docs:check`).
 
 ## Decision
 
 - The READMEs in the repository keep linking `main`. GitHub shows them there with links that resolve, the link check covers those links, and `llms-full.txt`, which includes the three READMEs, links `main` throughout.
-- The release workflow moves those links to the tag just before it packs: `node scripts/release.mjs links <version>` changes the ref of every `github.com/DennisVerhoeven/netjes/blob/main/…`, `tree/main/…` and `raw.githubusercontent.com/DennisVerhoeven/netjes/main/…` link in the three READMEs from `main` to `v<version>`, and leaves the rest of each file as it is. Every check and test has run on the tag's own sources by then, and the change stays in the job's checkout. Each moved link points at the file the link check found in the tag's commit.
+- The release workflow moves those links to the tag just before it packs: `node scripts/release.mjs links <version>` changes the ref of every `github.com/DennisVerhoeven/netjes/blob/main/…`, `tree/main/…` and `raw.githubusercontent.com/DennisVerhoeven/netjes/main/…` link in the three READMEs from `main` to `v<version>`, and leaves the rest of each file as it is. Every check and test has run on the tag's own sources by then, and the change stays in the job's checkout. Each moved link written as `https://github.com/…` or `https://raw.githubusercontent.com/…` points at a file the link check found in the tag's commit.
 - `links` writes nothing when such a link names another ref, and reads the files back afterwards. After the pack, the workflow compares the README in each package with the moved one (`cmp`), so a package whose README still links `main` stops the job before anything is published.
 - `node scripts/release.mjs check`, which the release runs first and a test runs on the repository in every pull request, refuses such a link in those READMEs on any ref but `main`, and says to link `main`. Another test runs `links` on copies of the READMEs in every pull request.
 - The READMEs link the security policy at GitHub's policy page (`/security/policy`), which has no ref, so a published README shows the current policy rather than the one at its tag.
@@ -32,5 +32,6 @@ A release is a tag on a commit of `main` whose CI run passed, and that run check
 - The READMEs on npm and NuGet link the docs at their version's tag (`blob/v<version>/…`), and the security policy at `/security/policy`. Those of 0.0.2 and earlier keep their links to `main`.
 - Only the packed copies link the tag. The READMEs in the repository link `main`, also in the tag's own files: a reader of the tag's README on GitHub follows `main`.
 - A `blob`, `tree` or `raw.githubusercontent.com` link to this repository in a package README on any ref but `main` fails `npm test` and the release check. Other links to its files, such as `github.com/…/raw/<ref>/…`, are neither refused nor moved.
-- `scripts/check-packages.sh` packs the READMEs as they are, with links on `main`; it publishes nothing.
+- The link check reads these links only as `https://github.com/…` and `https://raw.githubusercontent.com/…`. One written with `http://` or `www.github.com` is refused or moved like the others, but nothing checks that its file is there.
+- `scripts/check-packages.sh` packs the READMEs as they are, with links on `main`; it pushes nothing to npm or NuGet.
 - A release workflow run for a tag cut before this change fails at the move, since that tag's `scripts/release.mjs` has no `links` command.
