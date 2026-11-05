@@ -83,11 +83,60 @@ async function checkPins(root, version) {
   return errors;
 }
 
+/** The repository the packages are released from, as owner/name. */
+const REPOSITORY = 'DennisVerhoeven/netjes';
+
+/**
+ * The READMEs the packages carry, which npm and NuGet show on each version's page. Neither resolves a relative link,
+ * so these link this repository's files with absolute URLs on `main`, and the release moves those links to its tag
+ * just before it packs them (`links`).
+ */
+const PACKAGE_READMES = ['packages/netjes/README.md', 'src/Netjes/README.md', 'src/Netjes.Images.SkiaSharp/README.md'];
+
+/**
+ * A link to a file or folder of a GitHub repository at a ref: `https://github.com/<owner>/<name>/blob/<ref>/<path>`,
+ * `tree/<ref>/` for a folder, or `https://raw.githubusercontent.com/<owner>/<name>/<ref>/<path>`. The groups are the
+ * URL up to the ref, the repository (in the github.com or the raw form), the ref, and the rest of the URL, which ends
+ * where a link in Markdown ends: at a space, a bracket, a quote or a backtick (\x60).
+ */
+const REF_LINK =
+  /(https?:\/\/(?:(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/(?:blob|tree)|raw\.githubusercontent\.com\/([\w.-]+\/[\w.-]+))\/)([^\s/?#<>()[\]"'\x60]+)([^\s<>()[\]"'\x60]*)/gi;
+
+/**
+ * The links to this repository's files and folders in `text`, with the ref each one names. The owner and the name
+ * match in any case, as on GitHub; the ref is compared as written.
+ * @param {string} text
+ * @returns {{ url: string, ref: string }[]}
+ */
+function repositoryLinks(text) {
+  return [...text.matchAll(REF_LINK)]
+    .filter((match) => (match[2] ?? match[3] ?? '').toLowerCase() === REPOSITORY.toLowerCase())
+    .map((match) => ({ url: match[0].replace(/[.,:;!?*_~]+$/, ''), ref: match[4] ?? '' }));
+}
+
+/**
+ * What is wrong with the links in the package READMEs (PACKAGE_READMES): each link to this repository must name
+ * `main`, which the release moves to its tag. A README that is missing is left to the pinned-version check.
+ * @param {string} root
+ * @returns {Promise<string[]>}
+ */
+async function checkReadmeLinks(root) {
+  const errors = [];
+  for (const file of PACKAGE_READMES) {
+    const text = await readFile(path.join(root, file), 'utf8').catch(() => '');
+    for (const { url, ref } of repositoryLinks(text)) {
+      if (ref !== 'main') errors.push(`${file} links ${ref} in ${url}: link main, which the release moves to its tag.`);
+    }
+  }
+  return errors;
+}
+
 /**
  * What is wrong with the repository at `root` for releasing `version`: the npm package, its lockfile entry and the
  * NuGet packages' Directory.Build.props must all carry that version, the docs' pinned versions (VERSION_PINS) must
- * match it, CHANGELOG.md needs an entry for it, and with `repository` (owner/name, as in GITHUB_REPOSITORY) the npm
- * package must name that GitHub repository. An empty list means ready.
+ * match it, the package READMEs must link this repository on `main` only (checkReadmeLinks), CHANGELOG.md needs an
+ * entry for it, and with `repository` (owner/name, as in GITHUB_REPOSITORY) the npm package must name that GitHub
+ * repository. An empty list means ready.
  * @param {string} root
  * @param {string} version
  * @param {{ repository?: string }} [options]
@@ -109,6 +158,7 @@ export async function checkSources(root, version, options = {}) {
   }
 
   errors.push(...(await checkPins(root, version)));
+  errors.push(...(await checkReadmeLinks(root)));
 
   const changelog = await readFile(path.join(root, 'CHANGELOG.md'), 'utf8').catch(() => '');
   if (releaseNotes(changelog, version) === null) errors.push(`CHANGELOG.md has no entry for ${version}.`);

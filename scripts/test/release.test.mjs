@@ -158,6 +158,31 @@ describe('checkSources', () => {
       'packages/netjes/package.json names repository (none), not https://github.com/owner/netjes.',
     ]);
   });
+
+  // npm and NuGet show the packed READMEs, and the release moves their links from main to its tag.
+  it('refuses a link to this repository in a package README that is not on main', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'packages/netjes/README.md':
+        `${docs['packages/netjes/README.md']}` +
+        '- [Getting started](https://github.com/DennisVerhoeven/netjes/blob/v0.0.0/docs/getting-started.md)\n' +
+        '- [All guides](https://github.com/DennisVerhoeven/netjes/blob/main/docs/README.md)\n',
+      'src/Netjes/README.md':
+        `${docs['src/Netjes/README.md']}` +
+        'Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems ' +
+        'as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes.\n',
+      'src/Netjes.Images.SkiaSharp/README.md':
+        `${docs['src/Netjes.Images.SkiaSharp/README.md']}` +
+        'The docs as text: https://raw.githubusercontent.com/dennisverhoeven/Netjes/v0.0.0/llms.txt.\n' +
+        'Another repository: [its guide](https://github.com/someone/netjes/blob/v0.0.0/docs/README.md).\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), [
+      'packages/netjes/README.md links v0.0.0 in https://github.com/DennisVerhoeven/netjes/blob/v0.0.0/docs/getting-started.md: ' +
+        'link main, which the release moves to its tag.',
+      'src/Netjes.Images.SkiaSharp/README.md links v0.0.0 in https://raw.githubusercontent.com/dennisverhoeven/Netjes/v0.0.0/llms.txt: ' +
+        'link main, which the release moves to its tag.',
+    ]);
+  });
 });
 
 describe('releaseNotes', () => {
