@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -389,6 +389,9 @@ describe('inherited NETJES_ variables', () => {
 
 describe('commands that run the app', () => {
   beforeEach(async () => {
+    // By its real path, as process.cwd() reports a real run's folder on macOS and Linux, and as the app sees its own:
+    // on macOS the temporary folder is under a symlink (/var is /private/var).
+    temp = await realpath(temp);
     await fakeApp(temp);
   });
 
