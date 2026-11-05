@@ -14,6 +14,29 @@ export function watchForErrors(page: Page, ignore?: (url: URL) => boolean): stri
   return errors;
 }
 
+/**
+ * Collects the Content-Security-Policy violations the browser reports in every document the page loads from now on:
+ * the directive, what it refused, the script that tried and the page's path. A refusal that the page's code catches,
+ * such as a `new Function` that a policy without 'unsafe-eval' blocks, logs nothing to the console, so
+ * `watchForErrors` does not see it; a `securitypolicyviolation` listener does.
+ */
+export async function watchForViolations(page: Page): Promise<string[]> {
+  const violations: string[] = [];
+  await page.exposeFunction('__netjesViolation', (violation: string) => {
+    violations.push(violation);
+  });
+  await page.addInitScript(() => {
+    const exposed = window as unknown as { __netjesViolation: (violation: string) => void };
+    // On the window in the capture phase, ahead of every listener of the page's own, so that none can stop it.
+    window.addEventListener(
+      'securitypolicyviolation',
+      (event) => exposed.__netjesViolation(`${event.effectiveDirective} ${event.blockedURI} from ${event.sourceFile} on ${location.pathname}`),
+      true,
+    );
+  });
+  return violations;
+}
+
 /** The URL a console message came from, or null when it has none (`URL.parse` would do, from Node 22.1). */
 function locationOf(message: ConsoleMessage): URL | null {
   try {

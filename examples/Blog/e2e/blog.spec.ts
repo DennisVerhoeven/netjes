@@ -3,7 +3,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type APIRequestContext, type Route, expect, test } from '@playwright/test';
-import { isMarked, markWindow, watchForErrors } from './helpers.ts';
+import { isMarked, markWindow, watchForErrors, watchForViolations } from './helpers.ts';
 
 test.describe('server rendering', () => {
   test.use({ javaScriptEnabled: false });
@@ -570,5 +570,24 @@ test.describe('HEAD requests', () => {
       expect(get.headers()['content-length'], url).toBeDefined();
       expect((await head.body()).length, url).toBe(0);
     }
+  });
+});
+
+test.describe('Content-Security-Policy violations', () => {
+  test('no page meets a Content-Security-Policy violation', async ({ page }) => {
+    // The Blog's policy has no 'unsafe-eval'. A violation the page's code catches logs nothing to the console.
+    const violations = await watchForViolations(page);
+    await page.goto('/');
+    await markWindow(page);
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+
+    await page.getByRole('link', { name: '← All posts' }).click();
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('About');
+
+    expect(await isMarked(page)).toBe(true);
+    expect(violations).toEqual([]);
   });
 });
