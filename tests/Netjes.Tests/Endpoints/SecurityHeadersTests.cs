@@ -531,6 +531,49 @@ public class SecurityHeadersTests
         Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
     }
 
+    [Theory]
+    [InlineData("an endpoint")]
+    [InlineData("an endpoint's response-start callback")]
+    [InlineData("a middleware, on a page")]
+    public async Task TheAppsOwnXContentTypeOptions_IsKept(string setBy)
+    {
+        // Browsers read nosniff in any casing; this one shows that the app's value went out, and only it.
+        const string own = "NOSNIFF";
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configureApp: a => a.Use((http, next) =>
+            {
+                if (setBy == "a middleware, on a page")
+                {
+                    http.Response.Headers.XContentTypeOptions = own;
+                }
+
+                return next(http);
+            }),
+            map: a => a.MapGet("/api/text", (HttpContext http) =>
+            {
+                if (setBy == "an endpoint")
+                {
+                    http.Response.Headers.XContentTypeOptions = own;
+                }
+                else
+                {
+                    http.Response.OnStarting(() =>
+                    {
+                        http.Response.Headers.XContentTypeOptions = own;
+                        return Task.CompletedTask;
+                    });
+                }
+
+                return "x";
+            }));
+
+        var response = await app.GetDocumentAsync(setBy == "a middleware, on a page" ? "/" : "/api/text");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(own, Header(response, "X-Content-Type-Options"));
+    }
+
     [Fact]
     public async Task OutputCachedResponses_CarryNosniffOnce()
     {
