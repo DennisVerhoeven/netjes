@@ -8,7 +8,7 @@ ASP.NET Core's matcher matches literal segments in any case and ignores one trai
 
 ## Decision
 
-- A middleware at the end of `UseNetjes`, after routing and ahead of authentication, the output cache and the endpoint, answers a `GET` or `HEAD` for a page in another case of the literal segments its file names with a 308 to the file's spelling, and a client navigation with the redirect payload the router follows. `NetjesOptions.RedirectLiteralCase` turns it off, and is on by default.
+- A middleware at the end of `UseNetjes`, after routing and ahead of authentication, the output cache and the endpoint, answers a `GET` or `HEAD` for a page in another case of the literal segments its file names with a 308 to the file's spelling, and a client navigation with the redirect payload the router follows. `NetjesOptions.RedirectLiteralCase`, true by default, turns it on and off.
 - `NetjesOptions.TrailingSlash` decides about a trailing slash. `Ignore`, the default, answers both forms as before; `Never` redirects `/about/` to `/about`, and a catch-all's value loses its last slash. `/` stays as it is.
 - `/robots.txt` and `/sitemap.xml` follow both settings, with a plain 308. Other endpoints, the not-found page and other methods are left alone.
 - Only the literal segments change. Route values, the query string and the base path go along as sent, and so does a trailing slash under `Ignore`.
@@ -34,4 +34,4 @@ ASP.NET Core's matcher matches literal segments in any case and ignores one trai
 - Browsers keep a 308 and follow it again without asking. A folder renamed to another case sends a visitor who followed the old redirect round in a loop until the browser forgets it. Behind a proxy or CDN that adds a trailing slash, `Never` loops at once.
 - Tests on TestServer see no redirect, unlike the app on Kestrel. A test middleware can set the request target, and end-to-end tests see what visitors do.
 - The base path keeps the case it was sent in, and route values keep theirs: under a `[lang]` folder, `/EN/about` is still a URL of its own next to `/en/about`.
-- Every `GET` or `HEAD` for a page compares its path with the route's literals; only a request that is redirected allocates.
+- Every `GET` or `HEAD` for a page compares its path with the route's literals, without allocating; only a request in another spelling has its target read and a location built.
