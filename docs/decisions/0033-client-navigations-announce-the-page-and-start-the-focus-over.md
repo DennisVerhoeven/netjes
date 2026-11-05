@@ -15,7 +15,7 @@ Next.js 16.4 announces the new page in an assertive live region, by its title or
   1. The element the fragment names takes the focus, on the same page or on another. One that takes no focus of its own gets `tabindex="-1"`, which goes again when it loses the focus.
   2. When the page key did not change, the focus stays: a query change, a refresh, a post that stays on its page, a modal that opens, closes or refreshes over the page under it. The page key is what remounts the page: its path, or for an intercepted page the key of the page under it.
   3. When an element other than `body` has the focus, and it is not the one that had it as the navigation started, the focus stays: the new page's `autoFocus`, the user or the app's code moved it.
-  4. When the element that had the focus at the start still has it, it keeps it with `scroll={false}`, or when the user types into it (a text field, a `select`, editable content).
+  4. When the element that had the focus at the start still has it, it keeps it when the navigation keeps the scroll position (one with `scroll={false}`, or a refresh that the server redirects to another page), or when the user types into it (a text field, a `select`, editable content).
   5. Otherwise the focus starts over at the top of the document: `body` takes it, with `tabindex="-1"` for that moment, and gets its own `tabindex` back.
 - Every focus call passes `preventScroll`, so the scroll position the router set stays, the one Back restores included. Back and Forward follow the same rules as a link.
 - The router reads which element has the focus as a navigation starts, before its first `await`: inside the click or keypress that started it, before React has handled that event's own state updates, such as a menu that closes. `<Link>` and `<Form>` read it before the app's own `onClick` or `onSubmit`, which run as part of following the link or submitting the form.
@@ -41,6 +41,6 @@ Next.js 16.4 announces the new page in an assertive live region, by its title or
 - After a client navigation to another page, screen readers hear its name, and keyboard users start from the top of the page, as after a page load. A page whose name is the previous page's is not announced, so apps give their pages distinct titles.
 - Keyboard users Tab through the header again after each navigation, unless the root layout starts with a skip link.
 - A tab or pagination link inside a page goes with the page when it changes the path, so the focus starts over at the top, even with `scroll={false}`.
-- A field in a layout keeps the focus after a navigation it started, also after a GET form posts to another path, where a page load would start the focus over.
+- A field in a layout keeps the focus after a navigation it started, also after the user submits a GET form from it to another path, where a page load would start the focus over.
 - End-to-end tests that type right after a navigation without focusing a field, or that read the whole text of a container, need a change. An app's own announcer, and its own code that focuses a fragment's element, can go.
 - When client navigations show a page in several commits, as the roadmap's instant loading plans, only the commit of the complete page may announce it or move the focus.
