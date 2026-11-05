@@ -119,7 +119,7 @@ npm run dev          # http://localhost:5080
 - **Metadata**: titles with templates, descriptions, Open Graph, Twitter and robots tags from page files or from C#, a sitemap and `robots.txt` from the route table, and `<Script>`. [Metadata](docs/guides/metadata.md)
 - **Images**: `<Image>` with an optimiser endpoint, configured widths and allow-listed remote hosts, and optional resizing and WebP with SkiaSharp. [Images](docs/guides/images.md)
 - **Static export**: `netjes export` writes every page as a complete HTML file. [Static export](docs/guides/static-export.md)
-- **Security defaults**: security headers on every document, an opt-in Content-Security-Policy with nonces or hashes, body limits for actions, safe redirects and a guarded image endpoint. [Security](docs/guides/security.md)
+- **Security defaults**: `nosniff` on every response through `UseNetjes()` and the other security headers on every document, an opt-in Content-Security-Policy with nonces or hashes, body limits for actions, safe redirects and a guarded image endpoint. [Security](docs/guides/security.md)
 - **Testing**: Vitest set up by the Vite plugin, a harness that renders pages and components with a fake router and fake actions, and C# tests against the real app. [Testing](docs/guides/testing.md)
 - **Deployment**: `dotnet publish` runs the client build and ships it with the app; Docker, health checks, OpenTelemetry traces and metrics, several instances behind a load balancer. [Deployment](docs/guides/deployment.md)
 - **Coding agents**: new apps come with an `AGENTS.md` and a Netjes skill, and the docs are published as `llms.txt` and `llms-full.txt`. [Coding agents](docs/guides/coding-agents.md)
