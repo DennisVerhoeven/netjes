@@ -34,6 +34,8 @@ it('shows the validation error from C# next to the field', async () => {
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
 
+For the whole document, as the server sends it (the layouts, the head, Netjes's inline scripts), `renderDocument('app/blog/[slug]/page.tsx', { props, params: { slug: 'hello' }, url: '/blog/hello', layouts: { 'app/blog/layout.tsx': { categories } }, shared })` from `netjes/testing` resolves with the HTML. The test file starts with `// @vitest-environment node`: in a DOM environment it rejects, since the server renders without one. No C# runs, so pass what the loaders would send; a layout that `layouts` does not name gets no props. A Promise in the props is a `Page.Defer` value; pass `signal: AbortSignal.timeout(1000)` when one may never settle. `inlineScriptHashes(html)` lists the `'sha256-…'` hashes of the inline scripts a browser runs, for a Content-Security-Policy without a nonce: with no inline scripts of the app's own they equal `CSP_SCRIPT_HASHES.split(' ')` from `netjes`, as `app/document.test.ts` in a new app checks for the home page.
+
 Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`, and let `findBy…` or `waitFor` wait, which moves the fake clock on (their timeout counts fake time). Run a timer that `fireEvent` started with `await act(() => vi.advanceTimersByTimeAsync(ms))`, and call `vi.useRealTimers()` in an `afterEach`.
 
 ## Loaders and actions: C#
@@ -66,4 +68,4 @@ and `npm run routes` without new warnings.
 
 ## More
 
-[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).
+[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` and `renderDocument` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).

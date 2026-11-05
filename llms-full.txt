@@ -3606,7 +3606,7 @@ Links, forms, redirects and `router.push` take paths as if the app were at the r
 
 # Testing
 
-This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`.
+This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, and a test of the home page's whole document, `app/document.test.ts`.
 
 ## Vitest
 
@@ -3762,6 +3762,71 @@ it('searches once the typing stops', async () => {
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md)).
+
+### The document
+
+`renderDocument()` from `netjes/testing` renders a page's whole document, from `<!DOCTYPE html>` to `</html>`, as the Node process renders it for a crawler: the page inside the layouts the server wraps it in, the head with the metadata of the page and its layouts, Netjes's inline scripts and the page payload. It returns the HTML. Name the page by its file, as `app/` holds it, and pass what the C# side would send with it:
+
+```ts
+// @vitest-environment node
+import { renderDocument } from 'netjes/testing';
+import { expect, it } from 'vitest';
+
+it('renders the post inside the blog layout, which lists the categories', async () => {
+  const html = await renderDocument('app/blog/[slug]/page.tsx', {
+    url: '/blog/hello',
+    params: { slug: 'hello' },
+    props: { title: 'Hello', body: 'The first post.' },
+    layouts: { 'app/blog/layout.tsx': { categories: ['react', 'dotnet'] } },
+    shared: { siteName: 'Shop' },
+  });
+
+  expect(html).toContain('<h1>Hello</h1>');
+  expect(html).toContain('<li>dotnet</li>');
+});
+```
+
+- The test file runs in Vitest's node environment: start it with `// @vitest-environment node`. The server renders without a DOM, and parts of a page take another path where there is one, such as a `<Form>` for a server action, which renders with the action's URL only on the server. In a DOM environment, such as the jsdom the plugin sets by default, `renderDocument` rejects with an error that says so.
+- The Vitest config has the `netjes()` plugin, as the template's `vite.config.ts` does. The plugin provides the pages map: the page, layout and boundary files in `app/`, from which `renderDocument` builds the segments the server would send, by the server's rules ([ADR 0038](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0038-netjes-testing-renders-a-pages-document.md)). A test can pass a map of its own as `modules`, keyed `/app/...` as `import.meta.glob` keys it.
+- No C# runs. The props, each layout's props (by the layout's file), the shared props, the route values and the URL are what the test passes, and a layout that `layouts` does not name gets no props. Metadata from a C# loader (`.WithMetadata(...)`) is not in the head: the head has what the files' `metadata` exports give, and the elements the page and its layouts render there, such as a `<title>`.
+- It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
+- The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place. The build's stylesheets and module scripts are not in it, nor the styles that development inlines, nor an antiforgery token: a `<Form method="post">` renders without its token field.
+
+| Option | What it sets |
+|---|---|
+| `props` | The page's props, as its C# loader sends them. A Promise in them is a `Page.Defer` value. |
+| `params` | The route values, as `useParams()` returns them: a string for `[slug]`, an array for a catch-all. Default none. |
+| `url` | The page's URL, path and query. Default `/`. |
+| `layouts` | Each layout loader's props, by the layout's file: `{ 'app/blog/layout.tsx': { categories } }`. A Promise in them is a `Page.Defer` value. |
+| `shared` | The shared props, as the server sends them (`UseSharedProps`). Default `null`. |
+| `status` | The page's status. Default 200, or the boundary file's (above). |
+| `nonce` | A Content-Security-Policy nonce, which goes on every script and stylesheet, as under a policy with `{nonce}`. |
+| `lang` | `<html lang>`. Default `en`. |
+| `publicConfig` | What `usePublicConfig()` reads, as the `Netjes:PublicConfig` section. |
+| `modules` | The pages map, keyed `/app/...`. Default the app's, from the plugin. |
+| `signal` | Stops the render, which then rejects with the signal's reason. |
+
+A Promise in the props, at any depth, or in a layout's props, is a `Page.Defer` value, which reaches the page as the server's does. One that resolves renders in place. One that rejects leaves the fallback of the Suspense boundary that reads it in the document, with the error's message in the script that hands the failure to the browser, as the server sends a value that failed; the error is also logged with `console.error`, as the Node process logs it. One that never settles keeps the render waiting, and the test runs into Vitest's timeout: pass `signal: AbortSignal.timeout(1000)`, and `renderDocument` rejects with the signal's reason instead.
+
+A Content-Security-Policy without a nonce lists the hash of each inline script a document runs ([hash-based policies](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based)). `inlineScriptHashes(html)` returns those hashes, as `'sha256-…'` sources in their quotes: one for each script element without `src` that a browser runs and checks against the policy, with no type, a JavaScript type, `module`, `importmap` or `speculationrules`, in the order they first appear, each once. The payload, a `type="application/json"` data block, is not one. A page with no inline scripts of its own has only Netjes's, whose hashes `CSP_SCRIPT_HASHES` holds, as the new app's `app/document.test.ts` checks for the home page:
+
+```ts
+// @vitest-environment node
+import { CSP_SCRIPT_HASHES } from 'netjes';
+import { inlineScriptHashes, renderDocument } from 'netjes/testing';
+import { expect, it } from 'vitest';
+
+it('runs no inline script but the one whose hash Netjes lists for a policy without a nonce', async () => {
+  const html = await renderDocument('app/page.tsx', {
+    props: { message: 'Hello from C#', renderedAt: '2026-11-05T12:00:00Z' },
+    shared: { siteName: 'Shop' },
+  });
+
+  expect(await inlineScriptHashes(html)).toEqual(CSP_SCRIPT_HASHES.split(' '));
+});
+```
+
+The policy in C# is built from `NetjesContentSecurityPolicy.ScriptHashes`, which holds the same hashes. When the app's pages or layouts render inline scripts of their own, such as a theme script, the policy lists their hashes too, and so does the test's expected list. A page with `Page.Defer` values renders one more inline script per value, which carries the value, so no fixed hash covers it: under a hash-based policy such a page must not stream.
 
 ## C# tests of loaders and actions
 
@@ -4101,7 +4166,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 |---|---|
 | [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
-| [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests |
+| [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests, and `renderDocument()` and `inlineScriptHashes()` for a page's whole document |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
 | [`netjes/vitals`](#netjesvitals) | Core Web Vitals: `useReportWebVitals()` and `<WebVitals />` |
 | [`netjes/vite`](#netjesvite) | The `netjes()` Vite plugin |
@@ -4654,7 +4719,7 @@ The value `deferred()` parses to: a thenable that records `status`, `value` and 
 
 ## `netjes/testing`
 
-The harness for testing components and pages with Vitest and Testing Library ([Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing.
+The harness for testing components and pages with Vitest and Testing Library ([Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it.
 
 #### `createTestApp`
 
@@ -4711,6 +4776,38 @@ expect(await screen.findByText('Tell us your name.')).toBeDefined();
 
 Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)).
 
+#### `renderDocument`
+
+```ts
+function renderDocument(page: string, options?: RenderDocumentOptions): Promise<string>;
+
+type RenderDocumentOptions = {
+  props?: Record<string, unknown>;                   // the page's props, as its loader sends them
+  params?: Params;                                   // the route values, as useParams() returns them
+  url?: string;                                      // the page's URL, default '/'
+  layouts?: Record<string, Record<string, unknown>>; // each layout loader's props, by the layout's file
+  shared?: unknown;                                  // the shared props, default null
+  status?: number;                                   // default 200, or the boundary file's
+  nonce?: string;                                    // the CSP nonce on every script and stylesheet
+  lang?: string;                                     // <html lang>, default 'en'
+  publicConfig?: Record<string, unknown>;            // what usePublicConfig() reads
+  modules?: Record<string, () => Promise<unknown>>;  // the pages map, default the app's from netjes()
+  signal?: AbortSignal;                              // stops the render, which rejects with its reason
+};
+```
+
+Renders the document of `page`, a file of the pages map named from the app's root (`'app/blog/[slug]/page.tsx'`), as the Node sidecar renders it for a crawler, and resolves with its HTML, from `<!DOCTYPE html>` to `</html>`: the page inside the layouts the server wraps it in, with the head, Netjes's inline scripts and the payload. It builds the payload's route and segments from the pages map by the server's rules, and takes everything else from `options`; no C# runs. It waits for every Suspense boundary, and a Promise in the props or a layout's props is a `Page.Defer` value: rendered in place once it resolves, left as its Suspense fallback when it rejects, and waited for while it is pending, until `signal` aborts. The build's stylesheets and scripts, development styles, an antiforgery token and metadata from C# are left out.
+
+It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map ([the document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document)).
+
+#### `inlineScriptHashes`
+
+```ts
+function inlineScriptHashes(html: string): Promise<string[]>;
+```
+
+The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and `nomodule` scripts are left out. It runs in any environment.
+
 ## `netjes/testing/setup`
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
@@ -4754,7 +4851,7 @@ These are exported for the plugin and the .NET app; app code does not import the
 | Import | What it is |
 |---|---|
 | `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
-| `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. |
+| `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. The payload's format is internal and can change in any version; a test renders a page's document with [`renderDocument`](#renderdocument) instead. |
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
 
 The entry is internal, but the mark is public. The client router puts `data-netjes-hydrated`, with an empty value, on `<html>` once it runs in the document: after React has hydrated the page (the content of its Suspense boundaries can follow), or rendered it when no sidecar was ready, and after the router has registered as the page's action client. It is the sign end-to-end tests wait for before they click ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration)). The server never renders it, a client navigation keeps it, and the router takes it off if it unmounts. The name is reserved: an app does not set, change or remove it, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser sees it.
@@ -5882,7 +5979,7 @@ With Tailwind on, a missing `@tailwindcss/vite` fails the config with a message 
 
 ### The page module map
 
-The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`. The client entry and the server entry load pages from it by the path the server names in each payload. Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
+The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`. The client entry and the server entry load pages from it by the path the server names in each payload. The module also exports `appDir` as the plugin has it, which `renderDocument` in `netjes/testing` builds a page's route and segments from ([the document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document)). Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
 
 In development the map is rebuilt when Vite's watcher reports a page file added or removed. When the server routes a page file the map does not have yet, the Node process that renders pages asks the plugin to build the map again from the files on disk and renders once more, so a new page works on its first request.
 
@@ -6484,6 +6581,8 @@ it('shows the validation error from C# next to the field', async () => {
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
 
+For the whole document, as the server sends it (the layouts, the head, Netjes's inline scripts), `renderDocument('app/blog/[slug]/page.tsx', { props, params: { slug: 'hello' }, url: '/blog/hello', layouts: { 'app/blog/layout.tsx': { categories } }, shared })` from `netjes/testing` resolves with the HTML. The test file starts with `// @vitest-environment node`: in a DOM environment it rejects, since the server renders without one. No C# runs, so pass what the loaders would send; a layout that `layouts` does not name gets no props. A Promise in the props is a `Page.Defer` value; pass `signal: AbortSignal.timeout(1000)` when one may never settle. `inlineScriptHashes(html)` lists the `'sha256-…'` hashes of the inline scripts a browser runs, for a Content-Security-Policy without a nonce: with no inline scripts of the app's own they equal `CSP_SCRIPT_HASHES.split(' ')` from `netjes`, as `app/document.test.ts` in a new app checks for the home page.
+
 Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`, and let `findBy…` or `waitFor` wait, which moves the fake clock on (their timeout counts fake time). Run a timer that `fireEvent` started with `await act(() => vi.advanceTimersByTimeAsync(ms))`, and call `vi.useRealTimers()` in an `afterEach`.
 
 ## Loaders and actions: C#
@@ -6516,7 +6615,7 @@ and `npm run routes` without new warnings.
 
 ## More
 
-[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).
+[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` and `renderDocument` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/deployment.md -->
 
@@ -6617,6 +6716,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0030 – Security headers beyond documents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0030-security-headers-beyond-documents.md): `nosniff` goes on every response through `UseNetjes`, and documents carry the `X-Frame-Options` their `frame-ancestors` implies, set before antiforgery could add its own.
 - [0031 – A sidecar that stops answering is restarted like one that crashed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0031-a-sidecar-that-stops-answering-is-restarted.md): in production a Node process silent for five seconds is pinged, and killed and restarted when no answer comes within `RenderTimeout`.
 - [0032 – The release links the package READMEs to its tag](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0032-release-links-package-readmes-to-its-tag.md): the READMEs link the docs on `main`, and the release job moves those links to `v<version>` in the packages it publishes, so npm and NuGet show each version with links to its own docs.
+- [0038 – `netjes/testing` renders a page's document from its props](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0038-netjes-testing-renders-a-pages-document.md): `renderDocument` builds the payload from the pages map by the server's rules, which a fixture shared with the C# tests keeps the same, instead of `netjes/server-entry` and its payload becoming public.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6638,6 +6738,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `PageRouteMetadata` and `CachedPageMetadata` in `Netjes.Routing`, so app code and tests can find the app's pages by walking `EndpointDataSource`, as `netjes routes` does ([endpoint metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#endpoint-metadata)). Every endpoint that serves a page carries `PageRouteMetadata`, with the page's `Pattern` as its file names it and `IsLoader`, true on the endpoint `MapPageLoader` maps. Every endpoint `CachePage` is put on carries `CachedPageMetadata`, with the `Duration` and `Tags` it was given. `CachePage` now keeps its own copy of the tags, for the page's cache entries as for the metadata, so the two agree: changing the array after the call used to change the tags the entries got, and no longer does. An app that did that passes the tags it means to `CachePage` instead. Otherwise this is new API only, and nothing else changes at runtime. Code that finds a page's endpoint by its display name (`Page /blog/[slug]`), which is not part of the API, can read `PageRouteMetadata` instead.
 - `route()` and `buildHref` take a fourth argument, `{ hash }`, which adds a `#fragment` after the query: `route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The hash is the id of an element on the page. One leading `#` is dropped and the rest is percent-encoded (`'über-uns'` becomes `#%C3%BCber-uns`, which browsers and the router decode when they look for the element); with nothing left, no fragment is added. The third argument is still the query, so a link with a fragment and no query passes `undefined` there ([routing guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links)). The generated `route()` has a new signature, so run `npx netjes generate` after upgrading, or start the app in Development, and commit `generated/netjes.ts`: `npx netjes generate --check` in CI fails until you do. Until then `route()` keeps its old signature and takes no `hash`. A link whose fragment you write into the string yourself needs no change.
 - `NetjesContentSecurityPolicy.ScriptHashes` in C# and `CSP_SCRIPT_HASHES` from `netjes` hold the `script-src` sources that allow, by their hashes, the inline scripts Netjes writes with the same text into every document, for a Content-Security-Policy without a nonce: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"` ([security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based)). In this version they hold one hash, of the bootstrap that collects streamed `Page.Defer` values: `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`, the hash the docs gave for apps to paste, unchanged since 0.0.1. An app that pasted it into its policy replaces it with the constant. Nothing changes in this version, but a pasted hash blocks the bootstrap once a Netjes version changes the script, while the constants change with it. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, are still covered by no hash. Nor do the constants hold the hash of React's script for form actions that are functions, whose text follows the React version; the security guide says what a page with such an action needs.
+- `renderDocument(page, options)` and `inlineScriptHashes(html)` in `netjes/testing`. `renderDocument` renders a page's whole document as the server sends it to a crawler, the page inside its layouts with the head, Netjes's inline scripts and the payload, from what the test passes: the props, each layout's props by the layout's file, the shared props, the route values and the URL ([the document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document), [ADR 0038](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0038-netjes-testing-renders-a-pages-document.md)). A Promise in the props is a `Page.Defer` value. It builds the segments that wrap the page from the pages map, by the server's rules, and leaves out the build's stylesheets and scripts, development styles, the antiforgery token and metadata from C#. It runs in Vitest's node environment, with the `netjes()` plugin: a test file that calls it starts with `// @vitest-environment node`, and in a DOM environment it rejects with an error that says so. `inlineScriptHashes` lists the `'sha256-…'` hashes of the inline scripts in a document that a browser runs, to compare with those a policy without a nonce lists. New apps get `app/document.test.ts`, which renders the home page's document and checks that its only inline script is the one `CSP_SCRIPT_HASHES` lists; an existing app can copy it from the template. A test that renders a document through `netjes/server-entry`, with a payload it writes itself, can call `renderDocument` instead: that entry point and its payload stay internal and can change in any version. The plugin's `virtual:netjes/pages` module now also exports `appDir`. Apps that call neither function have nothing to change.
 
 ### Changed
 
