@@ -267,7 +267,10 @@ public class PageCacheTests
         Assert.DoesNotContain(app.Logs, l => l.Category == "Netjes.Rendering.PageCachePolicy");
     }
 
-    /// <summary>Only pages render for every request in the Development environment: other endpoints are output-cached as anywhere.</summary>
+    /// <summary>
+    /// Only pages render for every request in the Development environment: other endpoints, unless <c>CachePage</c>
+    /// marks them, are output-cached as anywhere.
+    /// </summary>
     [Fact]
     public async Task InDevelopment_EndpointsThatAreNotPages_AreStillOutputCached()
     {
@@ -284,6 +287,28 @@ public class PageCacheTests
 
         Assert.Equal(("1", "1"), (first, second));
         Assert.Equal(1, calls);
+    }
+
+    /// <summary>
+    /// An endpoint that is no page but that <c>CachePage</c> marks, such as a JSON endpoint in a group it is put on, is
+    /// under the page rules, so in the Development environment it runs for every request as pages do.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_AnEndpointThatIsNoPage_UnderCachePage_RunsForEveryRequest()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup("/api").CachePage(TimeSpan.FromMinutes(5)).MapGet("/count", () => Interlocked.Increment(ref calls)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var first = await app.Client.GetStringAsync("/api/count", Ct);
+        var second = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal(("1", "2"), (first, second));
+        Assert.Equal(2, calls);
     }
 
     /// <summary>
