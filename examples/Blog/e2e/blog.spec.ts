@@ -678,3 +678,33 @@ test.describe('one URL per page', () => {
     await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' })).toHaveAttribute('aria-current', 'page');
   });
 });
+
+test.describe('beforeInteractive scripts', () => {
+  test("the root layout's beforeInteractive script runs before the page hydrates, under the nonce policy", async ({ page }) => {
+    const errors = watchForErrors(page);
+    // Records whether the router had stored its key in the history entry when the class appeared, which it does as it
+    // hydrates the page. The page is a fresh load, so the entry starts without one.
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        if (!document.documentElement?.classList.contains('js')) return;
+        const state: unknown = history.state;
+        const key = typeof state === 'object' && state !== null ? (state as Record<string, unknown>).__netjes : undefined;
+        (window as unknown as Record<string, unknown>).__routerKeyWhenJs = typeof key;
+        observer.disconnect();
+      });
+      observer.observe(document, { attributes: true, attributeFilter: ['class'], subtree: true });
+    });
+
+    const response = await page.goto('/');
+    await markWindow(page);
+
+    await expect(page.locator('html')).toHaveClass(/(^|\s)js(\s|$)/);
+    expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__routerKeyWhenJs)).toBe('undefined');
+    // Written into the document, with the page's nonce, ahead of the content it comes before.
+    const html = (await response?.text()) ?? '';
+    const script = html.indexOf('<script id="js-enabled" nonce=');
+    expect(script).toBeGreaterThan(-1);
+    expect(script).toBeLessThan(html.indexOf('<main'));
+    expect(errors).toEqual([]);
+  });
+});

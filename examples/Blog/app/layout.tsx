@@ -1,4 +1,4 @@
-import { Link, type LayoutProps, type Metadata, useBasePath } from 'netjes';
+import { Link, type LayoutProps, type Metadata, Script, useBasePath } from 'netjes';
 import { WebVitals } from 'netjes/vitals';
 import { ProgressBar } from '../components/ProgressBar.tsx';
 import { SiteHeader } from '../components/SiteHeader.tsx';
@@ -15,6 +15,11 @@ export default function RootLayout({ children }: LayoutProps) {
   return (
     <>
       <link rel="icon" href={`${basePath}/favicon.svg`} type="image/svg+xml" />
+      {/* Runs where it stands, as the parser reaches it, before anything below it is painted: styles can tell a page
+          with JavaScript from one without, from the first paint. It takes no focus, so the skip link stays first. */}
+      <Script id="js-enabled" strategy="beforeInteractive">
+        {"document.documentElement.classList.add('js')"}
+      </Script>
       {/* The first element Tab reaches, after a page load and after every client navigation, when the router starts
           the focus over at the top of the document. It points to a place on this page, which needs no prefetch. */}
       <Link

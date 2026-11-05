@@ -46,6 +46,7 @@ The development container binds its ports to localhost only, and `appsettings.De
 | Streaming: a page that is interactive before its slow part arrives | `Features/Streaming/StreamingDemo.cs`, `app/streaming/page.tsx` |
 | Shared props: the site name and the navigation, typed as `sharedProps`, whose links are `Href` in C#, checked against the pages where the props are parsed | `Program.cs`, `SiteProps.cs`, `components/SiteHeader.tsx` |
 | A nonce-based Content-Security-Policy, web vitals reported to .NET metrics, the sitemap and `robots.txt`, output caching and a health check | `Program.cs`, `app/layout.tsx` |
+| A `beforeInteractive` script in the root layout, which puts the class `js` on `<html>` before the first paint, under the nonce policy; `app/document.test.ts` lists its hash for a policy without a nonce | `app/layout.tsx`, `app/document.test.ts` |
 | A base path (`PathBase=/base`, like Next.js's `basePath`) and forwarded headers from known proxies only | `Program.cs` |
 | Not-found and error pages | `app/not-found.tsx`, `app/error.tsx` |
 
