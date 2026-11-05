@@ -25,7 +25,10 @@ export type TestAppOptions = {
   shared?: unknown;
   /** Seeded into the QueryClient the way `PageResult.WithQuery` seeds it, as of now. */
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>;
-  /** Like `netjes({ query: { defaultOptions } })`; the harness also turns retries off. */
+  /**
+   * Like `netjes({ query: { defaultOptions } })`, merged over the harness's own: failed queries and mutations are tried
+   * as often as in the app, with no wait between the tries, and no query's data is garbage-collected.
+   */
   defaultOptions?: DefaultOptions;
   /** What `useNavigation()` returns. Default idle. */
   navigation?: NavigationState;
@@ -76,6 +79,13 @@ function RegisterActionClient({ client }: { client: ActionClient }) {
 
 const TEST_TOKEN: AntiforgeryToken = { formFieldName: '__RequestVerificationToken', headerName: 'RequestVerificationToken', requestToken: 'test-token' };
 
+/**
+ * The harness's own query defaults, over the Netjes defaults: a failed query or mutation is tried as often as in the
+ * app, but without the wait between the tries (TanStack Query's 1, 2 and 4 seconds would outlast a test), and data
+ * stays in the client for the whole test.
+ */
+const HARNESS_DEFAULTS: DefaultOptions = { queries: { retryDelay: 0, gcTime: Number.POSITIVE_INFINITY }, mutations: { retryDelay: 0 } };
+
 function dataOf(body: SubmitBody): URLSearchParams | FormData {
   return body.contentType === null ? body.body : new URLSearchParams(body.body);
 }
@@ -83,10 +93,7 @@ function dataOf(body: SubmitBody): URLSearchParams | FormData {
 /** Creates a fake app around the components under test: pass its `Wrapper` to Testing Library's `render`. The router loads nothing; it records what was asked of it. */
 export function createTestApp(options: TestAppOptions = {}): TestApp {
   const navigations: TestNavigation[] = [];
-  const defaults = mergeOptions(options.defaultOptions);
-  const queryClient =
-    options.queryClient ??
-    new QueryClient({ defaultOptions: { ...defaults, queries: { retry: false, gcTime: Number.POSITIVE_INFINITY, ...defaults.queries } } });
+  const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: mergeOptions(HARNESS_DEFAULTS, options.defaultOptions) });
   const now = Date.now();
   const seeded = dehydratedStateOf(options.queries?.map((query) => ({ ...query, updatedAt: now })));
   if (seeded) hydrate(queryClient, seeded);

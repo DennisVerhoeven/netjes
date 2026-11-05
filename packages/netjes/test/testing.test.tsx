@@ -3,13 +3,39 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
 import { serverAction, useAction } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/** Fetches its own data, as a component with a query that no loader seeds does. */
+function Likes() {
+  const likes = useQuery({
+    queryKey: ['likes', 'hello'],
+    queryFn: async () => {
+      const response = await fetch('/api/posts/hello/likes');
+      if (!response.ok) throw new Error(`Likes request failed with ${response.status}`);
+      return (await response.json()) as { likes: number };
+    },
+  });
+  return <p>{likes.isError ? 'Failed' : likes.data ? `Loaded ${likes.data.likes} likes` : 'Loading'}</p>;
+}
+
+/** Answers every request with `status`, or with `{ likes: 3 }` once `failures` requests have failed. */
+function stubFetch(failures = Number.POSITIVE_INFINITY) {
+  const fetch = vi.fn(async () =>
+    fetch.mock.calls.length <= failures ? new Response(null, { status: 500 }) : new Response(JSON.stringify({ likes: 3 })),
+  );
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
 
 function Nav() {
   const site = useSharedProps(z.object({ siteName: z.string() }));
@@ -214,7 +240,26 @@ describe('createTestApp', () => {
     const app = createTestApp({ defaultOptions: { queries: { staleTime: 5 } } });
 
     expect(app.queryClient.getDefaultOptions().queries?.staleTime).toBe(5);
-    expect(app.queryClient.getDefaultOptions().queries?.retry).toBe(false);
+    expect(app.queryClient.getDefaultOptions().queries?.retry).toBeUndefined();
+    expect(app.queryClient.getDefaultOptions().queries?.retryDelay).toBe(0);
+    expect(app.queryClient.getDefaultOptions().mutations?.retryDelay).toBe(0);
+  });
+
+  it('tries a failed query as often as the app does, without waiting between the tries', async () => {
+    const fetch = stubFetch();
+
+    render(<Likes />, { wrapper: createTestApp().Wrapper });
+
+    expect(await screen.findByText('Failed')).toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('shows what a query gets on a later try, as the app does', async () => {
+    stubFetch(1);
+
+    render(<Likes />, { wrapper: createTestApp().Wrapper });
+
+    expect(await screen.findByText('Loaded 3 likes')).toBeDefined();
   });
 
   it('provides params, a navigation state and a QueryClient seeded with queries', () => {
