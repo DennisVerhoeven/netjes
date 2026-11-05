@@ -545,6 +545,24 @@ describe('the focus after a navigation', () => {
     expect(document.activeElement).toBe(save);
   });
 
+  it('keeps the focus on a refresh that the server sends to another page, as it keeps the scroll position', async () => {
+    server.use(
+      http.get(`${origin}/tabs/two`, () => HttpResponse.json({ kind: 'redirect', location: '/tabs/one', version: 'v1' })),
+      pageHandler('/tabs/one', payload('tabs/one', '/tabs/one')),
+    );
+    await renderApp(payload('tabs/two', '/tabs/two', { props: { version: 1 } }));
+    const menu = screen.getByRole('button', { name: 'Menu' });
+    menu.focus();
+    const focusBody = vi.spyOn(document.body, 'focus');
+
+    await act(() => router!.refresh());
+
+    expect(screen.getByRole('heading', { name: 'Tab one' })).toBeDefined();
+    expect(window.location.pathname).toBe('/tabs/one');
+    expect(document.activeElement).toBe(menu);
+    expect(focusBody).not.toHaveBeenCalled();
+  });
+
   it('starts the focus over after a link inside the page to another page, even with scroll={false}', async () => {
     server.use(pageHandler('/tabs/two', payload('tabs/two', '/tabs/two', { props: { version: 1 } })));
     const { user } = await renderApp(payload('tabs/one', '/tabs/one'));
