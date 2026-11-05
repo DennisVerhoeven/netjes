@@ -61,6 +61,7 @@ const modules = {
 };
 
 const withErrorPage: SegmentRef[] = [{ id: 'app', error: 'app/error.tsx' }];
+const rootErrorPage: SpecialPageRef = { page: 'app/error.tsx', segments: [] };
 const antiforgery = { formFieldName: '__RequestVerificationToken', headerName: 'RequestVerificationToken', requestToken: 'tok' };
 
 function payload(page: string, url: string, overrides: Partial<PagePayload> = {}): PagePayload {
@@ -149,5 +150,37 @@ describe('the error an error page is handed', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Forbidden');
     expect(handed).toBeInstanceOf(ServerActionError);
     expect(handed).toMatchObject({ status: 403, withheld: false });
+  });
+
+  it("the router's top-level boundary hands the app's error page the error it caught", async () => {
+    thrown = new TypeError("Cannot read properties of undefined (reading 'title')");
+    await renderApp(payload('app/throws/page.tsx', '/throws'), rootErrorPage);
+
+    expect((await screen.findByRole('alert')).textContent).toBe("Cannot read properties of undefined (reading 'title')");
+    // As thrown: its class, its own stack and no status of a server answer it never had.
+    expect(handed).toBe(thrown);
+    expect(handed?.status).toBeUndefined();
+
+    cleanup();
+    thrown = new ServerActionError('Forbidden', 403);
+    await renderApp(payload('app/throws/page.tsx', '/throws'), rootErrorPage);
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Forbidden');
+    expect(handed).toBe(thrown);
+    expect(handed?.status).toBe(403);
+
+    cleanup();
+    thrown = 'The archive is closed for the night';
+    await renderApp(payload('app/throws/page.tsx', '/throws'), rootErrorPage);
+
+    expect((await screen.findByRole('alert')).textContent).toBe('The archive is closed for the night');
+
+    cleanup();
+    // Without an error page of the app's own, the built-in one still says 500.
+    thrown = new TypeError('no title');
+    await renderApp(payload('app/throws/page.tsx', '/throws'));
+
+    expect(await screen.findByText('500')).toBeDefined();
+    expect(screen.getByText('no title')).toBeDefined();
   });
 });

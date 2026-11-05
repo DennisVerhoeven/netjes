@@ -16,7 +16,7 @@ import { actionRequest, expectActionClient, fetchAction, setActionClient } from 
 import { deferredRegistry, revivePayload } from './deferred.ts';
 import type { EncodedForm } from './form-data.ts';
 import type { Href } from './href.ts';
-import { MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
+import { type ErrorPageProps, MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
 import { moveFocusAfterNavigation } from './navigation-focus.ts';
 import {
   type ActionResponse,
@@ -34,7 +34,7 @@ import {
   parseNavigationPayload,
 } from './payload.ts';
 import { RouteAnnouncer } from './route-announcer.tsx';
-import { ErrorBoundary, LayoutDepthContext, RouteTree } from './route-tree.tsx';
+import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
 import { type StandardSchemaV1, parseLenient, parseWith } from './schema.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
@@ -1090,8 +1090,13 @@ export function RouterProvider({
 
 const errorPageModules = new WeakMap<ModuleLoader, Promise<RouteModules>>();
 
+/**
+ * What the router shows for an error no segment's boundary caught: the app's root error page, handed the error as it
+ * was thrown (its class, its stack, a server action's status), or the built-in page, which says 500.
+ */
 function ErrorFallback({ error, errorPage, loader, payload }: { error: unknown; errorPage: SpecialPageRef | null; loader: ModuleLoader; payload: PagePayload }) {
-  const props = { status: 500, message: error instanceof Error ? error.message : 'Something went wrong' };
+  const caught = asError(error);
+  const props = { status: 500, message: caught.message };
   const builtIn = <RouteTree modules={{ page: null, segments: [] }} props={props} params={payload.params} status={500} pageKey="error" />;
   if (!errorPage) return builtIn;
   let modules = errorPageModules.get(loader);
@@ -1103,14 +1108,24 @@ function ErrorFallback({ error, errorPage, loader, payload }: { error: unknown; 
     // If the error page (or a layout around it) throws as well, fall back to the built-in page.
     <ErrorBoundary resetKey={0} fallback={() => builtIn}>
       <Suspense fallback={null}>
-        <LoadedErrorPage modules={modules} props={props} payload={payload} />
+        <LoadedErrorPage modules={modules} props={props} error={caught} payload={payload} />
       </Suspense>
     </ErrorBoundary>
   );
 }
 
-function LoadedErrorPage({ modules, props, payload }: { modules: Promise<RouteModules>; props: Record<string, unknown>; payload: PagePayload }) {
-  return <RouteTree modules={use(modules)} props={props} params={payload.params} status={500} pageKind="error" pageKey="error" />;
+function LoadedErrorPage({
+  modules,
+  props,
+  error,
+  payload,
+}: {
+  modules: Promise<RouteModules>;
+  props: Record<string, unknown>;
+  error: ErrorPageProps['error'];
+  payload: PagePayload;
+}) {
+  return <RouteTree modules={use(modules)} props={props} params={payload.params} status={500} pageKind="error" pageKey="error" error={error} />;
 }
 
 /** The router's contexts without the router: for the test harness (netjes/testing), which fakes navigation. */
