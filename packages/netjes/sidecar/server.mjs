@@ -129,7 +129,10 @@ if (mode === 'development') {
 
 /**
  * Inlines the CSS imported by the page and its segment files, so the server-rendered page is styled before the client
- * script runs. Vite's client adopts these <style data-vite-dev-id> tags and keeps them updated through HMR.
+ * script runs. Vite's client adopts these <style data-vite-dev-id> tags and keeps them updated through HMR: each CSS
+ * module sets its tag's text to its own as it loads, before hydration. The files are found in the SSR environment,
+ * which rendered the page, and their text comes from the client environment's build, which that module carries
+ * (clientCss): React then hydrates the text the server rendered.
  * @param {import('vite').ViteDevServer} server
  * @param {string} data
  */
@@ -151,8 +154,7 @@ async function withDevStyles(server, data) {
     if (!node?.id || seen.has(node.id)) return;
     seen.add(node.id);
     if (node.file && CSS_FILE.test(node.file) && !node.id.includes('?')) {
-      const css = await server.ssrLoadModule(`${node.url}?inline`);
-      styles.set(node.file, String(css.default));
+      styles.set(node.file, await clientCss(server, node));
       return;
     }
     for (const imported of node.importedModules) await collect(imported);
@@ -165,6 +167,51 @@ async function withDevStyles(server, data) {
   if (styles.size === 0) return data;
   payload.document.devStyles = [...styles].map(([id, css]) => ({ id, css }));
   return JSON.stringify(payload).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/** How a CSS module in the client environment declares the text it sets: this, then the text as a JSON string. */
+const CLIENT_CSS_LINE = 'const __vite__css = ';
+/** Whether a module without that line has been reported: once per process. */
+let clientCssMissing = false;
+
+/**
+ * A CSS file's text as Vite's client sets it in the page: the string that the file's module in the client environment
+ * declares and passes to updateStyle. The browser imports that module and gets it from the same cache, until an edit
+ * invalidates it. The SSR environment's `?inline` build is a second build of the file, which a plugin with state of its
+ * own in each environment, as Tailwind CSS has, can make differently. A module without that line, from a Vite or a
+ * plugin that writes it otherwise, gets the `?inline` build all the same, and a warning.
+ * @param {import('vite').ViteDevServer} server
+ * @param {import('vite').EnvironmentModuleNode} node
+ */
+async function clientCss(server, node) {
+  const built = await server.environments.client.transformRequest(node.url);
+  // By lines, not with a regular expression: JSON.stringify leaves U+2028 and U+2029 in a string, and `.` stops at both.
+  const line = built?.code.split('\n').find((text) => text.startsWith(CLIENT_CSS_LINE));
+  const css = line === undefined ? undefined : jsonString(line.slice(CLIENT_CSS_LINE.length));
+  if (css !== undefined) return css;
+  if (!clientCssMissing) {
+    clientCssMissing = true;
+    console.warn(
+      `netjes: Vite's client module for ${node.url} has no line that starts with "${CLIENT_CSS_LINE}", so development ` +
+        "pages inline the SSR build of their CSS: it can differ from the browser's build, which Vite's client puts in " +
+        "its place once the page's scripts run. Logged once, for the first such file.",
+    );
+  }
+  const inline = await server.ssrLoadModule(`${node.url}?inline`);
+  return String(inline.default);
+}
+
+/**
+ * @param {string} json
+ * @returns {string | undefined} The string `json` holds, or undefined when it holds no string.
+ */
+function jsonString(json) {
+  try {
+    const value = JSON.parse(json);
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

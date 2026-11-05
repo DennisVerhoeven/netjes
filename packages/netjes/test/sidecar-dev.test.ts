@@ -21,6 +21,8 @@ let root = '';
 /** The spawned process, kept from the moment it starts: `sidecar` is unset when startup times out, and the child must still die. */
 let child: ChildProcess | undefined;
 let sidecar: { port: number; vitePort: number };
+/** What the sidecar has written to stdout and stderr since it started. */
+let output = '';
 
 async function write(file: string, content: string) {
   await mkdir(path.dirname(path.join(root, file)), { recursive: true });
@@ -49,10 +51,11 @@ async function runToExit(spawned: ChildProcess) {
 function start(): Promise<typeof sidecar> {
   const spawned = spawnSidecar(0);
   child = spawned;
-  spawned.stderr.resume();
+  spawned.stderr.setEncoding('utf8').on('data', (chunk: string) => (output += chunk));
   return new Promise((resolve, reject) => {
     let vitePort = 0;
     createInterface({ input: spawned.stdout }).on('line', (line) => {
+      output += `${line}\n`;
       if (line.startsWith('VITE_PORT ')) vitePort = Number(line.slice(10));
       if (line.startsWith('NETJES_READY ')) resolve({ port: JSON.parse(line.slice(12)).port, vitePort });
     });
@@ -88,6 +91,25 @@ async function browserModule(url: string) {
   return response.text();
 }
 
+/** The `<style data-vite-dev-id>` elements of a document, by id, with their text: what Vite's client adopts. */
+function devStyles(html: string) {
+  const styles = new Map<string, string>();
+  for (const [, id = '', css = ''] of html.matchAll(/<style data-vite-dev-id="([^"]*)"[^>]*>([\s\S]*?)<\/style>/g)) styles.set(id, css);
+  return styles;
+}
+
+/**
+ * A string that a CSS module, as the browser gets it, declares on a line of its own: `const <name> = <JSON>`. Vite's
+ * client finds the style element by the `__vite__id` and sets its text to the `__vite__css`. Read by lines, not with a
+ * regular expression: JSON.stringify leaves U+2028 and U+2029 in a string, and a regular expression's `.` stops at both.
+ */
+function moduleString(cssModule: string, name: string) {
+  const prefix = `const ${name} = `;
+  const line = cssModule.split('\n').find((text) => text.startsWith(prefix));
+  if (line === undefined) throw new Error(`the module declares no ${name}:\n${cssModule}`);
+  return JSON.parse(line.slice(prefix.length)) as string;
+}
+
 /** The page module map the browser loads with a page: the one the client entry, as served now, imports. */
 async function browserPages() {
   const entry = await browserModule('/@netjes/client-entry');
@@ -108,8 +130,11 @@ beforeAll(async () => {
       "import netjes from 'netjes/vite';",
       // The port Vite listens on, for the requests a browser makes.
       "const port = { name: 'port', configureServer(server) { server.httpServer.once('listening', () => console.log(`VITE_PORT ${server.httpServer.address().port}`)); } };",
+      // Each Vite environment builds a CSS file on its own, and a plugin can build it differently in each (Tailwind CSS
+      // keeps its classes per environment): this one says in the CSS which environment built it.
+      "const environmentMark = { name: 'environment-mark', transform(code, id) { if (id.split('?')[0].endsWith('.css')) return `${code}/* built for ${this.environment.name} */`; } };",
       // No watcher: nothing tells Vite about files added after it started. Its caches stay in this folder.
-      "export default { plugins: [netjes({ tailwind: false }), port], cacheDir: '.vite', logLevel: 'error', server: { watch: null } };",
+      "export default { plugins: [netjes({ tailwind: false }), port, environmentMark], cacheDir: '.vite', logLevel: 'error', server: { watch: null } };",
       '',
     ].join('\n'),
   );
@@ -266,5 +291,36 @@ describe('the development sidecar', () => {
     expect(error.message.split('\n').length).toBeGreaterThan(4);
     expect(error.message).not.toContain('\u001b');
     expect(error.stack).not.toContain('\u001b');
+  });
+
+  it("inlines a page's CSS as the browser's module sets it, from the client environment's build", async () => {
+    await write('app/styled/styles.css', 'h1{color:red}\n');
+    await write('app/styled/page.tsx', "import './styles.css';\nexport default function Styled() { return <h1>Styled</h1>; }\n");
+
+    const response = await render('app/styled/page.tsx');
+
+    expect(response.status).toBe(200);
+    const styles = devStyles(await response.text());
+    // The CSS module the page's import loads in the browser, which sets the text of the element with its id.
+    const cssModule = await browserModule('/app/styled/styles.css');
+    const id = moduleString(cssModule, '__vite__id');
+    expect([...styles.keys()]).toEqual([id]);
+    expect(styles.get(id)).toBe(moduleString(cssModule, '__vite__css'));
+    expect(styles.get(id)).toContain('built for client');
+  });
+
+  it("inlines the client's build of a stylesheet that contains U+2028", async () => {
+    // A line separator, which JSON.stringify leaves as it is on the line of the CSS module that holds the text.
+    await write('app/separator/styles.css', '.a::after{content:"a\u2028b"}\n');
+    await write('app/separator/page.tsx', "import './styles.css';\nexport default function Separator() { return <h1 className=\"a\">Separator</h1>; }\n");
+
+    const response = await render('app/separator/page.tsx');
+
+    expect(response.status).toBe(200);
+    const [css] = devStyles(await response.text()).values();
+    expect(css).toContain('content:"a\u2028b"');
+    expect(css).toContain('built for client');
+    // The warning the sidecar logs when it inlines the SSR build instead names the line it did not find.
+    expect(output).not.toContain('__vite__css');
   });
 });
