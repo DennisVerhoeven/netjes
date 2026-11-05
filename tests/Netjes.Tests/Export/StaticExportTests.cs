@@ -1054,6 +1054,16 @@ public class StaticExportTests
     }
 
     [Fact]
+    public async Task Export_MapSitemapInARouteGroupWithParameters_FailsBeforeWritingAnything()
+    {
+        await using var app = await ExportAsync(map: a => a.MapGroup("/{lang}").MapSitemap(new Uri("https://example.com/")));
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains("GET, HEAD /{lang}/sitemap.xml") && l.Message.Contains("parameters"));
+        Assert.False(Directory.Exists(_out));
+    }
+
+    [Fact]
     public async Task Export_MapRobotsTxtAndARobotsTxtInTheClientBuild_FailBeforeWritingAnything()
     {
         await using var app = await ExportAsync(
