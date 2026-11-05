@@ -21,7 +21,11 @@ export type NetjesPluginOptions = {
    * so plain values (numbers including Infinity, strings, booleans, objects, arrays) work and functions are rejected.
    */
   query?: boolean | { defaultOptions?: DefaultOptions };
-  /** Vitest defaults (jsdom, Testing Library cleanup, no e2e/ or build output). Default true; the app's own `test` settings win. */
+  /**
+   * Vitest defaults (jsdom, Testing Library cleanup, no e2e/ or build output), each only where the app's own `test`
+   * settings leave it unset, except Netjes's own setup file, which goes into every app's `setupFiles` after the app's
+   * own. Default true; `false` adds none of them.
+   */
   test?: boolean;
 };
 

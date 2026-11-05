@@ -15,6 +15,8 @@ const SERVER_ENTRY = normalizePath(fileURLToPath(new URL('../dist/server-entry.j
 const SIDECAR = fileURLToPath(new URL('../sidecar/server.mjs', import.meta.url));
 const QUERY_MODULE = normalizePath(fileURLToPath(new URL('../dist/query.js', import.meta.url)));
 const TEST_SETUP = normalizePath(fileURLToPath(new URL('../dist/testing-setup.js', import.meta.url)));
+// What the test harness needs from Vitest: the setup file every app's tests get, after the app's own. Not exported.
+const TEST_VITEST = normalizePath(fileURLToPath(new URL('../dist/testing-vitest.js', import.meta.url)));
 
 const PAGES_ID = 'virtual:netjes/pages';
 const RESOLVED_PAGES_ID = `\0${PAGES_ID}`;
@@ -72,7 +74,8 @@ function canResolve(root, name) {
 
 /**
  * Vitest settings for component tests, unless the app set them itself: a DOM (when jsdom is installed), Testing
- * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders.
+ * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders. One
+ * exception: Netjes's own setup file goes into every app's setupFiles, which Vite appends to the app's own.
  * @param {Record<string, unknown> | undefined} test
  * @param {string} root
  */
@@ -83,7 +86,8 @@ function testDefaults(test = {}, root) {
   if (test.exclude === undefined) {
     defaults.exclude = ['**/node_modules/**', '**/dist/**', '**/bin/**', '**/obj/**', '**/e2e/**', '**/.git/**'];
   }
-  if (test.setupFiles === undefined && canResolve(root, '@testing-library/react')) defaults.setupFiles = [TEST_SETUP];
+  const cleanup = test.setupFiles === undefined && canResolve(root, '@testing-library/react');
+  defaults.setupFiles = cleanup ? [TEST_SETUP, TEST_VITEST] : [TEST_VITEST];
   return defaults;
 }
 
