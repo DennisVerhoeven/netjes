@@ -86,9 +86,11 @@ function insert(key: string, { src, code, id, nonce, attributes, async, parent }
   return entry;
 }
 
-function add(key: string, { src, children, strategy: _strategy, id, onLoad: _onLoad, onError: _onError, ...rest }: ScriptProps): Entry {
+function add(key: string, { src, children, strategy, id, onLoad: _onLoad, onError: _onError, ...rest }: ScriptProps): Entry {
+  // Inline beforeInteractive code as the server's document carries it, so that one hash allows it on either path.
+  const code = strategy === 'beforeInteractive' ? escapeScriptText(children ?? '') : (children ?? '');
   return insert(key, {
-    ...(src ? { src } : { code: children ?? '' }),
+    ...(src ? { src } : { code }),
     ...(id ? { id } : {}),
     ...(rest.nonce ? { nonce: rest.nonce } : {}),
     attributes: attributesOf(rest),

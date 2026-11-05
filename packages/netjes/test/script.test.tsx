@@ -412,6 +412,16 @@ describe('Script with beforeInteractive', () => {
     expect(document.querySelectorAll('meta[name="netjes-before-interactive"]')).toHaveLength(0);
   });
 
+  it("writes inline beforeInteractive code on a client render as the server's document carries it, so one hash allows both", () => {
+    const code = "document.tag = '</script>';";
+    const server = parsed(renderToString(page(<Script id="tag-server" strategy="beforeInteractive">{code}</Script>)));
+
+    render(<Script id="tag-client" strategy="beforeInteractive">{code}</Script>);
+
+    expect(document.getElementById('tag-client')?.textContent).toBe(server.getElementById('tag-server')?.textContent);
+    expect(traces().tag).toBe('</script>');
+  });
+
   it('warns in development about attributes that would change when a beforeInteractive script runs', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
