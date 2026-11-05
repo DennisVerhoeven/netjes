@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 using Netjes.Tests.Endpoints;
 using Netjes.TypeGen;
 
@@ -174,6 +175,9 @@ public class TypeScriptGeneratorTests
                 a.MapGet("/api/filter", ([AsParameters] ItemFilter filter) => TypedResults.Ok(new Item(filter.Page, filter.Q ?? "")));
                 a.MapGet("/api/tags", (string[] tags, DateOnly? since) => TypedResults.Ok(tags));
                 a.MapGet("/api/paged", (Paging paging) => TypedResults.Ok(new Item(paging.Page, "")));
+                a.MapGet("/api/page", ([FromQuery(Name = "page[size]")] int? size, StringValues sort) => TypedResults.Ok(new Item(size ?? 0, $"{sort}")));
+                // A HEAD asks for no body: the JSON endpoint has a key for its GET only.
+                a.MapMethods("/api/status", [HttpMethods.Get, HttpMethods.Head], () => TypedResults.Ok(new Item(1, "up")));
                 a.MapPost("/api/items", (NewItem item, HttpContext http, CancellationToken cancellationToken) =>
                     TypedResults.Created("/api/items/1", new Item(1, item.Name)));
                 // On a POST, minimal APIs read an array from the JSON body.
@@ -189,9 +193,11 @@ public class TypeScriptGeneratorTests
             export type EndpointParams = {
               "GET /api/filter": { Q?: string | null | undefined; Page?: number | null | undefined };
               "GET /api/items/{id}": { id: number; v: number };
+              "GET /api/page": { "page[size]"?: number | null | undefined; sort?: string | readonly string[] | null | undefined };
               "GET /api/paged": Record<string, never>;
               "GET /api/posts/{slug}/comments/{n:int}": { slug: string; n: number };
               "GET /api/search": { q?: string | null | undefined; take?: number | null | undefined; size?: number | null | undefined };
+              "GET /api/status": Record<string, never>;
               "GET /api/tags": { tags?: readonly string[] | null | undefined; since?: string | null | undefined };
               "POST /api/items": Record<string, never>;
               "POST /api/items/bulk": Record<string, never>;
@@ -344,17 +350,19 @@ public class TypeScriptGeneratorTests
                 a.MapGet("/list/{page:int=1}", (int page) => $"{page}");
                 a.MapGet("/files/{name}.{ext?}", (string name, string? ext) => name);
                 a.MapGet("/a{{b}}/{id}", (string id) => id);
+                a.MapGet("/100%/{id}", (string id) => id);
                 a.MapGet("/", () => "home");
             });
 
         var output = await GenerateAsync(app);
 
         // As the matcher reads them: without constraints or a trailing slash, which it ignores, and with a literal's
-        // braces encoded, so that only a value's braces are left.
+        // braces encoded, so that only a value's braces are left, and its % too, which would start an escape.
         Assert.Contains(
             """
             const endpointTemplates: Record<EndpointKey, string> = {
               "GET /": "/",
+              "GET /100%/{id}": "/100%25/{id}",
               "GET /api/posts/{slug}/likes/": "/api/posts/{slug}/likes",
               "GET /a{{b}}/{id}": "/a%7Bb%7D/{id}",
               "GET /docs/{**path:regex(\\.md$)}": "/docs/{**path}",
