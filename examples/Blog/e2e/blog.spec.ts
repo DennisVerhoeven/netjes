@@ -103,6 +103,30 @@ test.describe('in the browser', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a script that sets attributes on <html> and <body> before hydration logs no hydration error', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'development', 'React checks attributes in its development build only');
+    const errors = watchForErrors(page);
+    // As a theme script or a browser extension would: write to each element as soon as the parser has made it. An init
+    // script runs before the document has any element, so it waits for them.
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        document.documentElement?.setAttribute('data-theme', 'dark');
+        if (document.body) {
+          document.body.setAttribute('data-gr-ext-installed', '');
+          observer.disconnect();
+        }
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    });
+
+    await page.goto('/');
+    await markWindow(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveAttribute('data-gr-ext-installed', '');
+    expect(errors).toEqual([]);
+  });
+
   test('a nonce-based Content-Security-Policy allows exactly the scripts Netjes rendered', async ({ page }) => {
     const errors = watchForErrors(page);
     const response = await page.goto('/blog/react-pages-on-dotnet');

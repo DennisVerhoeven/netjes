@@ -65,6 +65,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0023 – Pages are not output-cached in Development](decisions/0023-pages-are-not-output-cached-in-development.md)
 - [0024 – Link marks the current page by its path and the query parameters it names](decisions/0024-link-marks-the-current-page-by-path-and-query.md)
 - [0025 – A mark on `<html>` says the client router runs](decisions/0025-a-mark-on-html-says-the-client-router-runs.md)
+- [0026 – Netjes's own `<html>` and `<body>` skip React's attribute check](decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)
 
 ## The project
 
