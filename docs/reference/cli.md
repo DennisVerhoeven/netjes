@@ -176,7 +176,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 }
 ```
 
-`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does.
+`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does. A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings): `query-binding` for a loader parameter that reads the query string instead of a route value, `overlap` for two pages that match the same URLs, `ambiguous-endpoint` for an endpoint that ties with a page, and `form-input` for a form input that refuses a post without a checkbox. `files` lists the page and layout files the warning is about, and is empty for a server action's form input.
 
 ## netjes export
 

@@ -9,7 +9,7 @@ Every page of the Netjes documentation, with a line on what it covers. Start wit
 
 ## Guides
 
-- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales and route warnings.
+- [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
 - [Rendering and streaming](guides/rendering-and-streaming.md): the Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages.
@@ -63,6 +63,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0021 – Signing in or out reaches the app's other tabs](decisions/0021-signing-in-or-out-reaches-the-other-tabs.md)
 - [0022 – The client entry hydrates once the shell is parsed](decisions/0022-hydrate-once-the-shell-is-parsed.md)
 - [0023 – Pages are not output-cached in Development](decisions/0023-pages-are-not-output-cached-in-development.md)
+- [0029 – An endpoint that ties with a page is a route warning](decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md)
 
 ## The project
 

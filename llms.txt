@@ -14,7 +14,7 @@ Netjes ships as the npm package `netjes` (the Vite plugin, the client router, th
 
 ## Guides
 
-- [Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md): The `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales and route warnings
+- [Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md): The `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings
 - [Data loading](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md): Page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#
 - [Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md): Server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads
 - [Rendering and streaming](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md): The Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages
