@@ -4,8 +4,10 @@
 //   production:  renders with the prebuilt dist/server/server-entry.js.
 // Protocol: POST /render with the HTML-safe page payload JSON as body -> 200 text/html, streamed from the moment the
 // shell is ready (or once everything is, with X-Netjes-Wait-All: 1), or 500 {"error":{message,stack}} in plain text
-// (no terminal colours) if the shell fails. Every request must carry the X-Netjes-Token the parent passed in
-// NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
+// (no terminal colours) if the shell fails. GET /health -> 200 at once, without a body read. In production the parent
+// pings a process that has answered no render for a while; any answer will do, and a process that sends nothing back
+// within the render timeout (at least 5 s) is killed and restarted. Every request must carry the X-Netjes-Token the
+// parent passed in NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
 // NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Exits when stdin
 // closes.
 // Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. When the Vite dev server does not start,

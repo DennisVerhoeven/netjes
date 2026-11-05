@@ -41,6 +41,8 @@ A render that runs out of time fails with the error page.
 
 A process that exits is restarted after 1 second, then after 2, 4, 8 and 16 seconds for each crash in a row, and after 30 seconds from then on. The delay goes back to 1 second once a process has stayed up for 30 seconds. Each exit is logged with the last lines the process printed.
 
+In production, a process that stops answering without exiting (stuck in a loop, deadlocked, stopped by a signal) is restarted the same way. Netjes sends a health ping (`GET /health`) to a process that has answered no render for 5 seconds; one that gives no answer within `RenderTimeout`, and never less than 5 seconds, is taken out of the ready ones and killed, with an error in the log, and then restarts as a crashed one does. A render that had been sent to it fails with the error page. A process kept busy by a long render, but for less than that, is left alone, as is one that waits on data while it renders. In development nothing is pinged, since the process also runs the Vite dev server and can stop at a breakpoint in your code. A sidecar script of your own (`Netjes:SidecarScript`) must answer `GET /health`, with any status and without reading a request body.
+
 Renders while a process is down go like this:
 
 - A render that has already been sent to the process when it dies fails with the error page. Netjes never sends it again, because it may be the render that brought the process down.
@@ -59,7 +61,7 @@ builder.Services.AddHealthChecks().AddNetjes();
 app.MapHealthChecks("/healthz");
 ```
 
-It reports Healthy when every process is ready, Degraded while some are restarting (renders go to the others), and Unhealthy when none is ready. The template's Docker health check calls `/healthz`. See [deployment](deployment.md#health-checks).
+It reports Healthy when every process is ready, Degraded while some are restarting (renders go to the others), and Unhealthy when none is ready. A process that stopped answering counts as restarting from the moment it is taken out. The template's Docker health check calls `/healthz`. See [deployment](deployment.md#health-checks).
 
 ## Streamed documents
 
@@ -174,7 +176,7 @@ The response then starts once every deferred value has arrived, up to `StreamTim
 
 ## When no sidecar is ready
 
-In production, a document request that finds no Node process ready (they have all crashed and are restarting) does not wait for one. Loaders and authorization run as usual and the response has the status it would have had, but .NET writes the document itself: a head with the stylesheets, the client entry and the CSP nonce, the `<title>`, description and robots from the loader's `PageMetadata`, and a body with only the page payload. The browser renders the page instead of hydrating it, and `Page.Defer` values stream in after it as usual. ([ADR 0013](../decisions/0013-client-rendered-fallback.md) has the reasoning.)
+In production, a document request that finds no Node process ready (they have all crashed or stopped answering, and are restarting) does not wait for one. Loaders and authorization run as usual and the response has the status it would have had, but .NET writes the document itself: a head with the stylesheets, the client entry and the CSP nonce, the `<title>`, description and robots from the loader's `PageMetadata`, and a body with only the page payload. The browser renders the page instead of hydrating it, and `Page.Defer` values stream in after it as usual. ([ADR 0013](../decisions/0013-client-rendered-fallback.md) has the reasoning.)
 
 - Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route`.
 - It is never stored in the output cache, and it goes out with `Cache-Control: no-store` in place of any header the page set, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, `Surrogate-Control` and the others listed in [caching](caching.md#cdns-and-proxies)), so no browser, and no CDN that goes by the response's headers, keeps it once the processes are back.
