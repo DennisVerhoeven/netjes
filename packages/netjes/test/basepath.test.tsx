@@ -98,6 +98,13 @@ describe('a base path', () => {
     expect(window.location.pathname).toBe('/base/contact');
   });
 
+  it('marks a link written without the base path as the current page', async () => {
+    await renderApp(payload('/about', 'About'));
+
+    expect(screen.getByRole('link', { name: 'About' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Prefixed' }).getAttribute('aria-current')).toBeNull();
+  });
+
   it('marks a link whose href already has the base path as the current page', async () => {
     await renderApp(payload('/contact', 'Contact'));
 
