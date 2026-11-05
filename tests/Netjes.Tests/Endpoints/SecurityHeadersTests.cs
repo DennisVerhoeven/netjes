@@ -4,7 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
 
-/// <summary>nosniff, a referrer policy and a same-origin framing policy on every document, unless the app set its own.</summary>
+/// <summary>
+/// nosniff on every response through UseNetjes, and a referrer policy and a same-origin framing policy on every document,
+/// unless the app set its own.
+/// </summary>
 public class SecurityHeadersTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -291,7 +294,7 @@ public class SecurityHeadersTests
     }
 
     [Fact]
-    public async Task DataResponses_GetNone()
+    public async Task DataResponses_GetNosniffOnly()
     {
         await using var app = await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = "script-src 'self'");
         var first = await app.GetDataAsync("/");
@@ -302,9 +305,97 @@ public class SecurityHeadersTests
         var response = await app.Client.SendAsync(request, Ct);
 
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        Assert.Null(Header(response, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
         Assert.Null(Header(response, "Referrer-Policy"));
         Assert.Null(Header(response, "X-Frame-Options"));
+    }
+
+    [Theory]
+    [InlineData("/robots.txt")]
+    [InlineData("/sitemap.xml")]
+    [InlineData("/_netjes/antiforgery")]
+    public async Task NetjesEndpoints_GetNosniff(string path)
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a =>
+        {
+            a.MapRobotsTxt(new Uri("https://example.com"));
+            a.MapSitemap(new Uri("https://example.com"));
+        });
+
+        var response = await app.GetDocumentAsync(path);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StaticFiles_GetNosniff(bool production)
+    {
+        // public/ in Development, the client build elsewhere, whose hashed files keep their own caching.
+        await using var app = production
+            ? await TestApp.StartAsync([], environment: "Production", prepareRoot: ModeTests.WriteProductionBuild)
+            : await TestApp.StartAsync(["app/page.tsx"], prepareRoot: WritePublicFile);
+
+        var response = await app.GetDocumentAsync(production ? "/assets/index-CCC.js" : "/favicon.svg");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+        if (production)
+        {
+            Assert.Equal("public, max-age=31536000, immutable", response.Headers.CacheControl?.ToString());
+        }
+    }
+
+    private static void WritePublicFile(string root)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "public"));
+        File.WriteAllText(Path.Combine(root, "public", "favicon.svg"), "<svg/>");
+    }
+
+    [Fact]
+    public async Task TheAppsOwnEndpoints_GetNosniff()
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.MapGet("/api/text", () => "x"));
+
+        var response = await app.GetDocumentAsync("/api/text");
+
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Fact]
+    public async Task OutputCachedResponses_CarryNosniffOnce()
+    {
+        // The endpoint's answer is stored without it (the output cache takes the headers before the response starts),
+        // the document's with it: either way, each answer from the cache has one.
+        var calls = 0;
+        var loads = 0;
+        await using var app = await TestApp.StartAsync(
+            [],
+            map: a =>
+            {
+                a.MapGet("/api/count", () => $"{Interlocked.Increment(ref calls)}").CacheOutput();
+                a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5));
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Production",
+            prepareRoot: ModeTests.WriteProductionBuild);
+
+        var first = await app.GetDocumentAsync("/api/count");
+        var cached = await app.GetDocumentAsync("/api/count");
+        var firstDocument = await app.GetDocumentAsync("/");
+        var cachedDocument = await app.GetDocumentAsync("/");
+
+        Assert.Equal(1, calls);
+        Assert.Equal(1, loads);
+        Assert.Equal("1", await cached.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("nosniff", Header(first, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(cached, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(firstDocument, "X-Content-Type-Options"));
+        Assert.Equal("nosniff", Header(cachedDocument, "X-Content-Type-Options"));
     }
 
     [Fact]
@@ -322,6 +413,34 @@ public class SecurityHeadersTests
         Assert.Null(Header(response, "Referrer-Policy"));
         Assert.Null(Header(response, "X-Frame-Options"));
         Assert.Equal("script-src 'self'", Header(response, "Content-Security-Policy"));
+    }
+
+    [Fact]
+    public async Task TurnedOff_NoResponseGetsNosniff_ButImagesKeepTheirs()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.SecurityHeaders.Enabled = false,
+            map: a => a.MapGet("/api/text", () => "x"),
+            prepareRoot: root =>
+            {
+                WritePublicFile(root);
+                File.WriteAllBytes(Path.Combine(root, "public", "hero.png"), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4]);
+            });
+
+        var document = await GetAsReturningVisitorAsync(app, "/");
+        var data = await app.GetDataAsync("/");
+        var file = await app.GetDocumentAsync("/favicon.svg");
+        var text = await app.GetDocumentAsync("/api/text");
+        var image = await app.GetDocumentAsync("/_netjes/image?url=%2Fhero.png&w=640");
+
+        Assert.Null(Header(document, "X-Content-Type-Options"));
+        Assert.Null(Header(data, "X-Content-Type-Options"));
+        Assert.Null(Header(file, "X-Content-Type-Options"));
+        Assert.Null(Header(text, "X-Content-Type-Options"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal("nosniff", Header(image, "X-Content-Type-Options"));
+        Assert.Contains("sandbox", Header(image, "Content-Security-Policy"));
     }
 
     [Fact]

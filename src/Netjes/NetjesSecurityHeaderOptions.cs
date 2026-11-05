@@ -1,20 +1,24 @@
 namespace Netjes;
 
 /// <summary>
-/// Headers Netjes puts on the documents it renders, each only when the app has not set that header itself:
-/// <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: strict-origin-when-cross-origin</c> and a same-origin
-/// framing policy, <c>X-Frame-Options: SAMEORIGIN</c> (and <c>frame-ancestors 'self'</c> in
+/// Headers Netjes adds, each only when the app has not set that header itself. Every response that passes through
+/// <c>UseNetjes</c> gets <c>X-Content-Type-Options: nosniff</c>: documents and client payloads, static files, the app's
+/// own endpoints and output-cache answers. The documents Netjes renders also get
+/// <c>Referrer-Policy: strict-origin-when-cross-origin</c> and a same-origin framing policy,
+/// <c>X-Frame-Options: SAMEORIGIN</c> (and <c>frame-ancestors 'self'</c> in
 /// <see cref="NetjesOptions.ContentSecurityPolicy"/>). An app that sends its own <c>X-Frame-Options</c>, or has
 /// <c>frame-ancestors</c> in the policy that goes out (its own header, or else
 /// <see cref="NetjesOptions.ContentSecurityPolicy"/>, which Netjes writes only when the app sent no header), decides
-/// about framing itself, and Netjes adds neither.
-/// Data responses for the client router get none of them. Binds from <c>Netjes:SecurityHeaders</c>.
+/// about framing itself, and Netjes adds neither framing header.
+/// Data responses for the client router get nosniff only. Binds from <c>Netjes:SecurityHeaders</c>.
 /// </summary>
 public sealed class NetjesSecurityHeaderOptions
 {
     /// <summary>
-    /// Default true. False: Netjes sets none of these headers. ASP.NET Core antiforgery still sends
-    /// <c>X-Frame-Options: SAMEORIGIN</c> with each new token cookie unless <c>AntiforgeryOptions.SuppressXFrameOptionsHeader</c> is set.
+    /// Default true. False: Netjes sets none of these headers, on any response. The image endpoint keeps its own
+    /// <c>X-Content-Type-Options: nosniff</c> and sandboxing <c>Content-Security-Policy</c> either way. ASP.NET Core
+    /// antiforgery still sends <c>X-Frame-Options: SAMEORIGIN</c> with each new token cookie unless
+    /// <c>AntiforgeryOptions.SuppressXFrameOptionsHeader</c> is set.
     /// </summary>
     public bool Enabled { get; set; } = true;
 
