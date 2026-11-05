@@ -75,6 +75,42 @@ public class ImageEndpointTests
         Assert.Equal(HttpStatusCode.NotModified, second.StatusCode);
     }
 
+    [Fact]
+    public async Task LocalImage_AnswersHeadAsGet()
+    {
+        await using var app = await StartAsync();
+
+        var get = await GetAsync(app, "url=/img/hero.png&w=640");
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/_netjes/image?url=/img/hero.png&w=640"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("image/png", head.Content.Headers.ContentType?.MediaType);
+        Assert.NotNull(get.Headers.ETag);
+        Assert.Equal(get.Headers.ETag, head.Headers.ETag);
+        Assert.True(head.Headers.CacheControl?.Public);
+        Assert.Equal(TimeSpan.FromDays(7), head.Headers.CacheControl?.MaxAge);
+    }
+
+    [Theory]
+    [InlineData("/_netjes/image?url=%2Fimg%2Fhero.png&w=641")]
+    [InlineData("/_netjes/image?url=%2Fimg%2F.%2Fhero.png&w=640")]
+    [InlineData("/_netjes/image?url=%2Fimg%2FHERO.png&w=640")]
+    [InlineData("/_netjes/image?url=https%3A%2F%2Fevil.example%2Fx.png&w=640")]
+    [InlineData("/_NETJES/Image?url=%2Fimg%2Fhero.png&w=640")]
+    public async Task AHead_IsCheckedAsAGetIs_AndARefusedOneIsNotProcessed(string url)
+    {
+        // A HEAD runs the GET's handler, so asking with it skips none of the checks: a width not served, other
+        // spellings of a local path or of the endpoint's own, a host not allowed.
+        var processor = new RecordingProcessor([]);
+        await using var app = await StartAsync(
+            services: s => s.AddSingleton<IImageProcessor>(processor).AddSingleton<LocalImageFiles>(new WindowsLikeFiles()));
+
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, url), Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, head.StatusCode);
+        Assert.Empty(processor.Sources);
+    }
+
     [Theory]
     [InlineData("w=640", "url")]
     [InlineData("url=/img/hero.png", "w")]
@@ -446,6 +482,26 @@ public class ImageEndpointTests
 
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+    }
+
+    [Fact]
+    public async Task AHead_HasAnOutputCacheEntryOfItsOwn()
+    {
+        // The output cache keys an entry by the method too: the first HEAD processes the image again, as a GET would,
+        // and the next is served from that HEAD's entry.
+        var processor = new RecordingProcessor([]);
+        await using var app = await StartCachedAsync(processor);
+
+        var get = await GetAsync(app, "url=/img/hero.png&w=640");
+        var heads = new List<HttpResponseMessage>();
+        for (var i = 0; i < 2; i++)
+        {
+            heads.Add(await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/_netjes/image?url=/img/hero.png&w=640"), Ct));
+        }
+
+        Assert.Equal(2, processor.Transforms.Count);
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        Assert.All(heads, head => Assert.Equal(HttpStatusCode.OK, head.StatusCode));
     }
 
     [Theory]
