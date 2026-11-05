@@ -11,14 +11,20 @@ export type QueryShellOptions = {
 
 const DEFAULTS: DefaultOptions = { queries: { staleTime: 60_000 } };
 
-/** The Netjes defaults with the app's options merged over them, as the built-in client and the test harness use. */
-export function mergeOptions(options: DefaultOptions | undefined): DefaultOptions {
-  return {
-    ...DEFAULTS,
-    ...options,
-    queries: { ...DEFAULTS.queries, ...options?.queries },
-    mutations: { ...DEFAULTS.mutations, ...options?.mutations },
-  };
+/**
+ * The Netjes defaults with each layer of options merged over the ones before it, query and mutation options one by
+ * one: the built-in client merges the app's options, and the test harness more layers.
+ */
+export function mergeOptions(...layers: ReadonlyArray<DefaultOptions | undefined>): DefaultOptions {
+  return [DEFAULTS, ...layers].reduce<DefaultOptions>(
+    (merged, layer) => ({
+      ...merged,
+      ...layer,
+      queries: { ...merged.queries, ...layer?.queries },
+      mutations: { ...merged.mutations, ...layer?.mutations },
+    }),
+    {},
+  );
 }
 
 /**
