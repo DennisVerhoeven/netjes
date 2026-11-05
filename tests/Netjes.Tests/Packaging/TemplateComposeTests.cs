@@ -28,14 +28,17 @@ public class TemplateComposeTests
     public async Task DevelopmentStack_PublishesAppPortOnLoopbackOnly()
     {
         // No -f: Compose reads docker-compose.yml and docker-compose.override.yml, as `docker compose up` does.
-        var config = await ConfigAsync([], appPort: "8090");
+        var moved = await ConfigAsync([], appPort: "8090");
+        var kept = await ConfigAsync([], appPort: null);
 
-        var app = Port(config, 8080);
-        var vite = Port(config, 5173);
-
-        Assert.Equal(("127.0.0.1", "8090"), (app.GetProperty("host_ip").GetString(), app.GetProperty("published").GetString()));
-        Assert.Equal(("127.0.0.1", "5173"), (vite.GetProperty("host_ip").GetString(), vite.GetProperty("published").GetString()));
+        Assert.Equal(("127.0.0.1", "8090"), HostAndPublished(Port(moved, 8080)));
+        Assert.Equal(("127.0.0.1", "8080"), HostAndPublished(Port(kept, 8080)));
+        Assert.Equal(("127.0.0.1", "5173"), HostAndPublished(Port(moved, 5173)));
+        Assert.Equal(("127.0.0.1", "5173"), HostAndPublished(Port(kept, 5173)));
     }
+
+    private static (string? HostIp, string? Published) HostAndPublished(JsonElement port) =>
+        (port.GetProperty("host_ip").GetString(), port.GetProperty("published").GetString());
 
     /// <summary>The one port of the <c>app</c> service that forwards to <paramref name="target"/> in the container.</summary>
     private static JsonElement Port(JsonElement config, int target)
