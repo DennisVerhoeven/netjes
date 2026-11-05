@@ -587,7 +587,8 @@ public class RouteDiagnosticsTests
             "the locale redirect",
             new(["app/page.tsx"], a => a.MapLocaleRedirect(), Request("GET", "/"),
                 Services: s => s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]), ConfigureApp: a => a.UseNetjesLocalization()),
-            "GET / and the page app/page.tsx both match URLs like /"
+            // Whatever methods the redirect names besides GET.
+            " / and the page app/page.tsx both match URLs like /"
         },
         {
             "the hosts of the pages",
