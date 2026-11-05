@@ -59,6 +59,65 @@ for file in AGENTS.md CLAUDE.md; do
 done
 diff -r .claude/skills/netjes "$work/existing/.claude/skills/netjes"
 
+echo "== Vitest glue"
+# netjes() adds a setup file of its own after an app's own setup files: createTestApp() starts from the app's
+# netjes({ query }) defaults without their waits, and Testing Library advances Vitest's fake timers. The three files
+# are removed before the tests and type checks below, which would pick them up.
+cat > vitest.glue.config.ts <<'TS'
+import netjes from 'netjes/vite';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  plugins: [netjes({ query: { defaultOptions: { queries: { staleTime: Infinity, retry: 1, retryDelay: 1000 } } } })],
+  test: { include: ['glue.test.tsx'], setupFiles: ['./glue-setup.ts'] },
+});
+TS
+cat > glue-setup.ts <<'TS'
+// The app's own setup file. With one, netjes() leaves its cleanup file out, so the app lists it.
+import 'netjes/testing/setup';
+TS
+cat > glue.test.tsx <<'TSX'
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createTestApp } from 'netjes/testing';
+import { useState } from 'react';
+import { afterEach, expect, it, vi } from 'vitest';
+
+const jest = () => (globalThis as { jest?: unknown }).jest;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it("starts from the app's query defaults, without their waits", () => {
+  expect(createTestApp().queryClient.getDefaultOptions().queries).toMatchObject({ staleTime: Infinity, retry: 1, retryDelay: 0 });
+});
+
+it('has a jest global only while the timers are fake', () => {
+  expect(typeof jest()).toBe('undefined');
+  vi.useFakeTimers();
+  expect(typeof jest()).toBe('object');
+  vi.useRealTimers();
+  expect(typeof jest()).toBe('undefined');
+});
+
+it('clicks with user-event under fake timers', async () => {
+  vi.useFakeTimers();
+  function Counter() {
+    const [count, setCount] = useState(0);
+    return <button type="button" onClick={() => setCount(count + 1)}>{`Clicked ${count}`}</button>;
+  }
+  render(<Counter />, { wrapper: createTestApp().Wrapper });
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+  await user.click(screen.getByRole('button', { name: 'Clicked 0' }));
+
+  expect(screen.getByRole('button', { name: 'Clicked 1' })).toBeDefined();
+});
+TSX
+npx vitest run --config vitest.glue.config.ts
+rm vitest.glue.config.ts glue-setup.ts glue.test.tsx
+
 echo "== test, typecheck, publish"
 npm test --silent
 npm run typecheck --silent

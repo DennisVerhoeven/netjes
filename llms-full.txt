@@ -1763,6 +1763,7 @@ Keep each query key in one place on each side (a function in C#, a key factory i
 - Seeded data is fresh for the client's `staleTime`, one minute by default, and is fetched again once stale. Data the browser fetched more recently is kept: an older payload, such as an output-cached page or a page shown again on back, does not replace it. Netjes moves the server's timestamps onto the browser's clock first, so a clock that is off does not make data look older or newer than it is.
 - After a server action, `.Invalidate(key)` refetches the queries under a key and `.WithQuery(key, data)` sets one, without a refetch ([Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#revalidation)).
 - An action or form post that signs someone in or out clears the client, seeded queries included, in every tab of the app ([Signing in and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#signing-in-and-out)).
+- A query whose fetch fails is tried three more times, after 1, 2 and 4 seconds, before it shows the error, and a failed mutation is not tried again: TanStack Query's defaults. `netjes({ query: { defaultOptions: { queries: { retry: 1, retryDelay: 500 } } } })` sets other numbers for the whole app; there they can only be plain values, since they are written into the bundle ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#options)). A function, such as a `retry` that looks at the error, goes on the query itself: `useQuery({ retry })`. Component tests try a failed query as often as the app does, without the waits ([Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)).
 - Configure the client in `vite.config.ts` with `netjes({ query: { defaultOptions } })`, or remove it with `netjes({ query: false })` ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md)).
 
 ## Slow data: `Page.Defer`
@@ -3498,9 +3499,16 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 - `environment: 'jsdom'`, when `jsdom` is installed;
 - `exclude`: `node_modules/`, `dist/`, `bin/`, `obj/`, `e2e/` (Playwright's folder) and `.git/`;
-- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed.
+- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed and the app sets no `setupFiles` of its own. An app that sets them lists `netjes/testing/setup` there itself.
 
-There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of them ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#vitest-defaults)).
+Whatever the app's config says, it also adds two settings to it:
+
+- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
+
+There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#vitest-defaults)).
+
+An inline project in `test.projects` is the exception. Under Vitest 5, one that changes no Vite options shares the Vite server of the config that declares it, and Vitest builds its `test` options from that config's as written, before any plugin adds to them: neither these defaults nor Netjes's setup file reaches its tests. Set `sharedViteServer: false` in the root's `test` options, and each project gets them.
 
 ## Component and page tests
 
@@ -3543,8 +3551,8 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `params` | What `useParams()` returns. |
 | `shared` | The shared props, as the server would send them. |
 | `queries` | Entries seeded into the query client, as `.WithQuery` seeds them: `[{ key, data }]`. |
-| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`. Retries are off. |
-| `queryClient` | A client of your own instead. |
+| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`, merged over the app's own and the harness's. Failed queries and mutations are tried as often as in the app, with no wait between the tries ([Queries that fail](#queries-that-fail)). |
+| `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
@@ -3594,6 +3602,51 @@ it('shows the validation errors the action sent back, next to their fields', () 
 ```
 
 A component that fetches its own data with `useQuery` gets seeded data from `queries`. For what it fetches after that, answer the requests with a mock server such as [MSW](https://mswjs.io), as the Blog example's `LikeButton.test.tsx` does.
+
+### Queries that fail
+
+In the browser a failed query is tried three more times, after 1, 2 and 4 seconds (TanStack Query's defaults for `retry` and `retryDelay`), unless the app's `netjes({ query: { defaultOptions } })` says otherwise. `createTestApp()` builds its client from those same defaults, which the plugin hands to the tests, with the harness's own over them and the test's `defaultOptions` over those:
+
+- A failed query or mutation is tried as often as in the app, but with no wait between the tries. So a test sees what the app shows in the end: the error once every try has failed, or the data that a later try got.
+- The app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests. Its `retryDelay` and its queries' `gcTime` do not: the harness sets `retryDelay: 0`, and keeps every query's data for the whole test (`gcTime: Infinity`).
+- `defaultOptions: { queries: { retry: false } }` shows the error after the first request. To test the waits themselves, pass a `retryDelay` of your own, such as TanStack Query's `(attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30_000)`, and move the clock on with [fake timers](#fake-timers).
+- Under fake timers, each try after the first still waits on a timer of 0 ms, which runs only when the fake clock moves on. `findBy…` and `waitFor` move it on as they wait.
+- Seeded data is fresh for the app's `staleTime`, counted from when `createTestApp()` is called. With a `staleTime` of 0, a component fetches its seeded query again as it mounts, as it does in the browser; with a longer one, only a component that mounts after that time, such as one rendered after the test moved [fake timers](#fake-timers) on. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
+
+A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)). In Vitest's browser mode, Vitest sends provided values to the test page as JSON, so an `Infinity` in `netjes({ query })`, such as `staleTime: Infinity`, reaches `createTestApp()` as `null`, and seeded data is stale at once: pass such a value in the test's `defaultOptions` there.
+
+### Fake timers
+
+A component that waits, such as a search box that searches once the typing stops, is tested with Vitest's fake timers. Testing Library's queries and user-event work with them:
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createTestApp } from 'netjes/testing';
+import { afterEach, expect, it, vi } from 'vitest';
+import { SearchBox } from './SearchBox.tsx';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it('searches once the typing stops', async () => {
+  vi.useFakeTimers();
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const app = createTestApp({ url: '/search' });
+  render(<SearchBox />, { wrapper: app.Wrapper });
+
+  await user.type(screen.getByRole('searchbox'), 'tea');
+
+  await waitFor(() => expect(app.navigations).toEqual([{ type: 'replace', href: '/search?q=tea' }]));
+});
+```
+
+- `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
+- user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, user-event waits out its own delays on the fake clock, and the call never returns.
+- `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 
 ## C# tests of loaders and actions
 
@@ -4487,8 +4540,8 @@ type TestAppOptions = {
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
-  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }); retries are off
-  queryClient?: QueryClient;        // use this client instead of a new one
+  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
+  queryClient?: QueryClient;        // use this client, as it is, instead of a new one
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
@@ -4526,11 +4579,13 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)). The default antiforgery token is a test token, and the `QueryClient` has retries off.
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)).
 
 ## `netjes/testing/setup`
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
+
+The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 
@@ -5616,7 +5671,7 @@ netjes({
 | `appDir` | `string` | `'app'` | The folder of page files, relative to the Vite root. It must match `Netjes:AppDirectory` in the .NET app. |
 | `basePath` | `string` | none | The path the app is mounted under with `app.UsePathBase(...)`, such as `'/docs'`. Built asset URLs get it (Vite's `base`); links, forms, redirects and router calls get it from the server at runtime. It must match the base path in `Program.cs`. |
 | `tailwind` | `boolean` | `true` | Adds `@tailwindcss/vite`. Import Tailwind with `@import "tailwindcss";` in a stylesheet that a layout imports. With `false`, `tailwindcss` and `@tailwindcss/vite` need not be installed. |
-| `query` | `boolean \| { defaultOptions?: DefaultOptions }` | `true` | The built-in TanStack Query client, which loaders seed with `.WithQuery(key, data)`. `false` removes it, and TanStack Query with it, from the bundle. An object configures the client; its `defaultOptions` are merged over the Netjes defaults (`staleTime` of one minute, so seeded data is not fetched again at once). |
+| `query` | `boolean \| { defaultOptions?: DefaultOptions }` | `true` | The built-in TanStack Query client, which loaders seed with `.WithQuery(key, data)`. `false` removes it, and TanStack Query with it, from the bundle. An object configures the client; its `defaultOptions` are merged over the Netjes defaults (`staleTime` of one minute, so seeded data is not fetched again at once). Under Vitest the plugin hands the same `defaultOptions` to `createTestApp()`, which keeps all of them but `retryDelay` and the queries' `gcTime` ([Vitest defaults](#vitest-defaults)). |
 | `test` | `boolean` | `true` | Vitest defaults, below. `false` adds none. |
 | `react` | `Options` of `@vitejs/plugin-react` | none | Passed to `@vitejs/plugin-react`, which the plugin includes. |
 
@@ -5667,15 +5722,18 @@ The TypeScript sources ship in the package too: the declaration maps and source 
 
 ### Vitest defaults
 
-Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset:
+Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset, with two exceptions, which it adds to what the app sets: Netjes's own setup file, in `setupFiles`, and `provide['netjes:query']`.
 
 | Setting | Value |
 |---|---|
 | `environment` | `'jsdom'`, when `jsdom` is installed |
 | `exclude` | `node_modules`, `dist`, `bin`, `obj`, `e2e` (for Playwright) and `.git` folders |
-| `setupFiles` | A setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed |
+| `setupFiles` | In every app, Netjes's own setup file, which lets Testing Library work with Vitest's fake timers ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)) and hands `createTestApp()` the app's query defaults; Vite puts it after the app's own setup files. Before it, when `@testing-library/react` is installed and the app sets no `setupFiles`, a setup file that unmounts what each test rendered (Testing Library's `cleanup`, `netjes/testing/setup`); an app that sets them lists `netjes/testing/setup` there itself |
+| `provide` | `'netjes:query'`: the `defaultOptions` of the `query` option, `{}` when there are none, which Netjes's setup file reads with `inject()`. `createTestApp()` merges them over the Netjes defaults, with its own `retryDelay: 0`, and `gcTime: Infinity` for queries, over them ([Queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)). Not set with `query: false`. The app's own `provide` keys are kept. In Vitest's browser mode the value travels as JSON, so an `Infinity` in it arrives as `null` |
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md).
+
+Under Vitest 5, an inline project in `test.projects` that changes no Vite options shares the Vite server of the config that declares it (`sharedViteServer`, on by default), and Vitest builds its `test` options from that config's as written, before any plugin adds to them. Such a project gets none of the plugin's `environment`, `exclude` and setup files, so its tests get neither the [fake-timer bridge](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers) nor the app's query defaults in `createTestApp()`. Set `sharedViteServer: false` in the root's `test` options, and Vitest resolves the config for each project, with the plugin's settings.
 
 ## The dev server
 
@@ -6190,7 +6248,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup, and `e2e/`, `dist/`, `bin/` and `obj/` excluded. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -6211,13 +6269,16 @@ it('shows the validation error from C# next to the field', async () => {
 });
 ```
 
-`createTestApp({ url, params, shared, queries, navigation, antiforgery, actions })` returns `{ Wrapper, navigations, queryClient }`:
+`createTestApp({ url, params, shared, queries, defaultOptions, navigation, antiforgery, actions })` returns `{ Wrapper, navigations, queryClient }`:
 
 - `url` and `params` set what `usePathname`, `useSearchParams` and `useParams` see; `shared` is what `useSharedProps` returns; `queries: [{ key, data }]` seeds TanStack Query as a loader's `.WithQuery` would.
+- The `QueryClient` starts from the app's `netjes({ query: { defaultOptions } })`: a failed query or mutation is tried as often as in the app, with no wait between the tries, so the test sees the error the app shows after its last try. `defaultOptions` goes over them: `{ queries: { retry: false } }` shows the error after the first request. Seeded data is fresh for the app's `staleTime` from when `createTestApp()` is called: with a `staleTime` of 0, or in a component rendered after a fake clock moved past it, a seeded query is fetched again as it mounts; answer that request (MSW) or pass `{ queries: { staleTime: 60_000 } }`.
 - `actions` answers server action calls by name: `{ ok: true, result }` or `{ ok: false, status: 422, errors }` (add `fields: ['email']` to name the fields a failed state's `values` keep, as the server does). A component that calls an action, even from an effect as it mounts, must render inside `app.Wrapper`: outside it the call fails with "called before the page was ready".
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
+
+Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`, and let `findBy…` or `waitFor` wait, which moves the fake clock on (their timeout counts fake time). Run a timer that `fireEvent` started with `await act(() => vi.advanceTimersByTimeAsync(ms))`, and call `vi.useRealTimers()` in an `afterEach`.
 
 ## Loaders and actions: C#
 
@@ -6343,6 +6404,8 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0024 – Link marks the current page by its path and the query parameters it names](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0024-link-marks-the-current-page-by-path-and-query.md): `aria-current="page"` goes on a link to the page on screen, never on a `#` link, and query parameters the link does not name do not count.
 - [0025 – A mark on `<html>` says the client router runs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0025-a-mark-on-html-says-the-client-router-runs.md): `data-netjes-hydrated` appears once the router is the page's action client, in every document, and end-to-end tests wait for it rather than for `history.state`.
 - [0026 – Netjes's own `<html>` and `<body>` skip React's attribute check](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md): a script that sets an attribute on either one before hydration, such as a theme script or a browser extension, no longer makes React log a mismatch in development.
+- [0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md): a setup file the plugin adds to every app's tests bridges `jest.advanceTimersByTime` to Vitest while its timers are fake, so `waitFor`, `findBy` and user-event return.
+- [0028 – The test harness starts from the app's query defaults and keeps its retries, without the waits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0028-test-harness-starts-from-the-apps-query-defaults.md): `createTestApp` layers the app's `netjes({ query })` defaults, which the plugin provides to the tests, under its own `retryDelay: 0`.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6358,9 +6421,13 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 - `<Link>`, `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` to the element they render. `LinkProps`, `FormProps`, `SubmitButtonProps` and `ImageProps` now start from React's `ComponentPropsWithRef` instead of the `*HTMLAttributes` types, which left the ref out, so `<Link ref={ref}>` is no longer a type error. The ref already reached the element at runtime, and only the types refused it; an app that worked around the type error, for example with `document.getElementById(id)`, can pass the ref instead. The four types also include `key` now; React handles it, as for any element, and never passes it to the component.
 - Once the client router runs in a document, `<html>` carries `data-netjes-hydrated=""`: the sign that the page has hydrated, which end-to-end tests wait for before they click, with `await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '')` ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration), [ADR 0025](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0025-a-mark-on-html-says-the-client-router-runs.md)). It appears after the router has registered as the page's action client, on hydrated pages and on pages rendered in the browser when no sidecar was ready, and the server never renders it. A test helper that waited for the router's key in `history.state` should wait for the attribute instead: the browser keeps that state when it loads the document again, so after a reload the key is there before any of the page's scripts has run. The name is reserved, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser now sees one more.
+- Testing Library works with Vitest's fake timers. Under `vi.useFakeTimers()`, `waitFor`, `findBy…` and user-event never returned, because Testing Library moves fake timers on only through Jest's `jest` global. Netjes's setup file now defines that global while Vitest's timers are fake, and leaves it undefined with real timers ([ADR 0027](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md)). `waitFor` and `findBy…` move the fake clock on as they wait, and their timeout counts fake time; create user-event's user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. While timers are fake, `typeof jest` is `'object'`, so a library that looks for Jest finds it then, and a test on `vi.useFakeTimers({ shouldAdvanceTime: true })` takes Testing Library's path for fake timers. A `jest` global the app's own setup file defines, or a test assigns, is kept.
+- `createTestApp()` starts from the app's `netjes({ query })` defaults. `netjes()` sets Vitest's `test.provide['netjes:query']` to the `query` option's `defaultOptions` (`{}` when there are none, nothing with `query: false`), next to the app's own `provide` keys, and Netjes's setup file hands them to the harness ([ADR 0028](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)).
 
 ### Changed
 
+- `netjes()` adds a setup file of its own to every app's Vitest `setupFiles`, after the app's own setup files, also when the app sets `setupFiles` itself, `[]` included. The cleanup file (`netjes/testing/setup`) is still added only when the app sets none. An app that set `setupFiles: []` to keep Netjes's setup files out now gets the new one; `netjes({ test: false })` still leaves out every Vitest setting the plugin adds, this file included. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it, Vitest's default, gets neither this file nor the plugin's defaults (jsdom, `exclude`, cleanup): set `sharedViteServer: false` in the root's `test` options.
+- In `createTestApp()` tests, a failed query or mutation is tried as often as in the app, with no wait between the tries; retries used to be off. A query that fails once and then succeeds now shows its data, and an error shows once the last try has failed. A test that expects the error after the first request passes `defaultOptions: { queries: { retry: false } }`, the old behaviour, and `mutations: { retry: false }` where the app's `netjes({ query })` retries mutations. The app's `staleTime`, `retry`, refetch options and mutation `retry` now apply in its tests, and its `retryDelay` and its queries' `gcTime` do not. Seeded queries now stay fresh for the app's `staleTime`, counted from when `createTestApp()` is called, instead of one minute. With an app `staleTime` of 0, a component fetches its seeded query again as it mounts, as in the browser; with another one below a minute, only a component that mounts after that time, such as one rendered after the test moved fake timers on. Answer that request, or pass `defaultOptions: { queries: { staleTime: 60_000 } }`.
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
 
 ### Fixed

@@ -8,9 +8,16 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 - `environment: 'jsdom'`, when `jsdom` is installed;
 - `exclude`: `node_modules/`, `dist/`, `bin/`, `obj/`, `e2e/` (Playwright's folder) and `.git/`;
-- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed.
+- a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed and the app sets no `setupFiles` of its own. An app that sets them lists `netjes/testing/setup` there itself.
 
-There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of them ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
+Whatever the app's config says, it also adds two settings to it:
+
+- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
+
+There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
+
+An inline project in `test.projects` is the exception. Under Vitest 5, one that changes no Vite options shares the Vite server of the config that declares it, and Vitest builds its `test` options from that config's as written, before any plugin adds to them: neither these defaults nor Netjes's setup file reaches its tests. Set `sharedViteServer: false` in the root's `test` options, and each project gets them.
 
 ## Component and page tests
 
@@ -53,8 +60,8 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `params` | What `useParams()` returns. |
 | `shared` | The shared props, as the server would send them. |
 | `queries` | Entries seeded into the query client, as `.WithQuery` seeds them: `[{ key, data }]`. |
-| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`. Retries are off. |
-| `queryClient` | A client of your own instead. |
+| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`, merged over the app's own and the harness's. Failed queries and mutations are tried as often as in the app, with no wait between the tries ([Queries that fail](#queries-that-fail)). |
+| `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
@@ -104,6 +111,51 @@ it('shows the validation errors the action sent back, next to their fields', () 
 ```
 
 A component that fetches its own data with `useQuery` gets seeded data from `queries`. For what it fetches after that, answer the requests with a mock server such as [MSW](https://mswjs.io), as the Blog example's `LikeButton.test.tsx` does.
+
+### Queries that fail
+
+In the browser a failed query is tried three more times, after 1, 2 and 4 seconds (TanStack Query's defaults for `retry` and `retryDelay`), unless the app's `netjes({ query: { defaultOptions } })` says otherwise. `createTestApp()` builds its client from those same defaults, which the plugin hands to the tests, with the harness's own over them and the test's `defaultOptions` over those:
+
+- A failed query or mutation is tried as often as in the app, but with no wait between the tries. So a test sees what the app shows in the end: the error once every try has failed, or the data that a later try got.
+- The app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests. Its `retryDelay` and its queries' `gcTime` do not: the harness sets `retryDelay: 0`, and keeps every query's data for the whole test (`gcTime: Infinity`).
+- `defaultOptions: { queries: { retry: false } }` shows the error after the first request. To test the waits themselves, pass a `retryDelay` of your own, such as TanStack Query's `(attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30_000)`, and move the clock on with [fake timers](#fake-timers).
+- Under fake timers, each try after the first still waits on a timer of 0 ms, which runs only when the fake clock moves on. `findBy…` and `waitFor` move it on as they wait.
+- Seeded data is fresh for the app's `staleTime`, counted from when `createTestApp()` is called. With a `staleTime` of 0, a component fetches its seeded query again as it mounts, as it does in the browser; with a longer one, only a component that mounts after that time, such as one rendered after the test moved [fake timers](#fake-timers) on. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
+
+A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](../decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)). In Vitest's browser mode, Vitest sends provided values to the test page as JSON, so an `Infinity` in `netjes({ query })`, such as `staleTime: Infinity`, reaches `createTestApp()` as `null`, and seeded data is stale at once: pass such a value in the test's `defaultOptions` there.
+
+### Fake timers
+
+A component that waits, such as a search box that searches once the typing stops, is tested with Vitest's fake timers. Testing Library's queries and user-event work with them:
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { createTestApp } from 'netjes/testing';
+import { afterEach, expect, it, vi } from 'vitest';
+import { SearchBox } from './SearchBox.tsx';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it('searches once the typing stops', async () => {
+  vi.useFakeTimers();
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const app = createTestApp({ url: '/search' });
+  render(<SearchBox />, { wrapper: app.Wrapper });
+
+  await user.type(screen.getByRole('searchbox'), 'tea');
+
+  await waitFor(() => expect(app.navigations).toEqual([{ type: 'replace', href: '/search?q=tea' }]));
+});
+```
+
+- `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
+- user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, user-event waits out its own delays on the fake clock, and the call never returns.
+- `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 
 ## C# tests of loaders and actions
 

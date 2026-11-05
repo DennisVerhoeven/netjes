@@ -31,7 +31,7 @@ netjes({
 | `appDir` | `string` | `'app'` | The folder of page files, relative to the Vite root. It must match `Netjes:AppDirectory` in the .NET app. |
 | `basePath` | `string` | none | The path the app is mounted under with `app.UsePathBase(...)`, such as `'/docs'`. Built asset URLs get it (Vite's `base`); links, forms, redirects and router calls get it from the server at runtime. It must match the base path in `Program.cs`. |
 | `tailwind` | `boolean` | `true` | Adds `@tailwindcss/vite`. Import Tailwind with `@import "tailwindcss";` in a stylesheet that a layout imports. With `false`, `tailwindcss` and `@tailwindcss/vite` need not be installed. |
-| `query` | `boolean \| { defaultOptions?: DefaultOptions }` | `true` | The built-in TanStack Query client, which loaders seed with `.WithQuery(key, data)`. `false` removes it, and TanStack Query with it, from the bundle. An object configures the client; its `defaultOptions` are merged over the Netjes defaults (`staleTime` of one minute, so seeded data is not fetched again at once). |
+| `query` | `boolean \| { defaultOptions?: DefaultOptions }` | `true` | The built-in TanStack Query client, which loaders seed with `.WithQuery(key, data)`. `false` removes it, and TanStack Query with it, from the bundle. An object configures the client; its `defaultOptions` are merged over the Netjes defaults (`staleTime` of one minute, so seeded data is not fetched again at once). Under Vitest the plugin hands the same `defaultOptions` to `createTestApp()`, which keeps all of them but `retryDelay` and the queries' `gcTime` ([Vitest defaults](#vitest-defaults)). |
 | `test` | `boolean` | `true` | Vitest defaults, below. `false` adds none. |
 | `react` | `Options` of `@vitejs/plugin-react` | none | Passed to `@vitejs/plugin-react`, which the plugin includes. |
 
@@ -82,15 +82,18 @@ The TypeScript sources ship in the package too: the declaration maps and source 
 
 ### Vitest defaults
 
-Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset:
+Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset, with two exceptions, which it adds to what the app sets: Netjes's own setup file, in `setupFiles`, and `provide['netjes:query']`.
 
 | Setting | Value |
 |---|---|
 | `environment` | `'jsdom'`, when `jsdom` is installed |
 | `exclude` | `node_modules`, `dist`, `bin`, `obj`, `e2e` (for Playwright) and `.git` folders |
-| `setupFiles` | A setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed |
+| `setupFiles` | In every app, Netjes's own setup file, which lets Testing Library work with Vitest's fake timers ([Fake timers](../guides/testing.md#fake-timers)) and hands `createTestApp()` the app's query defaults; Vite puts it after the app's own setup files. Before it, when `@testing-library/react` is installed and the app sets no `setupFiles`, a setup file that unmounts what each test rendered (Testing Library's `cleanup`, `netjes/testing/setup`); an app that sets them lists `netjes/testing/setup` there itself |
+| `provide` | `'netjes:query'`: the `defaultOptions` of the `query` option, `{}` when there are none, which Netjes's setup file reads with `inject()`. `createTestApp()` merges them over the Netjes defaults, with its own `retryDelay: 0`, and `gcTime: Infinity` for queries, over them ([Queries that fail](../guides/testing.md#queries-that-fail)). Not set with `query: false`. The app's own `provide` keys are kept. In Vitest's browser mode the value travels as JSON, so an `Infinity` in it arrives as `null` |
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](../guides/testing.md).
+
+Under Vitest 5, an inline project in `test.projects` that changes no Vite options shares the Vite server of the config that declares it (`sharedViteServer`, on by default), and Vitest builds its `test` options from that config's as written, before any plugin adds to them. Such a project gets none of the plugin's `environment`, `exclude` and setup files, so its tests get neither the [fake-timer bridge](../guides/testing.md#fake-timers) nor the app's query defaults in `createTestApp()`. Set `sharedViteServer: false` in the root's `test` options, and Vitest resolves the config for each project, with the plugin's settings.
 
 ## The dev server
 

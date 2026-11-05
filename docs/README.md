@@ -66,6 +66,8 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0024 – Link marks the current page by its path and the query parameters it names](decisions/0024-link-marks-the-current-page-by-path-and-query.md)
 - [0025 – A mark on `<html>` says the client router runs](decisions/0025-a-mark-on-html-says-the-client-router-runs.md)
 - [0026 – Netjes's own `<html>` and `<body>` skip React's attribute check](decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)
+- [0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on](decisions/0027-testing-library-advances-vitest-fake-timers.md)
+- [0028 – The test harness starts from the app's query defaults and keeps its retries, without the waits](decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)
 
 ## The project
 

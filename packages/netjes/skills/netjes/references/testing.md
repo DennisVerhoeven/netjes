@@ -4,7 +4,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup, and `e2e/`, `dist/`, `bin/` and `obj/` excluded. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -25,13 +25,16 @@ it('shows the validation error from C# next to the field', async () => {
 });
 ```
 
-`createTestApp({ url, params, shared, queries, navigation, antiforgery, actions })` returns `{ Wrapper, navigations, queryClient }`:
+`createTestApp({ url, params, shared, queries, defaultOptions, navigation, antiforgery, actions })` returns `{ Wrapper, navigations, queryClient }`:
 
 - `url` and `params` set what `usePathname`, `useSearchParams` and `useParams` see; `shared` is what `useSharedProps` returns; `queries: [{ key, data }]` seeds TanStack Query as a loader's `.WithQuery` would.
+- The `QueryClient` starts from the app's `netjes({ query: { defaultOptions } })`: a failed query or mutation is tried as often as in the app, with no wait between the tries, so the test sees the error the app shows after its last try. `defaultOptions` goes over them: `{ queries: { retry: false } }` shows the error after the first request. Seeded data is fresh for the app's `staleTime` from when `createTestApp()` is called: with a `staleTime` of 0, or in a component rendered after a fake clock moved past it, a seeded query is fetched again as it mounts; answer that request (MSW) or pass `{ queries: { staleTime: 60_000 } }`.
 - `actions` answers server action calls by name: `{ ok: true, result }` or `{ ok: false, status: 422, errors }` (add `fields: ['email']` to name the fields a failed state's `values` keep, as the server does). A component that calls an action, even from an effect as it mounts, must render inside `app.Wrapper`: outside it the call fails with "called before the page was ready".
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
+
+Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`, and let `findBy…` or `waitFor` wait, which moves the fake clock on (their timeout counts fake time). Run a timer that `fireEvent` started with `await act(() => vi.advanceTimersByTimeAsync(ms))`, and call `vi.useRealTimers()` in an `afterEach`.
 
 ## Loaders and actions: C#
 
