@@ -152,7 +152,7 @@ The three are released together under one version. An app uses the same version 
 
 - The .NET 10 SDK. Apps target `net10.0`.
 - Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer (`^22.22.2 || ^24.15.0 || >=26.0.0`), at build time and next to the app in production: the server renders pages in Node processes it starts and supervises.
-- React 19, Vite 7 or newer, and zod 4 for the generated schemas. `netjes new` installs them.
+- React 19, Vite 7 or newer, and zod 4 for the generated schemas: 4.4.0 or newer, so that pages under a Content-Security-Policy without `'unsafe-eval'` report no violation ([zod in the browser](docs/guides/security.md#zod-in-the-browser)). `netjes new` installs them.
 - Docker, only for the template's container setup.
 - Linux, macOS or Windows. CI runs the .NET and JavaScript tests on all three (the ones that need Docker on Linux only), and the end-to-end suites and the package check on Linux.
 
