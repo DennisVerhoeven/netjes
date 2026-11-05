@@ -2199,7 +2199,7 @@ This guide is for app developers who want to know how a Netjes page becomes HTML
 
 A request for a page goes through ASP.NET Core first. The endpoint for the page file runs its C# loaders (the layouts' and the page's), and Netjes builds the page payload: which page and layouts to show, their props, the route parameters, the shared props and the seeded queries. The next step depends on who asked:
 
-- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it.
+- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it. Once the client router runs there, `<html>` carries `data-netjes-hydrated`, which end-to-end tests wait for ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration)).
 - A client navigation (`<Link>`, `router.push`, a `<Form>` post) asks the same URL for the payload as JSON. No Node process is involved: the browser loads the page module and renders it itself.
 
 Only document requests need the sidecar. Redirects, not-found and forbidden results, authorization and the response status are all decided in .NET before anything is rendered.
@@ -2372,6 +2372,7 @@ In production, a document request that finds no Node process ready (they have al
 - Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route`.
 - It is never stored in the output cache, and it goes out with `Cache-Control: no-store` in place of any header the page set, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, `Surrogate-Control` and the others listed in [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#cdns-and-proxies)), so no browser, and no CDN that goes by the response's headers, keeps it once the processes are back.
 - Visitors without JavaScript, and crawlers and link previews that run none, get an empty page with the title, description and robots from C#. Layout title templates, and the metadata that page and layout files export, apply once the page renders.
+- Once the page has rendered, the client router runs as it does on a hydrated page and puts the same `data-netjes-hydrated` on `<html>`, so end-to-end tests wait for it here too ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration)).
 - The health check reports Unhealthy while it lasts.
 - A render that reached a process and failed there, or timed out, still gets the error page.
 - Development never falls back, since its process also runs the Vite dev server the browser loads from, and neither does `netjes export`.
@@ -3687,6 +3688,30 @@ webServer: [
 
 `--no-build` starts the last build, so build the app first: the examples' `test:e2e` script is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
 
+### Wait for hydration
+
+Until the page has hydrated, a `<Link>` loads the next page in full, a `<Form>` posts natively and an `onClick` handler does not run, so a test that clicks or types too early can pass on the path a browser without JavaScript takes. Once the client router runs in the document, Netjes puts `data-netjes-hydrated` on `<html>`, with an empty value. After each full page load, wait for it before the test's first click or keystroke:
+
+```ts
+await page.goto('/guestbook');
+await page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' });
+```
+
+`waitFor` waits as long as the test may run, unless the config sets an `actionTimeout`. The same wait as a web-first assertion, which retries for `expect`'s timeout instead (5 seconds by default):
+
+```ts
+await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
+```
+
+What the mark says, and what it does not:
+
+- The client router runs in this document. React has hydrated the page, all but the content of its Suspense boundaries (below), or rendered it in the browser when no Node process was ready ([the client-rendered fallback](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md#when-no-sidecar-is-ready)). The router has keyed the history entry, listens for back and forward, and is the page's action client, so a server action call goes out at once.
+- Each document gets its own. After a reload, or a back or forward that loads the page again, the new document has no mark until its own router runs. A client navigation keeps it.
+- It does not say that every Suspense boundary has hydrated. React hydrates the content of a boundary (a `loading.tsx`, or one of the page's own) in a pass of its own after the rest of the page, and content that is still streaming in once it arrives. When a click lands on such content before React gets to it, React hydrates it at once and then handles the click. Content that has not arrived cannot be clicked: wait for it to show, as Playwright's actions do.
+- The server never renders it, so a test with JavaScript turned off never sees it. A page whose modules fail to load never gets it either: the page stays as the server rendered it, without the client router, and a test that waits for the mark there times out.
+
+Do not wait for the router's key in `history.state` instead. It is internal, and the browser keeps a history entry's state when it loads the document again, so after a reload the key is there before any of the page's scripts has run.
+
 ## In CI
 
 ```bash
@@ -4504,9 +4529,11 @@ These are exported for the plugin and the .NET app; app code does not import the
 
 | Import | What it is |
 |---|---|
-| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server) and receives streamed deferred values. |
+| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
 | `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. |
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
+
+The entry is internal, but the mark is public. The client router puts `data-netjes-hydrated`, with an empty value, on `<html>` once it runs in the document: after React has hydrated the page (the content of its Suspense boundaries can follow), or rendered it when no sidecar was ready, and after the router has registered as the page's action client. It is the sign end-to-end tests wait for before they click ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration)). The server never renders it, a client navigation keeps it, and the router takes it off if it unmounts. The name is reserved: an app does not set, change or remove it, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser sees it.
 
 ## The generated module
 
@@ -6163,6 +6190,15 @@ Render a page component directly with the props its loader would send: `render(<
 
 Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
 
+With JavaScript on, wait for hydration after each full page load, before the first click or keystroke; until then links load pages in full and forms post natively, so the test can pass without the client. Netjes puts `data-netjes-hydrated` on `<html>` once the client router runs in the document:
+
+```ts
+await page.goto('/');
+await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
+```
+
+`page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' })` waits for the same thing without `expect`'s 5-second limit. Never wait on `history.state`: a reload keeps it, so it is there before the page's scripts have run. Content inside a Suspense boundary can hydrate after the mark; React hydrates it first when a click lands on it.
+
 ## Before calling a change done
 
 ```bash
@@ -6275,6 +6311,10 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Added
+
+- Once the client router runs in a document, `<html>` carries `data-netjes-hydrated=""`: the sign that the page has hydrated, which end-to-end tests wait for before they click, with `await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '')` ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration), [ADR 0025](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0025-a-mark-on-html-says-the-client-router-runs.md)). It appears after the router has registered as the page's action client, on hydrated pages and on pages rendered in the browser when no sidecar was ready, and the server never renders it. A test helper that waited for the router's key in `history.state` should wait for the attribute instead: the browser keeps that state when it loads the document again, so after a reload the key is there before any of the page's scripts has run. The name is reserved, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser now sees one more.
 
 ### Changed
 

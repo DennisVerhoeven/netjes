@@ -6,7 +6,7 @@ This guide is for app developers who want to know how a Netjes page becomes HTML
 
 A request for a page goes through ASP.NET Core first. The endpoint for the page file runs its C# loaders (the layouts' and the page's), and Netjes builds the page payload: which page and layouts to show, their props, the route parameters, the shared props and the seeded queries. The next step depends on who asked:
 
-- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it.
+- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it. Once the client router runs there, `<html>` carries `data-netjes-hydrated`, which end-to-end tests wait for ([testing](testing.md#wait-for-hydration)).
 - A client navigation (`<Link>`, `router.push`, a `<Form>` post) asks the same URL for the payload as JSON. No Node process is involved: the browser loads the page module and renders it itself.
 
 Only document requests need the sidecar. Redirects, not-found and forbidden results, authorization and the response status are all decided in .NET before anything is rendered.
@@ -179,6 +179,7 @@ In production, a document request that finds no Node process ready (they have al
 - Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route`.
 - It is never stored in the output cache, and it goes out with `Cache-Control: no-store` in place of any header the page set, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, `Surrogate-Control` and the others listed in [caching](caching.md#cdns-and-proxies)), so no browser, and no CDN that goes by the response's headers, keeps it once the processes are back.
 - Visitors without JavaScript, and crawlers and link previews that run none, get an empty page with the title, description and robots from C#. Layout title templates, and the metadata that page and layout files export, apply once the page renders.
+- Once the page has rendered, the client router runs as it does on a hydrated page and puts the same `data-netjes-hydrated` on `<html>`, so end-to-end tests wait for it here too ([testing](testing.md#wait-for-hydration)).
 - The health check reports Unhealthy while it lasts.
 - A render that reached a process and failed there, or timed out, still gets the error page.
 - Development never falls back, since its process also runs the Vite dev server the browser loads from, and neither does `netjes export`.
