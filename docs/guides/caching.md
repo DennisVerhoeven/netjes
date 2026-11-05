@@ -108,7 +108,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 
 ### Headers
 
-Netjes adds no `Cache-Control` to the answer of such an endpoint. The header its handler sets goes out as set. When the handler sets none, Netjes adds none, also to the 400 that minimal API binding answers for a value that does not bind (`take=x` for an `int?`). Without a `Cache-Control`, a browser or a CDN uses its own defaults, so set one on an answer that may be kept, in the handler or in an endpoint filter:
+Netjes adds no `Cache-Control` to the answer of such an endpoint. The header its handler sets goes out as set. When the handler sets none, Netjes adds none, also to the 400 that minimal API binding answers for a value that does not bind (`take=x` for an `int?`). `CachePage` does not change that. A JSON endpoint in a group it is put on gets the page rules for its cache entries, but no `Cache-Control` from Netjes, in the Development environment too: the default `no-store, private` is a page's. Without a `Cache-Control`, a browser or a CDN uses its own defaults, so set one on an answer that may be kept, in the handler or in an endpoint filter:
 
 ```csharp
 app.MapGet("/api/search", (string q, SearchIndex index, HttpContext http) =>
@@ -120,10 +120,10 @@ app.MapGet("/api/search", (string q, SearchIndex index, HttpContext http) =>
 
 Output caching adds no `Cache-Control` either. It stores the response headers that are set before the body is written, and sends them again with every answer it serves, with an `Age` header added. So a stored answer goes out with the `Cache-Control` of the response it was stored from, or with none when that response had none.
 
-The endpoints Netjes maps itself send their own:
+For the endpoints Netjes maps itself:
 
-- `/_netjes/image` sends `public, max-age=` the image option `CacheDuration` (7 days), and an `ETag` ([images](images.md#the-image-endpoint)).
-- `MapSitemap` sends `public, max-age=` its `cacheFor` (an hour by default), and `no-store` on the 404 it answers under a base path that is too long ([metadata](metadata.md#sitemap-and-robots)). `MapRobotsTxt` sends none.
+- `/_netjes/image` sends `public, max-age=` the image option `CacheDuration` (7 days) and an `ETag` with an image or a 304 ([images](images.md#the-image-endpoint)). Its error answers, such as the 400 for a width it does not allow, send none.
+- `MapSitemap` sends `public, max-age=` its `cacheFor` (an hour by default), and `no-store` on the 404 it answers under a base path that is too long ([metadata](metadata.md#sitemap-and-robots)). `MapRobotsTxt` and `MapLocaleRedirect` ([locales](routing.md#locales)) send none.
 - Server action answers and `/_netjes/antiforgery` send `no-store` ([above](#what-browsers-keep-by-default)).
 
 ### Keys and the query string

@@ -2626,7 +2626,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 
 ### Headers
 
-Netjes adds no `Cache-Control` to the answer of such an endpoint. The header its handler sets goes out as set. When the handler sets none, Netjes adds none, also to the 400 that minimal API binding answers for a value that does not bind (`take=x` for an `int?`). Without a `Cache-Control`, a browser or a CDN uses its own defaults, so set one on an answer that may be kept, in the handler or in an endpoint filter:
+Netjes adds no `Cache-Control` to the answer of such an endpoint. The header its handler sets goes out as set. When the handler sets none, Netjes adds none, also to the 400 that minimal API binding answers for a value that does not bind (`take=x` for an `int?`). `CachePage` does not change that. A JSON endpoint in a group it is put on gets the page rules for its cache entries, but no `Cache-Control` from Netjes, in the Development environment too: the default `no-store, private` is a page's. Without a `Cache-Control`, a browser or a CDN uses its own defaults, so set one on an answer that may be kept, in the handler or in an endpoint filter:
 
 ```csharp
 app.MapGet("/api/search", (string q, SearchIndex index, HttpContext http) =>
@@ -2638,10 +2638,10 @@ app.MapGet("/api/search", (string q, SearchIndex index, HttpContext http) =>
 
 Output caching adds no `Cache-Control` either. It stores the response headers that are set before the body is written, and sends them again with every answer it serves, with an `Age` header added. So a stored answer goes out with the `Cache-Control` of the response it was stored from, or with none when that response had none.
 
-The endpoints Netjes maps itself send their own:
+For the endpoints Netjes maps itself:
 
-- `/_netjes/image` sends `public, max-age=` the image option `CacheDuration` (7 days), and an `ETag` ([images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md#the-image-endpoint)).
-- `MapSitemap` sends `public, max-age=` its `cacheFor` (an hour by default), and `no-store` on the 404 it answers under a base path that is too long ([metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md#sitemap-and-robots)). `MapRobotsTxt` sends none.
+- `/_netjes/image` sends `public, max-age=` the image option `CacheDuration` (7 days) and an `ETag` with an image or a 304 ([images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md#the-image-endpoint)). Its error answers, such as the 400 for a width it does not allow, send none.
+- `MapSitemap` sends `public, max-age=` its `cacheFor` (an hour by default), and `no-store` on the 404 it answers under a base path that is too long ([metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md#sitemap-and-robots)). `MapRobotsTxt` and `MapLocaleRedirect` ([locales](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#locales)) send none.
 - Server action answers and `/_netjes/antiforgery` send `no-store` ([above](#what-browsers-keep-by-default)).
 
 ### Keys and the query string
@@ -6475,7 +6475,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...)
 
 JSON APIs, text files and webhooks are not pages, unless `CachePage` is put on them or on their group. The page rules do not apply to their cache entries.
 
-- Netjes adds no `Cache-Control` to their answers, including the 400 that minimal API binding answers: the handler's own goes out as set, and the output cache sends the headers set before the body is written again with every stored answer, with `Age`, and adds none. Netjes's own endpoints send theirs: `/_netjes/image` (`public, max-age=` the image `CacheDuration`), `MapSitemap` (`public, max-age=` its `cacheFor`; `MapRobotsTxt` sends none), action answers and `/_netjes/antiforgery` (`no-store`).
+- Netjes adds no `Cache-Control` to their answers, including the 400 that minimal API binding answers, and none under `CachePage` either (the page rules decide entries, not headers): the handler's own goes out as set, and the output cache sends the headers set before the body is written again with every stored answer, with `Age`, and adds none. Netjes's own endpoints: `/_netjes/image` (`public, max-age=` the image `CacheDuration` with an image or a 304, none with an error), `MapSitemap` (`public, max-age=` its `cacheFor`), action answers and `/_netjes/antiforgery` (`no-store`); `MapRobotsTxt` and `MapLocaleRedirect` send none.
 - ASP.NET Core's keys apply. The path in any case shares one entry, route values included (`/codes/Ab` and `/codes/aB`): `AddOutputCache(o => o.UseCaseSensitivePaths = true)` gives each spelling its own entry, app-wide, and `.CacheOutput(p => p.With(c => c.HttpContext.Request.Path.Value == "/llms.txt"))` stores that one spelling only. Every query key varies the entry: `SetVaryByQuery([])` keeps one entry whatever the query (there is no call without arguments), `SetVaryByQuery("page")` varies on the keys it lists. Both are safe only when the answer does not depend on the keys they leave out and its body does not repeat the URL.
 - Only the answer to a `GET` or `HEAD` without an `Authorization` header or a signed-in user is stored, when it is a 200 that sets no cookie. `RevalidatePath` never evicts these entries: give the policy a tag (`.CacheOutput(p => p.Tag("docs"))`) and use `.Revalidate("docs")` or `IPageCache.RevalidateTagAsync("docs")`.
 - They stay output-cached in the Development environment, where only pages are not. Draft mode bypasses them, the image endpoint apart.
