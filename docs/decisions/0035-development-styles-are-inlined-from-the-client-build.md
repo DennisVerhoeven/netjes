@@ -1,6 +1,6 @@
 # 0035 – Development styles are inlined from the client environment's build
 
-Status: accepted; extends [ADR 0004](0004-vite-for-dev-server-and-builds.md)
+Status: accepted; extends [ADR 0004](0004-vite-for-dev-server-and-builds.md), amends [ADR 0026](0026-netjes-html-and-body-skip-reacts-attribute-check.md)
 
 ## Context
 
@@ -11,8 +11,9 @@ The sidecar took that text from Vite's SSR environment, by loading each file as 
 ## Decision
 
 - The sidecar still finds a page's CSS files in the SSR environment's module graph, which loaded the page and its segment files. It takes each file's text from the client environment's build (`server.environments.client.transformRequest`): the module the browser imports, which Vite keeps in its cache and serves to the browser until an edit invalidates it. The text is the JSON string on the module's line that starts with `const __vite__css = `, the string Vite's client passes to `updateStyle`. The sidecar finds the line by splitting the code on `\n`: `JSON.stringify` leaves U+2028 and U+2029 in the string, and a regular expression's `.` stops at both.
-- For a module without that line, from a Vite or a plugin that writes it otherwise, the sidecar inlines the SSR environment's `?inline` build of the file, as before, and logs a warning, once per process, that the inlined CSS can differ from the browser's.
-- `Document` renders each `<style data-vite-dev-id>` with `suppressHydrationWarning`. Vite's client owns the element's text once it runs, and a file edited between the render and the import still differs, which is no fault of the page.
+- Reading the build leaves the file's module in the client environment's module graph. A module that does not accept its own updates, as a CSS Modules file's (`*.module.css`) does not, takes an edit through a module that imports it, and nothing in the client environment imports it until a browser loads the page. Vite would take an edit to the file before then for a dead end and reload every open page of the app, where without the read the edit reached no browser. For such a module the sidecar drops the build and marks the module as not yet analyzed, which is where Vite stops an update, so the edit still reaches no browser. When a browser loads the page, Vite builds the module again for it, and learns from that build how the module takes updates. A plain CSS file's module accepts its own updates, and its build stays in the cache.
+- For a module without that line, or with something other than a JSON string after it, from a Vite or a plugin that writes it otherwise, the sidecar inlines the SSR environment's `?inline` build of the file, as before, and logs a warning, once per process, that the inlined CSS can differ from the browser's.
+- `Document` renders each `<style data-vite-dev-id>` with `suppressHydrationWarning`. Vite's client owns the element's text once it runs, and a file edited between the render and the import still differs, which is no fault of the page. These elements are the one exception to [ADR 0026](0026-netjes-html-and-body-skip-reacts-attribute-check.md), under which everything in the head is compared as before.
 
 ## Alternatives considered
 
@@ -23,8 +24,7 @@ The sidecar took that text from Vite's SSR environment, by loading each file as 
 ## Consequences
 
 - In development, the CSS inlined into a document is the text the browser's module for the file sets, so Vite's client leaves the element as it is, and React has no difference to report. A page seen without JavaScript gets the same CSS as one whose scripts run.
-- React no longer reports a difference in the text of these elements, whatever its cause, such as an edit between the render and the import. Vite's client applies the edit as before.
-- The sidecar runs the client environment's plugins on a page's CSS during the render, and the browser gets the result from Vite's cache. Tailwind CSS scans the files on disk for classes, so a build made before the browser loads the page's modules misses none.
-- The sidecar reads a detail of Vite's output that is not an API: the `const __vite__css = ` line of the module Vite serves for a CSS file in development. Its tests check that line against the installed Vite. If a Vite release writes the module otherwise, pages still render, with the SSR build and one warning, until Netjes reads the new form.
-- The module of a CSS Modules file (`*.module.css`) that the sidecar read for a page no browser has loaded since the dev server started is in the client environment's module graph with nothing importing it. Vite treats an edit to that file as a dead end and reloads every open page of the app.
+- React no longer reports a difference in the text of these elements, whatever its cause, such as an edit between the render and the import. Vite's client applies the edit as before. Every other element in the head is still compared.
+- The sidecar runs the client environment's plugins on a page's CSS during the render, and the browser gets the result from Vite's cache, apart from a module that does not accept its own updates and was read before any browser loaded the page, which is built again for the first browser that does. Both builds come from the client environment, so they match unless the file changed in between, and then Vite's client sets the new text. Tailwind CSS scans the files on disk for classes, so a build made before the browser loads the page's modules misses none.
+- The sidecar reads a detail of Vite's output that is not an API: the `const __vite__css = ` line of the module Vite serves for a CSS file in development. If a Vite release writes the module otherwise, pages still render, with the SSR build and one warning, until Netjes reads the new form. It also relies on Vite stopping an update at a module that is not yet analyzed: should that change, an edit to a CSS Modules file of a page that no browser has loaded would reload the open pages. The sidecar's tests check both against the installed Vite.
 - Production is unchanged: its documents link the built stylesheets, and nothing is inlined.
