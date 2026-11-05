@@ -25,5 +25,6 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0021 – Signing in or out reaches the app's other tabs](0021-signing-in-or-out-reaches-the-other-tabs.md): a tab that sees a cookie change tells the others on a `BroadcastChannel`, and they forget and reload the same way.
 - [0022 – The client entry hydrates once the shell is parsed](0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
 - [0023 – Pages are not output-cached in Development](0023-pages-are-not-output-cached-in-development.md): there every request renders the page, nothing is stored, and the page goes out `no-store`, so no edit meets a stale document.
+- [0026 – Netjes's own `<html>` and `<body>` skip React's attribute check](0026-netjes-html-and-body-skip-reacts-attribute-check.md): a script that sets an attribute on either one before hydration, such as a theme script or a browser extension, no longer makes React log a mismatch in development.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
