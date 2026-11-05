@@ -1,6 +1,6 @@
 # 0040 – Links from C# are a Href type
 
-Status: accepted; extends [ADR 0006](0006-types-and-zod-from-csharp-contracts.md)
+Status: accepted; extends and amends [ADR 0006](0006-types-and-zod-from-csharp-contracts.md)
 
 ## Context
 
@@ -11,7 +11,7 @@ The generated file types the `href` of `<Link>` and `router.push` as `Href`: a r
 - `Netjes.Href` is a public sealed class that holds a link. The generator writes a property of that type as the file's `Href` schema, so `Href?`, lists, dictionaries and `Deferred<Href>` become `Href.nullable()`, `z.array(Href)`, `z.record(z.string(), Href)` and `deferred(Href)`, as any other type would. The file declares `routePatterns`, `isHref()` and the `Href` schema right after its imports, before the schemas that use them; the route types and `route()` stay at the end, since TypeScript lets a type be named before its declaration.
 - C# checks the shape where an `Href` is made. The constructor throws `ArgumentException`, and `TryCreate` returns false, for a URL that starts with none of `/`, `?`, `#`, `http:`, `https:`, `mailto:` and `tel:` (the schemes in any case), that starts with `//` or `/\`, that holds an ASCII control character, or that starts or ends with a space. `isRouteHref`, which `isHref()` and the schema call, now refuses the same characters and spaces. Browsers drop a tab or a newline anywhere in a URL: `/\t/evil.example`, which it took for a path where a root catch-all page matched, goes to `evil.example`.
 - Whether a root-relative URL is one of the app's pages is checked where the props are parsed, on the server and in the browser, by the `Href` schema.
-- A converter on the type, `HrefJsonConverter`, writes the URL as a plain string, and reading checks it as the constructor does. It is public, since a System.Text.Json source-generated context in an app creates the converter in the app's own code.
+- A converter on the type, `HrefJsonConverter`, writes the URL as a plain string, and reading checks it as the constructor does. `Href` is the one type with a converter of its own that the generator writes as a schema, where [ADR 0006](0006-types-and-zod-from-csharp-contracts.md) writes such a type as `z.unknown()`. It is public, since a System.Text.Json source-generated context in an app creates the converter in the app's own code.
 - It converts to `string`, and nothing converts to it: there is no conversion from `string`, no `TryParse`, no `IParsable` and no `BindAsync`. The constructor's parameter, `url`, matches no property, so `[AsParameters]` refuses the type too. With a parameter that matched the `Value` property, that attribute would build an `Href` from a query value named `value`, and a page loader's startup error for a plain `Href` parameter, which minimal APIs would read from the body, suggests it.
 
 ## Alternatives considered
