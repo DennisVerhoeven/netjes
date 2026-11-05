@@ -465,7 +465,8 @@ public partial class CspTests
             await app.GetDocumentAsync("/");
         }
 
-        Assert.InRange(PolicyWarnings(app).Count, 1, 100);
+        // One request after the other: each of the first 100 policies is checked, and warned about once, and no more.
+        Assert.Equal(100, PolicyWarnings(app).Count);
     }
 
     [Fact]
