@@ -76,6 +76,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0034 – Navigation promises resolve when React has the page](decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)
 - [0035 – Development styles are inlined from the client environment's build](decisions/0035-development-styles-are-inlined-from-the-client-build.md)
 - [0036 – zod runs without compiled parsers in the browser](decisions/0036-zod-runs-without-compiled-parsers-in-the-browser.md)
+- [0037 – Netjes keeps an app's Content-Security-Policy as written in Development, and warns](decisions/0037-csp-kept-as-written-in-development-with-warnings.md)
 
 ## The project
 
