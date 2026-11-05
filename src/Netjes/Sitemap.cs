@@ -123,7 +123,9 @@ public static class SitemapEndpointRouteBuilderExtensions
     /// hour), so <c>StaticParams</c> does not run on every request, and browsers and CDNs may keep it as long. Under a
     /// base path longer than 256 characters as the XML writes it (percent-encoded, with <c>&amp;</c> as
     /// <c>&amp;amp;</c>), it is not found: each URL repeats the base path, which a client can choose through an
-    /// <c>X-Forwarded-Prefix</c> the app accepts.
+    /// <c>X-Forwarded-Prefix</c> the app accepts. Another case of the path, or a trailing slash under
+    /// <see cref="TrailingSlash.Never"/>, answers 308 to <c>/sitemap.xml</c>
+    /// (<see cref="NetjesOptions.RedirectLiteralCase"/>).
     /// </summary>
     public static IEndpointConventionBuilder MapSitemap(this IEndpointRouteBuilder endpoints, Uri siteUrl, TimeSpan? cacheFor = null)
     {
@@ -192,7 +194,12 @@ public static class SitemapEndpointRouteBuilderExtensions
         return urls;
     }
 
-    /// <summary>Answers GET and HEAD for <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>.</summary>
+    /// <summary>
+    /// Answers GET and HEAD for <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the
+    /// sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>. Another
+    /// case of the path, or a trailing slash under <see cref="TrailingSlash.Never"/>, answers 308 to <c>/robots.txt</c>
+    /// (<see cref="NetjesOptions.RedirectLiteralCase"/>).
+    /// </summary>
     public static IEndpointConventionBuilder MapRobotsTxt(this IEndpointRouteBuilder endpoints, Uri siteUrl, IReadOnlyList<string>? disallow = null)
     {
         var text = new StringBuilder("User-agent: *\n");
