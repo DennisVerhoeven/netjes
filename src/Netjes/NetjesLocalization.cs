@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Netjes;
 using Netjes.Rendering;
+using Netjes.Routing;
 
 namespace Netjes
 {
@@ -135,6 +136,6 @@ namespace Microsoft.AspNetCore.Builder
                     .FirstOrDefault(culture => culture is not null);
                 http.Response.Headers.Vary = HeaderNames.AcceptLanguage;
                 return Results.Redirect($"{http.Request.PathBase}/{preferred ?? supported[0]}", permanent: false, preserveMethod: true);
-            }).WithDisplayName("Netjes locale redirect");
+            }).WithDisplayName("Netjes locale redirect").WithMetadata(NetjesEndpointMetadata.Instance);
     }
 }
