@@ -111,8 +111,9 @@ internal sealed class StaticExportService(
     private async Task<int> ExportAsync(string output, CancellationToken cancellationToken)
     {
         var (pages, problems, warnings) = await PlanAsync();
-        problems.AddRange(CollisionProblems(pages));
-        problems.AddRange(DeviceNameProblems(pages));
+        var files = pages.Select(page => new OutputFile(page.Url.TrimEnd('/') + "/index.html", $"{page.Url} ({page.Pattern})")).ToList();
+        problems.AddRange(CollisionProblems(files));
+        problems.AddRange(DeviceNameProblems(files));
         problems.AddRange(OutputProblems(output));
 
         if (problems.Count > 0)
@@ -216,6 +217,12 @@ internal sealed class StaticExportService(
 
     /// <summary>A URL to render and the page pattern it comes from.</summary>
     private sealed record PlannedPage(string Url, string Pattern);
+
+    /// <summary>
+    /// A file the export writes: its path in the output as a URL path (<c>/about/index.html</c>, each segment as the URL
+    /// has it), and what writes it, for the messages (<c>/about (/about)</c>).
+    /// </summary>
+    private sealed record OutputFile(string Path, string Name);
 
     /// <summary>A page the export writes: its route, the endpoint that answers GET for it, and the URLs it is written for.</summary>
     private sealed record ExportedPage(PageRoute Route, RouteEndpoint? Get, IReadOnlyList<string> Urls);
@@ -385,37 +392,38 @@ internal sealed class StaticExportService(
     }
 
     /// <summary>
-    /// Pages that would write one file. Windows and macOS treat paths that differ only in case or Unicode normalization
-    /// as one, and Windows drops trailing dots and spaces, so the export refuses what one file system would merge.
+    /// Output files that would be one file. Windows and macOS treat paths that differ only in case or Unicode
+    /// normalization as one, and Windows drops trailing dots and spaces, so the export refuses what one file system
+    /// would merge.
     /// </summary>
-    private static IEnumerable<string> CollisionProblems(IEnumerable<PlannedPage> pages)
+    private static IEnumerable<string> CollisionProblems(IEnumerable<OutputFile> files)
     {
-        var seen = new Dictionary<string, PlannedPage>(StringComparer.Ordinal);
-        foreach (var page in pages.Distinct())
+        var seen = new Dictionary<string, OutputFile>(StringComparer.Ordinal);
+        foreach (var file in files.Distinct())
         {
-            var key = PortableKey(page.Url);
+            var key = PortableKey(file.Path);
             if (seen.TryGetValue(key, out var other))
             {
-                var why = other.Url == page.Url
+                var why = other.Path == file.Path
                     ? ""
                     : " (on Windows and macOS, paths that differ only in case, Unicode normalization or trailing dots and spaces are one file)";
-                yield return $"{other.Url} ({other.Pattern}) and {page.Url} ({page.Pattern}) map to the same output file, " +
-                    $"{Path.Join(PathOf(other.Url), "index.html")}{why}; give one of them another path or exclude it with .ExcludeFromExport().";
+                yield return $"{other.Name} and {file.Name} map to the same output file, " +
+                    $"{PathOf(other.Path)}{why}; give one of them another path or exclude it with .ExcludeFromExport().";
                 continue;
             }
 
-            seen.Add(key, page);
+            seen.Add(key, file);
         }
     }
 
     /// <summary>
-    /// Pages with a path segment Windows reserves for a device (<c>con</c>, <c>nul.txt</c>, <c>com1</c>): there it names
-    /// the device in any case and with any extension, so no file or directory can have it.
+    /// Output files with a path segment Windows reserves for a device (<c>con</c>, <c>nul.txt</c>, <c>com1</c>): there it
+    /// names the device in any case and with any extension, so no file or directory can have it.
     /// </summary>
-    private static IEnumerable<string> DeviceNameProblems(IEnumerable<PlannedPage> pages) =>
-        pages.Distinct()
-            .Where(page => page.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => IsDeviceName(Uri.UnescapeDataString(segment))))
-            .Select(page => $"{page.Url} ({page.Pattern}) has a path segment that names a Windows device (CON, PRN, AUX, NUL, COM0-9, LPT0-9), " +
+    private static IEnumerable<string> DeviceNameProblems(IEnumerable<OutputFile> files) =>
+        files.Distinct()
+            .Where(file => file.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => IsDeviceName(Uri.UnescapeDataString(segment))))
+            .Select(file => $"{file.Name} has a path segment that names a Windows device (CON, PRN, AUX, NUL, COM0-9, LPT0-9), " +
                 "which cannot be a file or directory there; give it another path or exclude it with .ExcludeFromExport().");
 
     private static bool IsDeviceName(string segment)
@@ -426,7 +434,7 @@ internal sealed class StaticExportService(
                 && (char.IsAsciiDigit(name[3]) || name[3] is '\u00b9' or '\u00b2' or '\u00b3'));
     }
 
-    private static string PortableKey(string url) => string.Join('/', url.Split('/', StringSplitOptions.RemoveEmptyEntries)
+    private static string PortableKey(string path) => string.Join('/', path.Split('/', StringSplitOptions.RemoveEmptyEntries)
         .Select(segment => Uri.UnescapeDataString(segment).Normalize(NormalizationForm.FormC).TrimEnd('.', ' ').ToUpperInvariant())
         .Where(segment => segment.Length > 0));
 
