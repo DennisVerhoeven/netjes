@@ -30,7 +30,7 @@ import { Image } from 'netjes';
 - `quality` (1–100, default 75) is rounded to the nearest quality the server accepts.
 - `unoptimized` serves `src` as it is. SVGs, `data:` URLs and `blob:` URLs are always served as they are.
 
-`src` is a path in `public/` (`/img/hero.png`) or a URL on an allowed remote host. `alt` is required; give `""` for a decorative image. Every other `<img>` attribute, such as `className` or `style`, passes through. Under a [base path](routing.md#base-path), write `src` as if the app were at the root.
+`src` is a path in `public/` (`/img/hero.png`) or a URL on an allowed remote host. `alt` is required; give `""` for a decorative image. Every other `<img>` attribute, such as `className` or `style`, passes through, and a `ref` gets the `<img>` element. Under a [base path](routing.md#base-path), write `src` as if the app were at the root.
 
 The configured widths, qualities and the endpoint's path reach the component with the first document, so the server's configuration is the only one. A static host has no image endpoint, so pages from `netjes export` need `unoptimized` on their images ([Static export](static-export.md#what-cannot-be-exported)).
 

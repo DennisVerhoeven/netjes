@@ -383,7 +383,7 @@ A form post is never sent twice: one still on its way when another call's header
 | `replace` | For a GET form: replace the history entry instead of adding one. |
 | `reloadDocument` | Let the browser submit the form itself, with a full page load. |
 
-The other props are those of a `<form>`. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
+The other props are those of a `<form>`, and a `ref` gets the `<form>` element. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
 
 - A page, or a redirect to one, is shown as a navigation.
 - An HTML document that is not a Netjes page is shown as the browser would show it, and is never requested again as a GET.

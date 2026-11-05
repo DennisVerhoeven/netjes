@@ -362,7 +362,7 @@ public static IEndpointConventionBuilder MapLocaleRedirect(this IEndpointRouteBu
 
 - `AddNetjesLocalization` turns on locale routing: request localization driven only by the `[lang]` route value, with parent-culture fallback off. With it, the payload carries the locale, `<html lang>` follows it, and `useLocale()` returns it.
 - `UseNetjesLocalization`, after `UseNetjes()`, sets the request culture from the route value. An unsupported locale gets the not-found page (in the default culture) on a page, and a bare 404 on any other endpoint with the parameter; a supported one in another case is replaced by its configured name.
-- `MapLocaleRedirect` maps `/`, for `GET` and `HEAD`, to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
+- `MapLocaleRedirect` maps `/`, for `GET` and `HEAD`, to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default. Keep the pages under `app/[lang]/`: an `app/page.tsx` next to it ties with it for `/`, so ASP.NET Core answers 500 there, and Netjes reports it as a route warning ([An endpoint that ties with a page](../guides/routing.md#an-endpoint-that-ties-with-a-page)).
 
 `NetjesLocalizationOptions` has `SupportedCultures` (default `["en"]`, the first is the default) and `RouteParameter` (default `lang`). See [redirects, rewrites and headers](../guides/redirects-rewrites-headers.md#internationalized-routing).
 
@@ -519,7 +519,7 @@ public sealed class CachedPageMetadata
 }
 ```
 
-What app code and tests read from the endpoints to find the app's pages, their loaders and their `CachePage` settings, as `netjes routes` does. Netjes puts them on the endpoints, and their constructors are internal.
+What app code and tests read from the endpoints to find the app's pages and their loaders, as `netjes routes` does, and the settings `CachePage` was given. The report's output caching (`cached` in `--json`) does not come from `CachedPageMetadata`: it is true under any output-cache policy on the endpoint, while `CachedPageMetadata` is there only under `CachePage` ([the route table](../guides/routing.md#the-route-table)). Netjes puts both on the endpoints, and their constructors are internal.
 
 - `PageRouteMetadata` is on every endpoint that serves a page: the `GET` and `HEAD` endpoint of a page file or of `MapPageLoader`, and the `POST` endpoint of `MapPageAction`. `Pattern` is the page's URL as its file names it (`/blog/[slug]`), without the prefix of a route group the endpoint is mapped in, which the endpoint's own route pattern includes. `IsLoader` is true on the endpoint `MapPageLoader` maps, and false on a page file's own endpoint (a page without a loader) and on a page action's. No other endpoint carries it: not the not-found fallback, a server action, a minimal API that returns `Page.Render`, or Netjes's own endpoints, such as `/_netjes/image` and `/sitemap.xml`.
 - `CachedPageMetadata` is on every endpoint `CachePage` is put on (a page loader, each file page under `MapPages().CachePage(...)`, a minimal API that returns `Page.Render`, the endpoints of a route group), with the `duration` and the `tags` it was given, in the order given. An endpoint output-cached without `CachePage` (`CacheOutput`, `[OutputCache]`, a base policy) carries none. A `CacheOutput(...)` after `CachePage` on the same endpoint replaces the policy `CachePage` set, and the metadata still holds what `CachePage` was given ([caching](../guides/caching.md#under-any-output-caching)).

@@ -32,7 +32,7 @@ The app does not start until every process has reported ready, within `StartupTi
 
 | Option | Default | Limits |
 |---|---|---|
-| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. |
+| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. In production also how long a health ping waits for an answer, and never less than 5 s ([Restarts](#restarts)). |
 | `StreamTimeout` | 60 s | How long a whole document may take, deferred values and Suspense boundaries included. A complete document (for a crawler, below) waits up to this long. |
 
 A render that runs out of time fails with the error page.

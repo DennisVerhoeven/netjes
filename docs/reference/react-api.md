@@ -410,7 +410,7 @@ The type of `export const metadata` in pages, layouts and special pages. See [Me
 type MetadataTitle = string | { default?: string; template?: string; absolute?: string };
 ```
 
-A title, or a layout's default and template (`'%s · Site'`), or an absolute title that skips templates.
+A title, a layout's `template` (`'%s · Site'`) and `default`, or an `absolute` title that skips templates. A `default`, on a layout or a page, goes through the nearest `template` of the layouts above it like a string title, never through the one beside it; a layout's `default` is also the title of the pages below it that set none. See [Titles](../guides/metadata.md#titles).
 
 #### `MetadataImage`
 
@@ -622,7 +622,7 @@ Links and `router.push` move to the new URL, so hooks see it, and are recorded. 
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
-The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](../guides/testing.md#vitest)).
+The plugin also adds a setup file of its own to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. It is not an entry point of the package. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](../guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 

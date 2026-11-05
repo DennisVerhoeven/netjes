@@ -51,8 +51,9 @@ public sealed class NetjesOptions
 
     /// <summary>
     /// How long the sidecar may take to render the shell (everything outside unresolved Suspense boundaries). In
-    /// production also how long a health ping waits, and never less than five seconds: a Node process that has answered
-    /// no render for five seconds is pinged, and killed and restarted when no answer comes in that time.
+    /// production also how long a health ping waits for its answer, and never less than five seconds: a Node process
+    /// that has answered no render for five seconds is pinged, and killed and restarted when the ping gets no answer
+    /// within that wait.
     /// </summary>
     public TimeSpan RenderTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
@@ -134,9 +135,11 @@ public sealed class NetjesOptions
     /// documents (unless the app already did) and puts the nonce on the scripts and styles it renders. A page with a
     /// nonce is never stored in the output cache (a cached nonce would be reused across visitors); Netjes warns once
     /// when that turns off a page's <c>CachePage</c>. A policy without <c>{nonce}</c> (hash-based, which output-cached
-    /// pages need) gets no nonce, so its pages can be stored. It allows Netjes's inline scripts by the hashes
-    /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> lists; no hash covers the scripts that stream
-    /// <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one must not stream.
+    /// pages need) gets no nonce, so its pages can be stored. Such a policy must list
+    /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> in its <c>script-src</c> to allow Netjes's inline scripts,
+    /// as in <c>$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}"</c>; Netjes does not add them. No hash
+    /// covers the scripts that stream <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one
+    /// must not stream.
     /// </summary>
     public string? ContentSecurityPolicy { get; set; }
 

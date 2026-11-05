@@ -1,12 +1,12 @@
 # 0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on
 
-Status: accepted
+Status: accepted; amends [ADR 0005](0005-a-small-default-stack.md)
 
 ## Context
 
 Testing Library (`@testing-library/dom` and `@testing-library/react`) handles fake timers only when they are Jest's: it looks for a `jest` global and a `setTimeout` that a fake clock replaced, and then moves that clock on with `jest.advanceTimersByTime`. Vitest has no `jest` global, so under `vi.useFakeTimers()` Testing Library took its path for real timers while the timers were fake. Every user-event call, `waitFor` and `findBy` runs in the wrapper that `@testing-library/react` sets up, which ends on a `setTimeout(0)`; nothing advanced it, so none of them returned. A `waitFor` for an element already on the page waited until the test timed out, and so did a click from a user-event `user` created with the `advanceTimers` option, which advances the clock for user-event's own delays only. A component test that needs fake timers, for a debounce or a message that goes away after a few seconds, could not use Testing Library's queries or user-event at all.
 
-The `netjes()` plugin reaches an app's tests only through the Vitest settings it adds. Its one setup file, Testing Library's cleanup, was added only to an app that set no `setupFiles` of its own.
+The `netjes()` plugin reaches an app's tests only through the Vitest settings it adds. Its one setup file, Testing Library's cleanup, was added only to an app that set no `setupFiles` of its own, by the rule of [ADR 0005](0005-a-small-default-stack.md) that the app's own `test` config overrides the plugin's test defaults. The setup file this record adds is an exception to that rule: the app's `setupFiles` do not replace it.
 
 ## Decision
 

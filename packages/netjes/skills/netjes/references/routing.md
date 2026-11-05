@@ -7,7 +7,7 @@ ASP.NET Core does the routing: every page file becomes an endpoint with an ordin
 | File | Role |
 |---|---|
 | `page.tsx` | The page for its folder's URL. |
-| `layout.tsx` | Wraps every page below it and stays mounted across navigations (its state survives). The root `app/layout.tsx` imports the global stylesheet. |
+| `layout.tsx` | Wraps every page below it and stays mounted across navigations (its state survives). The root `app/layout.tsx` imports the global stylesheet. Netjes renders `<html>`, `<head>` and `<body>` around the root layout, with `suppressHydrationWarning` on `<html>` and `<body>`, so no layout renders them: the root one returns what goes inside `<body>`. |
 | `template.tsx` | Like a layout, but remounted on every navigation. |
 | `loading.tsx` | Suspense fallback, streamed first while the page below waits on deferred values or lazy code. |
 | `error.tsx` | Error boundary below its layout; props `{ error, reset }` (`ErrorPageProps`), status in `error.status`. In development `error.message` can take several lines (a syntax error's code frame): render it with `whitespace-pre-wrap`. |
@@ -33,7 +33,7 @@ A literal segment beats a dynamic one (`blog/new` over `blog/[slug]`), as in Nex
 
 ## Loader parameters and route warnings
 
-Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route value of the same name (any case), and otherwise the query string. `(string id)` on `/blog/[slug]` therefore reads `?id=`, never the slug, and `string[] path` on `[...path]` reads `?path=`. Netjes logs a warning for that at startup, and `npm run routes` prints it. Name parameters after the route segment, or mark query parameters `[FromQuery]`. Another warning is two pages that match the same URLs (`[id]` next to `[...rest]`); rename one, or accept it if the overlap is wanted. A third is an endpoint of the app that ties with a page (below).
+Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route value of the same name (any case), and otherwise the query string. `(string id)` on `/blog/[slug]` therefore reads `?id=`, never the slug, and `string[] path` on `[...path]` reads `?path=`. Netjes logs a warning for that at startup, and `npm run routes` prints it. Name parameters after the route segment, or mark query parameters `[FromQuery]`. Another warning is two pages that match the same URLs (`[id]` next to `[...rest]`); rename one, or accept it if the overlap is wanted. Others are an endpoint of the app that ties with a page (below), and a `[FromForm]` positional record with a `bool`, `bool?` or list field, which form binding refuses (400) when the post leaves that field out, as for an unchecked box: give the input `init` properties instead.
 
 ## Endpoints next to pages
 
@@ -52,7 +52,7 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 
 ## Metadata
 
-- `export const metadata: Metadata = { title: 'About' }` on pages and layouts; a layout's `title: { default, template: '%s · Site' }` applies to the pages below it.
+- `export const metadata: Metadata = { title: 'About' }` on pages and layouts; a layout's `title: { default, template: '%s · Site' }` applies to the pages below it. A `default` below the root goes through the nearest template above it, like a string (`'Docs'` under `'%s · Site'` is `Docs · Site`), never through the one beside it; `{ absolute: 'Docs' }` skips every template.
 - From C#: `.WithMetadata(new PageMetadata { Title = post.Title, Description = ... })` on the loader's result, merged over the files' metadata.
 - Below a layout that sets a title, use `metadata`, not a `<title>` element (that makes a second title).
 

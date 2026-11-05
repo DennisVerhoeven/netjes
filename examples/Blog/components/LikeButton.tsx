@@ -18,9 +18,9 @@ async function fetchLikes(slug: string): Promise<LikesResponse> {
 }
 
 /**
- * The count is server-rendered from the query the C# loader seeds, and refetched once the page is interactive (the
- * page is cached for 30 seconds). Liking calls a server action; the count goes up at once (useOptimistic) and the
- * action's result replaces it.
+ * The count is server-rendered from the query the C# loader seeds, and refetched once the page is interactive: outside
+ * Development, the payload of a client navigation to the post can come from the output cache, up to 30 seconds old.
+ * Liking calls a server action; the count goes up at once (useOptimistic) and the action's result replaces it.
  */
 export function LikeButton({ slug }: { slug: string }) {
   const likes = useQuery({ queryKey: likeKeys.detail(slug), queryFn: () => fetchLikes(slug), staleTime: 0 });

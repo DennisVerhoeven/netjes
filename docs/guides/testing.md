@@ -152,7 +152,7 @@ it('searches once the typing stops', async () => {
 ```
 
 - `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
-- user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, user-event waits out its own delays on the fake clock, and the call never returns.
+- user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, as with user-event's direct API (`userEvent.click(...)` with no `setup()`), user-event waits out its own delays on the fake clock, and the call never returns.
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
@@ -265,6 +265,8 @@ public async Task Greeting_WithoutAName_IsAFieldError()
 Without `X-Netjes-Data` the same post is a form post without JavaScript: put the token in the form field `token["formFieldName"]` instead, and expect a 303 redirect on success, or the form's page rendered again with status 422.
 
 `tests/TaskBoard.Tests` has a fuller harness: a `Browser` type that keeps cookies and the last token, signs up users and calls actions, against Postgres in Testcontainers.
+
+A test about every page at once, such as one that checks that each page `CachePage` caches has a tag to revalidate it by, needs no request: it walks the app's endpoints and reads the metadata Netjes puts on them ([endpoint metadata](../reference/csharp-api.md#endpoint-metadata)).
 
 ## End-to-end tests
 

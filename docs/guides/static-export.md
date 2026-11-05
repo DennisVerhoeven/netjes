@@ -61,7 +61,7 @@ The output directory is replaced as a whole, so it is checked before anything is
 
 `netjes export` checks the first rule before it builds, against the project folder: the folder it runs in, with the app's `.csproj`, or the one `--cwd` names. On macOS and Linux it takes that folder by its real path, with any symlink resolved, as the app sees its own folder, and resolves a relative output folder against it. A folder outside the project folder, or the project folder itself, ends the command with exit code 1 before anything is built. On macOS and Windows that check ignores letter case, as .NET does. After the build, the app checks every rule before it renders a page, against `Netjes:Root`, which is the project folder unless it is set.
 
-`netjes export --no-build` skips what `netjes build` does (the types and both Vite bundles), and leaves the folder to the app alone. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
+`netjes export --no-build` skips what `netjes build` does (the types and both Vite bundles) and the command's own check of the folder, and leaves every rule to the app. It still resolves a relative output folder against the project folder, by its real path on macOS and Linux, as above. So an app whose `Netjes:Root` is a folder above the project folder can export to a folder inside that one, such as `../site`; and a folder the app refuses costs a compile and a start before the export stops.
 
 ## Redirects
 
