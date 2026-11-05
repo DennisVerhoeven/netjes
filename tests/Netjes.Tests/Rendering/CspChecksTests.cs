@@ -74,11 +74,11 @@ public class CspChecksTests
     [InlineData("script-src 'self', script-src 'self'", "Bootstrap script-src")]
     // Without the dev server, neither the socket nor the styles are judged.
     [InlineData("script-src 'self' ScriptHashes; connect-src 'self'; style-src 'self'", "")]
-    public void ABuiltDocument(string policy, string findings) =>
+    public void Check_ForABuiltDocument_FindsWhatThePolicyRefuses(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, Built));
 
     [Fact]
-    public void AHashMatchesOnlyWithItsValueAsWritten()
+    public void Check_AHashWithItsValueInAnotherCase_DoesNotCount()
     {
         // The algorithm's name is read ignoring case, the base64 value is not.
         var lowerCase = $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes.ToLowerInvariant()}";
@@ -130,7 +130,7 @@ public class CspChecksTests
     [InlineData("script-src 'nonce-abc'; style-src 'nonce-abc'", "")]
     [InlineData("script-src 'nonce-abc'; style-src 'self' 'unsafe-inline' 'nonce-abc'", "")]
     [InlineData("script-src 'nonce-abc'; style-src 'unsafe-inline' 'strict-dynamic'", "")]
-    public void ADocumentInDevelopment(string policy, string findings) =>
+    public void Check_ForADocumentInDevelopment_FindsWhatThePolicyRefuses(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, Development));
 
     [Theory]
@@ -146,14 +146,14 @@ public class CspChecksTests
     [InlineData("script-src *.example.test ScriptHashes", "")]
     [InlineData("script-src 'self' ScriptHashes", "DevServerScripts script-src https://vite.example.test")]
     [InlineData("script-src https://vite.example.test:8443 ScriptHashes", "DevServerScripts script-src https://vite.example.test")]
-    public void ADocumentInDevelopmentOverHttps(string policy, string findings) =>
+    public void Check_ForADocumentInDevelopmentOverHttps_FindsWhatThePolicyRefuses(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, DevelopmentOverHttps));
 
     [Theory]
     // There 'self' is the dev server too, for its scripts and its socket.
     [InlineData("script-src 'self' ScriptHashes; connect-src 'self'", "")]
     [InlineData("script-src ScriptHashes; connect-src 'self'", "ModuleScripts script-src http://localhost:5000/@vite/client")]
-    public void ADocumentInDevelopmentWithTheDevServerOnTheAppsOrigin(string policy, string findings) =>
+    public void Check_WithTheDevServerOnTheAppsOrigin_CountsSelfForIt(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, DevelopmentOnTheAppsOrigin));
 
     [Theory]
