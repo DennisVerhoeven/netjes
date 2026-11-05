@@ -26,5 +26,6 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0022 – The client entry hydrates once the shell is parsed](0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
 - [0023 – Pages are not output-cached in Development](0023-pages-are-not-output-cached-in-development.md): there every request renders the page, nothing is stored, and the page goes out `no-store`, so no edit meets a stale document.
 - [0024 – Link marks the current page by its path and the query parameters it names](0024-link-marks-the-current-page-by-path-and-query.md): `aria-current="page"` goes on a link to the page on screen, never on a `#` link, and query parameters the link does not name do not count.
+- [0025 – A mark on `<html>` says the client router runs](0025-a-mark-on-html-says-the-client-router-runs.md): `data-netjes-hydrated` appears once the router is the page's action client, in every document, and end-to-end tests wait for it rather than for `history.state`.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.

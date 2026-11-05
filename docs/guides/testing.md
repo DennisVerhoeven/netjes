@@ -237,6 +237,30 @@ webServer: [
 
 `--no-build` starts the last build, so build the app first: the examples' `test:e2e` script is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
 
+### Wait for hydration
+
+Until the page has hydrated, a `<Link>` loads the next page in full, a `<Form>` posts natively and an `onClick` handler does not run, so a test that clicks or types too early can pass on the path a browser without JavaScript takes. Once the client router runs in the document, Netjes puts `data-netjes-hydrated` on `<html>`, with an empty value. After each full page load, wait for it before the test's first click or keystroke:
+
+```ts
+await page.goto('/guestbook');
+await page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' });
+```
+
+`waitFor` waits as long as the test may run, unless the config sets an `actionTimeout`. The same wait as a web-first assertion, which retries for `expect`'s timeout instead (5 seconds by default):
+
+```ts
+await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
+```
+
+What the mark says, and what it does not:
+
+- The client router runs in this document. React has hydrated the page (all but the content of its Suspense boundaries, below), or rendered it in the browser when no Node process was ready ([the client-rendered fallback](rendering-and-streaming.md#when-no-sidecar-is-ready)). The router has keyed the history entry, listens for back and forward, and is the page's action client, so a server action call goes out at once.
+- Each document gets its own. After a reload, or a back or forward that loads the page again, the new document has no mark until its own router runs. A client navigation keeps it.
+- It does not say that every Suspense boundary has hydrated. React hydrates the content of a boundary (a `loading.tsx`, or one of the page's own) in a pass of its own after the rest of the page, and content that is still streaming in once it arrives. When a click lands on such content before React gets to it, React hydrates it at once and then handles the click. Content that has not arrived cannot be clicked: wait for it to show, as Playwright's actions do.
+- The server never renders it, so a test with JavaScript turned off never sees it. A page whose modules fail to load never gets it either: the page stays as the server rendered it, without the client router, and a test that waits for the mark there times out.
+
+Do not wait for the router's key in `history.state` instead. It is internal, and the browser keeps a history entry's state when it loads the document again, so after a reload the key is there before any of the page's scripts has run.
+
 ## In CI
 
 ```bash

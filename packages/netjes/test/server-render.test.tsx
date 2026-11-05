@@ -95,6 +95,14 @@ describe('server rendering', () => {
     expect(html).toMatch(/<header>Demo<\/header>.*<h1>Hello &lt;\/script&gt;<\/h1>/s);
   });
 
+  it('leaves the hydrated mark out of the server-rendered document', async () => {
+    const html = await renderer.render(data());
+
+    // The router puts it on <html> in the browser, once it runs there.
+    expect(html).toContain('<html lang="nl">');
+    expect(html).not.toContain('data-netjes-hydrated');
+  });
+
   it('hoists the title and meta tags a page renders into the head', async () => {
     const html = await renderer.render(data());
 

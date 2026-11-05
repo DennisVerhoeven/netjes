@@ -97,6 +97,13 @@ const ANTIFORGERY_URL = '/_netjes/antiforgery';
 const NONE: ScrollIntent = { kind: 'none' };
 const TOP: ScrollIntent = { kind: 'top' };
 const STATE_KEY = '__netjes';
+/**
+ * On `<html>` while the client router runs in the document, and the public sign that it does: end-to-end tests wait
+ * for it before they click. (The history entry's key is no such sign: the entry keeps it when the browser loads the
+ * document again.) The effect that sets it must stay after the one that registers the router as the action client,
+ * so that once it shows, the router has keyed the entry, listens for back and forward, and runs server action calls.
+ */
+const HYDRATED_ATTRIBUTE = 'data-netjes-hydrated';
 const PREFETCH_TTL_MS = 30_000;
 const MAX_REDIRECTS = 10;
 const MAX_REMEMBERED_ENTRIES = 50;
@@ -974,6 +981,14 @@ export function RouterProvider({
       }),
     [navigator, actionListeners],
   );
+  // Directly after the registration above, and in a passive effect, never a layout one: React runs a component's
+  // effects in order, a commit's layout effects before any passive one, and the mark must not show while server
+  // action calls still wait for the router.
+  useEffect(() => {
+    const html = document.documentElement;
+    html.setAttribute(HYDRATED_ATTRIBUTE, '');
+    return () => html.removeAttribute(HYDRATED_ATTRIBUTE);
+  }, []);
   useLayoutEffect(() => {
     if (view.id > 0) applyScroll(view.scroll);
   }, [view]);

@@ -44,6 +44,15 @@ Render a page component directly with the props its loader would send: `render(<
 
 Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
 
+With JavaScript on, wait for hydration after each full page load, before the first click or keystroke; until then links load pages in full and forms post natively, so the test can pass without the client. Netjes puts `data-netjes-hydrated` on `<html>` once the client router runs in the document:
+
+```ts
+await page.goto('/');
+await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
+```
+
+`page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' })` waits for the same thing without `expect`'s 5-second limit. Never wait on `history.state`: a reload keeps it, so it is there before the page's scripts have run. Content inside a Suspense boundary can hydrate after the mark; React hydrates it first when a click lands on it.
+
 ## Before calling a change done
 
 ```bash

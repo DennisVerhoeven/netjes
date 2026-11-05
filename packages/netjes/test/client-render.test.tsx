@@ -45,7 +45,7 @@ function clientRenderShell(payload: unknown) {
     '<!-- No Node sidecar was ready: this page renders in the browser. -->';
 }
 
-it('renders the page of a client-render shell in the browser, with no errors, and its deferred values arrive', async () => {
+it('renders the page of a client-render shell in the browser, with no errors, marks <html> as hydrated, and its deferred values arrive', async () => {
   clientRenderShell({
     kind: 'page',
     route: '/',
@@ -71,6 +71,8 @@ it('renders the page of a client-render shell in the browser, with no errors, an
     await import('../src/client-entry.tsx');
 
     expect(await screen.findByRole('heading', { name: 'Hello' })).toBeTruthy();
+    // The router runs in this document too, though React rendered the page rather than hydrated it.
+    await vi.waitFor(() => expect(document.documentElement.getAttribute('data-netjes-hydrated')).toBe(''));
     expect(await screen.findByText('first')).toBeTruthy();
     expect(screen.getByText('loading late')).toBeTruthy();
     // A value that streams in later, as the shell's scripts hand it over.

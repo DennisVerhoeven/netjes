@@ -643,9 +643,11 @@ These are exported for the plugin and the .NET app; app code does not import the
 
 | Import | What it is |
 |---|---|
-| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server) and receives streamed deferred values. |
+| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
 | `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. |
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
+
+The entry is internal, but the mark is public. The client router puts `data-netjes-hydrated`, with an empty value, on `<html>` once it runs in the document: after React has hydrated the page (the content of its Suspense boundaries can follow), or rendered it when no sidecar was ready, and after the router has registered as the page's action client. It is the sign end-to-end tests wait for before they click ([testing](../guides/testing.md#wait-for-hydration)). The server never renders it, a client navigation keeps it, and the router takes it off if it unmounts. The name is reserved: an app does not set, change or remove it, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser sees it.
 
 ## The generated module
 
