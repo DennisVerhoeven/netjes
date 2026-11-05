@@ -964,6 +964,81 @@ public class StaticExportTests
         Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains("/feed.xml") && l.Message.Contains("400 instead of 200"));
     }
 
+    private static readonly System.Xml.Linq.XNamespace Sitemaps = "http://www.sitemaps.org/schemas/sitemap/0.9";
+
+    private async Task<List<string>> SitemapLocsAsync() =>
+        [.. System.Xml.Linq.XDocument.Parse(await File.ReadAllTextAsync(Out("sitemap.xml"), TestContext.Current.CancellationToken))
+            .Root!.Elements(Sitemaps + "url").Select(u => (string)u.Element(Sitemaps + "loc")!)];
+
+    [Fact]
+    public async Task Export_AppMappingMapSitemap_WritesASitemapOfTheExportedPages()
+    {
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/about/page.tsx", "app/blog/[slug]/page.tsx", "app/guestbook/page.tsx", "app/secret/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/blog/[slug]", (string slug) => Page.Props(new PostProps(slug)))
+                    .StaticParams(_ => [new { slug = "hello" }, new { slug = "a b" }]);
+                a.MapPageLoader("/guestbook", () => Page.Props()).ExcludeFromExport();
+                a.MapPageLoader("/secret", () => Page.Props()).ExcludeFromSitemap();
+                a.MapSitemap(new Uri("https://example.com/"));
+            });
+
+        Assert.Equal(0, _exitCode);
+        Assert.Equal(
+            ["https://example.com/", "https://example.com/about", "https://example.com/blog/hello", "https://example.com/blog/a%20b"],
+            await SitemapLocsAsync());
+        Assert.True(File.Exists(Out("secret/index.html")));
+        Assert.False(File.Exists(Out("guestbook/index.html")));
+        Assert.Empty(QueryStringWarnings(app));
+        Assert.DoesNotContain(app.Logs, l => l.Level >= LogLevel.Warning && l.Message.Contains("loopback"));
+        Assert.Contains(app.Logs, l => l.Message.StartsWith("Exported 5 pages and 1 files to "));
+    }
+
+    [Fact]
+    public async Task Export_AppMappingMapRobotsTxt_WritesRobotsTxtAsTheAppServesIt()
+    {
+        await using var app = await ExportAsync(map: a =>
+        {
+            a.MapSitemap(new Uri("https://example.com/"));
+            a.MapRobotsTxt(new Uri("https://example.com/"));
+        });
+
+        Assert.Equal(0, _exitCode);
+        Assert.Equal(
+            "User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n",
+            await File.ReadAllTextAsync(Out("robots.txt"), TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(Out("sitemap.xml")));
+    }
+
+    [Fact]
+    public async Task Export_SitemapExcludedFromExport_IsNotWritten()
+    {
+        await using var app = await ExportAsync(map: a =>
+        {
+            a.MapSitemap(new Uri("https://example.com/")).ExcludeFromExport();
+            a.MapRobotsTxt(new Uri("https://example.com/")).ExcludeFromExport();
+        });
+
+        Assert.Equal(0, _exitCode);
+        Assert.False(File.Exists(Out("sitemap.xml")));
+        Assert.False(File.Exists(Out("robots.txt")));
+        Assert.True(File.Exists(Out("about/index.html")));
+    }
+
+    [Fact]
+    public async Task Export_MapRobotsTxtAndARobotsTxtInTheClientBuild_FailBeforeWritingAnything()
+    {
+        await using var app = await ExportAsync(
+            map: a => a.MapRobotsTxt(new Uri("https://example.com/")),
+            prepareRoot: root => File.WriteAllText(Path.Combine(root, "dist", "client", "robots.txt"), "User-agent: *\nDisallow: /\n"));
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains(
+            "dist/client/robots.txt (copied from public/ by the build, or written by a Vite plugin) and the endpoint GET, HEAD /robots.txt both make /robots.txt, and the server serves the file"));
+        Assert.False(Directory.Exists(_out));
+    }
+
     [Fact]
     public async Task Export_MarksItsOutput_AndReplacesAPreviousExport()
     {

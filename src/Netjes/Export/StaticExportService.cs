@@ -144,6 +144,8 @@ internal sealed class StaticExportService(
             return 1;
         }
 
+        // Before the first request: MapSitemap lists these pages in the export.
+        services.GetRequiredService<ExportPlan>().Pages = [.. pages.Select(page => (page.Url, page.Pattern))];
         var queryStrings = services.GetRequiredService<ILoggerFactory>().CreateLogger(QueryStringCategory);
         foreach (var warning in warnings)
         {

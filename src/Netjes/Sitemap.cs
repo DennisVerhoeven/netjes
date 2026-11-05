@@ -123,7 +123,8 @@ public static class SitemapEndpointRouteBuilderExtensions
     /// hour), so <c>StaticParams</c> does not run on every request, and browsers and CDNs may keep it as long. Under a
     /// base path longer than 256 characters as the XML writes it (percent-encoded, with <c>&amp;</c> as
     /// <c>&amp;amp;</c>), it is not found: each URL repeats the base path, which a client can choose through an
-    /// <c>X-Forwarded-Prefix</c> the app accepts.
+    /// <c>X-Forwarded-Prefix</c> the app accepts. <c>netjes export</c> writes it as <c>sitemap.xml</c>
+    /// (<c>.IncludeInExport()</c>), listing the pages it writes, unless the call is <c>.ExcludeFromExport()</c>.
     /// </summary>
     public static IEndpointConventionBuilder MapSitemap(this IEndpointRouteBuilder endpoints, Uri siteUrl, TimeSpan? cacheFor = null)
     {
@@ -153,21 +154,31 @@ public static class SitemapEndpointRouteBuilderExtensions
             .AllowAnonymous()
             // Another case of it, or a trailing slash under TrailingSlash.Never, is redirected here, as for a page.
             .WithMetadata(new OneSpellingMetadata())
+            .IncludeInExport()
             .WithDisplayName("Netjes sitemap.xml")
             .ExcludeFromDescription();
     }
 
     private static async Task<List<string>> PublicPathsAsync(HttpContext http, IRouteTableProvider routes, EndpointDataSource all)
     {
-        // A fallback policy protects every endpoint without authorization metadata of its own.
-        var fallback = http.RequestServices.GetService<IAuthorizationPolicyProvider>() is { } policies
-            ? await policies.GetFallbackPolicyAsync()
-            : null;
         var pages = all.Endpoints.OfType<RouteEndpoint>()
             .Where(e => e.Metadata.GetMetadata<PageEndpointMetadata>()?.Pattern is not null)
             .Where(e => e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(HttpMethods.Get) ?? true)
             .GroupBy(e => e.Metadata.GetMetadata<PageEndpointMetadata>()!.Pattern!)
             .ToDictionary(g => g.Key, g => g.First());
+        // In netjes export, the pages it writes: a static host has no file for a page it leaves out, and it fails on a
+        // page that requires authorization.
+        if (http.RequestServices.GetService<ExportPlan>()?.Pages is { } exported)
+        {
+            return [.. exported
+                .Where(page => !pages.TryGetValue(page.Pattern, out var endpoint) || endpoint.Metadata.GetMetadata<ExcludeFromSitemapMetadata>() is null)
+                .Select(page => page.Url)];
+        }
+
+        // A fallback policy protects every endpoint without authorization metadata of its own.
+        var fallback = http.RequestServices.GetService<IAuthorizationPolicyProvider>() is { } policies
+            ? await policies.GetFallbackPolicyAsync()
+            : null;
         var urls = new List<string>();
         foreach (var page in routes.Current.Pages)
         {
@@ -192,7 +203,12 @@ public static class SitemapEndpointRouteBuilderExtensions
         return urls;
     }
 
-    /// <summary>Answers GET and HEAD for <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>.</summary>
+    /// <summary>
+    /// Answers GET and HEAD for <c>/robots.txt</c>: allow everything except <paramref name="disallow"/>, and point at the
+    /// sitemap, under <paramref name="siteUrl"/> and <c>UsePathBase</c>'s base path like <see cref="MapSitemap"/>.
+    /// <c>netjes export</c> writes it as <c>robots.txt</c> (<c>.IncludeInExport()</c>), unless the call is
+    /// <c>.ExcludeFromExport()</c>.
+    /// </summary>
     public static IEndpointConventionBuilder MapRobotsTxt(this IEndpointRouteBuilder endpoints, Uri siteUrl, IReadOnlyList<string>? disallow = null)
     {
         var text = new StringBuilder("User-agent: *\n");
@@ -214,6 +230,7 @@ public static class SitemapEndpointRouteBuilderExtensions
                 Results.Text($"{head}\nSitemap: {root}{http.Request.PathBase.ToUriComponent()}/sitemap.xml\n", "text/plain", Encoding.UTF8))
             .AllowAnonymous()
             .WithMetadata(new OneSpellingMetadata())
+            .IncludeInExport()
             .WithDisplayName("Netjes robots.txt")
             .ExcludeFromDescription();
     }

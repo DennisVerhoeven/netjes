@@ -47,6 +47,25 @@ public class SitemapTests
     }
 
     [Fact]
+    public async Task Sitemap_OutsideAnExport_StillListsPagesExcludedFromExport()
+    {
+        // The export writes a sitemap of the pages it writes; a server serves them all.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/guestbook/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/guestbook", () => Page.Props()).ExcludeFromExport();
+                a.MapSitemap(new Uri("https://blog.example/"));
+            });
+
+        var xml = XDocument.Parse(await (await app.Client.GetAsync("/sitemap.xml", Ct)).Content.ReadAsStringAsync(Ct));
+
+        Assert.Equal(
+            ["https://blog.example/", "https://blog.example/guestbook"],
+            xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
+    }
+
+    [Fact]
     public async Task Sitemap_UnderAFallbackPolicy_ListsOnlyAnonymousPages_AndIsItselfPublic()
     {
         await using var app = await TestApp.StartAsync(
