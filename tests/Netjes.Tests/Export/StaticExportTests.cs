@@ -23,6 +23,9 @@ public class StaticExportTests
 
     private string _out => Path.GetFullPath(_output, _root);
 
+    /// <summary>The app's dist directory (<c>Netjes:DistDirectory</c>), which holds the client build. Default <c>dist</c>.</summary>
+    private string _dist = "dist";
+
     public sealed record PostProps(string Slug);
 
     /// <summary>Runs the export command against a production build (a manifest listing <paramref name="files"/>).</summary>
@@ -31,7 +34,8 @@ public class StaticExportTests
         Action<WebApplication>? map = null,
         Action<IServiceCollection>? services = null,
         Action<string>? prepareRoot = null,
-        Action<FakeSsrRenderer>? renderer = null)
+        Action<FakeSsrRenderer>? renderer = null,
+        Action<NetjesOptions>? configure = null)
     {
         var pages = (files ?? ["app/page.tsx", "app/about/page.tsx"]).ToList();
         return TestApp.StartAsync(
@@ -42,10 +46,15 @@ public class StaticExportTests
             prepareRoot: root =>
             {
                 _root = root;
-                WriteBuild(root, pages);
+                WriteBuild(root, pages, _dist);
                 prepareRoot?.Invoke(root);
             },
-            configure: o => o.Command = new NetjesCommandOptions { Name = "export", Output = _output },
+            configure: o =>
+            {
+                o.Command = new NetjesCommandOptions { Name = "export", Output = _output };
+                o.DistDirectory = _dist;
+                configure?.Invoke(o);
+            },
             services: s =>
             {
                 s.AddSingleton(new CommandExit(code => _exitCode = code));
@@ -57,9 +66,9 @@ public class StaticExportTests
             });
     }
 
-    private static void WriteBuild(string root, IReadOnlyList<string> pages)
+    private static void WriteBuild(string root, IReadOnlyList<string> pages, string dist = "dist")
     {
-        var client = Path.Combine(root, "dist", "client");
+        var client = Path.Combine(root, dist, "client");
         Directory.CreateDirectory(Path.Combine(client, ".vite"));
         Directory.CreateDirectory(Path.Combine(client, "assets"));
         var entries = pages.Select((file, i) => $"\"{file}\": {{ \"file\": \"assets/page{i}.js\", \"src\": \"{file}\", \"isDynamicEntry\": true }}");
@@ -805,6 +814,154 @@ public class StaticExportTests
         Assert.Equal(1, _exitCode);
         Assert.Contains(app.Logs, l => l.Message.Contains("/blog/[slug] is dynamic"));
         Assert.Empty(QueryStringWarnings(app));
+    }
+
+    [Fact]
+    public async Task Export_EndpointMarkedIncludeInExport_IsWrittenByteForByte()
+    {
+        await using var app = await ExportAsync(map: a =>
+        {
+            a.MapGet("llms.txt", () => Results.Bytes([0, 255, 10])).IncludeInExport();
+            // No HTTP method counts as GET, and a group's prefix is part of the URL.
+            a.Map("/any.txt", () => "any").IncludeInExport();
+            a.MapGroup("/feeds").MapGet("news.xml", () => Results.Text("<rss/>", "application/rss+xml")).IncludeInExport();
+            a.MapGet("/unmarked.txt", () => "not exported");
+        });
+
+        Assert.Equal(0, _exitCode);
+        Assert.Equal([0, 255, 10], await File.ReadAllBytesAsync(Out("llms.txt"), TestContext.Current.CancellationToken));
+        Assert.Equal("any", await File.ReadAllTextAsync(Out("any.txt"), TestContext.Current.CancellationToken));
+        Assert.Equal("<rss/>", await File.ReadAllTextAsync(Out("feeds/news.xml"), TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(Out("unmarked.txt")));
+        Assert.True(File.Exists(Out("about/index.html")));
+        Assert.Contains(app.Logs, l => l.Message.StartsWith("Exported 2 pages and 3 files to "));
+    }
+
+    [Fact]
+    public async Task Export_EndpointMarkedIncludeInExportAndExcludeFromExport_IsNotWritten()
+    {
+        await using var app = await ExportAsync(map: a => a.MapGet("/llms.txt", () => "text").IncludeInExport().ExcludeFromExport());
+
+        Assert.Equal(0, _exitCode);
+        Assert.False(File.Exists(Out("llms.txt")));
+    }
+
+    [Theory]
+    [InlineData("parameters", "/files/{name}.txt", "parameters")]
+    [InlineData("catch-all", "/files/{**path}", "parameters")]
+    [InlineData("extension", "/feed", "file extension")]
+    [InlineData("root", "/", "file extension")]
+    [InlineData("authorization", "/feed.xml", "requires authorization")]
+    [InlineData("fallback", "/feed.xml", "fallback policy")]
+    [InlineData("post", "/feed.xml", "GET")]
+    [InlineData("segment", "/a/../feed.xml", "not a safe file or directory name")]
+    [InlineData("segment", "/c:feed.xml", "not a safe file or directory name")]
+    [InlineData("device", "/con.txt", "Windows device")]
+    [InlineData("device", "/Nul/feed.xml", "Windows device")]
+    [InlineData("page", "/about/index.html", "same output file")]
+    [InlineData("page", "/About/Index.html", "same output file")]
+    [InlineData("not-found page", "/404.html", "same output file")]
+    [InlineData("marker", "/.netjes-export", "same output file")]
+    [InlineData("page below", "/notes.txt", "needs a directory")]
+    [InlineData("file below", "/about.txt/feed.xml", "needs a directory")]
+    public async Task Export_IncludeInExportEndpointThatCannotBeAFile_FailsBeforeWritingAnything(string kind, string pattern, string reason)
+    {
+        await using var app = await ExportAsync(
+            // Without app/page.tsx at /, which the endpoint at / would tie with.
+            kind switch { "page below" => ["app/page.tsx", "app/notes.txt/page.tsx"], "root" => ["app/about/page.tsx"], _ => null },
+            map: a =>
+            {
+                var endpoint = kind == "post" ? a.MapPost(pattern, () => "text") : a.MapGet(pattern, () => "text");
+                endpoint.IncludeInExport();
+                if (kind == "authorization") endpoint.RequireAuthorization();
+                if (kind == "file below") a.MapGet("/about.txt", () => "text").IncludeInExport();
+            },
+            services: s =>
+            {
+                if (kind == "fallback")
+                {
+                    s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+                }
+                else
+                {
+                    s.AddAuthorization();
+                }
+            });
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains(pattern.TrimStart('/')) && l.Message.Contains(reason));
+        Assert.False(Directory.Exists(_out));
+    }
+
+    [Theory]
+    [InlineData("dist", "public", "robots.txt", "/robots.txt")]
+    [InlineData("dist", "public", "Robots.TXT", "/robots.txt")]
+    [InlineData("build", "static", ".well-known/security.txt", "/.well-known/security.txt")]
+    public async Task Export_EndpointAndAClientBuildFileForOnePath_FailBeforeWritingAnything(string dist, string publicDirectory, string file, string pattern)
+    {
+        _dist = dist;
+        await using var app = await ExportAsync(
+            map: a => a.MapGet(pattern, () => "theirs").IncludeInExport(),
+            prepareRoot: root =>
+            {
+                var copied = Path.Combine(root, dist, "client", file.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
+                File.WriteAllText(copied, "mine");
+            },
+            configure: o => o.PublicDirectory = publicDirectory);
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error
+            && l.Message.Contains($"{dist}/client/{file} (copied from {publicDirectory}/ by the build, or written by a Vite plugin)")
+            && l.Message.Contains($"GET {pattern} both make {pattern}")
+            && l.Message.Contains(".ExcludeFromExport()"));
+        Assert.False(Directory.Exists(_out));
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(404)]
+    [InlineData(302)]
+    public async Task Export_IncludeInExportEndpointThatAnswersAnError_FailsTheExport(int status)
+    {
+        await using var app = await ExportAsync(map: a =>
+        {
+            a.MapGet("/broken.txt", () => status == 302 ? Results.Redirect("/elsewhere.txt") : Results.StatusCode(status)).IncludeInExport();
+            a.MapGet("/fine.txt", () => "fine").IncludeInExport();
+        });
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains("/broken.txt") && l.Message.Contains($"{status} instead of 200"));
+        Assert.False(File.Exists(Out("broken.txt")));
+        Assert.DoesNotContain(app.Logs, l => l.Message.StartsWith("Exported "));
+    }
+
+    [Fact]
+    public async Task Export_IncludeInExportEndpointThatReadsTheQueryString_IsWrittenAndWarned()
+    {
+        await using var app = await ExportAsync(map: a => a.MapGet("/feed.xml", (string? tag) => Results.Text($"<rss tag=\"{tag}\"/>", "application/rss+xml")).IncludeInExport());
+
+        Assert.Equal(0, _exitCode);
+        Assert.Equal("<rss tag=\"\"/>", await File.ReadAllTextAsync(Out("feed.xml"), TestContext.Current.CancellationToken));
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal(
+            "GET /feed.xml reads 'tag' from the query string, but netjes export writes /feed.xml once, without one, and a static host serves that file for every query string. " +
+            "To keep it on a server, exclude it with .ExcludeFromExport().",
+            warning.Message);
+    }
+
+    [Fact]
+    public async Task Export_IncludeInExportEndpointThatRequiresAQueryStringValue_IsWarnedThatTheExportFails()
+    {
+        await using var app = await ExportAsync(map: a => a.MapGet("/feed.xml", (string tag, int? page) => Results.Text(tag)).IncludeInExport());
+
+        Assert.Equal(1, _exitCode);
+        Assert.False(File.Exists(Out("feed.xml")));
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.StartsWith("GET /feed.xml requires 'tag' from the query string, but netjes export requests /feed.xml without one, so the app answers 400 and the export fails.", warning.Message);
+        Assert.Contains("default value or a nullable type", warning.Message);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains("/feed.xml") && l.Message.Contains("400 instead of 200"));
     }
 
     [Fact]
