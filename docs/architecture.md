@@ -105,6 +105,7 @@ sequenceDiagram
   A->>A: same endpoint, same loader
   A-->>B: 200 application/json payload
   B->>B: import the page module, pushState, render
+  B->>B: scroll, move the focus, announce the page
 ```
 
 The same endpoint serves both: the `X-Netjes-Data` header selects JSON over HTML, and responses carry `Vary: X-Netjes-Data, X-Netjes-Segments`. Redirects come back as `{ kind: "redirect" }` payloads, which the router follows. If the payload names a page this client build does not contain, or comes from a different build (`version`), the router falls back to a full page load. So does an answer that is not a Netjes payload (a static host's HTML file, say) to a `GET`, and a page module whose import fails: the client entry's module loader rejects with a `ModuleLoadError` that names the file and says why (the browser's error, which is its `cause`), and forgets the failure, so the next load imports the module again. The server's loader rejects with the module's own error, a syntax error or code that needs the browser, so the sidecar logs its message and stack. The document the browser then loads handles its own first page, so a module that never loads costs one full page load and no loop.
