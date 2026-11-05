@@ -152,7 +152,8 @@ test.describe('in the browser', () => {
     await page.getByRole('link', { name: '← All posts' }).click();
     await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
     expect(await isMarked(page)).toBe(true);
-    expect(errors.filter((e) => !e.includes('Content Security Policy'))).toEqual([]);
+    // Chromium logs an error for the handler the test injected; nothing else may be logged.
+    expect(errors.filter((e) => !/\binline event handler\b/.test(e))).toEqual([]);
   });
 
   test('Core Web Vitals are reported to the server', async ({ page }) => {
