@@ -165,6 +165,7 @@ What it leaves alone:
 - Requests with another method: a form that posts to `/About/` gets its answer at that URL.
 - The app's own endpoints, a minimal API that renders a page (`Page.Render`) and the not-found page.
 - A request that a rewrite or a re-execution changed (`UseRewriter`, `UseStatusCodePagesWithReExecute`, `UseExceptionHandler`, the page Netjes renders for a failed form post). The redirect reads the URL the client sent, the request target, and acts only when it spells the path routing matched ([rewrites](redirects-rewrites-headers.md#rewrites)).
+- A request target that browsers do not send: one with `.` or `..` segments (`/./About`), which the server resolves before routing, or one in absolute form (`GET http://example.com/About`), which clients send only to a proxy. It is answered as before, and under output caching its page can be stored under `/About` ([caching](caching.md#how-entries-are-keyed)).
 - TestServer, which `WebApplicationFactory` tests run on: it passes on no request target, so nothing is redirected there ([testing](testing.md#the-app-over-http)).
 - The case of the base path and of route values: in a `[lang]` folder, `/EN/about` is still a URL of its own next to `/en/about`.
 - A URL whose redirect could lead off the site or to another page, such as `//other.example/` under a root catch-all with `Never`: it is answered as it was sent. See [security](security.md#redirects).

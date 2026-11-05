@@ -12,7 +12,7 @@ ASP.NET Core's matcher matches literal segments in any case and ignores one trai
 - `NetjesOptions.TrailingSlash` decides about a trailing slash. `Ignore`, the default, answers both forms as before; `Never` redirects `/about/` to `/about`, and a catch-all's value loses its last slash. `/` stays as it is.
 - `/robots.txt` and `/sitemap.xml` follow both settings, with a plain 308. Other endpoints, the not-found page and other methods are left alone.
 - Only the literal segments change. Route values, the query string and the base path go along as sent, and so does a trailing slash under `Ignore`.
-- It redirects only the URL the client sent. The request target (`IHttpRequestFeature.RawTarget`) must decode to the base path and the path routing matched. A request a rewrite changed, one run again (for a failed form post, a status code page or an exception handler), one whose path the server normalised, and one on a server that passes on no target, such as TestServer, get no redirect. The location is built from the target, so a value goes back encoded as it came.
+- It redirects only the URL the client sent. The request target (`IHttpRequestFeature.RawTarget`) must decode to the base path and the path routing matched. A request a rewrite changed, one run again (for a failed form post, a status code page or an exception handler), one whose path the server normalised (dot segments), one whose target is in absolute form (`http://host/path`, which clients send only to a proxy), and one on a server that passes on no target, such as TestServer, get no redirect. The location is built from the target, so a value goes back encoded as it came.
 - No location is sent that a client could read as another site or another page: one that starts with `//` or `/\`, as sent or decoded, or holds a backslash, a `#`, a control character or a character beyond ASCII. Such a request is answered as it was sent.
 - The case and the slash are two settings, because their risks differ: the case redirect keeps every old link working, while dropping a slash loops behind a proxy that adds one. `TrailingSlash` is an enum so that a value that always adds the slash can follow.
 
@@ -29,7 +29,7 @@ ASP.NET Core's matcher matches literal segments in any case and ignores one trai
 
 ## Consequences
 
-- With the defaults, `/About` answers 308 to `/about`, `/About/` to `/about/` and `/ROBOTS.TXT` to `/robots.txt`. A client navigation shows the file's spelling, and the output cache never stores another case. Trailing slashes answer as before.
+- With the defaults, `/About` answers 308 to `/about`, `/About/` to `/about/` and `/ROBOTS.TXT` to `/robots.txt`. A client navigation shows the file's spelling, and the output cache stores no other case that a browser sends. A target that browsers do not send, with dot segments or in absolute form, is answered, and can be stored, as before. Trailing slashes answer as before.
 - `RedirectLiteralCase = false` answers every case as before.
 - Browsers keep a 308 and follow it again without asking. A folder renamed to another case sends a visitor who followed the old redirect round in a loop until the browser forgets it. Behind a proxy or CDN that adds a trailing slash, `Never` loops at once.
 - Tests on TestServer see no redirect, unlike the app on Kestrel. A test middleware can set the request target, and end-to-end tests see what visitors do.

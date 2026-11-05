@@ -59,7 +59,7 @@ A render that is not stored is one visitor's page, and gets the default `no-stor
 
 Each entry is keyed on:
 
-- the scheme, the host, and the path and query string exactly as sent, case included. Loaders get route and query values as sent, so `/s/Ab` and `/s/aB` can be different pages, and each query string is a page of its own (`?tag=a&tag=b` and `?tag=b&tag=a` are two entries). A literal segment in another case (`/About` for `app/about/page.tsx`), and under `TrailingSlash.Never` a trailing slash, is redirected before the output cache sees the request, so no such spelling gets an entry of its own ([One URL per page](routing.md#one-url-per-page)).
+- the scheme, the host, and the path and query string exactly as sent, case included. Loaders get route and query values as sent, so `/s/Ab` and `/s/aB` can be different pages, and each query string is a page of its own (`?tag=a&tag=b` and `?tag=b&tag=a` are two entries). A literal segment in another case (`/About` for `app/about/page.tsx`), and under `TrailingSlash.Never` a trailing slash, is redirected before the output cache sees the request, so such a spelling gets no entry of its own when a browser sends it. A request target that browsers do not send, with `.` or `..` segments (`/./About`) or in absolute form (`GET http://example.com/About`), is not redirected: it is answered, and its page can be stored under `/About`, as before ([One URL per page](routing.md#one-url-per-page)).
 - whether it is a document or a client payload, and for a payload, which of the page's layouts the client already holds (it then leaves their props out).
 - the client build. During a rolling deploy, instances on the old and the new build do not serve each other's entries.
 
