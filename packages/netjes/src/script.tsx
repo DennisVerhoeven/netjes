@@ -271,7 +271,8 @@ export function Script(given: ScriptProps) {
       </>
     );
   }
-  const attributes = attributesOf(rest);
+  // The id goes to the script the entry becomes, not to the entry.
+  const attributes = attributesOf(id ? { ...rest, id } : rest);
   // The browser fetches it while it parses; adoptServerScripts runs it from the entry. A script the browser will not run
   // is not fetched: a consent manager's would reach its host before the visitor agreed.
   if (runs(attributes)) {

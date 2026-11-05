@@ -306,6 +306,23 @@ describe('Script with beforeInteractive', () => {
     expect(settled).toBe(true);
   });
 
+  it("keeps an external beforeInteractive script's id, from the server's document as on a client render", () => {
+    // A third-party loader that finds its own element by id.
+    document.body.innerHTML = renderToString(<Script id="consent-manager" src="/cmp.js" strategy="beforeInteractive" data-settings="abc" />);
+    expect(document.querySelectorAll('[id="consent-manager"]')).toHaveLength(0);
+
+    void adoptServerScripts(undefined);
+
+    const adopted = document.querySelectorAll<HTMLScriptElement>('[id="consent-manager"]');
+    expect(adopted).toHaveLength(1);
+    expect(adopted[0]?.parentElement).toBe(document.head);
+    expect(adopted[0]?.getAttribute('src')).toBe('/cmp.js');
+    expect(adopted[0]?.getAttribute('data-settings')).toBe('abc');
+
+    render(<Script id="client-manager" src="/client-cmp.js" strategy="beforeInteractive" />);
+    expect(document.getElementById('client-manager')?.getAttribute('src')).toBe('/client-cmp.js');
+  });
+
   it('adoptServerScripts takes no entry without the page\'s nonce, and from an entry only a src and plain attributes', async () => {
     const entry = (json: string, nonce?: string) =>
       `<script type="application/json" data-netjes-script="${JSON.parse(json).src ?? 'x'}"${nonce ? ` nonce="${nonce}"` : ''}>${json}</script>`;
