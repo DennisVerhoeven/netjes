@@ -84,7 +84,7 @@ sequenceDiagram
   participant A as ASP.NET Core
   participant S as Node sidecar
   B->>A: GET /blog/hello
-  A->>A: match /blog/{slug}, run the C# loader
+  A->>A: match /blog/{slug}, run the page loader
   A->>A: build the payload (page, layouts, props, params, assets)
   A->>S: POST /render (payload JSON)
   S->>S: import page + layouts, renderToPipeableStream(<Document>)
@@ -186,7 +186,7 @@ sequenceDiagram
   participant A as ASP.NET Core
   participant S as Node sidecar
   B->>A: GET /blog/hello
-  A->>A: loaders run; Page.Defer values keep running
+  A->>A: loaders run, Page.Defer values keep running
   A->>S: POST /render (payload with placeholders, render id)
   S-->>A: shell (loading fallbacks) at onShellReady
   A-->>B: shell, flushed
