@@ -57,7 +57,7 @@ Server actions, minimal APIs, `/_netjes/antiforgery`, web vitals collection and 
 
 ### Loaders that read the query string
 
-The export requests each URL without a query string, and a static host serves the file it wrote for every query string: `/blog?tag=react` gets `blog/index.html`, which the loader rendered with no tag. A page whose loader reads the query string is still exported, as the page without one, and the export logs a warning in the category `Netjes.Export.QueryString` for that loader. It does the same for a layout loader that reads the query string above a page it writes, naming the pages below the layout. The exit code does not change:
+The export requests each URL without a query string, and a static host serves the file it wrote for every query string: `/blog?tag=react` gets `blog/index.html`, which the loader rendered with no tag. A page whose loader reads the query string is still exported, as the page without one, and the export logs a warning in the category `Netjes.Export.QueryString` for that loader. It does the same for a layout loader that reads the query string above a page it writes, naming the pages below the layout. The warning does not change the exit code (a loader that requires the value fails the export, as below):
 
 ```text
 warn: Netjes.Export.QueryString[0]
@@ -70,6 +70,8 @@ There are two fixes:
 - Keep the page on a server: `.ExcludeFromExport()` on its loader, or on the layout loader for every page below the layout.
 
 If the page without a query string is what the static site should show, keep it, and set the category's log level to `Error` (`Logging:LogLevel:Netjes.Export.QueryString`, see [logs](deployment.md#logs)) to silence the warning. That silences it for every loader, including those added later; the export's own messages, in `Netjes.Export.StaticExportService`, still appear.
+
+A loader that requires the value cannot be exported as it is. A parameter with no default value and a type that is not nullable, such as `int page`, or `string q` with nullable reference types on, has to have one: minimal APIs answer 400 to the export's request without it, so the export fails on that page, and a layout loader that requires one fails every page below it. The warning then says so, names only the keys the loader requires, and adds a third fix: give the parameter a default value or a nullable type (`int page = 1`, `string? q`) to export the page without one. An array never requires a value: without one, it binds an empty array.
 
 A parameter counts when minimal API binding takes its value from the query string: one marked `[FromQuery]`, which the warning names by the attribute's `Name` when it has one, or one without a binding attribute that is a string or a type with `TryParse` whose name is no route parameter's, or an array of those or `StringValues`, whatever its name, since a route value binds only to a single value (see [route warnings](routing.md#a-loader-parameter-that-reads-the-query-string-instead-of-a-route-value)). Members of an `[AsParameters]` type count as parameters. The check cannot see a loader that reads `HttpContext.Request.Query` itself, or a parameter whose type binds itself with `BindAsync`. Nor can it see code in the browser, where `useSearchParams()` sees no query string on an exported page either (see [In the browser](#in-the-browser)).
 
