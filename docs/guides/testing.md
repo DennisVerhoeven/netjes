@@ -118,7 +118,7 @@ In the browser a failed query is tried three more times, after 1, 2 and 4 second
 - The app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests. Its `retryDelay` and `gcTime` do not: the harness sets `retryDelay: 0`, and keeps every query's data for the whole test (`gcTime: Infinity`).
 - `defaultOptions: { queries: { retry: false } }` shows the error after the first request. To test the waits themselves, pass a `retryDelay` of your own, such as TanStack Query's `(attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30_000)`, and move the clock on with [fake timers](#fake-timers).
 - Under fake timers, each try after the first still waits on a timer of 0 ms, which runs only when the fake clock moves on. `findBy…` and `waitFor` move it on as they wait.
-- An app whose `staleTime` is below the Netjes default of one minute fetches seeded queries again in its tests as they mount, as it does in the browser. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
+- Seeded data is fresh for the app's `staleTime`, counted from when `createTestApp()` is called. With a `staleTime` of 0, a component fetches its seeded query again as it mounts, as it does in the browser; with a longer one, only a component that mounts after that time, such as one rendered after the test moved [fake timers](#fake-timers) on. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
 
 A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](../decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)).
 

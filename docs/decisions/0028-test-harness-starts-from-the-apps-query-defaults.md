@@ -28,6 +28,6 @@ Taking the app's waits along is no answer either: under TanStack Query's default
 
 - A failed query or mutation is tried as often as in the app, with no wait between the tries. A test that expects the error after one request sets `defaultOptions: { queries: { retry: false } }`, the old behaviour.
 - A test that checks the waits themselves passes a `retryDelay` in its `defaultOptions`, a number or a function, and moves fake timers on.
-- An app whose `staleTime` is below the Netjes default of one minute now refetches seeded queries in its tests as they mount, as it does in the browser: the test answers that request, with a mock server for instance, or sets `defaultOptions: { queries: { staleTime: 60_000 } }`.
+- Seeded data stays fresh for the app's `staleTime`, counted from when `createTestApp()` is called. With a `staleTime` of 0, the app fetches seeded queries again in its tests as they mount, as it does in the browser; with another `staleTime` below the Netjes default of one minute, it does so only for a component that mounts after that time, such as one rendered after the test moved fake timers on. The test answers that request, with a mock server for instance, or sets `defaultOptions: { queries: { staleTime: 60_000 } }`.
 - `netjes()` sets `test.provide['netjes:query']` in every app's Vitest config, unless `test` or `query` is `false`. An app's own `provide` keys are kept.
 - A `queryClient` a test passes to `createTestApp` is used as it is, with none of these defaults.
