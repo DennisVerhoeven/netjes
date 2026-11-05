@@ -1,5 +1,5 @@
 import { act } from '@testing-library/react';
-import { type Root, hydrateRoot } from 'react-dom/client';
+import { type Root, createRoot, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Document } from '../src/document.tsx';
@@ -19,7 +19,7 @@ const page = (
 
 let root: Root | undefined;
 
-/** The document as the server sent it: React's output for the page, parsed into the test's document. */
+// The document as the server sent it: React's output for the page, parsed into the test's document.
 beforeEach(() => {
   document.open();
   document.write(renderToString(page));
@@ -65,7 +65,7 @@ describe('the document', () => {
     expect(recoverable).not.toHaveBeenCalled();
   });
 
-  it('still reports an attribute that was added below <body>, to the page\'s own markup', async () => {
+  it('still reports an attribute added to the page\'s own markup, below <body>', async () => {
     document.querySelector('main')?.setAttribute('data-clock', '12:00');
 
     const { errors } = await hydrate();
@@ -78,5 +78,20 @@ describe('the document', () => {
 
     expect(markup).toMatch(/^<html lang="en"><head>/);
     expect(markup).toContain('</head><body><script id="__NETJES_DATA__"');
+  });
+
+  it('does not keep what a script set on <html> and <body> when the browser renders the document itself', async () => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.body.setAttribute('data-gr-ext-installed', '');
+
+    // No sidecar was ready, so the client entry renders the document instead of hydrating it. React sets the attributes
+    // of both elements itself then.
+    await act(async () => {
+      root = createRoot(document);
+      root.render(page);
+    });
+
+    expect(document.documentElement.getAttributeNames()).toEqual(['lang']);
+    expect(document.body.getAttributeNames()).toEqual([]);
   });
 });
