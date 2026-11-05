@@ -164,16 +164,24 @@ describe('the client entry', () => {
       // The entry has read the payload.
       await vi.waitFor(() => expect(globals.__netjes_d).toBeTypeOf('function'));
       await new Promise((resolve) => setTimeout(resolve, 20));
+      // Nothing is taken over before the shell is parsed, where entries further down still have to arrive.
+      expect(document.head.querySelector('script')).toBeNull();
       expect(imported).not.toHaveBeenCalled();
 
-      // The parser reaches the end of the shell, and the external script starts loading.
-      document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
+      // The parser reaches the end of the shell, past a second entry, and both scripts start loading, in order.
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<main>the page</main>${beforeInteractiveEntry('/later.js')}<template id="${SHELL_END_ID}"></template>`,
+      );
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const polyfills = document.head.querySelector<HTMLScriptElement>('script[src="/polyfills.js"]');
-      expect(polyfills).not.toBeNull();
+      const adopted = [...document.head.querySelectorAll<HTMLScriptElement>('script')];
+      expect(adopted.map((script) => script.getAttribute('src'))).toEqual(['/polyfills.js', '/later.js']);
       expect(imported).not.toHaveBeenCalled();
 
-      polyfills?.dispatchEvent(new Event('load'));
+      adopted[0]?.dispatchEvent(new Event('load'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(imported).not.toHaveBeenCalled();
+      adopted[1]?.dispatchEvent(new Event('load'));
       await entry;
 
       expect(imported).toHaveBeenCalledOnce();
