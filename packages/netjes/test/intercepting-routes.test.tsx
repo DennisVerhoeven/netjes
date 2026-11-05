@@ -15,7 +15,11 @@ beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
+/** The router as the root layout sees it. */
+let rootRouter: ReturnType<typeof useRouter> | undefined;
+
 function Root({ children, modal }: { children: ReactNode; modal?: ReactNode }) {
+  rootRouter = useRouter();
   return (
     <div>
       <p>{`at ${usePathname()}`}</p>
@@ -113,6 +117,27 @@ describe('intercepting routes', () => {
     // The feed stayed on screen under the modal, and is the same page: its path changed twice, its page did not.
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(link);
+  });
+
+  it('are not announced when the modal opens or Back closes it, since the page under it keeps its title', async () => {
+    server.use(http.get(`${origin}/photo/7`, () => HttpResponse.json({ ...photo, metadata: { title: 'Sunset · Demo' } })));
+    await renderAt(payload('app/feed/page.tsx', '/feed', { metadata: { title: 'Feed · Demo' } }));
+    const region = () => document.querySelector('[data-netjes-route-announcer]');
+    expect(region()).not.toBeNull();
+
+    // The modal names itself, as a dialog with a label does.
+    await act(() => rootRouter!.push('/photo/7'));
+    expect(screen.getByRole('dialog', { name: 'Photo' })).toBeDefined();
+    expect(document.title).toBe('Feed · Demo');
+    expect(region()?.textContent).toBe('');
+
+    await act(async () => {
+      const popped = new Promise((resolve) => window.addEventListener('popstate', resolve, { once: true }));
+      window.history.back();
+      await popped;
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(region()?.textContent).toBe('');
   });
 
   it('stay open when the page refreshes, with fresh data for the modal and the page under it', async () => {

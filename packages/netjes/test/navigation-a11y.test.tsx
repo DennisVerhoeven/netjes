@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { type Root, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -51,11 +51,51 @@ function Layout({ children }: { children: ReactNode }) {
           Tab two
         </Link>
       </nav>
+      <Menu />
       {/* Navigates as the user types, from any page. */}
       <input type="search" aria-label="Search" onChange={(event) => void layoutRouter.replace(`/search?q=${encodeURIComponent(event.currentTarget.value)}`)} />
       <input aria-label="Note" />
       <main>{children}</main>
     </div>
+  );
+}
+
+/**
+ * A drawer that stays mounted when it closes, as one that slides out does. When it closes with the focus still inside,
+ * as when one of its links is followed, its button takes the focus back.
+ */
+function Menu() {
+  const menuRouter = useRouter();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const panel = drawer.current;
+    return () => {
+      if (panel?.contains(document.activeElement)) button.current?.focus();
+    };
+  }, [open]);
+  return (
+    <>
+      <button ref={button} type="button" aria-expanded={open} onClick={() => setOpen(true)}>
+        Menu
+      </button>
+      <div ref={drawer} hidden={!open}>
+        <Link href="/about" onClick={() => setOpen(false)}>
+          About, from the menu
+        </Link>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            void menuRouter.push('/results');
+          }}
+        >
+          Results, from the menu
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -69,6 +109,10 @@ function About() {
       <button id="closed" type="button" disabled>
         Closed
       </button>
+      {/* Folded away, with a tabindex of the app's own. */}
+      <section id="faq" tabIndex={-1} hidden>
+        <h2>Questions</h2>
+      </section>
     </>
   );
 }
@@ -110,7 +154,17 @@ function Welcome() {
     </>
   );
 }
-const TabOne = () => <h1>Tab one</h1>;
+function TabOne() {
+  return (
+    <>
+      <h1>Tab one</h1>
+      {/* Goes with the page it is on. */}
+      <Link href="/tabs/two" scroll={false}>
+        Next tab
+      </Link>
+    </>
+  );
+}
 function TabTwo(props: Record<string, unknown>) {
   const pageRouter = useRouter();
   return (
@@ -124,6 +178,13 @@ function TabTwo(props: Record<string, unknown>) {
       </Form>
     </>
   );
+}
+/** Sets its title in its own effect, as a page that works it out in the browser can. */
+function Retitled() {
+  useEffect(() => {
+    document.title = 'Retitled · Demo';
+  }, []);
+  return <h1>Retitled</h1>;
 }
 
 const modules = {
@@ -139,6 +200,7 @@ const modules = {
   '/app/welcome/page.tsx': async () => ({ default: Welcome }),
   '/app/tabs/one/page.tsx': async () => ({ default: TabOne }),
   '/app/tabs/two/page.tsx': async () => ({ default: TabTwo }),
+  '/app/retitled/page.tsx': async () => ({ default: Retitled }),
 };
 
 const antiforgery = { formFieldName: '__RequestVerificationToken', headerName: 'RequestVerificationToken', requestToken: 'tok' };
@@ -258,6 +320,35 @@ describe('the route announcer', () => {
     expect(await screen.findByRole('heading', { name: 'Guestbook 4' })).toBeDefined();
     expect(announcer().textContent).toBe('');
   });
+
+  it('announces nothing when the new page has the name of the page before', async () => {
+    server.use(
+      pageHandler('/about', payload('about', '/about', { metadata: { title: 'Demo' } })),
+      pageHandler('/contact', payload('contact', '/contact', { metadata: { title: 'Contact · Demo' } })),
+    );
+    await renderApp(payload('index', '/', { metadata: { title: 'Demo' } }));
+
+    // Two pages with one title sound like one page.
+    await act(() => router!.push('/about'));
+    expect(screen.getByRole('heading', { name: 'About' })).toBeDefined();
+    expect(announcer().textContent).toBe('');
+
+    await act(() => router!.push('/contact'));
+    expect(announcer().textContent).toBe('Contact · Demo');
+  });
+
+  it('reads the title that the new page sets in its own effect', async () => {
+    server.use(pageHandler('/retitled', payload('retitled', '/retitled')));
+    await renderApp();
+
+    try {
+      await act(() => router!.push('/retitled'));
+      expect(announcer().textContent).toBe('Retitled · Demo');
+    } finally {
+      // The title element that setting document.title made, which no page renders.
+      document.querySelector('title')?.remove();
+    }
+  });
 });
 
 describe('the focus after a navigation', () => {
@@ -339,6 +430,43 @@ describe('the focus after a navigation', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  it("leaves a tabindex of the app's own on a fragment's element that cannot take the focus", async () => {
+    server.use(pageHandler('/about', payload('about', '/about')));
+    await renderApp();
+    const focusBody = vi.spyOn(document.body, 'focus');
+
+    await act(() => router!.push('/about#faq'));
+
+    // Hidden, the section takes no focus with its own tabindex, which stays as the app set it.
+    await screen.findByRole('heading', { name: 'About' });
+    expect(document.getElementById('faq')?.getAttribute('tabindex')).toBe('-1');
+    expect(focusBody).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('follows the same rules on Back and Forward as after a link', async () => {
+    server.use(pageHandler('/about', payload('about', '/about')));
+    const { user } = await renderApp();
+    await user.click(screen.getByRole('link', { name: 'About' }));
+    await screen.findByRole('heading', { name: 'About' });
+    const home = screen.getByRole('link', { name: 'Home' });
+    const focusBody = vi.spyOn(document.body, 'focus');
+
+    // A link in the layout has the focus, and Back shows the page before from memory: the focus starts over.
+    home.focus();
+    act(() => window.history.back());
+    await screen.findByRole('heading', { name: 'Home' });
+    expect(focusBody).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+
+    focusBody.mockClear();
+    home.focus();
+    act(() => window.history.forward());
+    await screen.findByRole('heading', { name: 'About' });
+    expect(focusBody).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('leaves the focus where it is when only the query changes', async () => {
     server.use(http.get(`${origin}/results`, ({ request }) => HttpResponse.json(payload('results', `/results${new URL(request.url).search}`))));
     const { user } = await renderApp(payload('results', '/results'));
@@ -385,6 +513,19 @@ describe('the focus after a navigation', () => {
     expect(document.activeElement).toBe(save);
   });
 
+  it('starts the focus over after a link inside the page to another page, even with scroll={false}', async () => {
+    server.use(pageHandler('/tabs/two', payload('tabs/two', '/tabs/two', { props: { version: 1 } })));
+    const { user } = await renderApp(payload('tabs/one', '/tabs/one'));
+    const focusBody = vi.spyOn(document.body, 'focus');
+
+    // The link went with its page, so the focus has nothing to stay on.
+    await user.click(screen.getByRole('link', { name: 'Next tab' }));
+
+    expect(await screen.findByRole('heading', { name: 'Tab two 1' })).toBeDefined();
+    expect(focusBody).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('leaves the focus where the new page or the user put it', async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {
@@ -411,5 +552,26 @@ describe('the focus after a navigation', () => {
     await act(async () => release());
     expect(await screen.findByRole('heading', { name: 'Contact' })).toBeDefined();
     expect(document.activeElement).toBe(note);
+  });
+
+  it('leaves the focus on the button of a menu that gives it back as it closes', async () => {
+    server.use(
+      pageHandler('/about', payload('about', '/about')),
+      http.get(`${origin}/results`, () => HttpResponse.json(payload('results', '/results'))),
+    );
+    const { user } = await renderApp();
+    const menu = screen.getByRole('button', { name: 'Menu' });
+
+    // The router reads what had the focus inside the click, before React closes the menu, whose button then takes
+    // the focus while the next page is on its way: from a link, and from code that navigates.
+    await user.click(menu);
+    await user.click(screen.getByRole('link', { name: 'About, from the menu' }));
+    await screen.findByRole('heading', { name: 'About' });
+    expect(document.activeElement).toBe(menu);
+
+    await user.click(menu);
+    await user.click(screen.getByRole('button', { name: 'Results, from the menu' }));
+    await screen.findByRole('heading', { name: 'Results' });
+    expect(document.activeElement).toBe(menu);
   });
 });
