@@ -6213,7 +6213,7 @@ ASP.NET Core does the routing: every page file becomes an endpoint with an ordin
 | File | Role |
 |---|---|
 | `page.tsx` | The page for its folder's URL. |
-| `layout.tsx` | Wraps every page below it and stays mounted across navigations (its state survives). The root `app/layout.tsx` imports the global stylesheet. |
+| `layout.tsx` | Wraps every page below it and stays mounted across navigations (its state survives). The root `app/layout.tsx` imports the global stylesheet. Netjes renders `<html>`, `<head>` and `<body>` around the root layout, with `suppressHydrationWarning` on `<html>` and `<body>`, so no layout renders them: the root one returns what goes inside `<body>`. |
 | `template.tsx` | Like a layout, but remounted on every navigation. |
 | `loading.tsx` | Suspense fallback, streamed first while the page below waits on deferred values or lazy code. |
 | `error.tsx` | Error boundary below its layout; props `{ error, reset }` (`ErrorPageProps`), status in `error.status`. In development `error.message` can take several lines (a syntax error's code frame): render it with `whitespace-pre-wrap`. |
@@ -6239,7 +6239,7 @@ A literal segment beats a dynamic one (`blog/new` over `blog/[slug]`), as in Nex
 
 ## Loader parameters and route warnings
 
-Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route value of the same name (any case), and otherwise the query string. `(string id)` on `/blog/[slug]` therefore reads `?id=`, never the slug, and `string[] path` on `[...path]` reads `?path=`. Netjes logs a warning for that at startup, and `npm run routes` prints it. Name parameters after the route segment, or mark query parameters `[FromQuery]`. Another warning is two pages that match the same URLs (`[id]` next to `[...rest]`); rename one, or accept it if the overlap is wanted. A third is an endpoint of the app that ties with a page (below).
+Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route value of the same name (any case), and otherwise the query string. `(string id)` on `/blog/[slug]` therefore reads `?id=`, never the slug, and `string[] path` on `[...path]` reads `?path=`. Netjes logs a warning for that at startup, and `npm run routes` prints it. Name parameters after the route segment, or mark query parameters `[FromQuery]`. Another warning is two pages that match the same URLs (`[id]` next to `[...rest]`); rename one, or accept it if the overlap is wanted. Others are an endpoint of the app that ties with a page (below), and a `[FromForm]` positional record with a `bool`, `bool?` or list field, which form binding refuses (400) when the post leaves that field out, as for an unchecked box: give the input `init` properties instead.
 
 ## Endpoints next to pages
 
@@ -6258,7 +6258,7 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 
 ## Metadata
 
-- `export const metadata: Metadata = { title: 'About' }` on pages and layouts; a layout's `title: { default, template: '%s · Site' }` applies to the pages below it.
+- `export const metadata: Metadata = { title: 'About' }` on pages and layouts; a layout's `title: { default, template: '%s · Site' }` applies to the pages below it. A `default` below the root goes through the nearest template above it, like a string (`'Docs'` under `'%s · Site'` is `Docs · Site`), never through the one beside it; `{ absolute: 'Docs' }` skips every template.
 - From C#: `.WithMetadata(new PageMetadata { Title = post.Title, Description = ... })` on the loader's result, merged over the files' metadata.
 - Below a layout that sets a title, use `metadata`, not a `<title>` element (that makes a second title).
 
@@ -6401,10 +6401,21 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...)
 - A stored page is served to every visitor, shared props included. Cache only pages that are the same for everyone: their loaders and shared props must not depend on cookies or other per-visitor state (Netjes warns once per page when a cached render reads `Request.Cookies`). Signed-in users and requests with an `Authorization` header bypass the cache.
 - Evict from an action with `ServerAction.Ok().Revalidate("posts")` or `.RevalidatePath("/blog/hello")`, and from anywhere else (a webhook, a background job) with `IPageCache.RevalidateTagAsync(tag)` / `RevalidatePathAsync(path)`.
 - Cached pages carry no antiforgery token: forms on them fetch one first, so they need JavaScript.
-- A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream. Build it from `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts, never from a pasted hash, which a Netjes upgrade can make stale: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. Keep `'self'` for the built app's module scripts, and leave out `'strict-dynamic'`, which needs a nonce. In the Development environment the module scripts come from the Vite dev server, so add its origin there, and only there: insert `builder.Environment.IsDevelopment() ? $" http://localhost:{options.ViteDevPort}" : ""` after `'self'`. Under such a policy, give forms server actions through `useAction` and `<Form action={formAction}>`: any other function action, and any function on `<SubmitButton formAction>`, makes React add an inline script whose hash follows the React version and is not in `ScriptHashes`. In JavaScript, such as a static host's headers for exported pages, the same value is `CSP_SCRIPT_HASHES` from `netjes`.
+- A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream. Build it from `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts, never from a pasted hash, which a Netjes upgrade can make stale: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. Keep `'self'` for the built app's module scripts, and leave out `'strict-dynamic'`, which needs a nonce. In the Development environment the module scripts come from the Vite dev server, so add its origin there, and only there, from a variable:
+
+  ```csharp
+  builder.Services.AddNetjes(options =>
+  {
+      var devServer = builder.Environment.IsDevelopment() ? $" http://localhost:{options.ViteDevPort}" : "";
+      options.ContentSecurityPolicy =
+          $"script-src 'self'{devServer} {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
+  });
+  ```
+
+  When browsers reach the dev server at another address, the one set in `NETJES_VITE_ORIGIN`, list that origin instead. Under such a policy, give forms server actions through `useAction` and `<Form action={formAction}>`: any other function action, and any function on `<SubmitButton formAction>`, makes React add an inline script whose hash follows the React version and is not in `ScriptHashes`. In JavaScript, such as a static host's headers for exported pages, the same value is `CSP_SCRIPT_HASHES` from `netjes`.
 - Keys include the host and the full URL, case included. In production pin `AllowedHosts` and set the output cache's `SizeLimit`.
 - Pages the output cache does not store go out `Cache-Control: no-store, private`, for visitors and signed-in users alike, unless the page sets its own header.
-- In the Development environment pages are never output-cached: each request renders the page, nothing is stored, and an output-cached page goes out `no-store, private` unless it sets its own `Cache-Control`, so keep `UseOutputCache()` in every environment. Cache slow or billed upstream data in the service that loads it (`IMemoryCache`, `HybridCache`). See caching work on the built app (`npx netjes build && npx netjes start`); a `WebApplicationFactory` test of it runs in the `Testing` environment with `Netjes:Mode=Development`.
+- In the Development environment pages are never output-cached: each request renders the page, nothing is stored, and an output-cached page goes out `no-store, private` unless it sets its own `Cache-Control`, so `UseOutputCache()` can stay in every environment, with no Development guard. Cache slow or billed upstream data in the service that loads it (`IMemoryCache`, `HybridCache`). Try caching on the built app (`npx netjes build && npx netjes start`); a `WebApplicationFactory` test of it runs in the `Testing` environment with `Netjes:Mode=Development`.
 - Draft pages and draft redirects (a loader's `Page.Redirect` in draft mode), the client-rendered fallback, the page for a failed form post, action answers and antiforgery tokens always go out `no-store`, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, any other `*-Cache-Control`, `Surrogate-Control`, `Edge-Control`, `X-Accel-Expires`), whatever the page set.
 
 ## TanStack Query
@@ -6439,7 +6450,7 @@ function ActivityFeed({ activity }: { activity: PromiseLike<ActivityItem[]> }) {
 
 ## Static export
 
-`npx netjes export [dir]` builds, runs the app once in Production and writes every page as static HTML (default `out/`). Dynamic pages need `.StaticParams(...)` (`.StaticParams<PostStore>(s => s.All.Select(p => new { slug = p.Slug }))`, arrays for catch-all parameters); pages that need a server take `.ExcludeFromExport()`. The export fails before writing anything for a dynamic page without static params, a page with a page action, or a page that requires authorization. Exported pages navigate with full page loads and carry no antiforgery token.
+`npx netjes export [dir]` builds, runs the app once in Production and writes every page as static HTML (default `out/`). `dir` must be inside the app: `netjes export` refuses any other folder before it builds. Dynamic pages need `.StaticParams(...)` (`.StaticParams<PostStore>(s => s.All.Select(p => new { slug = p.Slug }))`, arrays for catch-all parameters); pages that need a server take `.ExcludeFromExport()`. The export fails before writing anything for a dynamic page without static params, a page with a page action, or a page that requires authorization. Exported pages navigate with full page loads and carry no antiforgery token.
 
 ## Sitemap and robots
 
@@ -6494,7 +6505,7 @@ Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the us
 ## Loaders and actions: C#
 
 - Loader logic: call the loader or the method it uses and read `PageResult<T>.Props` in an xUnit test.
-- Endpoints: test the real app with `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing` (ASP.NET Core 10 makes the `Program` class of top-level statements public, so the test project sees it). No Node is needed when the test sets `Netjes:Mode` to `Development` (routes come from `app/` on disk) and registers an `ISsrRenderer` (`Netjes.Rendering`) of its own that returns fixed HTML, in `ConfigureServices`. Request a page as the client router does, with the header `X-Netjes-Data: 1` (`NetjesHeaders.Data`): the answer is the page payload as JSON, with `props`, `status` and `antiforgery`; a page with `Page.Defer` values answers NDJSON, the payload first. When the app cannot start (no build in Production, `node` not found), `CreateClient()` throws an `InvalidOperationException` that says why.
+- Endpoints: test the real app with `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing` (ASP.NET Core 10 makes the `Program` class of top-level statements public, so the test project sees it). No Node is needed when the test sets `Netjes:Mode` to `Development` (routes come from `app/` on disk) and registers an `ISsrRenderer` (`Netjes.Rendering`) of its own that returns fixed HTML, in `ConfigureServices`. Run it in the `Testing` environment (`builder.UseEnvironment("Testing")`), as the testing guide's factory does: `WebApplicationFactory` uses `Development` unless told otherwise, and there Netjes output-caches no page, so a test of `CachePage` would see every request render. Request a page as the client router does, with the header `X-Netjes-Data: 1` (`NetjesHeaders.Data`): the answer is the page payload as JSON, with `props`, `status` and `antiforgery`; a page with `Page.Defer` values answers NDJSON, the payload first. When the app cannot start (no build in Production, `node` not found), `CreateClient()` throws an `InvalidOperationException` that says why.
 - Server actions are `POST /_netjes/actions/{name}`. Call one as the client router does: the fields form-encoded, `X-Netjes-Data: 1`, and the payload's `antiforgery.requestToken` in the header named by `antiforgery.headerName` (a client that keeps cookies, so the antiforgery cookie goes along; `GET /_netjes/antiforgery` returns a token too). A plain form post, as without JavaScript, sends the token as the `antiforgery.formFieldName` field instead.
 - Use a real database for data access tests (Testcontainers), not an in-memory fake.
 
