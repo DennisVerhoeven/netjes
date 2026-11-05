@@ -89,6 +89,24 @@ public class DeferTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public async Task DataRequest_AValueThatCannotBeSerialized_SendsItsMessageOnlyWithErrorDetails(bool details)
+    {
+        // System.Text.Json writes no System.Type.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.IncludeErrorDetails = details,
+            map: a => a.MapPageLoader("/", () => Page.Props(new { Broken = Page.Defer(Task.FromResult<object>(typeof(int))) })));
+
+        var lines = await LinesAsync(await app.GetDataAsync("/"));
+
+        var error = (string?)lines[1]["error"];
+        if (details) Assert.Contains("is not supported", error);
+        else Assert.Equal("", error);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public async Task DataRequest_ACancelledValue_SaysItWasCancelled(bool details)
     {
         await using var app = await TestApp.StartAsync(
