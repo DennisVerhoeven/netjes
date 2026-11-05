@@ -213,16 +213,7 @@ internal sealed class TypeScriptGenerator(
         var entries = new List<(string Key, Type? Request, Type? Response)>();
         foreach (var endpoint in all.Where(e => e.Metadata.GetMetadata<PageEndpointMetadata>() is null))
         {
-            var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
-            var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
-            var response = produces
-                .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
-                .Select(p => p.Type)
-                .FirstOrDefault();
-            var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
-            var isJsonEndpoint = response is not null || request is not null
-                || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)));
-            if (!isJsonEndpoint)
+            if (JsonContract(endpoint) is not var (request, response))
             {
                 continue;
             }
@@ -235,6 +226,25 @@ internal sealed class TypeScriptGenerator(
         }
 
         return [.. entries.DistinctBy(e => e.Key).OrderBy(e => e.Key, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// The JSON body an endpoint accepts and the JSON it answers with, or null for an endpoint that is no JSON endpoint:
+    /// it declares neither, and no bodiless 2xx (<c>TypedResults.NoContent()</c>) either.
+    /// </summary>
+    private static (Type? Request, Type? Response)? JsonContract(RouteEndpoint endpoint)
+    {
+        var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
+        var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
+        var response = produces
+            .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
+            .Select(p => p.Type)
+            .FirstOrDefault();
+        var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
+        return response is not null || request is not null
+            || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)))
+            ? (request, response)
+            : null;
     }
 
     private static List<(string Pattern, Type Type)> FormEntries(List<RouteEndpoint> all) =>
