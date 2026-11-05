@@ -316,9 +316,16 @@ internal sealed class PageRenderer(
         await RenderAsync(http, route?.Pattern, special?.File, kind, root.Segments, props, status, parameters);
     }
 
-    public async Task RedirectAsync(HttpContext http, string location, bool permanent)
+    public Task RedirectAsync(HttpContext http, string location, bool permanent) =>
+        RedirectToAsync(http, UnderBasePath(http, location), permanent);
+
+    /// <summary>
+    /// <see cref="RedirectAsync"/> to a location that is complete as it is, its base path included: one built from the
+    /// request target, whose base path may be spelled in a way <see cref="UnderBasePath(HttpContext, string)"/> does not
+    /// recognise (<c>/b%61se</c> for <c>/base</c>).
+    /// </summary>
+    internal async Task RedirectToAsync(HttpContext http, string location, bool permanent)
     {
-        location = UnderBasePath(http, location);
         http.Response.Headers.Append(HeaderNames.Vary, new StringValues([NetjesHeaders.Data, NetjesHeaders.Segments]));
         if (http.RequestServices.GetService<IDraftMode>()?.IsEnabled ?? false)
         {
