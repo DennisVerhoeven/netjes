@@ -8,11 +8,11 @@ namespace Netjes.Tests.Packaging;
 /// <summary>
 /// How the production images of the template and both examples end. The kernel ignores a signal that a container's
 /// PID 1 has no handler for, so an app that is PID 1 never dies of its own abort(): after a crash it spins on arm64 and
-/// never exits, and on x86-64 it ends with another code than 134. The images run the app under an init for that. Each
-/// is built from its own Dockerfile's <c>production</c> stage, with a small app of the test's own, published under the
-/// name the image runs, in place of the <c>build</c> stage, and a stub in place of the <c>node</c> stage; any other
-/// stage it copies from is built for real. The container runs on one CPU, read-only and with every capability dropped,
-/// as docker-compose.prod.yml runs the app.
+/// never exits, and on x86-64 under emulation it ended with 139 instead of 134. The images run the app under an init
+/// for that. Each is built from its own Dockerfile's <c>production</c> stage, with a small app of the test's own,
+/// published under the name the image runs, in place of the <c>build</c> stage, and a stub in place of the <c>node</c>
+/// stage; any other stage it copies from is built for real. The container runs on one CPU, read-only and with every
+/// capability dropped, as docker-compose.prod.yml runs the app.
 /// </summary>
 [Trait("Category", "Docker")]
 public sealed class TemplateImageTests : IAsyncDisposable
