@@ -353,4 +353,45 @@ public class NonPageEndpointCacheTests
         Assert.Equal("public, max-age=3600", sitemap.Headers.CacheControl?.ToString());
         Assert.False(robots.Headers.Contains("Cache-Control"));
     }
+
+    /// <summary>The image endpoint sends its <c>Cache-Control</c> with an image and with a 304 for one, not with an error.</summary>
+    [Fact]
+    public async Task TheImageEndpoint_SendsItsCacheControlWithAnImage_AndNoneWithAnError()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                Directory.CreateDirectory(Path.Combine(root, "public"));
+                File.WriteAllBytes(Path.Combine(root, "public", "hero.png"), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4]);
+            });
+
+        var image = await app.Client.GetAsync("/_netjes/image?url=%2Fhero.png&w=640", Ct);
+        var again = new HttpRequestMessage(HttpMethod.Get, "/_netjes/image?url=%2Fhero.png&w=640");
+        again.Headers.IfNoneMatch.Add(image.Headers.ETag!);
+        var notModified = await app.Client.SendAsync(again, Ct);
+        // 7 is not one of the widths the endpoint allows.
+        var refused = await app.Client.GetAsync("/_netjes/image?url=%2Fhero.png&w=7", Ct);
+
+        Assert.Equal(
+            [HttpStatusCode.OK, HttpStatusCode.NotModified, HttpStatusCode.BadRequest],
+            [image.StatusCode, notModified.StatusCode, refused.StatusCode]);
+        Assert.All([image, notModified], response => Assert.Equal("public, max-age=604800", response.Headers.CacheControl?.ToString()));
+        Assert.False(refused.Headers.Contains("Cache-Control"));
+    }
+
+    [Fact]
+    public async Task TheLocaleRedirect_SendsNoCacheControl()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/page.tsx"],
+            services: s => s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]),
+            configureApp: a => a.UseNetjesLocalization(),
+            map: a => a.MapLocaleRedirect());
+
+        var redirect = await app.Client.GetAsync("/", Ct);
+
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, redirect.StatusCode);
+        Assert.False(redirect.Headers.Contains("Cache-Control"));
+    }
 }
