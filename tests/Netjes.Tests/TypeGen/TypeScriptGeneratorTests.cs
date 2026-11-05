@@ -184,6 +184,7 @@ public class TypeScriptGeneratorTests
         ];
         Assert.All(order, text => Assert.Contains(text, output));
         Assert.Equal(order, order.OrderBy(text => output.IndexOf(text, StringComparison.Ordinal)));
+        Assert.Contains("export const NavProps = z.object({\n  next: Href,\n  links: z.array(Href),\n});", output);
     }
 
     [Fact]

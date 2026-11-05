@@ -286,7 +286,7 @@ internal sealed class TypeScriptGenerator(
               return isRouteHref(value, routePatterns);
             }
 
-            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. */
+            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. The schemas below use it for each C# `Netjes.Href`. */
             export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
 
             """.ReplaceLineEndings("\n"));

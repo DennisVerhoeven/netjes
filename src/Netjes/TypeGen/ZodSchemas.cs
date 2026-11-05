@@ -12,7 +12,8 @@ namespace Netjes.TypeGen;
 /// zod schemas for .NET types, as System.Text.Json writes them with the given options: property names after the
 /// naming policy and <c>[JsonPropertyName]</c>, nullability from nullable annotations, ignore conditions, enums as
 /// they serialize, polymorphism. Named types become <c>export const X = z.object(...)</c> declarations; anonymous
-/// types, collections and primitives are written inline.
+/// types, collections and primitives are written inline, and <see cref="Href"/> as <c>Href</c>, the schema the generated
+/// file declares from the app's pages.
 /// </summary>
 /// <remarks>Usage: <see cref="Add"/> every root type, then read <see cref="Declarations"/> and <see cref="Reference"/>.</remarks>
 internal sealed class ZodSchemas
@@ -468,6 +469,8 @@ internal sealed class ZodSchemas
     private static string? Primitive(Type type) => type switch
     {
         _ when type == typeof(string) || type == typeof(char) || type == typeof(Uri) || type == typeof(TimeSpan) || type == typeof(Version) => "z.string()",
+        // The generated file's own schema, which also checks that a root-relative URL is one of the app's pages.
+        _ when type == typeof(Href) => "Href",
         _ when type == typeof(bool) => "z.boolean()",
         _ when type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
             || type == typeof(int) || type == typeof(uint) => "z.number().int()",
