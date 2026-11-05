@@ -49,7 +49,8 @@ public partial class ClientRenderFallbackTests
             """.ReplaceLineEndings("\n"));
     }
 
-    private static async Task<TestApp> StartAsync(
+    /// <summary>An app in Production whose sidecar has exited, so every document is the shell .NET writes itself.</summary>
+    internal static async Task<TestApp> StartAsync(
         Action<WebApplication>? map = null,
         Action<NetjesOptions>? configure = null,
         Action<IServiceCollection>? services = null,
