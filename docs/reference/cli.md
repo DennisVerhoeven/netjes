@@ -22,7 +22,7 @@ netjes --version
 | [`info`](#netjes-info) | Check the tools and the project setup |
 | [`agents [dir]`](#netjes-agents) | Add `AGENTS.md`, `CLAUDE.md` and the Netjes skill for coding agents to an existing app |
 
-`netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
+`netjes`, `netjes help` and `netjes --help` list the commands and the options every command takes, and end with a link to this page at the release tag of the installed version (`https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`), which describes that version's commands and options. `netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
 
 ## Options and arguments
 

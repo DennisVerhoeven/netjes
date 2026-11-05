@@ -8,14 +8,15 @@ The npm package `netjes` and the NuGet packages `Netjes` and `Netjes.Images.Skia
 2. Stops unless:
    - the CI workflow passed on `main` for the tag's commit (that run includes both end-to-end suites, the package check and the tests on macOS and Windows);
    - the version in the tag is the version in `packages/netjes/package.json`, its entry in `package-lock.json`, `Directory.Build.props` and the places in the docs that pin it;
+   - every link to this repository's files in the three package READMEs (`packages/netjes/README.md`, `src/Netjes/README.md` and `src/Netjes.Images.SkiaSharp/README.md`) is on `main`, which step 4 moves to the tag;
    - `CHANGELOG.md` has an entry for that version;
    - `packages/netjes/package.json` names this repository, which npm checks against the provenance statement.
 3. Builds, then runs the type checks, the Vitest suites, the generated-types check, the release script's tests and the .NET tests.
-4. Packs the three packages, checks that each file name carries the version, and uploads them as the `packages` artifact.
+4. Moves the package READMEs' links to this repository's files from `main` to the tag (`node scripts/release.mjs links <version>`): npmjs.com and nuget.org show the README each version was packed with, and resolve no relative link. The change stays in the job's checkout. Then packs the three packages, checks that each file name carries the version and that the README in each package is the moved one (`cmp`), and uploads them as the `packages` artifact.
 5. Waits for a reviewer to approve the `release` environment, then pushes the NuGet packages to nuget.org (trusted publishing) and publishes the npm package with provenance.
 6. Creates the GitHub release for the tag, with the changelog entry as its notes and the packages attached.
 
-Each publishing step skips a version that is already published, so a run that failed halfway can be re-run. The version, pinned-docs, changelog and repository checks also run locally: `node scripts/release.mjs check v0.0.1 --repository DennisVerhoeven/netjes`.
+Each publishing step skips a version that is already published, so a run that failed halfway can be re-run. The version, pinned-docs, README-link, changelog and repository checks also run locally: `node scripts/release.mjs check v0.0.1 --repository DennisVerhoeven/netjes`. `node scripts/release.mjs links <version>` makes step 4's change to the READMEs in a checkout, once: a second run refuses the tag links the first one wrote. `git checkout -- packages/netjes/README.md src/Netjes/README.md src/Netjes.Images.SkiaSharp/README.md` puts them back.
 
 ## One-time setup
 
@@ -57,6 +58,7 @@ The publish job installs npm 11, which trusted publishing needs (11.5.1 or later
 1. On a branch off `main`:
    - set the version in `packages/netjes/package.json` with `npm version <version> --no-git-tag-version -w packages/netjes`, run `npm install --package-lock-only` to carry it into `package-lock.json`, and set the same `<Version>` in `Directory.Build.props`. `VersionTests` fails when the npm and NuGet versions differ;
    - set the same version where the docs pin it. `VERSION_PINS` in [scripts/release.mjs](scripts/release.mjs) lists every pinned text, such as the install commands in the getting-started page and the package READMEs, and the version in the README's "Status" paragraph. `node scripts/release.mjs check` reports a pin that carries another version, or one that has gone from its file, so when you reword a pinned text in a doc, change it in `VERSION_PINS` too. Then run `npm run docs:llms`, which carries them into `llms-full.txt`; `npm run docs:check` fails until it has run;
+   - leave the links in the package READMEs on `main`: the workflow moves them to the tag in the packages it publishes, so they need no edit, and `node scripts/release.mjs check` reports a link to this repository there on any other ref;
    - in `CHANGELOG.md`, move the entries under `## [Unreleased]` to a new `## [<version>] - <yyyy-mm-dd>` section and update the comparison links at the bottom;
    - `node scripts/release.mjs check v<version> --repository DennisVerhoeven/netjes` should report no problems.
 2. Merge it, and wait for CI to pass on `main` for the merge commit.
@@ -66,7 +68,7 @@ The publish job installs npm 11, which trusted publishing needs (11.5.1 or later
    git push origin v<version>
    ```
 4. **Actions → Release → Run workflow**: run it from `main`, with tag `v<version>`. After the check, test and pack job passes, approve the `release` deployment.
-5. Check the result: both packages on nuget.org (indexing takes a few minutes), `npm view netjes@<version>`, the GitHub release, and a new app made from the published packages:
+5. Check the result: both packages on nuget.org (indexing takes a few minutes), `npm view netjes@<version>`, the READMEs on the package pages of npmjs.com and nuget.org (their docs links name `v<version>`), the GitHub release, and a new app made from the published packages:
    ```bash
    npx netjes@<version> new my-app
    cd my-app && npm test && npx netjes dev
