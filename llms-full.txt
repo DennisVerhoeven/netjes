@@ -6264,6 +6264,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0021 – Signing in or out reaches the app's other tabs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0021-signing-in-or-out-reaches-the-other-tabs.md): a tab that sees a cookie change tells the others on a `BroadcastChannel`, and they forget and reload the same way.
 - [0022 – The client entry hydrates once the shell is parsed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
 - [0023 – Pages are not output-cached in Development](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md): there every request renders the page, nothing is stored, and the page goes out `no-store`, so no edit meets a stale document.
+- [0032 – The release links the package READMEs to its tag](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0032-release-links-package-readmes-to-its-tag.md): the READMEs link the docs on `main`, and the release job moves those links to `v<version>` in the packages it publishes, so npm and NuGet show each version with links to its own docs.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6340,6 +6341,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 - `<Link>` treating `/x` and `/x/` as the same page for `aria-current`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
+- Agent files that follow the installed version. `netjes new` and `netjes agents` copy the `netjes` skill and `AGENTS.md` into an app with links to the docs on `main`, which can describe a newer version than the app has. Linking the installed version's tag instead needs a way to bring those copies up to date when the app upgrades Netjes; today that is a step by hand ([Coding agents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md#after-upgrading-netjes)).
 
 ## Not planned
 

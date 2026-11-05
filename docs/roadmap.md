@@ -27,6 +27,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 - `<Link>` treating `/x` and `/x/` as the same page for `aria-current`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
+- Agent files that follow the installed version. `netjes new` and `netjes agents` copy the `netjes` skill and `AGENTS.md` into an app with links to the docs on `main`, which can describe a newer version than the app has. Linking the installed version's tag instead needs a way to bring those copies up to date when the app upgrades Netjes; today that is a step by hand ([Coding agents](guides/coding-agents.md#after-upgrading-netjes)).
 
 ## Not planned
 
