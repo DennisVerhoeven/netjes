@@ -54,7 +54,7 @@ app.MapPages().AddEndpointFilter(async (context, next) =>
 });
 ```
 
-For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream. [Security](security.md#content-security-policy) explains both, and [static export](static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
+For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream, and its `script-src` lists `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts. [Security](security.md#content-security-policy) explains both, and [static export](static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
 
 ## Base path
 

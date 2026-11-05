@@ -854,6 +854,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) |
 | `useReportWebVitals` | `useReportWebVitals` from `netjes/vitals`; `<WebVitals />` sends them to .NET metrics |
 | CSP nonces through middleware | `NetjesOptions.ContentSecurityPolicy` with `{nonce}`, and `useNonce()`. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md) |
+| A CSP without nonces, for static or cached pages | `NetjesOptions.ContentSecurityPolicy` without `{nonce}`, with `NetjesContentSecurityPolicy.ScriptHashes` in its `script-src`, or `CSP_SCRIPT_HASHES` from `netjes` for a policy written in JavaScript. Pages under it can be output-cached, but must not stream. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based) |
 
 ## The real differences
 
@@ -3994,7 +3995,7 @@ app.MapPages().AddEndpointFilter(async (context, next) =>
 });
 ```
 
-For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy) explains both, and [static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
+For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream, and its `script-src` lists `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy) explains both, and [static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
 
 ## Base path
 
@@ -5995,7 +5996,7 @@ Tailwind CSS and the TanStack Query client are on by default; `netjes({ tailwind
 
 | Import | What it holds |
 |---|---|
-| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest |
+| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest, and `CSP_SCRIPT_HASHES`, the hashes of Netjes's inline scripts for a Content-Security-Policy without a nonce |
 | `netjes/vite` | The Vite plugin |
 | `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest |
 | `netjes/vitals` | `useReportWebVitals` and `<WebVitals />` |
@@ -6559,7 +6560,7 @@ The image restores Netjes from NuGet and npm, so the app must reference the pack
 - If no sidecar is ready (they crashed or stopped answering, and are restarting), documents are sent for the browser to render instead of failing (`ClientRenderFallback`, on by default), and `/healthz` reports Unhealthy. Register the check with `builder.Services.AddHealthChecks().AddNetjes()` and `app.MapHealthChecks("/healthz")`.
 - The app restarts its Node processes itself: one that exits, and in production one that answers no health ping within `RenderTimeout` (at least 5 s). A restart policy on the container's exit (`restart: always`) is all the host needs. A custom `Netjes:SidecarScript` must answer `GET /health`, with any status, without reading a request body.
 - Output caching: set `SizeLimit`, and see [caching-and-streaming.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/caching-and-streaming.md).
-- Security headers: every response through `UseNetjes()` gets `X-Content-Type-Options: nosniff`, so every response needs its real `Content-Type`: a script or stylesheet with a wrong one or none is refused, and a page that an endpoint writes with `Response.WriteAsync` shows as plain text unless the endpoint sets `Response.ContentType = "text/html; charset=utf-8"` first. Every document also gets `Referrer-Policy` and a same-origin framing policy, or the `X-Frame-Options` that the policy's `frame-ancestors` implies, unless the app sets them (`Netjes:SecurityHeaders`). A Content-Security-Policy is off until you set `NetjesOptions.ContentSecurityPolicy`, with `{nonce}` for a nonce-based policy.
+- Security headers: every response through `UseNetjes()` gets `X-Content-Type-Options: nosniff`, so every response needs its real `Content-Type`: a script or stylesheet with a wrong one or none is refused, and a page that an endpoint writes with `Response.WriteAsync` shows as plain text unless the endpoint sets `Response.ContentType = "text/html; charset=utf-8"` first. Every document also gets `Referrer-Policy` and a same-origin framing policy, or the `X-Frame-Options` that the policy's `frame-ancestors` implies, unless the app sets them (`Netjes:SecurityHeaders`). A Content-Security-Policy is off until you set `NetjesOptions.ContentSecurityPolicy`: with `{nonce}` for a nonce-based policy, or without it, with `NetjesContentSecurityPolicy.ScriptHashes` in its `script-src`, for a hash-based one, which output-cached pages need ([caching-and-streaming.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/caching-and-streaming.md)).
 - `Netjes:PublicConfig` is sent to the browser as is; secrets go in other configuration.
 - Telemetry: add the `Netjes` ActivitySource and Meter (`NetjesTelemetry.Name`) to OpenTelemetry for loader, action and render spans and render durations.
 

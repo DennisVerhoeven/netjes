@@ -103,6 +103,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](guides/testing.md) |
 | `useReportWebVitals` | `useReportWebVitals` from `netjes/vitals`; `<WebVitals />` sends them to .NET metrics |
 | CSP nonces through middleware | `NetjesOptions.ContentSecurityPolicy` with `{nonce}`, and `useNonce()`. [Security](guides/security.md) |
+| A CSP without nonces, for static or cached pages | `NetjesOptions.ContentSecurityPolicy` without `{nonce}`, with `NetjesContentSecurityPolicy.ScriptHashes` in its `script-src`, or `CSP_SCRIPT_HASHES` from `netjes` for a policy written in JavaScript. Pages under it can be output-cached, but must not stream. [Security](guides/security.md#hash-based) |
 
 ## The real differences
 
