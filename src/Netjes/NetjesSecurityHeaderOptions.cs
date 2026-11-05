@@ -4,12 +4,14 @@ namespace Netjes;
 /// Headers Netjes adds, each only when the app has not set that header itself. Every response that passes through
 /// <c>UseNetjes</c> gets <c>X-Content-Type-Options: nosniff</c>: documents and client payloads, static files, the app's
 /// own endpoints and output-cache answers. The documents Netjes renders also get
-/// <c>Referrer-Policy: strict-origin-when-cross-origin</c> and a same-origin framing policy,
-/// <c>X-Frame-Options: SAMEORIGIN</c> (and <c>frame-ancestors 'self'</c> in
-/// <see cref="NetjesOptions.ContentSecurityPolicy"/>). An app that sends its own <c>X-Frame-Options</c>, or has
-/// <c>frame-ancestors</c> in the policy that goes out (its own header, or else
-/// <see cref="NetjesOptions.ContentSecurityPolicy"/>, which Netjes writes only when the app sent no header), decides
-/// about framing itself, and Netjes adds neither framing header.
+/// <c>Referrer-Policy: strict-origin-when-cross-origin</c> and framing headers, same-origin by default:
+/// <c>X-Frame-Options: SAMEORIGIN</c>, and <c>frame-ancestors 'self'</c> in
+/// <see cref="NetjesOptions.ContentSecurityPolicy"/>. An app that sends its own <c>X-Frame-Options</c> decides about
+/// framing itself, and Netjes adds neither framing header. An app with <c>frame-ancestors</c> in a policy that goes out
+/// (its own header, or else <see cref="NetjesOptions.ContentSecurityPolicy"/>, which Netjes writes only when the app
+/// sent no header) gets the <c>X-Frame-Options</c> it implies, for browsers that know only that header:
+/// <c>SAMEORIGIN</c> when every such list holds <c>'self'</c>, <c>*</c> or a scheme source such as <c>https:</c>, and
+/// <c>DENY</c> otherwise. Netjes then adds no <c>frame-ancestors</c>.
 /// Data responses for the client router get nosniff only. Binds from <c>Netjes:SecurityHeaders</c>.
 /// </summary>
 public sealed class NetjesSecurityHeaderOptions

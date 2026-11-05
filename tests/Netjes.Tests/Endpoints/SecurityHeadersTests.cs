@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -141,11 +143,88 @@ public class SecurityHeadersTests
     }
 
     [Theory]
+    [InlineData("frame-ancestors 'none'", "DENY")]
+    [InlineData("frame-ancestors 'self'", "SAMEORIGIN")]
+    [InlineData("script-src 'self'; frame-ancestors 'self' https://partner.example", "SAMEORIGIN")]
+    [InlineData("frame-ancestors https://partner.example", "DENY")]
+    [InlineData("FRAME-ANCESTORS 'NONE'", "DENY")]
+    [InlineData("frame-ancestors 'SELF'", "SAMEORIGIN")]
+    [InlineData("script-src 'self'; frame-ancestors;", "DENY")]
+    [InlineData("frame-ancestors *", "SAMEORIGIN")]
+    [InlineData("frame-ancestors https:", "SAMEORIGIN")]
+    // The app's own host as a host source: Netjes does not compare sources with the request's host.
+    [InlineData("frame-ancestors https://localhost", "DENY")]
+    [InlineData("script-src 'self';\tframe-ancestors\t'none'", "DENY")]
+    // Without its quotes, self is a host named self.
+    [InlineData("frame-ancestors self", "DENY")]
+    // 'none' counts only on its own.
+    [InlineData("frame-ancestors 'none' 'self'", "SAMEORIGIN")]
+    // Browsers obey the first of two.
+    [InlineData("frame-ancestors 'self'; frame-ancestors 'none'", "SAMEORIGIN")]
+    public async Task FrameAncestors_SendTheXFrameOptionsTheyImply(string policy, string xFrameOptions)
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = policy);
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal(xFrameOptions, Header(response, "X-Frame-Options"));
+        Assert.Equal(policy, Header(response, "Content-Security-Policy"));
+    }
+
+    [Theory]
+    [InlineData("a first visit", 200)]
+    [InlineData("a returning visitor", 200)]
+    [InlineData("the not-found document", 404)]
+    [InlineData("the plain error document", 500)]
+    [InlineData("an output-cached document", 200)]
+    public async Task FrameAncestorsNone_SendsDenyOnEveryKindOfDocument(string document, int status)
+    {
+        // Antiforgery adds X-Frame-Options: SAMEORIGIN when it stores a new cookie and finds none: on a first visit,
+        // but never on a page the output cache may store, which carries no token. The policy decides on all of them.
+        const string policy = "script-src 'self'; frame-ancestors 'none'";
+        var loads = 0;
+        await using var app = document == "an output-cached document"
+            ? await TestApp.StartAsync(
+                [],
+                configure: o => o.ContentSecurityPolicy = policy,
+                map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
+                services: s => s.AddOutputCache(),
+                configureApp: a => a.UseOutputCache(),
+                environment: "Production",
+                prepareRoot: ModeTests.WriteProductionBuild)
+            : await TestApp.StartAsync(["app/page.tsx"], configure: o => o.ContentSecurityPolicy = policy);
+        if (document == "the plain error document")
+        {
+            app.Renderer.OnRender = _ => throw new SsrRenderException("window is not defined", null);
+        }
+
+        var response = document switch
+        {
+            "a returning visitor" => await GetAsReturningVisitorAsync(app, "/"),
+            "the not-found document" => await app.GetDocumentAsync("/missing"),
+            "an output-cached document" => await GetFromTheOutputCacheAsync(app, "/"),
+            _ => await app.GetDocumentAsync("/"),
+        };
+
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.Equal(document == "an output-cached document" ? 1 : 0, loads);
+        Assert.Equal("DENY", Header(response, "X-Frame-Options"));
+    }
+
+    /// <summary>The second of two requests, which the output cache answers.</summary>
+    private static async Task<HttpResponseMessage> GetFromTheOutputCacheAsync(TestApp app, string url)
+    {
+        await app.GetDocumentAsync(url);
+        return await app.GetDocumentAsync(url);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AnAppWithItsOwnFrameAncestors_GetsNoXFrameOptionsFromNetjes(bool inItsOwnHeader)
+    public async Task AnAppsOwnFrameAncestors_GetTheXFrameOptionsTheyImply(bool inItsOwnHeader)
     {
-        // How an app lets a partner frame its pages: X-Frame-Options cannot name another site.
+        // How an app lets a partner frame its pages. X-Frame-Options cannot name another site, so a browser that knows
+        // only that header keeps them to the app's own.
         const string policy = "frame-ancestors 'self' https://partner.example";
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
@@ -163,8 +242,76 @@ public class SecurityHeadersTests
         var response = await GetAsReturningVisitorAsync(app, "/");
 
         Assert.Equal(policy, Header(response, "Content-Security-Policy"));
-        Assert.Null(Header(response, "X-Frame-Options"));
+        Assert.Equal("SAMEORIGIN", Header(response, "X-Frame-Options"));
         Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Theory]
+    [InlineData(true, "frame-ancestors 'self'", "frame-ancestors 'none'")]
+    [InlineData(true, "frame-ancestors 'self', frame-ancestors 'none'", null)]
+    [InlineData(true, "script-src 'self', frame-ancestors 'none'", null)]
+    [InlineData(false, "frame-ancestors 'self', frame-ancestors 'none'", null)]
+    [InlineData(false, "script-src 'self', frame-ancestors 'none'", null)]
+    public async Task SeveralPolicies_TheStrictestFramingWins(bool inItsOwnHeader, string policy, string? another)
+    {
+        // Browsers enforce every policy, whether each comes in a header of its own or several are joined by commas.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = inItsOwnHeader ? null : policy,
+            configureApp: a => a.Use((http, next) =>
+            {
+                if (inItsOwnHeader)
+                {
+                    http.Response.Headers.ContentSecurityPolicy = another is null ? policy : new StringValues([policy, another]);
+                }
+
+                return next(http);
+            }));
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal(another is null ? policy : $"{policy}, {another}", Header(response, "Content-Security-Policy"));
+        Assert.Equal("DENY", Header(response, "X-Frame-Options"));
+    }
+
+    [Fact]
+    public async Task AReportOnlyPolicy_DoesNotDecideFraming()
+    {
+        // A report-only policy blocks nothing, so it says nothing about who may frame the pages.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configureApp: a => a.Use((http, next) =>
+            {
+                http.Response.Headers["Content-Security-Policy-Report-Only"] = "frame-ancestors 'none'";
+                return next(http);
+            }));
+
+        var response = await GetAsReturningVisitorAsync(app, "/");
+
+        Assert.Equal("SAMEORIGIN", Header(response, "X-Frame-Options"));
+        Assert.Null(Header(response, "Content-Security-Policy"));
+    }
+
+    [Theory]
+    [InlineData(false, "SAMEORIGIN")]
+    [InlineData(true, "DENY")]
+    public async Task ALoaderThatStoresAntiforgeryTokens_KeepsAntiforgerysHeader_UnlessSuppressed(bool suppressed, string xFrameOptions)
+    {
+        // Antiforgery adds its X-Frame-Options before Netjes renders, so Netjes takes it for the app's own.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.ContentSecurityPolicy = "frame-ancestors 'none'",
+            services: s => s.AddAntiforgery(o => o.SuppressXFrameOptionsHeader = suppressed),
+            map: a => a.MapPageLoader("/", (HttpContext http, IAntiforgery antiforgery) =>
+            {
+                antiforgery.GetAndStoreTokens(http);
+                return Page.Props(new { Stored = true });
+            }));
+
+        var response = await app.GetDocumentAsync("/");
+
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith(".AspNetCore.Antiforgery.", StringComparison.Ordinal));
+        Assert.Equal(xFrameOptions, Header(response, "X-Frame-Options"));
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Primitives;
+
 namespace Netjes.Rendering;
 
 /// <summary>
@@ -8,6 +10,13 @@ namespace Netjes.Rendering;
 internal static class CspDirectives
 {
     private static readonly char[] AsciiWhitespace = [' ', '\t', '\n', '\f', '\r'];
+
+    /// <summary>
+    /// Each policy in the header's values. Browsers enforce every one, whether each comes in a header of its own or
+    /// several are joined by commas in one value (a source expression never holds a comma: it is written <c>%2C</c>).
+    /// </summary>
+    public static IEnumerable<string> Policies(StringValues values) =>
+        values.SelectMany(value => (value ?? "").Split(','));
 
     /// <summary>The source expressions of the policy's first directive named <paramref name="name"/>, or null without one.</summary>
     public static IReadOnlyList<string>? Sources(string? policy, string name)

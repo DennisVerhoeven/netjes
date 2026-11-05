@@ -144,7 +144,7 @@ public sealed class NetjesOptions
     public NetjesImageOptions Images { get; set; } = new();
 
     /// <summary>
-    /// nosniff on every response that passes through <c>UseNetjes</c>, and a referrer policy and same-origin framing on
+    /// nosniff on every response that passes through <c>UseNetjes</c>, and a referrer policy and framing headers on
     /// documents; on by default.
     /// </summary>
     public NetjesSecurityHeaderOptions SecurityHeaders { get; set; } = new();
