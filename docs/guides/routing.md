@@ -349,7 +349,7 @@ const locale = useLocale(); // 'nl' at /nl/about; null without AddNetjesLocaliza
 
 ### HEAD requests
 
-Pages answer a `HEAD` as they answer a `GET`, but without the body, and so do the `GET` endpoints Netjes maps: `/sitemap.xml` and `/robots.txt` (`MapSitemap` and `MapRobotsTxt`), the image endpoint `/_netjes/image`, and the locale redirect at `/` (`MapLocaleRedirect`). Files in `public/` (the client build in production) answer `HEAD` too. The exception is `/_netjes/antiforgery`, which answers `GET` only: it stores the antiforgery cookie and sends the token in the body, so a `HEAD` would store the cookie and get no token. A `HEAD` there gets the not-found page.
+Pages answer a `HEAD` as they answer a `GET`, but without the body, and so do the `GET` endpoints Netjes maps: `/sitemap.xml` and `/robots.txt` (`MapSitemap` and `MapRobotsTxt`), the image endpoint `/_netjes/image`, and the locale redirect at `/` (`MapLocaleRedirect`). Files in `public/` (the client build in production) answer `HEAD` too. The exception is `/_netjes/antiforgery`, which answers `GET` only: it is there to send the client router a token in its body, which a `HEAD` would not get, and the router asks for it with `GET`. A `HEAD` there gets the not-found page.
 
 An endpoint you map with `MapGet` answers `GET` only, as in any ASP.NET Core app. A `HEAD` to its URL goes to whatever else matches the URL and takes `HEAD`:
 
