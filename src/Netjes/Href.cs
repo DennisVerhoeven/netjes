@@ -97,7 +97,8 @@ public sealed class Href : IEquatable<Href>
 /// <summary>An <see cref="Href"/> as the plain string it holds; reading one that is not a link throws.</summary>
 /// <remarks>
 /// <see cref="Href"/> names it, so apps never need to. It is public for a System.Text.Json source-generated context in
-/// an app, which creates the converter in the app's own code: one it could not reach would leave the property out.
+/// an app, which creates the converter in the app's own code: one it could not reach would leave the property out of the
+/// JSON, or throw where no other resolver stands behind the context.
 /// </remarks>
 public sealed class HrefJsonConverter : JsonConverter<Href>
 {
