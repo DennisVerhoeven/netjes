@@ -955,17 +955,22 @@ public class NodeSidecarTests
     [Fact]
     public async Task AProcessWithdrawnByARefusal_ThatThenHangs_IsStillKilledAndRestarted()
     {
+        // Declared first, so it is deleted after the sidecar has stopped.
+        using var dir = new TempDirectory();
         var logs = new ListLoggerProvider();
         using var loggers = new LoggerFactory([logs]);
         await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick with { Timeout = TimeSpan.FromMilliseconds(500) });
         await sidecar.StartAsync(Ct);
         var pid = await SidecarPoolTests.PidAsync(sidecar);
+        var listen = Path.Combine(dir.FullName, "listen");
 
         // Refused while the process does not listen, which takes it out of the ready ones: a process still running two
-        // seconds later counts as ready again. This one listens again after 300 ms, and answers nothing.
-        await sidecar.RenderAsync("""{"page":"withdraw-then-hang"}""", Ct);
+        // seconds later counts as ready again. This one listens again once the render was refused, and answers nothing.
+        await sidecar.RenderAsync(
+            $$"""{"page":"withdraw-then-hang","marker":{{System.Text.Json.JsonSerializer.Serialize(listen)}}}""", Ct);
         Assert.Null(await sidecar.TryRenderAsync("""{"page":"x"}""", Ct));
         var refused = Stopwatch.StartNew();
+        await File.WriteAllTextAsync(listen, "", Ct);
 
         // Waits for the process that is ready next.
         Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));

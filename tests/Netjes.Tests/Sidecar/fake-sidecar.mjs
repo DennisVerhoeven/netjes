@@ -79,11 +79,16 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'text/html', connection: 'close' }).end('<html>stopped</html>');
       return;
     case 'withdraw-then-hang': {
-      // Refuses connections for a moment, so that a render takes the process out of the ready ones, then listens
-      // again and stops answering: connections wait in its queue, and nothing reads them.
+      // Refuses connections until the marker exists, so that a render takes the process out of the ready ones, then
+      // listens again and stops answering: connections wait in its queue, and nothing reads them. The test writes the
+      // marker once it has seen the refusal, which on Windows comes only after the connection was tried again.
       const { port } = server.address();
       server.close();
-      setTimeout(() => server.listen(port, '127.0.0.1', () => block()), 300);
+      const listen = setInterval(() => {
+        if (!existsSync(payload.marker)) return;
+        clearInterval(listen);
+        server.listen(port, '127.0.0.1', () => block());
+      }, 10);
       res.writeHead(200, { 'content-type': 'text/html', connection: 'close' }).end('<html>withdrawn</html>');
       return;
     }
