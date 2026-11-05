@@ -6,7 +6,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 
 | Import | What it holds |
 |---|---|
-| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types |
+| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
 | [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
@@ -301,6 +301,16 @@ function useNonce(): string | undefined;
 ```
 
 The page's Content-Security-Policy nonce, for inline scripts and styles of your own; `undefined` without a policy, or under one without `{nonce}`. `<Script>` uses it by itself. See [Security](../guides/security.md).
+
+### Content-Security-Policy
+
+#### `CSP_SCRIPT_HASHES`
+
+```ts
+const CSP_SCRIPT_HASHES: string;
+```
+
+The `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce written in JavaScript, such as a static host's headers for [exported pages](../guides/static-export.md#deferred-values-and-suspense): one `'sha256-…'` per script, in its quotes and separated by spaces, as in `` `script-src 'self' ${CSP_SCRIPT_HASHES}` ``. A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. The same value as `NetjesContentSecurityPolicy.ScriptHashes` in C# ([C# API](csharp-api.md#netjescontentsecuritypolicy)). See [Security](../guides/security.md#hash-based).
 
 ### Components
 

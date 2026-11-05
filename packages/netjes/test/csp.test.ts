@@ -61,4 +61,10 @@ describe('CSP_SCRIPT_HASHES', () => {
 
     expect(/ScriptHashes \{ get; \} =\s*"([^"]*)"/.exec(source)?.[1]).toBe(CSP_SCRIPT_HASHES);
   });
+
+  it('is the value the security guide gives for this version', async () => {
+    const guide = await readFile(new URL('../../../docs/guides/security.md', import.meta.url), 'utf8');
+
+    expect(guide).toContain(`\`${CSP_SCRIPT_HASHES}\``);
+  });
 });

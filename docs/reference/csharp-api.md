@@ -376,6 +376,17 @@ public static string GetCspNonce(this HttpContext http)
 
 This request's Content-Security-Policy nonce, created on first use. Netjes puts it on every script and stylesheet it renders, and `useNonce()` returns it, so a policy you write yourself can allow exactly those. A document with a nonce is never stored in the output cache. With `NetjesOptions.ContentSecurityPolicy` containing `{nonce}`, Netjes calls it for you. See [security](../guides/security.md#content-security-policy).
 
+### NetjesContentSecurityPolicy
+
+```csharp
+public static class NetjesContentSecurityPolicy
+{
+    public static string ScriptHashes { get; }
+}
+```
+
+`ScriptHashes` holds the `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: one `'sha256-…'` per script, in its quotes and separated by spaces, as in `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. It is a property, not a constant, because the compiler copies a constant's value into the assemblies that use it: an assembly compiled against one version of Netjes would keep that version's hashes when it runs with another. The npm package exports the same value as [`CSP_SCRIPT_HASHES`](react-api.md#csp_script_hashes). See [security](../guides/security.md#hash-based).
+
 ## Options
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](options.md).
