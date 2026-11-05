@@ -1,6 +1,6 @@
 # React API
 
-This is the reference for the npm package `netjes`: every export of every entry point, with its signature and what it does, for app developers looking up an API. The guides explain how the pieces fit: [Routing](../guides/routing.md), [Data loading](../guides/data-loading.md), [Actions and forms](../guides/actions-and-forms.md), [Metadata](../guides/metadata.md), [Images](../guides/images.md) and [Testing](../guides/testing.md). The C# side is in the [C# API](csharp-api.md).
+This is the reference for the npm package `netjes`: every export of every entry point, with its signature and what it does, for app developers looking up an API. The guides explain how the pieces fit: [Routing](../guides/routing.md), [Data loading](../guides/data-loading.md), [Actions and forms](../guides/actions-and-forms.md), [Images](../guides/images.md), [Metadata](../guides/metadata.md) and [Testing](../guides/testing.md). The C# side is in the [C# API](csharp-api.md).
 
 ## Entry points
 

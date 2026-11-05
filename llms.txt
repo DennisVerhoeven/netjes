@@ -19,13 +19,13 @@ Netjes ships as the npm package `netjes` (the Vite plugin, the client router, th
 - [Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md): Server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads
 - [Rendering and streaming](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md): The Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages
 - [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md): The default `Cache-Control`, output-cached pages, what keys an entry, revalidation, draft mode and CDNs
-- [Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md): Titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`
 - [Images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md): `<Image>`, the image endpoint and its limits, and image processing with SkiaSharp
+- [Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md): Titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`
 - [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md): `netjes export`, static parameters, what cannot be exported, and Content-Security-Policy for exported pages
-- [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md): The default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults
-- [Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md): Publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies
-- [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md): Component and page tests with Vitest and `netjes/testing`, C# tests of loaders and actions, Playwright, and the checks for CI
 - [Redirects, rewrites and headers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/redirects-rewrites-headers.md): What Next.js configures in `next.config.js`, done with ASP.NET Core
+- [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md): The default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults
+- [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md): Component and page tests with Vitest and `netjes/testing`, C# tests of loaders and actions, Playwright, and the checks for CI
+- [Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md): Publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies
 - [Coding agents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md): `llms.txt`, the `AGENTS.md` and skill that new apps get, and `netjes agents` for existing ones
 
 ## Reference
