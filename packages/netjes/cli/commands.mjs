@@ -127,6 +127,17 @@ function isBelow(relative) {
 }
 
 /**
+ * Whether `target` is a folder inside the app in `app`, comparing paths as .NET does: on macOS and Windows it
+ * upper-cases each letter, so paths that differ only in case are one folder there (and a long s, ſ, is an s).
+ * @param {string} app
+ * @param {string} target
+ */
+function insideApp(app, target) {
+  const fold = process.platform === 'darwin' || process.platform === 'win32';
+  return isBelow(fold ? path.relative(app.toUpperCase(), target.toUpperCase()) : path.relative(app, target));
+}
+
+/**
  * `target` as the user would type it from `from`: relative when it is below, else absolute.
  * @param {string} from
  * @param {string} target
@@ -420,7 +431,16 @@ export const COMMANDS = {
     examples: ['netjes export', 'netjes export site --no-build'],
     project: () => true,
     async run({ io, cwd, args, options }) {
+      const output = path.resolve(cwd, args[0] ?? 'out');
       if (!options['no-build']) {
+        // The app decides where the export may write (StaticExportService.OutputProblems, ADR 0007), before it
+        // renders anything: only it knows Netjes:Root and the folders it needs. A folder outside the app is refused
+        // here too, before the build, which runs in cwd, so the app is there. With --no-build only the app checks,
+        // since Netjes:Root can put the app above cwd.
+        if (!insideApp(cwd, output)) {
+          printError(io, `netjes export: the output folder ${output} must be inside the app (${cwd}), such as 'out'; nothing was built`);
+          return 1;
+        }
         const code = await build(io, cwd);
         if (code !== 0) return code;
       }
@@ -433,7 +453,7 @@ export const COMMANDS = {
           ...commandEnv(io),
           ASPNETCORE_ENVIRONMENT: io.env.ASPNETCORE_ENVIRONMENT ?? 'Production',
           NETJES_COMMAND: 'export',
-          NETJES_OUTPUT: path.resolve(cwd, args[0] ?? 'out'),
+          NETJES_OUTPUT: output,
         },
       });
     },
