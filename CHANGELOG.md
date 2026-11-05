@@ -4,9 +4,17 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Added
+
+- `<Link>`, `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` to the element they render. `LinkProps`, `FormProps`, `SubmitButtonProps` and `ImageProps` now start from React's `ComponentPropsWithRef` instead of the `*HTMLAttributes` types, which left the ref out, so `<Link ref={ref}>` is no longer a type error. The ref already reached the element at runtime, and only the types refused it; an app that worked around the type error, for example with `document.getElementById(id)`, can pass the ref instead. The four types also include `key` now; React handles it, as for any element, and never passes it to the component.
+
 ### Changed
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
+
+### Fixed
+
+- `<Link>` sets `aria-current="page"` only on a link to the page on screen ([ADR 0024](docs/decisions/0024-link-marks-the-current-page-by-path-and-query.md)). It used to compare the link's path alone, byte for byte. Now a link with a `#` (`/#features`, `#top`) is never marked; a link with a query is marked only while the page has the same values for every parameter the link names, in any order (`/search?q=other` is no longer marked on `/search?q=cache`); `/x` and `/x/` count as one page; and a link whose `href` already starts with the base path is marked on its page. Parameters a link leaves out still do not count, so a link that names fewer of them than the page is still marked, such as an "All" filter (`/blog`) on `/blog?tag=react`, or a `?page=2` link that drops the page's filter: set `aria-current` on such links yourself (`aria-current={undefined}` leaves it off). Check how filter and tab bars that style `aria-current` look, since which of their links are marked can change. Links with neither a `#` nor a query are marked as before, and now also when the page's path differs from theirs by a trailing slash. The [routing guide](docs/guides/routing.md#the-current-section) shows how to mark a section link, such as Docs on every page under `/docs`, with `aria-current="true"`.
 
 ## [0.0.2] - 2026-11-03
 

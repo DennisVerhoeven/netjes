@@ -24,7 +24,6 @@ The work in progress, what comes next, what is planned without a date, and what 
 - valibot as an alternative to zod in the generated file.
 - Navigations that keep what an unmatched parallel-route slot showed, as Next.js does after a soft navigation.
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
-- `<Link>` treating `/x` and `/x/` as the same page for `aria-current`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
 

@@ -201,10 +201,32 @@ import { route } from '../generated/netjes.ts';
 ```
 
 - `href` is typed by the app's routes once `netjes generate` has written `generated/netjes.ts`: a path no page serves is a type error. `Href.parse(value)` from the generated file checks a URL that comes from data, such as a CMS ([Typed links](data-loading.md#typed-links)).
-- The link gets `aria-current="page"` when its path is the current one, for styling the current link.
+- The link gets `aria-current="page"` when it goes to the page on screen, which screen readers announce and styles can target: its path is the page's, with `/docs` and `/docs/` counted as one, and the page has the same values for every query parameter the link names, in any order. Parameters the link leaves out do not count: on `/blog?tag=react&utm_source=nl`, the links `/blog?tag=react` and `/blog` are marked and `/blog?tag=vue` is not. A link with a `#`, such as `/#features`, points to a place in a page and is never marked, nor is a URL with its own scheme or host (`https://…`, `mailto:`).
+- An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
+
+### The current section
+
+`<Link>` marks only a link to the page on screen. A link that stands for a whole section, such as Docs in a header shown on every page under `/docs`, sets `aria-current` itself: `"page"` on the section's own page and `"true"` on the pages below it.
+
+```tsx
+import { Link, useSelectedLayoutSegments } from 'netjes';
+
+// In the root layout the segments are the whole path: ['docs'] on /docs, ['docs', 'intro'] on /docs/intro.
+export function DocsLink() {
+  const [section, ...below] = useSelectedLayoutSegments();
+  const current = section !== 'docs' ? undefined : below.length > 0 ? 'true' : 'page';
+  return (
+    <Link href="/docs" aria-current={current}>
+      Docs
+    </Link>
+  );
+}
+```
+
+A selector on `[aria-current]` styles both values. `usePathname()` works as well (`pathname.startsWith('/docs/')`), but the segments count `/docs/` as `/docs`, as `<Link>` does. In the section's own layout, `useSelectedLayoutSegment()` is `null` on the section's page and names the segment below it on the others ([Reading the URL](#reading-the-url)).
 
 ### Back and forward
 

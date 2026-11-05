@@ -65,7 +65,7 @@ The props of an `error.tsx`: what was thrown, with the HTTP status when the serv
 ```ts
 function Link(props: LinkProps): JSX.Element;
 
-type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   href: Href;
   replace?: boolean;            // replace the history entry instead of adding one
   scroll?: boolean;             // default true: scroll to the top, or to the #fragment
@@ -74,7 +74,7 @@ type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
 };
 ```
 
-An `<a>` that navigates on the client. It sets `aria-current="page"` when its path is the current one, and puts its `href` under the base path. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](../guides/routing.md#links).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](../guides/routing.md#links).
 
 #### `useRouter`
 
@@ -180,7 +180,7 @@ The request culture the page was rendered in with `AddNetjesLocalization`, such 
 ```ts
 function Form(props: FormProps): JSX.Element;
 
-type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> & {
+type FormProps = Omit<ComponentPropsWithRef<'form'>, 'method' | 'action'> & {
   method?: 'get' | 'post';        // default 'get'
   action?: string | FormAction;   // default: the current URL
   replace?: boolean;              // for a GET form: replace the history entry
@@ -190,17 +190,17 @@ type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> 
 type FormAction = (formData: FormData) => void | Promise<void>;
 ```
 
-A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. See [`<Form>` in detail](../guides/actions-and-forms.md#form-in-detail).
+A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. A `ref` gets the `<form>` element. See [`<Form>` in detail](../guides/actions-and-forms.md#form-in-detail).
 
 #### `SubmitButton`
 
 ```ts
 function SubmitButton(props: SubmitButtonProps): JSX.Element;
 
-type SubmitButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'>;
+type SubmitButtonProps = Omit<ComponentPropsWithRef<'button'>, 'type'>;
 ```
 
-A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript.
+A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript. A `ref` gets the `<button>` element.
 
 #### `serverAction`
 
@@ -309,7 +309,7 @@ The page's Content-Security-Policy nonce, for inline scripts and styles of your 
 ```ts
 function Image(props: ImageProps): JSX.Element;
 
-type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
+type ImageProps = Omit<ComponentPropsWithRef<'img'>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
   src: string;           // a path in public/ or a URL on an allowed remote host
   alt: string;           // '' for a decorative image
   width: number;         // the intrinsic size in CSS pixels
@@ -321,7 +321,7 @@ type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | '
 };
 ```
 
-An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. See [Images](../guides/images.md).
+An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. A `ref` gets the `<img>` element. See [Images](../guides/images.md).
 
 #### `Script`
 

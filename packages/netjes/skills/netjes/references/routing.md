@@ -37,7 +37,8 @@ Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route
 
 ## Links and navigation
 
-- `<Link href={route('/blog/[slug]', { slug })}>`: client navigation with prefetch on hover and focus, `aria-current` on the active link. `route()` and the `Href` type come from `generated/netjes.ts`, so a wrong path or a missing parameter is a type error.
+- `<Link href={route('/blog/[slug]', { slug })}>`: client navigation with prefetch on hover and focus; takes a `ref`, as `<Form>`, `<SubmitButton>` and `<Image>` do. `route()` and the `Href` type come from `generated/netjes.ts`, so a wrong path or a missing parameter is a type error.
+- `aria-current="page"` goes on a link to the page on screen: the same path (`/x` and `/x/` are one) and the page's values for every query parameter the link names. Parameters it leaves out do not count, and a `#` link is never marked. Pass `aria-current` to decide yourself: `undefined` on an "All" filter (`/blog`) while a filter is on, `"true"` on a section link (Docs) below the section's page, from `useSelectedLayoutSegments()` or `usePathname()`.
 - `useRouter()`: `push`, `replace`, `prefetch`, `refresh`, `back`, `forward`.
 - `usePathname()`, `useSearchParams(schema?)`, `useParams(schema?)`: with a schema the values are parsed; catch-all params are arrays. Search values a schema rejects are dropped so its defaults apply; a rejected route param goes to the error page, so constrain route params in C#.
 - `useSelectedLayoutSegment()`, `useSelectedLayoutSegments()`: the active child segment in a layout (tabs).
