@@ -189,7 +189,7 @@ export function adoptServerScripts(nonce: string | undefined): Promise<void> {
 
 /**
  * React's own rule for the text of an inline script: `</script` would close the element and `<script` would make the
- * parser look for a second closing tag, so their `s` is written `s` (or `S`), which JavaScript reads as the
+ * parser look for a second closing tag, so their `s` is written `\u0073` (or `S` as `\u0053`), which JavaScript reads as the
  * same letter in strings, template literals, regular expressions and names.
  */
 const SCRIPT_TAG = /(<\/|<)(s)(cript)/gi;
