@@ -439,7 +439,7 @@ function buildHref(
 ): string;
 ```
 
-The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'a b'` gives `#a%20b`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
+The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'über-uns'` gives `#%C3%BCber-uns`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
 
 #### `SearchParamsInput`
 
