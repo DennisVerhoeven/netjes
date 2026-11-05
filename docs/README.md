@@ -9,18 +9,31 @@ Every page of the Netjes documentation, with a line on what it covers. Start wit
 
 ## Guides
 
+One topic each, in four groups that follow how an app is made: build its pages, render them, publish the site and run the app.
+
+### Build
+
 - [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
+
+### Render
+
 - [Rendering and streaming](guides/rendering-and-streaming.md): the Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages.
 - [Caching](guides/caching.md): the default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry, revalidation, draft mode and CDNs.
-- [Metadata](guides/metadata.md): titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`.
 - [Images](guides/images.md): `<Image>`, the image endpoint and its limits, and image processing with SkiaSharp.
+
+### Publish
+
+- [Metadata](guides/metadata.md): titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`.
 - [Static export](guides/static-export.md): `netjes export`, static parameters, what cannot be exported, and Content-Security-Policy for exported pages.
-- [Security](guides/security.md): the default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults.
-- [Deployment](guides/deployment.md): publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies.
-- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, C# tests of loaders and actions, Playwright and waiting for hydration, and the checks for CI.
 - [Redirects, rewrites and headers](guides/redirects-rewrites-headers.md): what Next.js configures in `next.config.js`, done with ASP.NET Core.
+
+### Run
+
+- [Security](guides/security.md): the default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults.
+- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, C# tests of loaders and actions, Playwright and waiting for hydration, and the checks for CI.
+- [Deployment](guides/deployment.md): publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies.
 - [Coding agents](guides/coding-agents.md): `llms.txt`, the `AGENTS.md` and skill that new apps get, and `netjes agents` for existing ones.
 
 ## Reference

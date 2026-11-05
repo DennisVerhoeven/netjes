@@ -29,12 +29,12 @@ export const TREE = `https://github.com/${REPOSITORY}/tree/main/`;
 const SKILL = 'packages/netjes/skills/netjes/references/';
 
 /**
- * The reading order, in one place. An entry is a file, every `*.md` in a folder (`glob`, in name order), or every doc
- * under docs/ that no other entry names (`rest`). Files that do not exist are skipped, and a file is listed once, at its
- * first entry, so a specific file can go before the glob that would also match it. A file's title is its first
- * heading unless the entry gives one. Its description is the entry's, else its line in the docs index (`INDEX`), else
- * its first sentence. `full: false` lists a file in llms.txt only, and says so. Sections without files are left out.
- * "Optional" is the llms.txt convention for links an agent may skip.
+ * The reading order, in one place. An entry is a file, every `*.md` in a folder (`glob`, in name order), or every
+ * Markdown file that no other entry names and that is under docs/ or linked by the docs index (`rest`). Files that do
+ * not exist are skipped, and a file is listed once, at its first entry, so a specific file can go before the glob that
+ * would also match it. A file's title is its first heading unless the entry gives one. Its description is the entry's,
+ * else its line in the docs index (`INDEX`), else its first sentence. `full: false` lists a file in llms.txt only, and
+ * says so. Sections without files are left out. "Optional" is the llms.txt convention for links an agent may skip.
  * @type {Section[]}
  */
 export const SECTIONS = [
@@ -48,19 +48,20 @@ export const SECTIONS = [
   },
   {
     title: 'Guides',
+    // In the order of the guides in the docs index, which is the order an app is built; scripts/test/docs.test.mjs checks it.
     entries: [
       { path: 'docs/guides/routing.md' },
       { path: 'docs/guides/data-loading.md' },
       { path: 'docs/guides/actions-and-forms.md' },
       { path: 'docs/guides/rendering-and-streaming.md' },
       { path: 'docs/guides/caching.md' },
-      { path: 'docs/guides/metadata.md' },
       { path: 'docs/guides/images.md' },
+      { path: 'docs/guides/metadata.md' },
       { path: 'docs/guides/static-export.md' },
-      { path: 'docs/guides/security.md' },
-      { path: 'docs/guides/deployment.md' },
-      { path: 'docs/guides/testing.md' },
       { path: 'docs/guides/redirects-rewrites-headers.md' },
+      { path: 'docs/guides/security.md' },
+      { path: 'docs/guides/testing.md' },
+      { path: 'docs/guides/deployment.md' },
       { path: 'docs/guides/coding-agents.md' },
       { glob: 'docs/guides' },
     ],
@@ -100,16 +101,20 @@ export const SECTIONS = [
       { glob: 'packages/netjes/skills/netjes/references' },
     ],
   },
-  // A doc under docs/ that no entry names still gets listed, here, until it is given a place above.
+  // A doc under docs/, or a file the docs index links, that no entry names still gets listed, here, until it is given a
+  // place above.
   { title: 'More', entries: [{ rest: true }] },
   {
     title: 'Optional',
     entries: [
-      // For people who change Netjes, so not in llms-full.txt: an agent building an app does not need the internals.
+      // For people who change Netjes, so not in llms-full.txt: an agent building an app does not need the internals or
+      // the contributing guide.
       { path: 'docs/architecture.md', full: false },
       { path: 'docs/decisions/README.md', title: 'Design decisions', description: 'The index of the decision records: why Netjes is built the way it is' },
       { path: 'CHANGELOG.md' },
       { path: 'docs/roadmap.md' },
+      { path: 'CONTRIBUTING.md', full: false },
+      { path: 'SECURITY.md' },
       { path: 'docs/benchmarks.md', full: false },
       { path: 'examples/Blog/README.md', title: 'Blog example', full: false },
       { path: 'examples/TaskBoard/README.md', title: 'TaskBoard example', full: false },
@@ -118,14 +123,15 @@ export const SECTIONS = [
 ];
 
 /**
- * Docs under docs/ that `rest` leaves out: the decision records, which the decisions index in Optional links, and the
- * docs index, which llms.txt stands in for.
+ * Docs that `rest` leaves out, whether it finds them under docs/ or by a link in the docs index: the decision records,
+ * which the decisions index in Optional links, and the docs index, which llms.txt stands in for.
  */
 export const EXCLUDE = ['docs/decisions/', 'docs/README.md'];
 
 /**
  * The docs index. A bullet in it that is one link followed by a colon, `- [Routing](guides/routing.md): what it
- * covers.`, gives that page's line in llms.txt, so the line is written once.
+ * covers.`, gives that page's line in llms.txt, so the line is written once. A Markdown file it links that no entry
+ * names is listed under More, so a page the index shows readers cannot be missing from llms.txt.
  */
 export const INDEX = 'docs/README.md';
 
@@ -204,7 +210,9 @@ export async function collect(root, sections = SECTIONS) {
     if (!untracked.includes(file)) untracked.push(file);
     return false;
   };
-  const lines = existsSync(path.join(root, INDEX)) && listed(INDEX) ? await indexLines(root) : new Map();
+  const indexed = existsSync(path.join(root, INDEX)) && listed(INDEX);
+  const lines = indexed ? await indexLines(root) : new Map();
+  const linked = indexed ? await indexLinks(root) : [];
   /** @type {Set<string>} */
   const seen = new Set();
   /** @type {Map<Entry, Listed[]>} */
@@ -224,9 +232,10 @@ export async function collect(root, sections = SECTIONS) {
       resolved.set(entry, fresh);
     }
   }
+  // The docs under docs/ in name order, then the files the docs index links elsewhere, in the order it links them.
   /** @type {Listed[]} */
-  const rest = (await markdownBelow(root, 'docs'))
-    .filter((file) => !seen.has(file) && !EXCLUDE.some((prefix) => file.startsWith(prefix)) && listed(file))
+  const rest = [...(await markdownBelow(root, 'docs')), ...linked.filter((file) => existsSync(path.join(root, file)))]
+    .filter((file, at, all) => all.indexOf(file) === at && !seen.has(file) && !EXCLUDE.some((prefix) => file.startsWith(prefix)) && listed(file))
     .map((file) => ({ path: file, full: true }));
 
   const result = [];
@@ -266,6 +275,25 @@ async function indexLines(root) {
     lines.set(path.posix.normalize(path.posix.join(path.posix.dirname(INDEX), target)), line.charAt(0).toUpperCase() + line.slice(1));
   }
   return lines;
+}
+
+/**
+ * The Markdown files the docs index links by a path inside the repository (posix, from the root), in the order it links
+ * them, each once. A URL, an anchor within the page, a link in code, a path above the root and any target but a `.md`
+ * file is not among them. Whether a file exists, or git tracks it, is for the caller to check.
+ * @param {string} root
+ * @returns {Promise<string[]>}
+ */
+async function indexLinks(root) {
+  /** @type {Set<string>} */
+  const files = new Set();
+  for (const { target } of linkTargets(lf(await readFile(path.join(root, INDEX), 'utf8')))) {
+    if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) continue;
+    const pathPart = target.replace(/#.*$/, '');
+    const file = path.posix.normalize(pathPart.startsWith('/') ? pathPart.slice(1) : path.posix.join(path.posix.dirname(INDEX), pathPart));
+    if (file.endsWith('.md') && !file.startsWith('../')) files.add(file);
+  }
+  return [...files];
 }
 
 /** @param {string} text */
@@ -327,33 +355,67 @@ export function rewriteLinks(text, file, root) {
     const folder = statSync(path.join(root, clean), { throwIfNoEntry: false })?.isDirectory() ?? false;
     return `${folder ? TREE : RAW}${clean}${fragment}`;
   };
-  /** @type {string | null} */
-  let fence = null;
-  return text
-    .split('\n')
-    .map((line) => {
-      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-      if (fence !== null) {
-        if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
-        return line;
-      }
-      if (marker) {
-        fence = marker;
-        return line;
-      }
-      return rewriteTargets(line, absolute);
-    })
-    .join('\n');
+  const lines = text.split('\n');
+  for (const { number, text: line } of proseLines(text)) lines[number - 1] = rewriteTargets(line, absolute);
+  return lines.join('\n');
 }
 
 /**
- * Rewrites the link targets in a line of prose: inline links and images, and a reference definition. They are found
- * with the inline code blanked out, so a link whose text is code (`` [`<Link>`](…) ``) counts and code that looks like
- * a link does not; the code itself is kept as written.
+ * The link targets of a document, in order, each with the number of its line (counted from 1): the inline links and
+ * images and the reference definitions that `rewriteLinks` rewrites. Nothing in fenced code or in an inline code span
+ * is a link.
+ * @param {string} text
+ * @returns {{ line: number; target: string }[]}
+ */
+export function linkTargets(text) {
+  return [...proseLines(text)].flatMap(({ number, text: line }) => targetsIn(line).map(({ target }) => ({ line: number, target })));
+}
+
+/**
+ * The lines of a document outside fenced code, each with its number, counted from 1.
+ * @param {string} text
+ * @returns {Generator<{ number: number; text: string }>}
+ */
+function* proseLines(text) {
+  /** @type {string | null} */
+  let fence = null;
+  for (const [index, line] of text.split('\n').entries()) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== null) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
+    yield { number: index + 1, text: line };
+  }
+}
+
+/**
+ * Rewrites the link targets in a line of prose; the code in it is kept as written.
  * @param {string} line
  * @param {(target: string) => string} absolute
  */
 function rewriteTargets(line, absolute) {
+  let out = '';
+  let last = 0;
+  for (const { at, length, target } of targetsIn(line)) {
+    out += line.slice(last, at) + absolute(target);
+    last = at + length;
+  }
+  return out + line.slice(last);
+}
+
+/**
+ * The link targets in a line of prose, in order, with where each starts and how long it is: inline links and images,
+ * and a reference definition. They are found with the inline code blanked out, so a link whose text is code
+ * (`` [`<Link>`](…) ``) counts and code that looks like a link does not.
+ * @param {string} line
+ * @returns {{ at: number; length: number; target: string }[]}
+ */
+function targetsIn(line) {
   const prose = blankCode(line);
   /** @type {{ at: number; length: number; target: string }[]} */
   const targets = [];
@@ -363,15 +425,8 @@ function rewriteTargets(line, absolute) {
   const definition = /^(\s{0,3}\[[^\]]+\]:\s*)(\S+)/.exec(prose);
   if (definition) targets.push({ at: definition[1]?.length ?? 0, length: definition[2]?.length ?? 0, target: definition[2] ?? '' });
 
-  let out = '';
-  let last = 0;
-  for (const { at, length, target } of targets.sort((a, b) => a.at - b.at)) {
-    // A target that runs into code is not a link GitHub would render.
-    if (target.includes('\0')) continue;
-    out += line.slice(last, at) + absolute(target);
-    last = at + length;
-  }
-  return out + line.slice(last);
+  // A target that runs into code is not a link GitHub would render.
+  return targets.filter(({ target }) => !target.includes('\0')).sort((a, b) => a.at - b.at);
 }
 
 /**
