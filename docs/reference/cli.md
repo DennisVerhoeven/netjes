@@ -198,7 +198,7 @@ $ netjes export ../site
 netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
 ```
 
-On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes does not check the folder and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
+On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes still resolves a relative `dir` that way, but does not check the folder, and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
@@ -253,7 +253,7 @@ Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | A usage error; a check that failed before anything ran (no `.csproj`, packages not installed, the port is in use, a name or folder that `netjes new` refuses); or a failed check (`netjes info` found a `✗`, `netjes generate --check` found the types out of date). |
+| 1 | A usage error; a check that failed before anything ran (no `.csproj`, packages not installed, the port is in use, a name or folder that `netjes new` refuses, an output folder outside the app, which `netjes export` refuses before it builds); or a failed check (`netjes info` found a `✗`, `netjes generate --check` found the types out of date). |
 | 127 | `dotnet` or `npm` is not installed, or not on `PATH`. netjes says what to install. |
 | 130 | Ctrl+C at the `netjes new` prompt. |
 | other | The exit code of the process netjes ran (`dotnet`, `npm` or `vite`), passed on unchanged; 128 + n when signal n ended it (130 for SIGINT, 143 for SIGTERM). |
