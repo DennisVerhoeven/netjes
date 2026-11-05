@@ -355,6 +355,20 @@ describe('the command line', () => {
     assert.deepEqual(await readBack(tagged), readmes('main'));
   });
 
+  it('links refuses when a package README is missing, and creates none', async () => {
+    const files = readmes('main');
+    const root = await tree(files);
+    await rm(path.join(root, 'src/Netjes/README.md'));
+    const result = run('links', '0.0.3', '--root', root);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, 'error: src/Netjes/README.md is missing.\n');
+    for (const file of ['packages/netjes/README.md', 'src/Netjes.Images.SkiaSharp/README.md']) {
+      assert.equal(await readFile(path.join(root, file), 'utf8'), files[file]);
+    }
+    await assert.rejects(readFile(path.join(root, 'src/Netjes/README.md')), { code: 'ENOENT' });
+  });
+
   // What the release job will pack: this repository's own READMEs, on copies.
   it("the release moves every link to this repository in this repository's package READMEs to the tag", async () => {
     const originals = await readBack(ROOT);
