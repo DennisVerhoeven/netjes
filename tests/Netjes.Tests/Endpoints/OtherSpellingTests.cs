@@ -401,6 +401,33 @@ public class OtherSpellingTests
     }
 
     [Fact]
+    public async Task WithTheCaseRedirectOff_TrailingSlashNever_DropsOnlyTheSlash()
+    {
+        await using var app = await StartAsync(o =>
+        {
+            o.RedirectLiteralCase = false;
+            o.TrailingSlash = TrailingSlash.Never;
+        });
+
+        // Every case is answered as it was sent: a trailing slash goes, and the case stays, without it as with it.
+        Assert.Equal(
+            [
+                "GET /ABOUT/: 308 /ABOUT",
+                "GET /about/: 308 /about",
+                "GET /Blog/X/: 308 /Blog/X",
+                "GET /DOCS/A/: 308 /DOCS/A",
+                "GET /Robots.txt/: 308 /Robots.txt",
+                "GET /ABOUT: 200",
+                "GET /About: 200",
+                "GET /Blog/X: 200",
+                "GET /ROBOTS.TXT: 200",
+            ],
+            await AnswersAsync(app,
+                "/ABOUT/", "/about/", "/Blog/X/", "/DOCS/A/", "/Robots.txt/", "/ABOUT", "/About", "/Blog/X", "/ROBOTS.TXT"));
+        Assert.Equal("/ABOUT", (string?)(await app.GetDataJsonAsync("/ABOUT/"))["location"]);
+    }
+
+    [Fact]
     public async Task OnTestServer_NothingIsRedirected()
     {
         // TestServer passes on no request target (IHttpRequestFeature.RawTarget is empty), so no URL counts as sent.
