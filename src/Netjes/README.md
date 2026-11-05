@@ -47,4 +47,4 @@ The package adds build targets to the project: `using Netjes` when implicit usin
 - [Options](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/options.md)
 - [Architecture](https://github.com/DennisVerhoeven/netjes/blob/main/docs/architecture.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.

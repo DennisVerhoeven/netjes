@@ -52,4 +52,4 @@ Each import is an ES module with its type declarations, so an app's `tsc` reads 
 - [Vite plugin](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/vite-plugin.md)
 - [The netjes command](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/cli.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.

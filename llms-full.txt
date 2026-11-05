@@ -5563,7 +5563,7 @@ netjes --version
 | [`info`](#netjes-info) | Check the tools and the project setup |
 | [`agents [dir]`](#netjes-agents) | Add `AGENTS.md`, `CLAUDE.md` and the Netjes skill for coding agents to an existing app |
 
-`netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
+`netjes`, `netjes help` and `netjes --help` list the commands and the options every command takes, and end with a link to this page at the release tag of the installed version (`https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`), which describes that version's commands and options. `netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
 
 ## Options and arguments
 
@@ -6009,7 +6009,7 @@ Each import is an ES module with its type declarations, so an app's `tsc` reads 
 - [Vite plugin](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/vite-plugin.md)
 - [The netjes command](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/cli.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/src/Netjes/README.md -->
 
@@ -6062,7 +6062,7 @@ The package adds build targets to the project: `using Netjes` when implicit usin
 - [Options](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/options.md)
 - [Architecture](https://github.com/DennisVerhoeven/netjes/blob/main/docs/architecture.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/src/Netjes.Images.SkiaSharp/README.md -->
 
@@ -6616,6 +6616,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0029 – An endpoint that ties with a page is a route warning](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md): an endpoint of the app that ranks the same as a page or a page action, which ASP.NET Core answers with 500 for the URLs both match, is warned about at startup and in `netjes routes`.
 - [0030 – Security headers beyond documents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0030-security-headers-beyond-documents.md): `nosniff` goes on every response through `UseNetjes`, and documents carry the `X-Frame-Options` their `frame-ancestors` implies, set before antiforgery could add its own.
 - [0031 – A sidecar that stops answering is restarted like one that crashed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0031-a-sidecar-that-stops-answering-is-restarted.md): in production a Node process silent for five seconds is pinged, and killed and restarted when no answer comes within `RenderTimeout`.
+- [0032 – The release links the package READMEs to its tag](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0032-release-links-package-readmes-to-its-tag.md): the READMEs link the docs on `main`, and the release job moves those links to `v<version>` in the packages it publishes, so npm and NuGet show each version with links to its own docs.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6646,6 +6647,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `X-Content-Type-Options: nosniff` now goes on every response that passes through `UseNetjes()`, not only on documents and images: client payloads, static files from `public/` and the client build, `robots.txt`, `sitemap.xml`, `/_netjes/antiforgery`, the app's own endpoints and answers from the output cache. A value the app sets itself is kept. A browser now refuses to run a script, or apply a stylesheet, served with no `Content-Type` or with one that is not a JavaScript type or `text/css`, and no longer takes a response with no `Content-Type` for HTML: it shows the markup as plain text and runs none of its scripts. Serve such responses with the right type; an endpoint that writes a page itself with `Response.WriteAsync` sets `Response.ContentType = "text/html; charset=utf-8"` first. Responses that middleware registered before `UseNetjes()` writes itself still go without it. `Netjes:SecurityHeaders:Enabled` set to false turns it off, and the image endpoint keeps its own `nosniff` either way ([ADR 0030](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0030-security-headers-beyond-documents.md)).
 - With `frame-ancestors` in the Content-Security-Policy that goes out, documents now carry the `X-Frame-Options` it implies: `DENY` for `'none'`, an empty list or other sites only, and `SAMEORIGIN` when the list holds `'self'`, `*` or a scheme source such as `https:`. They used to carry none, or antiforgery's `SAMEORIGIN` on a visitor's first page. Every policy counts, several joined by commas included, and the strictest decides; a report-only policy does not count. A partner site named in `frame-ancestors` can no longer frame the app in a browser that knows only `X-Frame-Options`. An app that wants another value sends its own `X-Frame-Options`, which Netjes keeps. An app whose code stores antiforgery tokens before a page renders (`IAntiforgery.GetAndStoreTokens` in a loader or a middleware) still gets antiforgery's `SAMEORIGIN` on a first visit: set `AntiforgeryOptions.SuppressXFrameOptionsHeader = true` to get the one the policy implies ([ADR 0030](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0030-security-headers-beyond-documents.md)).
 - In production, a sidecar script of the app's own (`Netjes:SidecarScript`) must answer `GET /health`, with any status and without reading a request body. Netjes now sends that request to a Node process that has answered no render for 5 seconds, and kills and restarts a process that sends nothing back within `RenderTimeout`, never less than 5 seconds. The sidecar Netjes ships has always answered it, so an app that uses it has nothing to change. A script that exits on the request, as one that reads every request as a render can, is restarted at every ping, and `Netjes.Sidecar.NodeSidecar` logs a warning that names `GET /health` and `Netjes:SidecarScript`.
+- `netjes --help` links the CLI reference at the release tag of the installed version (`https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`), not the page on `main`, which can describe commands and options that version does not have. The READMEs on npm and NuGet do the same from this release on: the release moves their links to the docs from `main` to its tag in the packages it publishes, and they link the security policy at `https://github.com/DennisVerhoeven/netjes/security/policy`, which always shows the current one ([ADR 0032](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0032-release-links-package-readmes-to-its-tag.md)). Apps have nothing to change.
 
 ### Fixed
 
@@ -6717,6 +6719,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
+- Agent files that follow the installed version. `netjes new` and `netjes agents` copy the `netjes` skill and `AGENTS.md` into an app with links to the docs on `main`, which can describe a newer version than the app has. Linking the installed version's tag instead needs a way to bring those copies up to date when the app upgrades Netjes; today that is a step by hand ([Coding agents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md#after-upgrading-netjes)).
 
 ## Not planned
 

@@ -70,6 +70,43 @@ function repo(version = '0.0.1', files = {}) {
   });
 }
 
+/** The READMEs the packages carry, from the repository root. */
+const READMES = ['packages/netjes/README.md', 'src/Netjes/README.md', 'src/Netjes.Images.SkiaSharp/README.md'];
+
+/**
+ * The package READMEs, with every link to this repository's files at `ref`, among text and links that are no such
+ * link, though some name main or look like one.
+ * @param {string} ref
+ * @returns {Record<string, string>}
+ */
+function readmes(ref) {
+  const repository = 'https://github.com/DennisVerhoeven/netjes';
+  return {
+    'packages/netjes/README.md': `# netjes
+
+The npm half of [Netjes](${repository}), whose main branch moves on. See [TypeScript setup](${repository}/blob/${ref}/docs/reference/vite-plugin.md#typescript-setup).
+
+- [All guides](${repository}/blob/${ref}/docs/README.md)
+- [The examples](${repository}/tree/${ref}/examples)
+- The docs as text: <https://raw.githubusercontent.com/DennisVerhoeven/netjes/${ref}/llms.txt>
+- Another repository's guide: https://github.com/someone/netjes/blob/main/docs/README.md
+- \`netjes --help\` links \`${repository}/blob/v<version>/docs/reference/cli.md\`, the page of its own version
+
+Report bugs in the [issue tracker](${repository}/issues), and security problems as the [security policy](${repository}/security/policy) describes.
+`,
+    'src/Netjes/README.md': `# Netjes
+
+- [Getting started](${repository}/blob/${ref}/docs/getting-started.md), or \`git switch main\` in a clone
+- [Architecture](http://github.com/dennisverhoeven/Netjes/blob/${ref}/docs/architecture.md "How it works")
+- The code: ${repository}/tree/${ref}, or **${repository}/tree/${ref}**.
+`,
+    'src/Netjes.Images.SkiaSharp/README.md': `# Netjes.Images.SkiaSharp
+
+The [images guide](${repository}/blob/${ref}/docs/guides/images.md) covers \`<Image>\`.
+`,
+  };
+}
+
 describe('parseTag', () => {
   it('reads the version from a v-prefixed tag', () => {
     assert.deepEqual(parseTag('v0.0.1'), { version: '0.0.1', prerelease: false });
@@ -157,6 +194,57 @@ describe('checkSources', () => {
     assert.deepEqual(await checkSources(bare, '0.0.1', { repository: 'owner/netjes' }), [
       'packages/netjes/package.json names repository (none), not https://github.com/owner/netjes.',
     ]);
+  });
+
+  // npm and NuGet show the packed READMEs, and the release moves their links from main to its tag.
+  it('refuses a link to this repository in a package README that is not on main', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'packages/netjes/README.md':
+        `${docs['packages/netjes/README.md']}` +
+        '- [Getting started](https://github.com/DennisVerhoeven/netjes/blob/v0.0.0/docs/getting-started.md)\n' +
+        '- [All guides](https://github.com/DennisVerhoeven/netjes/blob/main/docs/README.md)\n',
+      'src/Netjes/README.md':
+        `${docs['src/Netjes/README.md']}` +
+        'Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems ' +
+        'as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes.\n',
+      'src/Netjes.Images.SkiaSharp/README.md':
+        `${docs['src/Netjes.Images.SkiaSharp/README.md']}` +
+        'The docs as text: https://raw.githubusercontent.com/dennisverhoeven/Netjes/v0.0.0/llms.txt.\n' +
+        'Another repository: [its guide](https://github.com/someone/netjes/blob/v0.0.0/docs/README.md).\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), [
+      'packages/netjes/README.md links v0.0.0 in https://github.com/DennisVerhoeven/netjes/blob/v0.0.0/docs/getting-started.md: ' +
+        'link main, which the release moves to its tag.',
+      'src/Netjes.Images.SkiaSharp/README.md links v0.0.0 in https://raw.githubusercontent.com/dennisverhoeven/Netjes/v0.0.0/llms.txt: ' +
+        'link main, which the release moves to its tag.',
+    ]);
+  });
+
+  // As on GitHub, the punctuation that ends a sentence or emphasis after a bare URL is not part of its link.
+  it('reads the ref of a bare link to this repository without the punctuation after it', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'src/Netjes/README.md':
+        `${docs['src/Netjes/README.md']}` +
+        'The code is at https://github.com/DennisVerhoeven/netjes/tree/main, or **https://github.com/DennisVerhoeven/netjes/tree/main**.\n' +
+        'The first release is at _https://github.com/DennisVerhoeven/netjes/tree/v0.0.0_.\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), [
+      'src/Netjes/README.md links v0.0.0 in https://github.com/DennisVerhoeven/netjes/tree/v0.0.0: link main, which the release moves to its tag.',
+    ]);
+  });
+
+  // The docs write the address of a version's page with a placeholder for the version.
+  it('takes a URL to this repository with a placeholder for its ref for no link', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'packages/netjes/README.md':
+        `${docs['packages/netjes/README.md']}` +
+        '`netjes --help` links `https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`, and ' +
+        '`https://github.com/DennisVerhoeven/netjes/blob/<ref>/<path>` is any file at any ref.\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), []);
   });
 });
 
@@ -253,6 +341,86 @@ describe('the command line', () => {
     const result = run('notes', '0.0.1', '--root', await repo());
     assert.equal(result.stdout, '### Added\n\n- The first release.\n');
     assert.equal(result.status, 0);
+  });
+
+  /** @param {string} root */
+  const readBack = async (root) =>
+    Object.fromEntries(await Promise.all(READMES.map(async (file) => [file, await readFile(path.join(root, file), 'utf8')])));
+
+  it("links moves the package READMEs' links on main to the release tag", async () => {
+    const root = await tree(readmes('main'));
+    const result = run('links', '0.0.3', '--root', root);
+    assert.equal(result.stderr, '');
+    assert.equal(
+      result.stdout,
+      'packages/netjes/README.md: 4 links moved to v0.0.3\n' +
+        'src/Netjes/README.md: 4 links moved to v0.0.3\n' +
+        'src/Netjes.Images.SkiaSharp/README.md: 1 link moved to v0.0.3\n',
+    );
+    assert.equal(result.status, 0);
+    assert.deepEqual(await readBack(root), readmes('v0.0.3'));
+  });
+
+  it('links refuses a README that links another ref, and a version that is not semantic', async () => {
+    const files = readmes('main');
+    files['src/Netjes/README.md'] += 'The [first guides](https://github.com/DennisVerhoeven/netjes/blob/v0.0.1/docs/README.md).\n';
+    const root = await tree(files);
+    const refused = run('links', '0.0.3', '--root', root);
+    assert.equal(refused.status, 1);
+    assert.equal(refused.stdout, '');
+    assert.equal(
+      refused.stderr,
+      'error: src/Netjes/README.md links v0.0.1 in https://github.com/DennisVerhoeven/netjes/blob/v0.0.1/docs/README.md: ' +
+        'link main, which the release moves to its tag.\n',
+    );
+    assert.deepEqual(await readBack(root), files);
+
+    const tagged = await tree(readmes('main'));
+    const tag = run('links', 'v0.0.3', '--root', tagged);
+    assert.equal(tag.status, 1);
+    assert.equal(tag.stdout, '');
+    assert.match(tag.stderr, /"v0\.0\.3" is not a version/);
+    assert.deepEqual(await readBack(tagged), readmes('main'));
+  });
+
+  it('links refuses when a package README is missing, and creates none', async () => {
+    const files = readmes('main');
+    const root = await tree(files);
+    await rm(path.join(root, 'src/Netjes/README.md'));
+    const result = run('links', '0.0.3', '--root', root);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, 'error: src/Netjes/README.md is missing.\n');
+    for (const file of ['packages/netjes/README.md', 'src/Netjes.Images.SkiaSharp/README.md']) {
+      assert.equal(await readFile(path.join(root, file), 'utf8'), files[file]);
+    }
+    await assert.rejects(readFile(path.join(root, 'src/Netjes/README.md')), { code: 'ENOENT' });
+  });
+
+  // What the release job will pack: this repository's own READMEs, on copies.
+  it("the release moves every link to this repository in this repository's package READMEs to the tag", async () => {
+    const originals = await readBack(ROOT);
+    const root = await tree(originals);
+    const result = run('links', '9.9.9', '--root', root);
+    assert.equal(result.stderr, '');
+    assert.equal(result.status, 0);
+
+    /** @param {string} text @param {string} ref */
+    const count = (text, ref) =>
+      text.match(
+        new RegExp(String.raw`(?:github\.com/DennisVerhoeven/netjes/(?:blob|tree)|raw\.githubusercontent\.com/DennisVerhoeven/netjes)/${ref}/`, 'gi'),
+      )?.length ?? 0;
+    const moved = await readBack(root);
+    const onMain = READMES.reduce((sum, file) => sum + count(originals[file] ?? '', 'main'), 0);
+    assert.ok(onMain > 0, 'the package READMEs link no file of this repository');
+    assert.deepEqual(
+      READMES.map((file) => count(moved[file] ?? '', 'main')),
+      READMES.map(() => 0),
+    );
+    assert.equal(
+      READMES.reduce((sum, file) => sum + count(moved[file] ?? '', String.raw`v9\.9\.9`), 0),
+      onMain,
+    );
   });
 
   it('explains its usage', () => {
