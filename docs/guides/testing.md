@@ -1,6 +1,6 @@
 # Testing
 
-This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`.
+This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, and a test of the home page's whole document, `app/document.test.ts`.
 
 ## Vitest
 
@@ -156,6 +156,86 @@ it('searches once the typing stops', async () => {
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
+
+### The document
+
+`renderDocument()` from `netjes/testing` renders a page's whole document, from `<!DOCTYPE html>` to `</html>`, as the Node process renders it for a crawler: the page inside the layouts the server wraps it in, the head with the metadata of the page and its layouts, Netjes's inline scripts and the page payload. It returns the HTML. Name the page by its file, as `app/` holds it, and pass what the C# side would send with it:
+
+```ts
+// @vitest-environment node
+import { renderDocument } from 'netjes/testing';
+import { expect, it } from 'vitest';
+
+it('renders the post inside the blog layout, which lists the categories', async () => {
+  const html = await renderDocument('app/blog/[slug]/page.tsx', {
+    url: '/blog/hello',
+    params: { slug: 'hello' },
+    props: { title: 'Hello', body: 'The first post.' },
+    layouts: { 'app/blog/layout.tsx': { categories: ['react', 'dotnet'] } },
+    shared: { siteName: 'Shop' },
+  });
+
+  expect(html).toContain('<h1>Hello</h1>');
+  expect(html).toContain('<li>dotnet</li>');
+});
+```
+
+- The test file runs in Vitest's node environment: start it with `// @vitest-environment node`. The server renders without a DOM, and parts of a page take another path where there is one, such as a `<Form>` for a server action, which renders with the action's URL only on the server. In a DOM environment, such as the jsdom the plugin sets by default, `renderDocument` rejects with an error that says so.
+- The Vitest config has the `netjes()` plugin, as the template's `vite.config.ts` does. The plugin provides the pages map: the page, layout and boundary files in `app/`, from which `renderDocument` builds the segments the server would send, by the server's rules ([ADR 0038](../decisions/0038-netjes-testing-renders-a-pages-document.md)). A test can pass a map of its own as `modules`, keyed `/app/...` as `import.meta.glob` keys it.
+- No C# runs. The props, each layout's props (by the layout's file), the shared props, the route values and the URL are what the test passes, and a layout that `layouts` does not name gets no props. Nothing else the server would send with the page is in the document (below).
+- It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
+- A boundary file renders as the server renders it in place of a page in or below its folder: inside the layouts down to its own folder, that folder's layout included, and `global-error` without any layout. The payload's route is `null`, which the server sends only when no page matched; in place of a page, it sends that page's route. One case renders otherwise: for a user who fails the authorization of a section's layout loader, the server renders the section's own `forbidden` or `unauthorized` file without the section's layout, and `renderDocument` renders that file inside it.
+- The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place.
+
+What the server adds to a page's document, and a test cannot pass, is left out, so a page that reads it renders as it does without it:
+
+- The TanStack Query entries a loader seeds with `.WithQuery`. A component that reads one with `useQuery` renders as it does before its data arrives, where the server's document has the data.
+- Metadata from a C# loader (`.WithMetadata(...)`). The head has what the files' `metadata` exports give, and the elements the page and its layouts render there, such as a `<title>`.
+- The antiforgery token: a `<Form method="post">` renders without its token field.
+- The request's locale, draft mode and base path: `useLocale()` returns `null`, `useDraftMode()` reports draft mode off, and `useBasePath()` returns `''`.
+- The image optimiser's settings from `Netjes:Images`: `<Image>` builds its URLs from the default path and widths, with the quality it is given.
+- The build's stylesheets and module scripts, and the styles that development inlines.
+
+| Option | What it sets |
+|---|---|
+| `props` | The page's props, as its C# loader sends them. A Promise in them is a `Page.Defer` value. |
+| `params` | The route values, as `useParams()` returns them: a string for `[slug]`, an array for a catch-all. Default none. |
+| `url` | The page's URL, path and query. Default `/`. |
+| `layouts` | Each layout loader's props, by the layout's file: `{ 'app/blog/layout.tsx': { categories } }`. A Promise in them is a `Page.Defer` value. |
+| `shared` | The shared props, as the server sends them (`UseSharedProps`). Default `null`. |
+| `status` | The page's status. Default 200, or the boundary file's (above). |
+| `nonce` | A Content-Security-Policy nonce, which goes on every script and stylesheet, as under a policy with `{nonce}`. |
+| `lang` | `<html lang>`. Default `en`. |
+| `publicConfig` | What `usePublicConfig()` reads, as the `Netjes:PublicConfig` section. |
+| `modules` | The pages map, keyed `/app/...`. Default the app's, from the plugin. |
+| `signal` | Stops the render, which then rejects with the signal's reason. |
+
+A Promise in the props, at any depth, or in a layout's props, is a `Page.Defer` value, which reaches the page as the server's does. One that resolves renders in place. One that rejects leaves the fallback of the Suspense boundary that reads it in the document, with the error's message in the script that hands the failure to the browser, as the server sends a value that failed; the error is also logged with `console.error`, as the Node process logs it. One that never settles keeps the render waiting, and the test runs into Vitest's timeout: pass `signal: AbortSignal.timeout(1000)`, and `renderDocument` rejects with the signal's reason instead.
+
+A Content-Security-Policy without a nonce lists the hash of each inline script a page runs ([hash-based policies](security.md#hash-based)). `inlineScriptHashes(html)` returns the hashes of those in a document, as `'sha256-…'` sources in their quotes: one for each script element without `src` that a browser runs and checks against the policy, with no type, a JavaScript type, `module`, `importmap` or `speculationrules`, in the order they first appear, each once. The payload, a `type="application/json"` data block, is not one. A page that renders no inline scripts of its own has only Netjes's in its document, whose hashes `CSP_SCRIPT_HASHES` holds, as the new app's `app/document.test.ts` checks for the home page:
+
+```ts
+// @vitest-environment node
+import { CSP_SCRIPT_HASHES } from 'netjes';
+import { inlineScriptHashes, renderDocument } from 'netjes/testing';
+import { expect, it } from 'vitest';
+
+it('has no inline script in its document but the one whose hash Netjes lists for a policy without a nonce', async () => {
+  const html = await renderDocument('app/page.tsx', {
+    props: { message: 'Hello from C#', renderedAt: '2026-11-05T12:00:00Z' },
+    shared: { siteName: 'Shop' },
+  });
+
+  expect(await inlineScriptHashes(html)).toEqual(CSP_SCRIPT_HASHES.split(' '));
+});
+```
+
+The policy in C# is built from `NetjesContentSecurityPolicy.ScriptHashes`, which holds the same hashes. When the app's pages or layouts render `<script>` elements with inline code of their own, such as a theme script, the policy lists their hashes too, and so does the test's expected list. A page with `Page.Defer` values has one more inline script per value in its document, which carries the value, so no fixed hash covers it: under a hash-based policy such a page must not stream.
+
+The check sees the document a crawler gets. A visitor's browser also gets inline scripts that are not in it, which a policy without a nonce checks too:
+
+- React's scripts that reveal a Suspense boundary still waiting when a visitor's shell goes out. A crawler's document waits for every boundary, so it has none of them, and no hash covers them, since they name the boundaries of that render. Under a hash-based policy no boundary may still wait when the shell goes out, lazy code under `loading.tsx` included ([hash-based policies](security.md#hash-based)), and this check cannot show that none does.
+- The inline code of a `<Script>`, which `<Script>` adds in the browser. It is in no document, so it stays out of the test's expected list, and its hash goes in the policy.
 
 ## C# tests of loaders and actions
 

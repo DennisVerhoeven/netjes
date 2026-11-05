@@ -289,7 +289,8 @@ export default function netjes(options = {}) {
       }
       if (id !== RESOLVED_PAGES_ID) return undefined;
       const glob = JSON.stringify([appFiles]);
-      return `export const pages = import.meta.glob(${glob});\n`;
+      // The folder the keys start with: renderDocument (netjes/testing) builds routes and segment ids from it.
+      return `export const pages = import.meta.glob(${glob});\nexport const appDir = ${JSON.stringify(appDir)};\n`;
     },
     async writeBundle() {
       if (!isSsrBuild) return;

@@ -43,7 +43,7 @@ With Tailwind on, a missing `@tailwindcss/vite` fails the config with a message 
 
 ### The page module map
 
-The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`. The client entry and the server entry load pages from it by the path the server names in each payload. Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
+The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`. The client entry and the server entry load pages from it by the path the server names in each payload. The module also exports `appDir` as the plugin has it, which `renderDocument` in `netjes/testing` builds a page's route and segments from ([the document](../guides/testing.md#the-document)). Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
 
 In development the map is rebuilt when Vite's watcher reports a page file added or removed. When the server routes a page file the map does not have yet, the Node process that renders pages asks the plugin to build the map again from the files on disk and renders once more, so a new page works on its first request.
 

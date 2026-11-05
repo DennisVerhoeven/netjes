@@ -37,7 +37,7 @@ Tailwind CSS and the TanStack Query client are on by default; `netjes({ tailwind
 |---|---|
 | `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest, and `CSP_SCRIPT_HASHES`, the hashes of Netjes's inline scripts for a Content-Security-Policy without a nonce |
 | `netjes/vite` | The Vite plugin |
-| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest |
+| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest, and `renderDocument()` and `inlineScriptHashes()`, for a page's whole document and the inline scripts in it |
 | `netjes/vitals` | `useReportWebVitals` and `<WebVitals />` |
 | `netjes/zod` | `deferred(schema)`, for values that loaders stream with `Page.Defer` |
 | `netjes` (bin) | The command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info`, `agents` |
