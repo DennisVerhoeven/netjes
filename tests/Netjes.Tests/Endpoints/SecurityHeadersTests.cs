@@ -513,6 +513,25 @@ public class SecurityHeadersTests
     }
 
     [Fact]
+    public async Task AnAnswerFromAnExceptionHandlerAheadOfNetjes_GetsNosniff()
+    {
+        // The handler clears the response, headers and all, before it writes its own: nosniff is added as it starts.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            beforeNetjes: a => a.UseExceptionHandler(new ExceptionHandlerOptions
+            {
+                ExceptionHandler = http => http.Response.WriteAsync("failed"),
+            }),
+            map: a => a.MapGet("/api/fails", string () => throw new InvalidOperationException("broken")));
+
+        var response = await app.GetDocumentAsync("/api/fails");
+
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal("failed", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("nosniff", Header(response, "X-Content-Type-Options"));
+    }
+
+    [Fact]
     public async Task OutputCachedResponses_CarryNosniffOnce()
     {
         // The endpoint's answer is stored without it (the output cache takes the headers before the response starts),
