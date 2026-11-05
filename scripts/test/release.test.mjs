@@ -97,6 +97,7 @@ Report bugs in the [issue tracker](${repository}/issues), and security problems 
 
 - [Getting started](${repository}/blob/${ref}/docs/getting-started.md), or \`git switch main\` in a clone
 - [Architecture](http://github.com/dennisverhoeven/Netjes/blob/${ref}/docs/architecture.md "How it works")
+- The code: ${repository}/tree/${ref}, or **${repository}/tree/${ref}**.
 `,
     'src/Netjes.Images.SkiaSharp/README.md': `# Netjes.Images.SkiaSharp
 
@@ -218,6 +219,20 @@ describe('checkSources', () => {
         'link main, which the release moves to its tag.',
     ]);
   });
+
+  // As on GitHub, the punctuation that ends a sentence or emphasis after a bare URL is not part of its link.
+  it('reads the ref of a bare link to this repository without the punctuation after it', async () => {
+    const docs = pinnedDocs('0.0.1');
+    const root = await repo('0.0.1', {
+      'src/Netjes/README.md':
+        `${docs['src/Netjes/README.md']}` +
+        'The code is at https://github.com/DennisVerhoeven/netjes/tree/main, or **https://github.com/DennisVerhoeven/netjes/tree/main**.\n' +
+        'The first release is at _https://github.com/DennisVerhoeven/netjes/tree/v0.0.0_.\n',
+    });
+    assert.deepEqual(await checkSources(root, '0.0.1'), [
+      'src/Netjes/README.md links v0.0.0 in https://github.com/DennisVerhoeven/netjes/tree/v0.0.0: link main, which the release moves to its tag.',
+    ]);
+  });
 });
 
 describe('releaseNotes', () => {
@@ -326,7 +341,7 @@ describe('the command line', () => {
     assert.equal(
       result.stdout,
       'packages/netjes/README.md: 4 links moved to v0.0.3\n' +
-        'src/Netjes/README.md: 2 links moved to v0.0.3\n' +
+        'src/Netjes/README.md: 4 links moved to v0.0.3\n' +
         'src/Netjes.Images.SkiaSharp/README.md: 1 link moved to v0.0.3\n',
     );
     assert.equal(result.status, 0);
