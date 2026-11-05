@@ -212,7 +212,7 @@ What the server adds to a page's document, and a test cannot pass, is left out, 
 
 A Promise in the props, at any depth, or in a layout's props, is a `Page.Defer` value, which reaches the page as the server's does. One that resolves renders in place. One that rejects leaves the fallback of the Suspense boundary that reads it in the document, with the error's message in the script that hands the failure to the browser, as the server sends a value that failed; the error is also logged with `console.error`, as the Node process logs it. One that never settles keeps the render waiting, and the test runs into Vitest's timeout: pass `signal: AbortSignal.timeout(1000)`, and `renderDocument` rejects with the signal's reason instead.
 
-A Content-Security-Policy without a nonce lists the hash of each inline script a document runs ([hash-based policies](security.md#hash-based)). `inlineScriptHashes(html)` returns those hashes, as `'sha256-…'` sources in their quotes: one for each script element without `src` that a browser runs and checks against the policy, with no type, a JavaScript type, `module`, `importmap` or `speculationrules`, in the order they first appear, each once. The payload, a `type="application/json"` data block, is not one. A page with no inline scripts of its own has only Netjes's, whose hashes `CSP_SCRIPT_HASHES` holds, as the new app's `app/document.test.ts` checks for the home page:
+A Content-Security-Policy without a nonce lists the hash of each inline script a page runs ([hash-based policies](security.md#hash-based)). `inlineScriptHashes(html)` returns the hashes of those in a document, as `'sha256-…'` sources in their quotes: one for each script element without `src` that a browser runs and checks against the policy, with no type, a JavaScript type, `module`, `importmap` or `speculationrules`, in the order they first appear, each once. The payload, a `type="application/json"` data block, is not one. A page that renders no inline scripts of its own has only Netjes's in its document, whose hashes `CSP_SCRIPT_HASHES` holds, as the new app's `app/document.test.ts` checks for the home page:
 
 ```ts
 // @vitest-environment node
@@ -220,7 +220,7 @@ import { CSP_SCRIPT_HASHES } from 'netjes';
 import { inlineScriptHashes, renderDocument } from 'netjes/testing';
 import { expect, it } from 'vitest';
 
-it('runs no inline script but the one whose hash Netjes lists for a policy without a nonce', async () => {
+it('has no inline script in its document but the one whose hash Netjes lists for a policy without a nonce', async () => {
   const html = await renderDocument('app/page.tsx', {
     props: { message: 'Hello from C#', renderedAt: '2026-11-05T12:00:00Z' },
     shared: { siteName: 'Shop' },
@@ -230,7 +230,12 @@ it('runs no inline script but the one whose hash Netjes lists for a policy witho
 });
 ```
 
-The policy in C# is built from `NetjesContentSecurityPolicy.ScriptHashes`, which holds the same hashes. When the app's pages or layouts render inline scripts of their own, such as a theme script, the policy lists their hashes too, and so does the test's expected list. A page with `Page.Defer` values renders one more inline script per value, which carries the value, so no fixed hash covers it: under a hash-based policy such a page must not stream.
+The policy in C# is built from `NetjesContentSecurityPolicy.ScriptHashes`, which holds the same hashes. When the app's pages or layouts render `<script>` elements with inline code of their own, such as a theme script, the policy lists their hashes too, and so does the test's expected list. A page with `Page.Defer` values has one more inline script per value in its document, which carries the value, so no fixed hash covers it: under a hash-based policy such a page must not stream.
+
+The check sees the document a crawler gets. A visitor's browser also gets inline scripts that are not in it, which a policy without a nonce checks too:
+
+- React's scripts that reveal a Suspense boundary still waiting when a visitor's shell goes out. A crawler's document waits for every boundary, so it has none of them, and no hash covers them, since they name the boundaries of that render. Under a hash-based policy no boundary may still wait when the shell goes out, lazy code under `loading.tsx` included ([hash-based policies](security.md#hash-based)), and this check cannot show that none does.
+- The inline code of a `<Script>`, which `<Script>` adds in the browser. It is in no document, so it stays out of the test's expected list, and its hash goes in the policy.
 
 ## C# tests of loaders and actions
 

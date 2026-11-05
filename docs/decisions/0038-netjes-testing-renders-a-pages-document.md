@@ -26,7 +26,7 @@ A test that wants a page's whole document, to check its head or the inline scrip
 
 ## Consequences
 
-- A test can check what a page's document holds and which inline scripts it runs, the app's own pages and layouts included, and a new app starts with such a test for its home page, `app/document.test.ts`.
+- A test can check what a page's document holds and which inline scripts are in it, the app's own pages and layouts included, and a new app starts with such a test for its home page, `app/document.test.ts`. It cannot see the scripts React streams to reveal a Suspense boundary for a visitor, nor the inline code a `<Script>` adds in the browser.
 - The document is a crawler's, not a visitor's, and holds only what the test passes: no stylesheets or module scripts from the build, no development styles, no query entries seeded with `.WithQuery`, no metadata from C#, no antiforgery token, locale, draft mode, base path or image settings, and every Suspense boundary in place.
 - A boundary file has no route in the payload, where the server sends the route of the page it renders in place of. A section's own forbidden or unauthorized file renders inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization.
 - A change to which segments the server sends, or a new kind of segment file, needs a case in the fixture and the same change to the TypeScript copy.
