@@ -64,10 +64,17 @@ public class CspChecksTests
     [InlineData("script-src 'self' 'strict-dynamic' ScriptHashes", "StrictDynamicWithoutNonce script-src")]
     [InlineData("script-src 'self' 'STRICT-DYNAMIC' ScriptHashes", "StrictDynamicWithoutNonce script-src")]
     [InlineData("script-src 'strict-dynamic' 'unsafe-inline' https:", "Bootstrap script-src, StrictDynamicWithoutNonce script-src")]
-    // A nonce: Netjes puts it on every script it writes, so nothing is judged.
+    // The document's nonce: Netjes puts it on every script it writes, so nothing is judged.
     [InlineData("script-src 'nonce-abc' 'strict-dynamic'", "")]
     [InlineData("script-src 'NONCE-abc'", "")]
     [InlineData("script-src 'nonce-abc' 'sha256-AAAA'", "")]
+    [InlineData("script-src 'nonce-xyz' 'nonce-abc'", "")]
+    // Another nonce is on none of them and turns 'unsafe-inline' off, so the rest of the list decides, and when that
+    // refuses a script, the nonce is what to change. Its value is read as written.
+    [InlineData("script-src 'nonce-ABC'", "OtherNonce script-src")]
+    [InlineData("script-src 'nonce-xyz' 'strict-dynamic' ScriptHashes", "OtherNonce script-src")]
+    [InlineData("script-src 'nonce-xyz' 'unsafe-inline' 'self'", "OtherNonce script-src")]
+    [InlineData("script-src 'nonce-xyz' 'self' ScriptHashes", "")]
     // Several policies, each enforced; the same finding twice is one.
     [InlineData("object-src 'none', script-src 'self'", "Bootstrap script-src")]
     [InlineData("script-src 'self' ScriptHashes, script-src 'none'", "Bootstrap script-src, ModuleScripts script-src /assets/client-entry-AAA.js")]
@@ -108,6 +115,8 @@ public class CspChecksTests
     [InlineData("script-src ws://localhost:5173 ScriptHashes", "DevServerScripts script-src http://localhost:5173")]
     [InlineData("script-src 'self' 'strict-dynamic' ScriptHashes", "StrictDynamicWithoutNonce script-src")]
     [InlineData("script-src 'nonce-abc'", "")]
+    [InlineData("script-src 'nonce-xyz' 'self' ScriptHashes", "OtherNonce script-src")]
+    [InlineData("script-src 'nonce-xyz' http://localhost:5173 ScriptHashes", "")]
     [InlineData("object-src 'none'", "")]
     // The HMR socket: *, ws:, or a ws:// source naming the dev server's host and port; nonce or not.
     [InlineData("script-src 'nonce-abc'; connect-src 'self'", "HmrSocket connect-src ws://localhost:5173")]
@@ -132,8 +141,23 @@ public class CspChecksTests
     [InlineData("script-src 'nonce-abc'; style-src 'nonce-abc'", "")]
     [InlineData("script-src 'nonce-abc'; style-src 'self' 'unsafe-inline' 'nonce-abc'", "")]
     [InlineData("script-src 'nonce-abc'; style-src 'unsafe-inline' 'strict-dynamic'", "")]
+    // Another nonce is on none of the styles, and turns 'unsafe-inline' off.
+    [InlineData("script-src 'nonce-abc'; style-src 'nonce-xyz'", "OtherNonce style-src")]
+    [InlineData("script-src 'nonce-abc'; style-src 'nonce-xyz' 'unsafe-inline'", "OtherNonce style-src")]
+    [InlineData("default-src 'nonce-xyz'", "OtherNonce default-src, HmrSocket default-src ws://localhost:5173")]
     public void Check_ForADocumentInDevelopment_FindsWhatThePolicyRefuses(string policy, string findings) =>
         Assert.Equal(findings, Findings(policy, Development));
+
+    [Theory]
+    // Netjes made no nonce for the document, as when the app writes a nonce of its own into the policy, without
+    // GetCspNonce(): any nonce in the policy is another.
+    [InlineData(false, "script-src 'nonce-abc'", "OtherNonce script-src")]
+    [InlineData(false, "script-src 'nonce-abc' 'self' ScriptHashes", "")]
+    [InlineData(false, "script-src 'self' ScriptHashes", "")]
+    [InlineData(true, "script-src 'self' http://localhost:5173 ScriptHashes; style-src 'nonce-abc'", "OtherNonce style-src")]
+    [InlineData(true, "script-src 'self' http://localhost:5173 ScriptHashes; style-src 'unsafe-inline'", "")]
+    public void Check_ForADocumentWithoutANonce_CountsNoNonceInThePolicy(bool inDevelopment, string policy, string findings) =>
+        Assert.Equal(findings, Findings(policy, (inDevelopment ? Development : Built) with { Nonce = null }));
 
     [Theory]
     // Over https the socket is wss, which ws sources match too, and a source without a port means 443.
@@ -175,9 +199,15 @@ public class CspChecksTests
     }
 
     [Theory]
+    // The document's nonce is abc.
     [InlineData("script-src 'nonce-abc' 'strict-dynamic'", "script-src 'nonce' 'strict-dynamic'")]
-    [InlineData("script-src 'NONCE-abc'; style-src 'nonce-def'", "script-src 'nonce'; style-src 'nonce'")]
+    [InlineData("script-src 'NONCE-abc'; style-src 'nonce-abc'", "script-src 'nonce'; style-src 'nonce'")]
+    [InlineData("script-src 'nonce-def'; style-src 'nonce-abc' 'nonce-ABC'", "script-src 'other-nonce'; style-src 'nonce' 'other-nonce'")]
     [InlineData("script-src 'self'", "script-src 'self'")]
-    public void WithoutNonces_ReplacesEveryNonce(string policy, string key) =>
-        Assert.Equal(key, CspChecks.WithoutNonces(policy));
+    public void WithoutNonces_PutsTheDocumentsNonceAsOneValue_AndAnyOtherAsAnother(string policy, string key) =>
+        Assert.Equal(key, CspChecks.WithoutNonces(policy, "abc"));
+
+    [Fact]
+    public void WithoutNonces_ForADocumentWithoutANonce_PutsEveryNonceAsAnother() =>
+        Assert.Equal("script-src 'other-nonce'; style-src 'other-nonce'", CspChecks.WithoutNonces("script-src 'nonce-abc'; style-src 'nonce-def'", null));
 }

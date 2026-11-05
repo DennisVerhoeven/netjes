@@ -805,10 +805,12 @@ internal sealed class PageRenderer(
 
     /// <summary>
     /// Warns about what the Content-Security-Policy on this document refuses of what it needs (<see cref="CspChecks"/>):
-    /// the app's own header, or else the option's. Netjes sends it as written, in Development too, and warns once per
-    /// policy. A nonce changes with every document, so policies are told apart without theirs, and once there have been
-    /// <see cref="MaxCheckedPolicies"/> of them, a new one is not checked. Not for a command: the static export writes
-    /// files, which go out under the static host's policy.
+    /// the app's own header, or else the option's, against the document's scripts and <paramref name="nonce"/>. Netjes
+    /// sends it as written, in Development too, and warns once per policy. A nonce changes with every document, so
+    /// policies are told apart by their text with the document's nonce, and any other, each written as one value
+    /// (<see cref="CspChecks.WithoutNonces"/>), and once there have been <see cref="MaxCheckedPolicies"/> of them, a new
+    /// one is not checked. Not for a command: the static export writes files, which go out under the static host's
+    /// policy.
     /// </summary>
     private void WarnAboutThePolicy(HttpContext http, IReadOnlyList<string> scripts, string? nonce)
     {
@@ -818,7 +820,7 @@ internal sealed class PageRenderer(
             return;
         }
 
-        var key = CspChecks.WithoutNonces(policies.ToString());
+        var key = CspChecks.WithoutNonces(policies.ToString(), nonce);
         if (_checkedPolicies.ContainsKey(key) || Volatile.Read(ref _checkedPolicyCount) >= MaxCheckedPolicies || !_checkedPolicies.TryAdd(key, true))
         {
             return;

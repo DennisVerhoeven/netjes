@@ -28,52 +28,69 @@ internal static partial class CspChecks
         var findings = new List<CspFinding>();
         foreach (var policy in CspDirectives.Policies(policies))
         {
-            CheckScripts(policy, document.Scripts, self, devServer, findings);
+            CheckScripts(policy, document, self, devServer, findings);
             if (devServer is { } server)
             {
                 CheckSocket(policy, server, self, findings);
-                CheckStyles(policy, findings);
+                CheckStyles(policy, document.Nonce, findings);
             }
         }
 
         return [.. findings.Distinct()];
     }
 
-    /// <summary>The policy with each nonce source replaced by one value: what is the same in every document under it.</summary>
-    public static string WithoutNonces(string policy) => NonceSource().Replace(policy, "'nonce'");
+    /// <summary>
+    /// The policy with the document's nonce written as one value and any other nonce as another: the same text for every
+    /// document under the policy, in each of which the checks find the same.
+    /// </summary>
+    public static string WithoutNonces(string policy, string? nonce) =>
+        NonceSource().Replace(policy, source => IsTheNonce(source.Value, nonce) ? "'nonce'" : "'other-nonce'");
 
     /// <summary>
     /// Script elements, and the modules they load, follow <c>script-src-elem</c>, else <c>script-src</c>, else
-    /// <c>default-src</c>. Netjes puts the document's nonce on every script it writes, and modules inherit it from the
-    /// script that loads them, so a list with a nonce is not judged.
+    /// <c>default-src</c>. Netjes puts the document's nonce, when it has one, on every script it writes, and modules
+    /// inherit it from the script that loads them, so a list with that nonce is not judged. Any other nonce is on none of
+    /// them and turns <c>'unsafe-inline'</c> off, so the rest of the list decides, and when that refuses one of them, the
+    /// nonce is what to change.
     /// </summary>
-    private static void CheckScripts(string policy, IReadOnlyList<string> scripts, Origin self, Origin? devServer, List<CspFinding> findings)
+    private static void CheckScripts(string policy, CspDocument document, Origin self, Origin? devServer, List<CspFinding> findings)
     {
-        if (Governing(policy, "script-src-elem", "script-src", "default-src") is not { } directive || directive.Sources.Any(IsNonce))
+        if (Governing(policy, "script-src-elem", "script-src", "default-src") is not { } directive || HoldsTheNonce(directive, document.Nonce))
         {
             return;
         }
 
+        var refused = new List<CspFinding>();
         if (!ScriptHashes.All(hash => directive.Sources.Any(source => IsTheHash(source, hash))) && !AllowsInline(directive.Sources, scripts: true))
         {
-            findings.Add(new(CspProblem.Bootstrap, directive.Name));
+            refused.Add(new(CspProblem.Bootstrap, directive.Name));
         }
 
         if (directive.Sources.Any(source => Is(source, "'strict-dynamic'")))
         {
             // Next to it, browsers ignore 'self' and host sources, so it decides for every module script.
-            findings.Add(new(CspProblem.StrictDynamicWithoutNonce, directive.Name));
-            return;
+            refused.Add(new(CspProblem.StrictDynamicWithoutNonce, directive.Name));
+        }
+        else
+        {
+            if (document.Scripts.FirstOrDefault(url => IsOn(url, self)) is { } own && !directive.Sources.Any(MayAllowTheAppsOwnScripts))
+            {
+                refused.Add(new(CspProblem.ModuleScripts, directive.Name, own));
+            }
+
+            if (devServer is { } server && server != self && !directive.Sources.Any(source => Matches(source, server, self)))
+            {
+                refused.Add(new(CspProblem.DevServerScripts, directive.Name, server.ToString()));
+            }
         }
 
-        if (scripts.FirstOrDefault(url => IsOn(url, self)) is { } own && !directive.Sources.Any(MayAllowTheAppsOwnScripts))
+        if (refused.Count > 0 && directive.Sources.Any(IsNonce))
         {
-            findings.Add(new(CspProblem.ModuleScripts, directive.Name, own));
+            findings.Add(new(CspProblem.OtherNonce, directive.Name));
         }
-
-        if (devServer is { } server && server != self && !directive.Sources.Any(source => Matches(source, server, self)))
+        else
         {
-            findings.Add(new(CspProblem.DevServerScripts, directive.Name, server.ToString()));
+            findings.AddRange(refused);
         }
     }
 
@@ -92,17 +109,18 @@ internal static partial class CspChecks
     }
 
     /// <summary>
-    /// In Development a document carries the app's CSS in <c>&lt;style&gt;</c> elements, with the nonce when there is
-    /// one, and Vite's client adds more, with the nonce from the <c>csp-nonce</c> meta. Style elements follow
-    /// <c>style-src-elem</c>, else <c>style-src</c>, else <c>default-src</c>.
+    /// In Development a document carries the app's CSS in <c>&lt;style&gt;</c> elements, with the document's nonce when
+    /// it has one, and Vite's client adds more, with the nonce from the <c>csp-nonce</c> meta, the same one. Style
+    /// elements follow <c>style-src-elem</c>, else <c>style-src</c>, else <c>default-src</c>. Any other nonce is on none
+    /// of them and turns <c>'unsafe-inline'</c> off, so then the nonce is what to change.
     /// </summary>
-    private static void CheckStyles(string policy, List<CspFinding> findings)
+    private static void CheckStyles(string policy, string? nonce, List<CspFinding> findings)
     {
         if (Governing(policy, "style-src-elem", "style-src", "default-src") is { } directive
-            && !directive.Sources.Any(IsNonce)
+            && !HoldsTheNonce(directive, nonce)
             && !AllowsInline(directive.Sources, scripts: false))
         {
-            findings.Add(new(CspProblem.DevStyles, directive.Name));
+            findings.Add(new(directive.Sources.Any(IsNonce) ? CspProblem.OtherNonce : CspProblem.DevStyles, directive.Name));
         }
     }
 
@@ -248,6 +266,12 @@ internal static partial class CspChecks
 
     private static bool IsNonce(string source) => IsQuoted(source, "'nonce-");
 
+    private static bool HoldsTheNonce(Directive directive, string? nonce) => directive.Sources.Any(source => IsTheNonce(source, nonce));
+
+    /// <summary>The document's nonce as a source: <c>'nonce-</c> ignoring case, as browsers read it, then its value exactly.</summary>
+    private static bool IsTheNonce(string source, string? nonce) =>
+        nonce is not null && IsNonce(source) && source.AsSpan("'nonce-".Length, source.Length - "'nonce-".Length - 1).SequenceEqual(nonce);
+
     private static bool IsHash(string source) => IsQuoted(source, "'sha256-") || IsQuoted(source, "'sha384-") || IsQuoted(source, "'sha512-");
 
     private static bool IsQuoted(string source, string prefix) =>
@@ -336,6 +360,16 @@ internal static partial class CspChecks
                     "outside Development.",
                     finding.Directive, finding.Directive == "default-src" ? "style-src" : finding.Directive);
                 break;
+            case CspProblem.OtherNonce:
+                logger.LogWarning(
+                    "The Content-Security-Policy's {Directive} holds a nonce, but not the one on the scripts and styles Netjes " +
+                    "writes into the document, which carry another or none, so the nonce allows none of them, and 'unsafe-inline' " +
+                    "does not count next to it. Browsers refuse those that the rest of {Directive} does not allow, and the page " +
+                    "may not hydrate, or in Development show without its styles. Netjes puts a nonce on a document only for " +
+                    "'nonce-{{nonce}}' in NetjesOptions.ContentSecurityPolicy, or when the app calls HttpContext.GetCspNonce() " +
+                    "before the page renders, and then always that one: take the policy's nonce from HttpContext.GetCspNonce().",
+                    finding.Directive, finding.Directive);
+                break;
         }
     }
 
@@ -371,6 +405,12 @@ internal enum CspProblem
 
     /// <summary>In Development, the inlined styles and those Vite's client writes.</summary>
     DevStyles,
+
+    /// <summary>
+    /// A nonce that is not the document's, in a list that refuses some of its scripts or, in Development, its styles:
+    /// Netjes put another nonce on them, or none.
+    /// </summary>
+    OtherNonce,
 }
 
 /// <summary>A problem, the directive whose sources refuse it, and the URL it is about, when there is one.</summary>

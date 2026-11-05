@@ -231,8 +231,8 @@ public partial class CspTests
     /// An app whose documents go out under <paramref name="policy"/> (<see cref="WithScriptHashes"/>): a client build in
     /// Production, whose module script is <c>/assets/client-entry-AAA.js</c>, or in Development the Vite dev server at
     /// <c>http://localhost:5173</c>. With <paramref name="inItsOwnHeader"/>, the app writes the policy itself, and
-    /// <c>{nonce}</c> stands for <see cref="NetjesHttpContextExtensions.GetCspNonce"/>. <paramref name="configure"/>
-    /// changes the options after that.
+    /// <c>{nonce}</c> stands for <see cref="NetjesHttpContextExtensions.GetCspNonce"/>, which it calls for no other
+    /// policy. <paramref name="configure"/> changes the options after that.
     /// </summary>
     private static Task<TestApp> StartWithPolicyAsync(
         string policy, string environment = "Development", bool inItsOwnHeader = false, Action<NetjesOptions>? configure = null)
@@ -251,7 +251,9 @@ public partial class CspTests
                 {
                     a.Use((http, next) =>
                     {
-                        http.Response.Headers.ContentSecurityPolicy = written.Replace("{nonce}", http.GetCspNonce(), StringComparison.Ordinal);
+                        http.Response.Headers.ContentSecurityPolicy = written.Contains("{nonce}", StringComparison.Ordinal)
+                            ? written.Replace("{nonce}", http.GetCspNonce(), StringComparison.Ordinal)
+                            : written;
                         return next(http);
                     });
                 }
@@ -346,6 +348,63 @@ public partial class CspTests
         await app.GetDocumentAsync("/");
 
         Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Theory]
+    // The app writes a nonce of its own and never calls GetCspNonce(), so Netjes puts none on the document.
+    [InlineData("script-src 'nonce-c3RhdGljMTIz'; object-src 'none'", "Production", false, "script-src")]
+    [InlineData("script-src 'nonce-c3RhdGljMTIz' 'strict-dynamic'; object-src 'none'", "Development", false, "script-src")]
+    // NetjesOptions.ContentSecurityPolicy gives the document a nonce, but the app's own header, which goes out, has another.
+    [InlineData("script-src 'nonce-c3RhdGljMTIz'; object-src 'none'", "Production", true, "script-src")]
+    // In Development the inlined styles carry the document's nonce, which this style-src does not hold.
+    [InlineData("script-src 'nonce-{nonce}'; style-src 'nonce-c3RhdGljMTIz' 'unsafe-inline'", "Development", false, "style-src")]
+    public async Task APolicyWithANonceThatIsNotTheDocuments_IsWarnedAboutOnce(string policy, string environment, bool withTheOption, string directive)
+    {
+        await using var app = await StartWithPolicyAsync(
+            policy,
+            environment,
+            inItsOwnHeader: true,
+            configure: o => o.ContentSecurityPolicy = withTheOption ? "script-src 'nonce-{nonce}'; object-src 'none'" : null);
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/");
+
+        var warning = Assert.Single(PolicyWarnings(app));
+        Assert.Contains($"Content-Security-Policy's {directive} holds a nonce", warning);
+        Assert.Contains("HttpContext.GetCspNonce()", warning);
+    }
+
+    [Theory]
+    // The nonce is on none of Netjes's scripts, but the rest of the list allows them.
+    [InlineData("script-src 'nonce-c3RhdGljMTIz' 'self' ScriptHashes; object-src 'none'", "Production")]
+    [InlineData("script-src 'nonce-c3RhdGljMTIz' 'self' http://localhost:5173 ScriptHashes; object-src 'none'", "Development")]
+    public async Task APolicyWithANonceThatIsNotTheDocuments_ThatAllowsTheScriptsWithoutIt_IsNotWarnedAbout(string policy, string environment)
+    {
+        await using var app = await StartWithPolicyAsync(policy, environment, inItsOwnHeader: true);
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Empty(PolicyWarnings(app));
+    }
+
+    [Fact]
+    public async Task APolicyWithAnotherNonce_AfterTheSamePolicyWithTheDocumentsNonce_IsCheckedToo()
+    {
+        // One page's policy is written with GetCspNonce(), the other's with a nonce of the app's own: the same text but
+        // for the nonce, and only the second refuses the scripts.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/other/page.tsx"],
+            configureApp: a => a.Use((http, next) =>
+            {
+                var nonce = http.Request.Path == "/" ? http.GetCspNonce() : "c3RhdGljMTIz";
+                http.Response.Headers.ContentSecurityPolicy = $"script-src 'nonce-{nonce}'; object-src 'none'";
+                return next(http);
+            }));
+
+        await app.GetDocumentAsync("/");
+        await app.GetDocumentAsync("/other");
+
+        Assert.Contains("Content-Security-Policy's script-src holds a nonce", Assert.Single(PolicyWarnings(app)));
     }
 
     [Fact]
