@@ -91,7 +91,7 @@ export const StreamingProps = z.object({
 });
 export type StreamingProps = z.infer<typeof StreamingProps>;
 export const NavLink = z.object({
-  href: z.string(),
+  href: Href,
   label: z.string(),
 });
 export type NavLink = z.infer<typeof NavLink>;

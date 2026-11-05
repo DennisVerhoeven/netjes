@@ -44,7 +44,7 @@ The development container binds its ports to localhost only, and `appsettings.De
 | The docs: a layout loader for the table of contents, which runs once per visit to the section; a catch-all route; `loading`, `error` and `not-found` files inside the docs layout; a title template of its own | `Features/Docs/DocsPages.cs`, `app/docs/` |
 | The guestbook: a page action (`MapPageAction`) with validation, which works without JavaScript, a rate limit, and `.ExcludeFromExport()` | `Features/Guestbook/`, `app/guestbook/page.tsx` |
 | Streaming: a page that is interactive before its slow part arrives | `Features/Streaming/StreamingDemo.cs`, `app/streaming/page.tsx` |
-| Shared props: the site name and the navigation, typed as `sharedProps` | `Program.cs`, `SiteProps.cs`, `components/SiteHeader.tsx` |
+| Shared props: the site name and the navigation, typed as `sharedProps`, whose links are `Href` in C#, checked against the pages where the props are parsed | `Program.cs`, `SiteProps.cs`, `components/SiteHeader.tsx` |
 | A nonce-based Content-Security-Policy, web vitals reported to .NET metrics, the sitemap and `robots.txt`, output caching and a health check | `Program.cs`, `app/layout.tsx` |
 | A base path (`PathBase=/base`, like Next.js's `basePath`) and forwarded headers from known proxies only | `Program.cs` |
 | Not-found and error pages | `app/not-found.tsx`, `app/error.tsx` |
