@@ -150,10 +150,10 @@ internal sealed class TypeGenHostedService(
     {
         var table = services.GetRequiredService<IRouteTableProvider>().Current;
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
-        var loaders = services.GetRequiredService<PageLoaderRegistry>();
 
+        // A page's endpoints as an app finds them: by the public metadata, which only endpoints that serve a page carry.
         IEnumerable<RouteEndpoint> PageEndpoints(string pattern, string method) => endpoints.Where(e =>
-            e.Metadata.GetMetadata<PageEndpointMetadata>()?.Pattern == pattern
+            e.Metadata.GetMetadata<PageRouteMetadata>()?.Pattern == pattern
             && (e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(method) ?? method == HttpMethods.Get));
 
         return new
@@ -167,7 +167,7 @@ internal sealed class TypeGenHostedService(
                     page.Template,
                     page.File,
                     page.Layouts,
-                    Loader = loaders.Contains(page.Pattern),
+                    Loader = get?.Metadata.GetMetadata<PageRouteMetadata>()?.IsLoader ?? false,
                     Action = PageEndpoints(page.Pattern, HttpMethods.Post).Any(),
                     Props = get?.Metadata.GetMetadata<PagePropsMetadata>()?.PropsType.Name,
                     Cached = get?.Metadata.Any(m => m is IOutputCachePolicy or OutputCacheAttribute) ?? false,
