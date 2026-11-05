@@ -85,7 +85,7 @@ Netjes makes a nonce for each document and puts it on everything it renders: the
 
 A document with a nonce is never stored in the output cache: a stored copy would give every visitor the same, readable nonce. Netjes renders such a page each time and logs a warning once per output-cached page. For cached pages, use a hash-based policy.
 
-If you write the policy yourself, for example with a headers library, call `HttpContext.GetCspNonce()` for the request's nonce, and Netjes puts the same one on what it renders. The output cache rule applies to that nonce as well.
+If you write the policy yourself, for example with a headers library, call `HttpContext.GetCspNonce()` for the request's nonce, before the page renders, and Netjes puts the same one on what it renders. A nonce the library makes itself is on none of it, so browsers refuse what the rest of the policy does not allow, and Netjes warns about it ([what Netjes checks](#what-netjes-checks)). The output cache rule applies to that nonce as well.
 
 ### Hash-based
 
@@ -110,9 +110,8 @@ No hash covers what streams after the shell: each script that delivers a `Page.D
 
 Netjes sends the policy as written, in every environment, and compares it with what each document needs. When it refuses something, `Netjes.Rendering.PageRenderer` logs a warning that names the directive and what to change, once per policy (a nonce that changes from document to document does not make it another policy). Every policy in the `Content-Security-Policy` header that goes out counts, your own or `NetjesOptions.ContentSecurityPolicy`, several joined by commas included. A report-only policy does not count, and nor does a policy that a middleware writes in a `Response.OnStarting` callback, after the page renders. The warnings are about:
 
-- the bootstrap, under a policy without a nonce: the list that script elements follow (`script-src-elem`, else `script-src`, else `default-src`) holds neither every hash in `ScriptHashes` nor `'unsafe-inline'` without a hash, a nonce or `'strict-dynamic'` beside it;
-- `'strict-dynamic'` without a nonce, which leaves the module scripts nothing to be allowed by;
-- the module scripts, under a policy without a nonce: that list holds none of `'self'`, `*`, `http:`, `https:` or a host source. Netjes does not judge which host a host source names: behind a proxy, the request's host is not always the one the browser sees;
+- the scripts, in the list that script elements follow: `script-src-elem`, else `script-src`, else `default-src`. A list that holds the document's nonce allows them all, since Netjes puts that nonce on every script it writes. Netjes warns when any other list refuses the bootstrap (it holds neither every hash in `ScriptHashes` nor `'unsafe-inline'` without a hash, a nonce or `'strict-dynamic'` beside it), has `'strict-dynamic'`, which leaves the module scripts nothing to be allowed by, or refuses the module scripts (it holds none of `'self'`, `*`, `http:`, `https:` or a host source). Netjes does not judge which host a host source names: behind a proxy, the request's host is not always the one the browser sees;
+- a nonce that is not the document's, such as one your own code makes without `GetCspNonce()`. It is on none of what Netjes renders, and next to it `'unsafe-inline'` does not count, so when the rest of its list refuses one of the scripts, or in Development the inlined styles, Netjes warns once, about the nonce;
 - in Development, the Vite dev server's scripts, its socket and the inlined styles ([in development](#in-development)).
 
 A policy that allows all of it, but blocks something else, such as a script that streams a deferred value, gets no warning. Netjes compares no more than about 100 different policies, so an app that writes another one for each request does not make it keep them all. The static export (`netjes export`) is not checked: its files go out under the static host's policy.
@@ -121,11 +120,12 @@ A policy that allows all of it, but blocks something else, such as a script that
 
 In the Development environment the browser loads the page's module scripts from the Vite dev server, on another origin than the app's, and Vite's client in the page opens a WebSocket to it, which brings your edits to the page (hot module replacement). Netjes keeps the policy as written there too, so a policy also has to allow these:
 
-- **The dev server's scripts.** A nonce in `script-src` covers them: Netjes puts it on `@vite/client` and on the client entry, and the modules they load inherit it. A policy without a nonce lists the dev server's origin, or browsers refuse the scripts and the page does not hydrate. The origin is `http://localhost:5173`, on another port when `ViteDevPort` (`Netjes:ViteDevPort`) moves it, or the one in `NETJES_VITE_ORIGIN` when browsers reach the dev server at another address.
+- **The dev server's scripts.** The document's nonce in `script-src` covers them, from `{nonce}` or `GetCspNonce()`: Netjes puts it on `@vite/client` and on the client entry, and the modules they load inherit it. A list without it lists the dev server's origin, or browsers refuse the scripts and the page does not hydrate. The origin is `http://localhost:5173`, on another port when `ViteDevPort` (`Netjes:ViteDevPort`) moves it, or the one in `NETJES_VITE_ORIGIN` when browsers reach the dev server at another address.
 - **The socket.** A policy with `connect-src`, or with `default-src` and no `connect-src`, lists the socket's address in it: `ws://` and the dev server's host and port, such as `ws://localhost:5173` (`wss://` for an `https` origin), or `ws:`. A nonce does not cover connections, `'self'` stands for the app's own origin, whose port is another, and an `http://` source never matches a `ws://` address. Without it, browsers refuse the socket, and an edit shows only once you reload the page. When `server.hmr` in the Vite config moves the socket (its `host`, `port`, `clientPort` or `protocol`), list the address it gives instead.
-- **The styles.** In Development the document carries the app's CSS inline, in `<style>` elements, and Vite's client adds more of them as modules load and change. Both carry the nonce when the document has one (Vite reads it from the `csp-nonce` meta). So a policy with `style-src`, or with `default-src` and no `style-src`, needs the nonce there or `'unsafe-inline'`, which counts only with no hash or nonce beside it; otherwise pages show without their styles. A client build links its CSS as files instead.
+- **The styles.** In Development the document carries the app's CSS inline, in `<style>` elements, and Vite's client adds more of them as modules load and change. Both carry the nonce when the document has one (Vite reads it from the `csp-nonce` meta). So the list that style elements follow, `style-src-elem`, else `style-src`, else `default-src`, needs that nonce or `'unsafe-inline'`, which counts only with no hash or nonce beside it; otherwise pages show without their styles. A client build links its CSS as files instead.
+- **Images and fonts.** Vite serves the files the app imports, such as the URL that `import logo from './logo.png'` gives, and the files its CSS names with `url()`, from the dev server's origin too. So a policy with `img-src` or `font-src`, or with `default-src` and not them, lists that origin there, or those files do not load. `media-src` does the same for imported audio and video.
 
-Netjes warns about each of these once per policy. The simplest policy for Development is none: set the policy outside Development only.
+Netjes warns about the first three once per policy; it cannot see which images or fonts a page uses, so it does not check those. The simplest policy for Development is none: set the policy outside Development only.
 
 ```csharp
 builder.Services.AddNetjes(options =>
@@ -158,7 +158,7 @@ builder.Services.AddNetjes(options =>
 });
 ```
 
-A policy with `style-src` adds `'unsafe-inline'` to it in Development in the same way.
+A policy with `style-src` adds `'unsafe-inline'` to it in Development in the same way, and one with `img-src`, `font-src` or `default-src` the dev server's origin.
 
 ## Server actions and page actions
 
