@@ -182,9 +182,19 @@ it('renders the post inside the blog layout, which lists the categories', async 
 
 - The test file runs in Vitest's node environment: start it with `// @vitest-environment node`. The server renders without a DOM, and parts of a page take another path where there is one, such as a `<Form>` for a server action, which renders with the action's URL only on the server. In a DOM environment, such as the jsdom the plugin sets by default, `renderDocument` rejects with an error that says so.
 - The Vitest config has the `netjes()` plugin, as the template's `vite.config.ts` does. The plugin provides the pages map: the page, layout and boundary files in `app/`, from which `renderDocument` builds the segments the server would send, by the server's rules ([ADR 0038](../decisions/0038-netjes-testing-renders-a-pages-document.md)). A test can pass a map of its own as `modules`, keyed `/app/...` as `import.meta.glob` keys it.
-- No C# runs. The props, each layout's props (by the layout's file), the shared props, the route values and the URL are what the test passes, and a layout that `layouts` does not name gets no props. Metadata from a C# loader (`.WithMetadata(...)`) is not in the head: the head has what the files' `metadata` exports give, and the elements the page and its layouts render there, such as a `<title>`.
+- No C# runs. The props, each layout's props (by the layout's file), the shared props, the route values and the URL are what the test passes, and a layout that `layouts` does not name gets no props. Nothing else the server would send with the page is in the document (below).
 - It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
-- The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place. The build's stylesheets and module scripts are not in it, nor the styles that development inlines, nor an antiforgery token: a `<Form method="post">` renders without its token field.
+- A boundary file renders as the server renders it in place of a page in or below its folder: inside the layouts down to its own folder, that folder's layout included, and `global-error` without any layout. The payload's route is `null`, which the server sends only when no page matched; in place of a page, it sends that page's route. One case renders otherwise: for a user who fails the authorization of a section's layout loader, the server renders the section's own `forbidden` or `unauthorized` file without the section's layout, and `renderDocument` renders that file inside it.
+- The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place.
+
+What the server adds to a page's document, and a test cannot pass, is left out, so a page that reads it renders as it does without it:
+
+- The TanStack Query entries a loader seeds with `.WithQuery`. A component that reads one with `useQuery` renders as it does before its data arrives, where the server's document has the data.
+- Metadata from a C# loader (`.WithMetadata(...)`). The head has what the files' `metadata` exports give, and the elements the page and its layouts render there, such as a `<title>`.
+- The antiforgery token: a `<Form method="post">` renders without its token field.
+- The request's locale, draft mode and base path: `useLocale()` returns `null`, `useDraftMode()` reports draft mode off, and `useBasePath()` returns `''`.
+- The image optimiser's settings from `Netjes:Images`: `<Image>` builds its URLs from the default path and widths, with the quality it is given.
+- The build's stylesheets and module scripts, and the styles that development inlines.
 
 | Option | What it sets |
 |---|---|
