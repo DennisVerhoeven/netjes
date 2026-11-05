@@ -361,8 +361,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
 
     /// <summary>
     /// Whether a request can match both endpoints with neither ranked ahead: an HTTP method in common, the same order and
-    /// route precedence, the same literals, a host in common or none on either, and an accepted content type in common or
-    /// none on either. One route precedence means one number of segments and one kind of segment at each position: a
+    /// route precedence, the same literals, a host in common or none on either, and accepted content types listed by both
+    /// or by neither. One route precedence means one number of segments and one kind of segment at each position: a
     /// literal, a parameter or a catch-all, each with or without a constraint. Constraints are not compared: a page's only one is a catch-all's
     /// <c>minlength(1)</c>, so the two share URLs unless the endpoint's constraint there allows nothing but an empty value.
     /// </summary>
@@ -372,7 +372,15 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         && a.RoutePattern.InboundPrecedence == b.RoutePattern.InboundPrecedence
         && SameLiterals(a.RoutePattern, b.RoutePattern)
         && Meet(a.Metadata.GetMetadata<IHostMetadata>()?.Hosts, b.Metadata.GetMetadata<IHostMetadata>()?.Hosts)
-        && Meet(a.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes, b.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes);
+        && ListsContentTypes(a) == ListsContentTypes(b);
+
+    /// <summary>
+    /// Whether the endpoint lists the content types it accepts. Two that both do tie for a request without a Content-Type,
+    /// whatever they list: when no endpoint for the URL takes every content type, the matcher keeps them all for such a
+    /// request, and it ranks endpoints only by whether they list content types. A request with a type both accept reaches
+    /// both as well.
+    /// </summary>
+    private static bool ListsContentTypes(RouteEndpoint endpoint) => endpoint.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes is { Count: > 0 };
 
     /// <summary>Whether two patterns of one route precedence have the same literal wherever both have one, in any case, as the matcher compares them.</summary>
     private static bool SameLiterals(RoutePattern a, RoutePattern b) =>
@@ -389,8 +397,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     };
 
     /// <summary>
-    /// Whether two endpoints' hosts, or accepted content types, let a request through to both: neither lists any, or they
-    /// list one in common, ignoring case. Wildcards and ports are compared as written.
+    /// Whether two endpoints' hosts let a request through to both: neither lists any, or they list one in common, ignoring
+    /// case. Wildcards and ports are compared as written.
     /// </summary>
     private static bool Meet(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
         a is { Count: > 0 } && b is { Count: > 0 } ? a.Intersect(b, StringComparer.OrdinalIgnoreCase).Any() : a is null or [] && b is null or [];

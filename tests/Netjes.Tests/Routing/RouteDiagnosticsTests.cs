@@ -543,6 +543,8 @@ public class RouteDiagnosticsTests
 
     private static HttpContent Multipart() => new MultipartFormDataContent { { new ByteArrayContent([1]), "file", "a.txt" } };
 
+    public sealed record JsonInput(string? Text);
+
     /// <summary>A pattern as MVC's conventional routes build them: each parameter has a required value, matched as a literal.</summary>
     private static RoutePattern HomeAction(string action) =>
         RoutePatternFactory.Parse("/{controller}/{action}", defaults: null, parameterPolicies: null, requiredValues: new { controller = "Home", action });
@@ -635,6 +637,17 @@ public class RouteDiagnosticsTests
             }, Request("POST", "/contact", Multipart)),
             "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
         },
+        {
+            // A form post reaches only the page action and a JSON post only the endpoint, but a post without a body has no
+            // content type, and the matcher keeps both for it: no endpoint for the URL takes every content type.
+            "JSON input where the page action takes a form, for a post without a body",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
+                a.MapPost("/contact", (JsonInput input) => input.Text);
+            }, Request("POST", "/contact")),
+            "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
+        },
     };
 
     [Theory]
@@ -650,8 +663,6 @@ public class RouteDiagnosticsTests
         Assert.True(response.StatusCode == HttpStatusCode.InternalServerError, $"{name}: {(int)response.StatusCode}");
         Assert.True(warnings.Count == 1 && warnings[0].Contains(message, StringComparison.Ordinal), $"{name}: {string.Join(" | ", warnings)}");
     }
-
-    public sealed record JsonInput(string? Text);
 
     public static TheoryData<string, EndpointNextToPages> EndpointsThatDoNotTie => new()
     {
@@ -684,14 +695,6 @@ public class RouteDiagnosticsTests
             {
                 a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
                 a.MapPost("/contact", () => "ok");
-            }, Request("POST", "/contact", Form))
-        },
-        {
-            "JSON input where the page action takes a form",
-            new(["app/contact/page.tsx"], a =>
-            {
-                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
-                a.MapPost("/contact", (JsonInput input) => input.Text);
             }, Request("POST", "/contact", Form))
         },
         {
