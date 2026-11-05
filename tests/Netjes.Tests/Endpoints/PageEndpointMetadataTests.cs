@@ -74,6 +74,41 @@ public class PageEndpointMetadataTests
         Assert.Null(Get(app, "/plain").Metadata.GetMetadata<CachedPageMetadata>());
     }
 
+    [Fact]
+    public async Task CacheOutput_AfterCachePage_ReplacesItsPolicy_WhileTheMetadataKeepsWhatCachePageWasGiven()
+    {
+        var loads = new Dictionary<string, int>();
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/page.tsx", "app/news/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/posts", () => Load(loads, "posts")).CachePage(TimeSpan.FromHours(1), "content");
+                a.MapPageLoader("/news", () => Load(loads, "news")).CachePage(TimeSpan.FromHours(1), "content")
+                    .CacheOutput(policy => policy.Expire(TimeSpan.FromHours(1)));
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        await app.GetDataAsync("/posts");
+        await app.GetDataAsync("/news");
+
+        await app.App.Services.GetRequiredService<IPageCache>().RevalidateTagAsync("content", TestContext.Current.CancellationToken);
+        await app.GetDataAsync("/posts");
+        var news = await app.GetDataAsync("/news");
+
+        // CachePage's tag evicts /posts. The later policy has no tag, so /news is still served from the cache.
+        Assert.Equal((2, 1), (loads["posts"], loads["news"]));
+        Assert.NotNull(news.Headers.Age);
+        Assert.Equal(["content"], Get(app, "/news").Metadata.GetMetadata<CachedPageMetadata>()?.Tags ?? []);
+    }
+
+    private static PageResult<NoProps> Load(Dictionary<string, int> loads, string page)
+    {
+        loads[page] = loads.GetValueOrDefault(page) + 1;
+        return Page.Props();
+    }
+
     private static List<RouteEndpoint> Endpoints(TestApp app) =>
         [.. app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()];
 
