@@ -473,7 +473,8 @@ test.describe('the hydrated mark', () => {
     await page.goto('/');
     await expect(html).toHaveAttribute('data-netjes-hydrated', '');
 
-    // Holds every script of the next document, so none of its code runs until the test lets it.
+    // Holds back every script the next document requests: its inline scripts still run, but the client entry, and with
+    // it the router, waits until the test lets it.
     let holding = true;
     const held: Route[] = [];
     await page.route('**/*', (route) => {
@@ -483,8 +484,8 @@ test.describe('the hydrated mark', () => {
     await page.reload({ waitUntil: 'commit' });
     await page.waitForFunction(() => document.readyState === 'interactive');
 
-    // The whole document is in and none of its scripts has run. The history entry kept what the router stored in it
-    // before the reload; the new document has no mark yet.
+    // The whole document is in, and none of the scripts it requests has run. The history entry kept what the router
+    // stored in it before the reload; the new document has no mark yet.
     expect(held).not.toHaveLength(0);
     expect(await html.getAttribute('data-netjes-hydrated')).toBeNull();
 
