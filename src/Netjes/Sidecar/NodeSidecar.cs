@@ -764,9 +764,10 @@ internal sealed partial class NodeSidecar(
         logger.LogError(
             "The Node sidecar exited with code {ExitCode}; restarting in {Delay}s. Last output:\n{Stderr}",
             exitCode, delay.TotalSeconds, stderr);
-        if (pinged)
+        // Most likely a sidecar script of the app's own that reads every request as a render. The one Netjes ships answers
+        // the ping, so a process of it that exits with a ping waiting went down for a reason of its own.
+        if (pinged && context.Options.SidecarScript is not null)
         {
-            // Most likely a sidecar script of the app's own that reads every request as a render.
             logger.LogWarning(
                 "The Node sidecar {Pid} exited while Netjes's health ping waited for its answer. A sidecar script of your " +
                 "own (Netjes:SidecarScript) must answer GET /health, with any status, without reading a request body.",

@@ -1162,6 +1162,50 @@ public class NodeSidecarTests
         Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
     }
 
+    [Fact]
+    public async Task TheSidecarScriptNetjesShips_ExitingWhileAPingWaits_GetsNoWarningAboutTheScript()
+    {
+        // The copy a build puts in dist/server, which runs when Netjes:SidecarScript is not set. It answers the ping, so
+        // a process of it that exits with a ping waiting went down for a reason of its own.
+        using var dir = new TempDirectory();
+        var server = Path.Combine(dir.FullName, "dist", "server");
+        Directory.CreateDirectory(server);
+        await File.WriteAllTextAsync(Path.Combine(dir.FullName, "package.json"), """{ "type": "module" }""", Ct);
+        File.Copy(Path.Combine(RepoRoot(), "packages", "netjes", "sidecar", "server.mjs"), Path.Combine(server, "netjes-sidecar.mjs"));
+        // Busy for two seconds, then gone, as a process that runs out of memory after a long garbage collection is.
+        await File.WriteAllTextAsync(
+            Path.Combine(server, "server-entry.js"),
+            """
+            export const render = async (data) => {
+              if (JSON.parse(data).page !== 'exit') return `<html>${process.pid}</html>`;
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+              process.exit(134);
+            };
+            """,
+            Ct);
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create(
+            "netjes-sidecar.mjs",
+            configure: o =>
+            {
+                o.Root = dir.FullName;
+                o.SidecarScript = null;
+            },
+            loggers: loggers,
+            watchdog: new SidecarWatchdog(Quick.Interval, TimeSpan.FromSeconds(5)));
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // A ping waits behind the render from its first look on.
+        await Assert.ThrowsAsync<SsrRenderException>(() => sidecar.RenderAsync("""{"page":"exit"}""", Ct));
+
+        // The exit is logged a second before the restart.
+        Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.Contains(logs.Entries, e => e.Message.StartsWith("The Node sidecar exited with code 134;", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Entries, e => e.Message.Contains("GET /health", StringComparison.Ordinal));
+    }
+
     /// <summary>The number of health pings the fake sidecar has answered.</summary>
     private static async Task<int> PingsAsync(NodeSidecar sidecar) =>
         int.Parse((await sidecar.RenderAsync("""{"page":"pings"}""", Ct))["<html>".Length..^"</html>".Length], System.Globalization.CultureInfo.InvariantCulture);
