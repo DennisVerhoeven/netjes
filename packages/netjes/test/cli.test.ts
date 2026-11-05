@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -623,6 +623,49 @@ describe('commands that run the app', () => {
         expect(calls).toHaveLength(4);
         expect(calls[3]?.env.NETJES_OUTPUT).toBe(path.join(app, 'site'));
       }
+    },
+  );
+
+  // On macOS and Linux the app's folder is its working directory as getcwd() reports it: the real path, the symlink
+  // resolved. The app compares paths as text, so for it …/shop-link/out is outside …/shop.
+  it.skipIf(process.platform === 'win32')(
+    'export through a --cwd that is a symlink takes the folder inside the real path, where the app runs',
+    async () => {
+      const app = path.join(temp, 'shop');
+      await fakeApp(app);
+      await symlink(app, path.join(temp, 'shop-link'));
+      const rows: [string[], string][] = [
+        [['--cwd', 'shop-link'], path.join(app, 'out')],
+        [['--cwd', 'shop-link', 'site'], path.join(app, 'site')],
+        [['--cwd', 'shop-link', path.join(app, 'site')], path.join(app, 'site')],
+        [['--cwd', 'shop-link', '--no-build'], path.join(app, 'out')],
+      ];
+      for (const [args, output] of rows) {
+        const { io, calls } = recordingIo(temp);
+
+        expect(await run(['export', ...args], io), args.join(' ')).toBe(0);
+
+        expect(calls, args.join(' ')).toHaveLength(args.includes('--no-build') ? 1 : 4);
+        expect(calls.at(-1)?.env.NETJES_OUTPUT, args.join(' ')).toBe(output);
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'export through a --cwd that is a symlink refuses a folder named through the link, as the app would, before it builds',
+    async () => {
+      const app = path.join(temp, 'shop');
+      await fakeApp(app);
+      const link = path.join(temp, 'shop-link');
+      await symlink(app, link);
+      const { io, calls, err } = recordingIo(temp);
+
+      expect(await run(['export', '--cwd', 'shop-link', path.join(link, 'site')], io)).toBe(1);
+
+      expect(calls).toEqual([]);
+      expect(err()).toBe(
+        `netjes export: the output folder ${path.join(link, 'site')} must be inside the app (${app}), such as 'out'; nothing was built\n`,
+      );
     },
   );
 

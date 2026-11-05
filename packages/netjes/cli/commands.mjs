@@ -3,7 +3,7 @@
 // (NETJES_COMMAND=generate|routes|export) it binds a throwaway loopback port, writes its result and exits. Only export
 // starts the Node sidecar, to render the pages.
 import { existsSync, statSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { agents } from './agents.mjs';
@@ -135,6 +135,21 @@ function isBelow(relative) {
 function insideApp(app, target) {
   const fold = process.platform === 'darwin' || process.platform === 'win32';
   return isBelow(fold ? path.relative(app.toUpperCase(), target.toUpperCase()) : path.relative(app, target));
+}
+
+/**
+ * The folder an app run in `cwd` sees as its own: its working directory, which macOS and Linux report by the real
+ * path, as getcwd() does (every symlink resolved, each name as the disk spells it), and Windows as it was given. `cwd`
+ * itself when its real path cannot be read.
+ * @param {string} cwd
+ */
+async function appFolder(cwd) {
+  if (process.platform === 'win32') return cwd;
+  try {
+    return await realpath(cwd);
+  } catch {
+    return cwd;
+  }
 }
 
 /**
@@ -431,14 +446,17 @@ export const COMMANDS = {
     examples: ['netjes export', 'netjes export site --no-build'],
     project: () => true,
     async run({ io, cwd, args, options }) {
-      const output = path.resolve(cwd, args[0] ?? 'out');
+      // A relative folder is resolved against cwd as the app will see it, so that a --cwd through a symlink still
+      // names a folder inside the app; the app compares paths as text.
+      const app = await appFolder(cwd);
+      const output = path.resolve(app, args[0] ?? 'out');
       if (!options['no-build']) {
         // The app decides where the export may write (StaticExportService.OutputProblems, ADR 0007), before it
         // renders anything: only it knows Netjes:Root and the folders it needs. A folder outside the app is refused
         // here too, before the build, which runs in cwd, so the app is there. With --no-build only the app checks,
         // since Netjes:Root can put the app above cwd.
-        if (!insideApp(cwd, output)) {
-          printError(io, `netjes export: the output folder ${output} must be inside the app (${cwd}), such as 'out'; nothing was built`);
+        if (!insideApp(app, output)) {
+          printError(io, `netjes export: the output folder ${output} must be inside the app (${app}), such as 'out'; nothing was built`);
           return 1;
         }
         const code = await build(io, cwd);
