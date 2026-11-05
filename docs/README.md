@@ -64,6 +64,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0022 – The client entry hydrates once the shell is parsed](decisions/0022-hydrate-once-the-shell-is-parsed.md)
 - [0023 – Pages are not output-cached in Development](decisions/0023-pages-are-not-output-cached-in-development.md)
 - [0027 – Testing Library advances Vitest's fake timers through a jest global that exists only while they are on](decisions/0027-testing-library-advances-vitest-fake-timers.md)
+- [0028 – The test harness starts from the app's query defaults and keeps its retries, without the waits](decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)
 
 ## The project
 

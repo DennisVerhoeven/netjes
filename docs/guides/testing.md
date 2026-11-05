@@ -10,7 +10,10 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 - `exclude`: `node_modules/`, `dist/`, `bin/`, `obj/`, `e2e/` (Playwright's folder) and `.git/`;
 - a setup file that unmounts what each test rendered (Testing Library's `cleanup`), when `@testing-library/react` is installed and the app sets no `setupFiles` of its own. An app that sets them lists `netjes/testing/setup` there itself.
 
-Whatever the app's config says, it also adds a setup file of its own to `setupFiles`, after the app's own setup files. That file lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)).
+Whatever the app's config says, it also adds two settings to it:
+
+- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
 
@@ -55,8 +58,8 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `params` | What `useParams()` returns. |
 | `shared` | The shared props, as the server would send them. |
 | `queries` | Entries seeded into the query client, as `.WithQuery` seeds them: `[{ key, data }]`. |
-| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`. Retries are off. |
-| `queryClient` | A client of your own instead. |
+| `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`, merged over the app's own and the harness's. Failed queries and mutations are tried as often as in the app, with no wait between the tries ([Queries that fail](#queries-that-fail)). |
+| `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
@@ -106,6 +109,18 @@ it('shows the validation errors the action sent back, next to their fields', () 
 ```
 
 A component that fetches its own data with `useQuery` gets seeded data from `queries`. For what it fetches after that, answer the requests with a mock server such as [MSW](https://mswjs.io), as the Blog example's `LikeButton.test.tsx` does.
+
+### Queries that fail
+
+In the browser a failed query is tried three more times, after 1, 2 and 4 seconds (TanStack Query's defaults for `retry` and `retryDelay`), unless the app's `netjes({ query: { defaultOptions } })` says otherwise. `createTestApp()` builds its client from those same defaults, which the plugin hands to the tests, with the harness's own over them and the test's `defaultOptions` over those:
+
+- A failed query or mutation is tried as often as in the app, but with no wait between the tries. So a test sees what the app shows in the end: the error once every try has failed, or the data that a later try got.
+- The app's `staleTime`, `retry`, refetch options and mutation `retry` apply in tests. Its `retryDelay` and `gcTime` do not: the harness sets `retryDelay: 0`, and keeps every query's data for the whole test (`gcTime: Infinity`).
+- `defaultOptions: { queries: { retry: false } }` shows the error after the first request. To test the waits themselves, pass a `retryDelay` of your own, such as TanStack Query's `(attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30_000)`, and move the clock on with [fake timers](#fake-timers).
+- Under fake timers, each try after the first still waits on a timer of 0 ms, which runs only when the fake clock moves on. `findBy…` and `waitFor` move it on as they wait.
+- An app whose `staleTime` is below the Netjes default of one minute fetches seeded queries again in its tests as they mount, as it does in the browser. Answer that request, or set `defaultOptions: { queries: { staleTime: 60_000 } }`.
+
+A Vitest config without `netjes()` hands over no app defaults, and `createTestApp()` starts from the Netjes defaults (a `staleTime` of one minute) and the harness's ([ADR 0028](../decisions/0028-test-harness-starts-from-the-apps-query-defaults.md)).
 
 ### Fake timers
 

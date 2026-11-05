@@ -562,8 +562,8 @@ type TestAppOptions = {
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
-  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }); retries are off
-  queryClient?: QueryClient;        // use this client instead of a new one
+  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
+  queryClient?: QueryClient;        // use this client, as it is, instead of a new one
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
@@ -601,13 +601,13 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token, and the `QueryClient` has retries off.
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)).
 
 ## `netjes/testing/setup`
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
-The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](../guides/testing.md#fake-timers)).
+The plugin also adds a setup file of its own to every app's `setupFiles`, after the app's own, whatever they are. It is not an entry point of the package. While Vitest's timers are fake, it defines the `jest` global through which Testing Library moves them on, so `waitFor`, `findBy…` and user-event work under `vi.useFakeTimers()` ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`.
 
 ## `netjes/vitals`
 
