@@ -9,12 +9,12 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Next.js | Netjes |
 |---|---|
 | `app/` with `page.tsx` | The same. Page and segment files are `.tsx` or `.jsx`; every other file in `app/` is colocated code. [Routing](guides/routing.md) |
-| `layout.tsx` | The same, and it stays mounted across navigations. A root layout renders its content, not `<html>` and `<body>`: Netjes renders the document around it ([ADR 0003](decisions/0003-react-renders-the-whole-document.md)), with the `suppressHydrationWarning` on `<html>` and `<body>` that a Next.js root layout adds for a script that sets an attribute on them before hydration ([ADR 0026](decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)) |
+| `layout.tsx` | The same, and it stays mounted across navigations. A root layout renders its content, not `<html>` and `<body>`: Netjes renders the document around it ([ADR 0003](decisions/0003-react-renders-the-whole-document.md)). It also puts `suppressHydrationWarning` on `<html>` and `<body>` itself, which a Next.js app writes into its root layout when a script sets an attribute on them before hydration ([ADR 0026](decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)) |
 | `template.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `forbidden.tsx`, `unauthorized.tsx`, `global-error.tsx` | The same files. Built-in pages stand in for a missing `not-found.tsx` or `error.tsx`. `global-error.tsx` belongs at the root of `app/`; anywhere else it stops the app at startup |
 | `[slug]`, `[...slug]`, `[[...slug]]`, `(group)`, `_private` | The same. Each page becomes an ASP.NET Core route (`[slug]` is `{slug}`), so ASP.NET Core's matcher decides precedence |
 | Parallel routes: `@slot` folders, `default.tsx` | The same: the layout gets each slot as a prop |
 | Intercepting routes: `(.)`, `(..)`, `(...)` | The same, inside a `@slot` folder. Intercepting folders outside a slot are not supported |
-| `route.ts` | A minimal API endpoint (`app.MapGet`, `app.MapPost`). A `route.ts` file in `app/` stops the app in development and fails the production build, saying so |
+| `route.ts` | A minimal API endpoint (`app.MapGet`, `app.MapPost`). A `route.ts` file in `app/` stops the app in development and fails the production build, saying so. `MapGet` answers `GET` only, where a route handler's `GET` also answers `HEAD`: map both with `MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)` ([HEAD requests](guides/routing.md#head-requests)). An endpoint whose URLs a catch-all page matches too, such as `/docs/{**path:regex(\.md$)}` next to `app/docs/[...path]/page.tsx`, needs `.WithOrder(-1)` ([Endpoints next to pages](guides/routing.md#endpoints-next-to-pages)) |
 | `middleware.ts` | ASP.NET Core middleware, in `Program.cs` |
 | `public/` | `public/` |
 | `sitemap.ts`, `robots.ts` | `app.MapSitemap(siteUrl)` and `app.MapRobotsTxt(siteUrl)`, built from the route table. [Metadata](guides/metadata.md) |
@@ -155,7 +155,7 @@ Next.js prerenders what it can. Netjes renders every page per request and sends 
 
 1. Create an app with `npx netjes new` and move the components across; the `app/` file names are the same.
 2. Rewrite each server component's data fetching, `getServerSideProps` or `generateMetadata` as a C# loader, returning a record of props.
-3. Turn `'use server'` functions into `MapAction` endpoints, and route handlers into minimal APIs.
+3. Turn `'use server'` functions into `MapAction` endpoints, and route handlers into minimal APIs, mapped for `GET` and `HEAD` where a handler exports `GET` ([HEAD requests](guides/routing.md#head-requests)).
 4. Move `middleware.ts` and the `next.config.js` redirects, rewrites and headers into `Program.cs`.
 5. Replace `NEXT_PUBLIC_` variables with `Netjes:PublicConfig`.
 6. Run `npm run routes`: it prints the route table as ASP.NET Core sees it, with warnings for loader parameters that miss a route value, for pages that match the same URLs, for endpoints that tie with a page, and for form inputs that refuse a post without a checkbox.
