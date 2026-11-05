@@ -126,8 +126,9 @@ public sealed class NetjesOptions
     /// documents (unless the app already did) and puts the nonce on the scripts and styles it renders. A page with a
     /// nonce is never stored in the output cache (a cached nonce would be reused across visitors); Netjes warns once
     /// when that turns off a page's <c>CachePage</c>. A policy without <c>{nonce}</c> (hash-based, which output-cached
-    /// pages need) gets no nonce, so its pages can be stored; no hash covers the scripts that stream <c>Page.Defer</c>
-    /// values or reveal Suspense boundaries, though, so pages under one must not stream.
+    /// pages need) gets no nonce, so its pages can be stored. It allows Netjes's inline scripts by the hashes
+    /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> lists; no hash covers the scripts that stream
+    /// <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one must not stream.
     /// </summary>
     public string? ContentSecurityPolicy { get; set; }
 
