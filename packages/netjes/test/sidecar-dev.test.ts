@@ -324,7 +324,7 @@ describe('the development sidecar', () => {
     const [css] = devStyles(await response.text()).values();
     expect(css).toContain('content:"a\u2028b"');
     expect(css).toContain('built for client');
-    // The warning the sidecar logs when it inlines the SSR build instead names the line it did not find.
+    // The warning the sidecar logs when it inlines the SSR build instead names the line it could not read.
     expect(output).not.toContain('__vite__css');
   });
 });

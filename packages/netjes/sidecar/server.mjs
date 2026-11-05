@@ -171,15 +171,16 @@ async function withDevStyles(server, data) {
 
 /** How a CSS module in the client environment declares the text it sets: this, then the text as a JSON string. */
 const CLIENT_CSS_LINE = 'const __vite__css = ';
-/** Whether a module without that line has been reported: once per process. */
+/** Whether a module without that line, or without a JSON string on it, has been reported: once per process. */
 let clientCssMissing = false;
 
 /**
  * A CSS file's text as Vite's client sets it in the page: the string that the file's module in the client environment
  * declares and passes to updateStyle. The browser imports that module and gets it from the same cache, until an edit
  * invalidates it. The SSR environment's `?inline` build is a second build of the file, which a plugin with state of its
- * own in each environment, as Tailwind CSS has, can make differently. A module without that line, from a Vite or a
- * plugin that writes it otherwise, gets the `?inline` build all the same, and a warning.
+ * own in each environment, as Tailwind CSS has, can make differently. A module without that line, or with something
+ * other than a JSON string after it, from a Vite or a plugin that writes it otherwise, gets the `?inline` build all the
+ * same, and a warning.
  * @param {import('vite').ViteDevServer} server
  * @param {import('vite').EnvironmentModuleNode} node
  */
@@ -191,10 +192,11 @@ async function clientCss(server, node) {
   if (css !== undefined) return css;
   if (!clientCssMissing) {
     clientCssMissing = true;
+    const unread = line === undefined ? 'has no line that starts with' : 'has no JSON string after';
     console.warn(
-      `netjes: Vite's client module for ${node.url} has no line that starts with "${CLIENT_CSS_LINE}", so development ` +
-        "pages inline the SSR build of their CSS: it can differ from the browser's build, which Vite's client puts in " +
-        "its place once the page's scripts run. Logged once, for the first such file.",
+      `netjes: Vite's client module for ${node.url} ${unread} "${CLIENT_CSS_LINE}", so development pages inline the ` +
+        "SSR build of their CSS: it can differ from the browser's build, which Vite's client puts in its place once " +
+        "the page's scripts run. Logged once, for the first such file.",
     );
   }
   const inline = await server.ssrLoadModule(`${node.url}?inline`);
