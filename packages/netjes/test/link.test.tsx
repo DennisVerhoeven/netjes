@@ -65,6 +65,7 @@ describe('Link', () => {
     expect(currentAt('/docs/', ['/docs'])).toEqual({ '/docs': 'page' });
     expect(currentAt('/docs', ['/docs/'])).toEqual({ '/docs/': 'page' });
     expect(currentAt('/', ['/', '/docs', '/docs/'])).toEqual({ '/': 'page', '/docs': null, '/docs/': null });
+    expect(currentAt('/docs//', ['/docs', '/docs/', '/docs//'])).toEqual({ '/docs': null, '/docs/': null, '/docs//': 'page' });
   });
 
   it('does not mark a link to another site with the same path', () => {
