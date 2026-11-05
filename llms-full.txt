@@ -241,6 +241,7 @@ my-app/
     about/page.tsx           /about, a page without a loader
     not-found.tsx            unknown URLs, and Page.NotFound() from a loader
     error.tsx                errors below the root layout
+    document.test.ts         a test of the home page's whole document, rendered with renderDocument
   components/                Greeting.tsx and HelloForm.tsx, each with a *.test.tsx next to it
   Features/Home/HomePage.cs  the home page's loader and the home.greet server action
   Program.cs                 services and the request pipeline
@@ -6106,7 +6107,7 @@ Tailwind CSS and the TanStack Query client are on by default; `netjes({ tailwind
 |---|---|
 | `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest |
 | `netjes/vite` | The Vite plugin |
-| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest |
+| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest, and `renderDocument()` and `inlineScriptHashes()`, for a page's whole document and the inline scripts in it |
 | `netjes/vitals` | `useReportWebVitals` and `<WebVitals />` |
 | `netjes/zod` | `deferred(schema)`, for values that loaders stream with `Page.Defer` |
 | `netjes` (bin) | The command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info`, `agents` |
@@ -6630,7 +6631,7 @@ and `npm run routes` without new warnings.
 
 ## More
 
-[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` and `renderDocument` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).
+[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and [`createTestApp`](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp) and [`renderDocument`](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#renderdocument) in the React API.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/deployment.md -->
 

@@ -47,6 +47,7 @@ my-app/
     about/page.tsx           /about, a page without a loader
     not-found.tsx            unknown URLs, and Page.NotFound() from a loader
     error.tsx                errors below the root layout
+    document.test.ts         a test of the home page's whole document, rendered with renderDocument
   components/                Greeting.tsx and HelloForm.tsx, each with a *.test.tsx next to it
   Features/Home/HomePage.cs  the home page's loader and the home.greet server action
   Program.cs                 services and the request pipeline

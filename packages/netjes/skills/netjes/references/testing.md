@@ -68,4 +68,4 @@ and `npm run routes` without new warnings.
 
 ## More
 
-[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and `createTestApp` and `renderDocument` in the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp).
+[Testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md) in the guides, and [`createTestApp`](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#createtestapp) and [`renderDocument`](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md#renderdocument) in the React API.
