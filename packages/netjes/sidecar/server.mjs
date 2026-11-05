@@ -177,15 +177,28 @@ let clientCssMissing = false;
 /**
  * A CSS file's text as Vite's client sets it in the page: the string that the file's module in the client environment
  * declares and passes to updateStyle. The browser imports that module and gets it from the same cache, until an edit
- * invalidates it. The SSR environment's `?inline` build is a second build of the file, which a plugin with state of its
- * own in each environment, as Tailwind CSS has, can make differently. A module without that line, or with something
- * other than a JSON string after it, from a Vite or a plugin that writes it otherwise, gets the `?inline` build all the
- * same, and a warning.
+ * invalidates it; a module that does not accept its own updates, and that no browser has loaded yet, is built again
+ * for the browser (below). The SSR environment's `?inline` build is a second build of the file, which a plugin with
+ * state of its own in each environment, as Tailwind CSS has, can make differently. A module without that line, or with
+ * something other than a JSON string after it, from a Vite or a plugin that writes it otherwise, gets the `?inline`
+ * build all the same, and a warning.
  * @param {import('vite').ViteDevServer} server
  * @param {import('vite').EnvironmentModuleNode} node
  */
 async function clientCss(server, node) {
-  const built = await server.environments.client.transformRequest(node.url);
+  const client = server.environments.client;
+  const built = await client.transformRequest(node.url);
+  const module = await client.moduleGraph.getModuleByUrl(node.url);
+  if (module && module.importers.size === 0 && module.isSelfAccepting === false) {
+    // Nothing in the client environment imports the module, so no browser has loaded a page with it, and the module
+    // does not accept its own updates, as a CSS Modules file's does not. Vite would take an edit to the file for one
+    // that no page can apply, and reload every open page, where without this read the module would not be there and
+    // the edit would reach no browser. So that it still reaches none, the module counts as not yet analyzed, where Vite
+    // stops an update, and its build is dropped: Vite builds it again for the browser that loads the page, and learns
+    // from that build how the module takes updates.
+    client.moduleGraph.invalidateModule(module);
+    module.isSelfAccepting = undefined;
+  }
   // By lines, not with a regular expression: JSON.stringify leaves U+2028 and U+2029 in a string, and `.` stops at both.
   const line = built?.code.split('\n').find((text) => text.startsWith(CLIENT_CSS_LINE));
   const css = line === undefined ? undefined : jsonString(line.slice(CLIENT_CSS_LINE.length));
