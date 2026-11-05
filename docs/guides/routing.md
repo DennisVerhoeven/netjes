@@ -126,7 +126,7 @@ Netjes has built-in 404 and error pages for apps that have neither file. Special
 | `[...path]` | one or more segments: `/docs/a/b` | `{ path: ['a', 'b'] }` | `string path` = `"a/b"` |
 | `[[...path]]` | none or more: `/docs`, `/docs/a/b` | `{ path: [] }`, `{ path: ['a', 'b'] }` | `string? path` = `null`, `"a/b"` |
 
-A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, but route values reach loaders and `params` as the URL spelled them.
+A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, and a request in another case is redirected to the file's spelling ([One URL per page](#one-url-per-page)). Route values reach loaders and `params` as the URL spelled them.
 
 Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. The third argument is the query, and `{ hash }` in the fourth is the fragment:
 
@@ -138,6 +138,43 @@ route('/docs/[...path]', { path: ['guides', 'a b'] }); // '/docs/guides/a%20b'
 route('/projects/[id]', { id }, { done: 2 });          // '/projects/web?done=2'
 route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' }); // '/docs/guides/caching#keys'
 ```
+
+## One URL per page
+
+ASP.NET Core matches literal segments in any case and ignores one trailing slash, so a page answers many URLs: `/about`, `/About`, `/ABOUT/`. Served as they are, each would be a page of its own to a crawler and to the output cache, and a `<Link>` is marked current only on the spelling it names. Two settings give a page one spelling, the one its file names:
+
+| Option | Default | What it does |
+|---|---|---|
+| `RedirectLiteralCase` (`Netjes:RedirectLiteralCase`) | `true` | `/About` and `/ABOUT` answer 308 with `Location: /about`, the spelling of `app/about/page.tsx`. `false` answers every case, as ASP.NET Core does. |
+| `TrailingSlash` (`Netjes:TrailingSlash`) | `Ignore` | `Ignore` answers `/about` and `/about/` alike. `Never` answers `/about/` with a 308 to `/about`. |
+
+```csharp
+builder.Services.AddNetjes(options => options.TrailingSlash = TrailingSlash.Never);
+```
+
+What a redirect changes, and what it keeps as it was sent:
+
+- Only the literal segments change case, the ones the file names: `/Blog/Hello-World` goes to `/blog/Hello-World`, and the loader of `app/blog/[slug]` gets `Hello-World` either way. The query string goes along as sent (`/About?Tab=Team` goes to `/about?Tab=Team`), and so does the base path, in its own case (`/Docs/About` goes to `/Docs/about` under `UsePathBase("/docs")`).
+- Values go out encoded as they came: `/Blog/caf%C3%A9` goes to `/blog/caf%C3%A9`, and `%2F` stays `%2F`.
+- Under `Ignore`, a trailing slash stays: `/About/` goes to `/about/`. Under `Never` it goes, a catch-all's included: `/docs/a/b/` goes to `/docs/a/b`, so `[...path]` gets `a/b` and not `a/b/`. `/` stays `/`, at the root and under a base path.
+- A client navigation to another spelling (a `<Link>` or `router.push`) gets a redirect payload, and the router shows the file's spelling. A `HEAD` gets the 308 as a `GET` does.
+- `/robots.txt` and `/sitemap.xml`, from `MapRobotsTxt` and `MapSitemap`, answer one spelling too, with a plain 308.
+
+What it leaves alone:
+
+- Requests with another method: a form that posts to `/About/` gets its answer at that URL.
+- The app's own endpoints, a minimal API that renders a page (`Page.Render`) and the not-found page.
+- A request that a rewrite or a re-execution changed (`UseRewriter`, `UseStatusCodePagesWithReExecute`, `UseExceptionHandler`, the page Netjes renders for a failed form post). The redirect reads the URL the client sent, the request target, and acts only when it spells the path routing matched ([rewrites](redirects-rewrites-headers.md#rewrites)).
+- A request target that browsers do not send: one with `.` or `..` segments (`/./About`), which the server resolves before routing, or one in absolute form (`GET http://example.com/About`), which clients send only to a proxy. It is answered as before, and under output caching its page can be stored under `/About` ([caching](caching.md#how-entries-are-keyed)).
+- TestServer, which `WebApplicationFactory` tests run on: it passes on no request target, so nothing is redirected there ([testing](testing.md#the-app-over-http)).
+- The case of the base path and of route values: in a `[lang]` folder, `/EN/about` is still a URL of its own next to `/en/about`.
+- A URL whose redirect could lead off the site or to another page, such as `//other.example/` under a root catch-all with `Never`: it is answered as it was sent. See [security](security.md#redirects).
+
+A loader that compared the URL's spelling of its literal segments, to redirect to its own, can drop that check; a check of a route value's case (a slug) stays the loader's.
+
+Browsers keep a 308 and follow it again without asking the server. After a folder is renamed to another case (`about` to `About`), a visitor whose browser followed the old redirect from `/About` to `/about` is sent round in a loop until the browser forgets it. Behind a proxy or CDN that adds a trailing slash to URLs, `Never` loops at once: turn off one of the two.
+
+Next.js matches a route in its file's case only, so `/About` is a 404 there, and by default (`trailingSlash: false`) it answers `/about/` with a 308 to `/about`, as `TrailingSlash.Never` does. Netjes keeps a link in another case working, and leaves a trailing slash as ASP.NET Core has it unless you choose `Never` ([ADR 0039](../decisions/0039-a-page-url-has-one-spelling.md)).
 
 ## Route groups and private folders
 

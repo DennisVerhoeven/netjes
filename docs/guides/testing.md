@@ -319,6 +319,30 @@ public sealed class HomePageTests(AppFactory app) : IClassFixture<AppFactory>
 
 A page with `Page.Defer` values answers with NDJSON: the payload on the first line, then one line per value. A document request (without the header) goes through the fake renderer, whose `Last` then holds the payload the sidecar would have rendered.
 
+The factory's server, TestServer, passes on no request target (`IHttpRequestFeature.RawTarget` is empty), and Netjes redirects another spelling of a page's URL only when the target shows that the client sent it ([One URL per page](routing.md#one-url-per-page)). So in these tests `/About` renders the page `/about` does, where the app on Kestrel answers 308. Test the redirect end to end, or give each request the target Kestrel would, from a startup filter, which runs ahead of the app's pipeline:
+
+```csharp
+using Microsoft.AspNetCore.Http.Extensions; // GetEncodedPathAndQuery
+using Microsoft.AspNetCore.Http.Features;   // IHttpRequestFeature
+
+// In AppFactory.ConfigureWebHost:
+builder.ConfigureServices(services => services.AddTransient<IStartupFilter, RequestTargets>());
+
+/// <summary>Gives each request the target its client sent, as Kestrel does.</summary>
+public sealed class RequestTargets : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use((http, inner) =>
+        {
+            http.Features.Get<IHttpRequestFeature>()!.RawTarget = http.Request.GetEncodedPathAndQuery();
+            return inner(http);
+        });
+        next(app);
+    };
+}
+```
+
 A server action needs an antiforgery token. Get one from `/_netjes/antiforgery`, which also sets the antiforgery cookie (the factory's client keeps cookies), and send it as the header the response names:
 
 ```csharp

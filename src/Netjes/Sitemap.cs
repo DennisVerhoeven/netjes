@@ -151,6 +151,8 @@ public static class SitemapEndpointRouteBuilderExtensions
                 return Results.Bytes(xml, "application/xml; charset=utf-8");
             })
             .AllowAnonymous()
+            // Another case of it, or a trailing slash under TrailingSlash.Never, is redirected here, as for a page.
+            .WithMetadata(new OneSpellingMetadata())
             .WithDisplayName("Netjes sitemap.xml")
             .ExcludeFromDescription();
     }
@@ -211,6 +213,7 @@ public static class SitemapEndpointRouteBuilderExtensions
         return endpoints.MapMethods("/robots.txt", [HttpMethods.Get, HttpMethods.Head], (HttpContext http) =>
                 Results.Text($"{head}\nSitemap: {root}{http.Request.PathBase.ToUriComponent()}/sitemap.xml\n", "text/plain", Encoding.UTF8))
             .AllowAnonymous()
+            .WithMetadata(new OneSpellingMetadata())
             .WithDisplayName("Netjes robots.txt")
             .ExcludeFromDescription();
     }

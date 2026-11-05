@@ -17,6 +17,8 @@ app.UseNetjes();
 
 For redirects that depend on data (a renamed slug), return `Page.Redirect(...)` from the page's loader instead. It works for document requests and client navigations alike: the client router follows it without a full page load. See [security](security.md#redirects) for the URLs it accepts, and `Page.LocalRedirect` for URLs that come from the request.
 
+Netjes sends one redirect of its own: another case of a page's literal segments (`/About` to `/about`) and, with `TrailingSlash.Never`, a trailing slash, which is what Next.js's `trailingSlash` setting decides ([One URL per page](routing.md#one-url-per-page)). It runs at the end of `UseNetjes()`, after routing, on the URL the client sent, so it never redirects a request the rewriter changed. A canonical rule of the app's own, such as one that sends `www.example.com` to `example.com`, goes in the rewriter ahead of its rewrites, where it sees the URL as it was sent.
+
 ## Rewrites
 
 Internal rewrites, where the URL stays and another page answers (Next.js's `rewrites()`), are the rewriter too:
@@ -24,6 +26,8 @@ Internal rewrites, where the URL stays and another page answers (Next.js's `rewr
 ```csharp
 app.UseRewriter(new RewriteOptions().AddRewrite("^docs/latest/(.*)", "docs/v2/$1", skipRemainingRules: true));
 ```
+
+The page answers at the URL the client sent, and Netjes does not redirect it to its file's spelling: under `TrailingSlash.Never`, `/docs/latest/intro/` is answered as it is, while `/docs/v2/intro/` goes to `/docs/v2/intro`.
 
 Rewrites to another host (an external `destination` in Next.js) are a reverse proxy, such as [YARP](https://microsoft.github.io/reverse-proxy/) (MIT), mapped next to the pages:
 

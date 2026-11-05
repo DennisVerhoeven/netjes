@@ -66,13 +66,16 @@ internal sealed class ReExecute
             .Any(e => new TemplateMatcher(new RouteTemplate(e.RoutePattern), new RouteValueDictionary(e.RoutePattern.Defaults))
                 .TryMatch(path, []));
 
+    /// <summary>Whether this is a request run again here: the <c>GET</c> of a page that renders a failed form post.</summary>
+    public static bool IsReExecution(HttpContext http) => http.Items.ContainsKey(ReExecuted);
+
     /// <summary>
     /// After routing: a re-executed request goes on only to a page, else it renders the home page, or the error page
     /// (422) where the home is no page either. Middleware before <c>UseNetjes</c> does not run again for it, so another
     /// endpoint (a status page behind an IP allow-list, say) would answer without it.
     /// </summary>
     public static Task PagesOnly(HttpContext http, RequestDelegate next) =>
-        !http.Items.ContainsKey(ReExecuted) || http.GetEndpoint()?.Metadata.GetMetadata<PageEndpointMetadata>() is { Pattern: not null }
+        !IsReExecution(http) || http.GetEndpoint()?.Metadata.GetMetadata<PageEndpointMetadata>() is { Pattern: not null }
             ? next(http)
             : http.Request.Path == "/"
                 ? http.RequestServices.GetRequiredService<PageRenderer>().RenderStatusAsync(http, StatusCodes.Status422UnprocessableEntity)

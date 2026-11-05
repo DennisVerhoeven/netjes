@@ -666,3 +666,15 @@ test.describe('Content-Security-Policy violations', () => {
     expect(violations).toEqual([]);
   });
 });
+
+test.describe('one URL per page', () => {
+  test("another case of a page's URL lands on the file's spelling, with its nav link current", async ({ page }) => {
+    const response = await page.goto('/ABOUT');
+
+    // The server answered /ABOUT with a permanent redirect to the file's spelling, which the browser followed.
+    await expect(page).toHaveURL(/\/about$/);
+    expect((await response?.request().redirectedFrom()?.response())?.status()).toBe(308);
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' })).toHaveAttribute('aria-current', 'page');
+  });
+});
