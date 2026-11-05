@@ -65,7 +65,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 
 - Decisions live in C#: data access, validation, authorization (`.RequireAuthorization()`, `Page.Forbidden()`), redirects, caching. React renders what it is sent.
 - Loaders and actions return Netjes results (`Page.Props(...)`, `Page.NotFound()`, `ServerAction.Ok(...)`), so their types reach `generated/netjes.ts`. Use records for everything that crosses to the browser.
-- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON, `usePublicConfig(schema)`. No `any`, no casts of server data.
+- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON, `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
 - Never edit `generated/netjes.ts`; regenerate it and commit it with the change.
