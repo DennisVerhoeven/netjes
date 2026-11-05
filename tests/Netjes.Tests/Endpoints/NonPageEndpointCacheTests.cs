@@ -70,15 +70,22 @@ public class NonPageEndpointCacheTests
 
     /// <summary>
     /// The output cache stores the headers the handler set before it wrote the body, and sends them with every answer
-    /// it serves; it adds an <c>Age</c> and no <c>Cache-Control</c> of its own.
+    /// it serves; it adds an <c>Age</c> and no <c>Cache-Control</c> of its own, so an answer stored without one is
+    /// served without one.
     /// </summary>
-    [Fact]
-    public async Task AnEndpointOfTheApp_KeepsItsOwnCacheControl_AlsoFromTheOutputCache()
+    [Theory]
+    [InlineData("public, max-age=300")]
+    [InlineData(null)]
+    public async Task AnEndpointOfTheApp_KeepsItsOwnCacheControl_AlsoFromTheOutputCache(string? cacheControl)
     {
         var calls = 0;
         await using var app = await StartAsync(a => a.MapGet("/api/search", (HttpContext http) =>
         {
-            http.Response.Headers.CacheControl = "public, max-age=300";
+            if (cacheControl is not null)
+            {
+                http.Response.Headers.CacheControl = cacheControl;
+            }
+
             return Results.Ok(new { Call = Interlocked.Increment(ref calls) });
         }).CacheOutput());
 
@@ -86,8 +93,7 @@ public class NonPageEndpointCacheTests
         var second = await app.Client.GetAsync("/api/search", Ct);
 
         Assert.Equal(1, calls);
-        Assert.Equal("public, max-age=300", first.Headers.CacheControl?.ToString());
-        Assert.Equal("public, max-age=300", second.Headers.CacheControl?.ToString());
+        Assert.All([first, second], response => Assert.Equal(cacheControl, response.Headers.CacheControl?.ToString()));
         Assert.False(first.Headers.Contains("Age"));
         Assert.True(second.Headers.Contains("Age"));
     }
