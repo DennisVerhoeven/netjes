@@ -17,8 +17,9 @@ export function watchForErrors(page: Page, ignore?: (url: URL) => boolean): stri
 /**
  * Collects the Content-Security-Policy violations the browser reports in every document the page loads from now on:
  * the directive, what it refused, the script that tried and the page's path. A refusal that the page's code catches,
- * such as a `new Function` that a policy without 'unsafe-eval' blocks, logs nothing to the console, so
- * `watchForErrors` does not see it; a `securitypolicyviolation` listener does.
+ * such as a `new Function` that a script-src without 'unsafe-eval' blocks, logs nothing to Chromium's console, so
+ * `watchForErrors` does not see it; a `securitypolicyviolation` listener does. (Under a default-src without a
+ * script-src, Chromium does log an error for it.)
  */
 export async function watchForViolations(page: Page): Promise<string[]> {
   const violations: string[] = [];

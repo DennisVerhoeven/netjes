@@ -1,7 +1,7 @@
 // Turns zod's compiled parsers off in the browser (ADR 0036). zod 4.4.0 and newer read this object whenever they make
 // an object schema, whether zod loaded before this ran or after. Without `jitless`, zod tests whether it may make a
-// function from a string, and a browser reports that test as a violation of any Content-Security-Policy without
-// 'unsafe-eval', although zod catches the error.
+// function from a string, and a browser reports that test as a violation of any Content-Security-Policy whose
+// script-src (or default-src, without a script-src) leaves out 'unsafe-eval', although zod catches the error.
 //
 // It must stay the client entry's first import, so that it runs ahead of the entry's other imports and of the page
 // modules, which make their schemas as they load. (A production build moves the modules the entry shares with pages,
