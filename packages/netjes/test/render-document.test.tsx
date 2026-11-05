@@ -68,6 +68,18 @@ function PostWithComments({ thread }: { thread: { comments: PromiseLike<string[]
   );
 }
 
+function Tags({ tags }: { tags: PromiseLike<string>[] }) {
+  return (
+    <Suspense fallback={<p>Loading tags</p>}>
+      <ul>
+        {tags.map((tag, i) => (
+          <li key={i}>{use(tag)}</li>
+        ))}
+      </ul>
+    </Suspense>
+  );
+}
+
 function Notice({ notice }: { notice: PromiseLike<string> }) {
   return <p className="notice">{use(notice)}</p>;
 }
@@ -196,6 +208,36 @@ describe('renderDocument', () => {
     expect(payloadOf(html)).toMatchObject({ route: null, page: file, pageKind: kind, status });
   });
 
+  it("renders a folder's boundary file inside the layouts down to its own folder, with no route", async () => {
+    const blog = { ...modules, '/app/blog/not-found.tsx': page(() => <h1>No such post</h1>) };
+
+    const html = await render('app/blog/not-found.tsx', { modules: blog, url: '/blog/missing', params: { slug: 'missing' } });
+
+    expect(html).toContain('<main><section class="blog"><nav aria-label="Categories">No categories</nav><h1>No such post</h1></section></main>');
+    expect(payloadOf(html)).toMatchObject({ route: null, page: 'app/blog/not-found.tsx', pageKind: 'notFound', status: 404 });
+    expect(payloadOf(html).segments).toEqual([
+      { id: 'app', layout: 'app/layout.tsx', error: 'app/error.tsx', depth: 0 },
+      { id: 'app/blog', layout: 'app/blog/layout.tsx', depth: 1 },
+    ]);
+  });
+
+  it('renders the global error page without any layout, and only from the app directory itself', async () => {
+    const failing = {
+      ...modules,
+      '/app/global-error.tsx': page(() => <h1>Everything failed</h1>),
+      '/app/blog/global-error.tsx': page(() => <h1>Not a global error page</h1>),
+    };
+
+    const html = await render('app/global-error.tsx', { modules: failing });
+
+    expect(html).toContain('<h1>Everything failed</h1>');
+    expect(html).not.toContain('<header>Demo</header>');
+    expect(payloadOf(html)).toMatchObject({ route: null, page: 'app/global-error.tsx', pageKind: 'error', status: 500, segments: [] });
+    await expect(render('app/blog/global-error.tsx', { modules: failing })).rejects.toThrow(
+      'netjes: renderDocument renders a page or a not-found, error, forbidden, unauthorized or global-error file, not app/blog/global-error.tsx.',
+    );
+  });
+
   it('renders an error page from the props it is given, outside the error boundary of its own folder', async () => {
     const html = await render('app/error.tsx', { props: { status: 503, message: 'Down for maintenance' }, status: 503 });
 
@@ -223,6 +265,17 @@ describe('renderDocument', () => {
       expect(html).not.toContain('Loading comments');
       expect(payloadOf(html)).toMatchObject({ props: { thread: { comments: { $netjes: 'deferred', id: 'd0' } } } });
       expect(html).toContain('<script>self.__netjes_d("d0",JSON.parse("[\\"First\\",\\"Second\\"]"))</script>');
+    });
+
+    it('in arrays too', async () => {
+      const tagged = { ...modules, '/app/tags/page.tsx': page(Tags) };
+
+      const html = await render('app/tags/page.tsx', { modules: tagged, props: { tags: [Promise.resolve('react'), Promise.resolve('dotnet')] } });
+
+      expect(html).toContain('<ul><li>react</li><li>dotnet</li></ul>');
+      expect(payloadOf(html)).toMatchObject({
+        props: { tags: [{ $netjes: 'deferred', id: 'd0' }, { $netjes: 'deferred', id: 'd1' }] },
+      });
     });
 
     it("in a layout's props", async () => {
@@ -274,6 +327,14 @@ describe('renderDocument', () => {
   it('refuses a file that is not a page or a boundary', async () => {
     await expect(render('app/blog/layout.tsx')).rejects.toThrow(
       'netjes: renderDocument renders a page or a not-found, error, forbidden, unauthorized or global-error file, not app/blog/layout.tsx.',
+    );
+  });
+
+  it('refuses a page in a private folder, which the server does not route', async () => {
+    const drafts = { ...modules, '/app/_drafts/page.tsx': page(() => <h1>Draft</h1>) };
+
+    await expect(render('app/_drafts/page.tsx', { modules: drafts })).rejects.toThrow(
+      'netjes: renderDocument cannot render app/_drafts/page.tsx: a private folder is not routed.',
     );
   });
 
@@ -341,9 +402,12 @@ describe('inlineScriptHashes', () => {
       '<script type="text/javascript; charset=utf-8">p()</script>',
       '<script type="text/plain">t()</script>',
       '<script language="javascript">l()</script>',
+      '<script language="vbscript">v()</script>',
       '<script nomodule>n()</script>',
       '<script></script>',
       '<script type="importmap">{"imports":{}}</script>',
+      '<script type="speculationrules">{"prerender":[]}</script>',
+      '<script type="module" type="text/plain">d()</script>',
       '<script src="/a.js">s()</script>',
       '<script>a()\r\nb()</script>',
       '<script>m()</script>',
@@ -354,6 +418,9 @@ describe('inlineScriptHashes', () => {
       hashSource('j()'),
       hashSource('l()'),
       hashSource('{"imports":{}}'),
+      hashSource('{"prerender":[]}'),
+      // The first of two attributes with one name counts, as in HTML.
+      hashSource('d()'),
       hashSource('a()\nb()'),
     ]);
   });
