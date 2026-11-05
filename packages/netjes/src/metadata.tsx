@@ -48,12 +48,18 @@ export type ResolvedMetadata = Omit<Metadata, 'title' | 'openGraph' | 'twitter'>
   twitter?: Omit<Twitter, 'images'> & { images?: ResolvedImage[] };
 };
 
+/**
+ * The title that `title` stands for, given the template from the layouts above it. A string and a `default` go
+ * through the template, an `absolute` title does not, and an object with no `default` and no `absolute` (a layout
+ * that only sets a template) has no title of its own.
+ */
 function titleOf(title: MetadataTitle | undefined, template: string | undefined): string | undefined {
   if (title === undefined) return undefined;
   // A function replacer: a title such as "Save $& now" must not be read as a replacement pattern.
-  if (typeof title === 'string') return template ? template.replace('%s', () => title) : title;
+  const inTemplate = (text: string) => (template ? template.replace('%s', () => text) : text);
+  if (typeof title === 'string') return inTemplate(title);
   if (title.absolute !== undefined) return title.absolute;
-  return title.default;
+  return title.default === undefined ? undefined : inTemplate(title.default);
 }
 
 /** The images as a list of descriptors with string URLs; like Next.js, a null image or one without a URL is left out. */
@@ -72,7 +78,9 @@ function withImages<T extends { images?: MetadataImages }>(group: T): Omit<T, 'i
 
 /**
  * Merges the layouts' metadata (outermost first), the page's, and the server's. A layout's `title.template` applies
- * to titles below it, `title.default` is used when nothing below sets one, `title.absolute` skips templates.
+ * to the titles below it. `title.default`, on a layout or a page, goes through the templates above it like a string
+ * title and never through its own; on a layout it is the title when nothing below sets one. `title.absolute` skips
+ * templates.
  */
 export function resolveMetadata(layouts: readonly (Metadata | undefined)[], page: Metadata | undefined, server?: Metadata): ResolvedMetadata {
   let resolved: ResolvedMetadata = {};
@@ -82,8 +90,9 @@ export function resolveMetadata(layouts: readonly (Metadata | undefined)[], page
     const { title, openGraph, twitter, alternates, icons, other, ...rest } = metadata;
     resolved = { ...resolved, ...rest };
     if (title !== undefined) {
-      // A layout's own default is not put through its own template, only templates from above.
-      const own = titleOf(title, typeof title === 'string' || title.default === undefined ? template : undefined);
+      // The template from above applies to every title but an absolute one, a default included. This title's own
+      // template is stored after its title is written, so it applies only to the titles below.
+      const own = titleOf(title, template);
       if (own !== undefined) resolved.title = own;
       if (typeof title === 'object' && title.template) template = title.template;
     }
