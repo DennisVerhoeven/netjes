@@ -37,8 +37,18 @@ export function Document({ info, dataJson, children }: DocumentProps) {
         {info.assets.stylesheets.map((href) => (
           <link key={href} rel="stylesheet" href={href} nonce={nonce} />
         ))}
+        {/* In development, the CSS the page imports, so that it is styled before its scripts run. Vite's client owns
+            each element's text once it runs: the CSS module with that id sets it as it loads, before hydration, and
+            again after every edit. The sidecar inlines the build that module carries, but a file edited between the
+            render and the import differs, so React leaves the text unchecked. */}
         {info.devStyles?.map((style) => (
-          <style key={style.id} data-vite-dev-id={style.id} nonce={nonce} dangerouslySetInnerHTML={{ __html: style.css }} />
+          <style
+            key={style.id}
+            data-vite-dev-id={style.id}
+            nonce={nonce}
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: style.css }}
+          />
         ))}
         {info.assets.modulePreloads.map((href) => (
           <link key={href} rel="modulepreload" href={href} nonce={nonce} />

@@ -74,6 +74,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0032 – The release links the package READMEs to its tag](decisions/0032-release-links-package-readmes-to-its-tag.md)
 - [0033 – Client navigations announce the page and start the focus over](decisions/0033-client-navigations-announce-the-page-and-start-the-focus-over.md)
 - [0034 – Navigation promises resolve when React has the page](decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)
+- [0035 – Development styles are inlined from the client environment's build](decisions/0035-development-styles-are-inlined-from-the-client-build.md)
 
 ## The project
 
