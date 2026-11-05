@@ -4,16 +4,20 @@ namespace Netjes.Tests.Rendering;
 
 public class CspChecksTests
 {
-    /// <summary>A document of a client build, behind https: its module script is a file the app serves.</summary>
-    private static readonly CspDocument Built = new(["/assets/client-entry-AAA.js"], "https", "www.example.com", DevServer: null);
+    /// <summary>
+    /// A document of a client build, behind https: its module script is a file the app serves. It carries the nonce
+    /// <c>abc</c>, as the two Development documents do, the one a policy written with <c>{nonce}</c> or
+    /// <c>GetCspNonce()</c> holds; a list without a nonce is judged as if the document carried none.
+    /// </summary>
+    private static readonly CspDocument Built = new(["/assets/client-entry-AAA.js"], "https", "www.example.com", Nonce: "abc", DevServer: null);
 
     /// <summary>A document in Development, on <c>http://localhost:5000</c>: its scripts come from the Vite dev server.</summary>
     private static readonly CspDocument Development = new(
-        ["http://localhost:5173/@vite/client", "http://localhost:5173/@netjes/client-entry"], "http", "localhost:5000", "http://localhost:5173");
+        ["http://localhost:5173/@vite/client", "http://localhost:5173/@netjes/client-entry"], "http", "localhost:5000", "abc", "http://localhost:5173");
 
     /// <summary>Development behind https, with the dev server at another address (<c>NETJES_VITE_ORIGIN</c>).</summary>
     private static readonly CspDocument DevelopmentOverHttps = new(
-        ["https://vite.example.test/@vite/client", "https://vite.example.test/@netjes/client-entry"], "https", "app.example.test", "https://vite.example.test");
+        ["https://vite.example.test/@vite/client", "https://vite.example.test/@netjes/client-entry"], "https", "app.example.test", "abc", "https://vite.example.test");
 
     /// <summary>
     /// What the checks find, one finding after the other: its problem, the directive whose sources were judged and the
@@ -165,7 +169,7 @@ public class CspChecksTests
     public void Check_WithTheDevServerOnTheAppsHost_CountsSelfAsBrowsersDo(string page, string devServer, string policy, string findings)
     {
         var app = new Uri(page);
-        var document = new CspDocument([$"{devServer}/@vite/client", $"{devServer}/@netjes/client-entry"], app.Scheme, app.Authority, devServer);
+        var document = new CspDocument([$"{devServer}/@vite/client", $"{devServer}/@netjes/client-entry"], app.Scheme, app.Authority, Nonce: null, devServer);
 
         Assert.Equal(findings, Findings(policy, document));
     }

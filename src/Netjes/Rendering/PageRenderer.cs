@@ -799,7 +799,7 @@ internal sealed class PageRenderer(
             KeepNonceOutOfTheOutputCache(http);
         }
 
-        WarnAboutThePolicy(http, scripts);
+        WarnAboutThePolicy(http, scripts, nonce);
         return nonce;
     }
 
@@ -810,7 +810,7 @@ internal sealed class PageRenderer(
     /// <see cref="MaxCheckedPolicies"/> of them, a new one is not checked. Not for a command: the static export writes
     /// files, which go out under the static host's policy.
     /// </summary>
-    private void WarnAboutThePolicy(HttpContext http, IReadOnlyList<string> scripts)
+    private void WarnAboutThePolicy(HttpContext http, IReadOnlyList<string> scripts, string? nonce)
     {
         var policies = http.Response.Headers.ContentSecurityPolicy;
         if (context.Command is not null || StringValues.IsNullOrEmpty(policies))
@@ -825,7 +825,7 @@ internal sealed class PageRenderer(
         }
 
         Interlocked.Increment(ref _checkedPolicyCount);
-        var document = new CspDocument(scripts, http.Request.Scheme, http.Request.Host.Value ?? "", assets.DevServerOrigin);
+        var document = new CspDocument(scripts, http.Request.Scheme, http.Request.Host.Value ?? "", nonce, assets.DevServerOrigin);
         foreach (var finding in CspChecks.Check(policies, document))
         {
             CspChecks.Warn(logger, finding);

@@ -347,8 +347,9 @@ internal static partial class CspChecks
 /// <param name="Scripts">The URLs of its module scripts, as the document writes them.</param>
 /// <param name="Scheme">The request's scheme.</param>
 /// <param name="Host">The request's host, with its port when it has one.</param>
+/// <param name="Nonce">The nonce Netjes puts on the scripts and styles it writes into the document; null when it has none.</param>
 /// <param name="DevServer">In Development, the origin of the Vite dev server, which serves the scripts there; otherwise null.</param>
-internal sealed record CspDocument(IReadOnlyList<string> Scripts, string Scheme, string Host, string? DevServer);
+internal sealed record CspDocument(IReadOnlyList<string> Scripts, string Scheme, string Host, string? Nonce, string? DevServer);
 
 /// <summary>What a Content-Security-Policy refuses of what a document needs.</summary>
 internal enum CspProblem
