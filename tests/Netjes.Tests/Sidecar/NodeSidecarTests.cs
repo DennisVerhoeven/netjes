@@ -918,28 +918,38 @@ public class NodeSidecarTests
         var logs = new ListLoggerProvider();
         using var loggers = new LoggerFactory([logs]);
         var kills = 0;
+        var refuseKill = 1;
         await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick, killTree: process =>
         {
-            if (Interlocked.Increment(ref kills) == 1)
+            Interlocked.Increment(ref kills);
+            if (Interlocked.Exchange(ref refuseKill, 0) == 1)
             {
                 throw new Win32Exception(1, "Operation not permitted");
             }
 
             process.Kill(entireProcessTree: true);
         });
-        await sidecar.StartAsync(Ct);
-        var pid = await SidecarPoolTests.PidAsync(sidecar);
+        try
+        {
+            await sidecar.StartAsync(Ct);
+            var pid = await SidecarPoolTests.PidAsync(sidecar);
 
-        var hung = sidecar.RenderAsync("""{"page":"hang"}""", Ct);
-        var failed = await WaitForLogAsync(logs, e => e.Level == LogLevel.Error
-            && e.Message.StartsWith($"Killing the Node sidecar {pid} failed: Operation not permitted", StringComparison.Ordinal));
+            var hung = sidecar.RenderAsync("""{"page":"hang"}""", Ct);
+            var failed = await WaitForLogAsync(logs, e => e.Level == LogLevel.Error
+                && e.Message.StartsWith($"Killing the Node sidecar {pid} failed: Operation not permitted", StringComparison.Ordinal));
 
-        Assert.NotNull(failed);
-        Assert.False(sidecar.IsReady);
-        // The next ping finds it hung again, and that kill goes through.
-        Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
-        Assert.Equal(2, Volatile.Read(ref kills));
-        await Assert.ThrowsAsync<SsrRenderException>(() => hung);
+            Assert.NotNull(failed);
+            Assert.False(sidecar.IsReady);
+            // The next ping finds it hung again, and that kill goes through.
+            Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
+            Assert.Equal(2, Volatile.Read(ref kills));
+            await Assert.ThrowsAsync<SsrRenderException>(() => hung);
+        }
+        finally
+        {
+            // A blocked process never sees its stdin close: should the test fail first, the stop's kill must end it.
+            Volatile.Write(ref refuseKill, 0);
+        }
     }
 
     [Fact]
