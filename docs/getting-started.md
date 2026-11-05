@@ -502,7 +502,7 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
 2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
 
    ```bash
