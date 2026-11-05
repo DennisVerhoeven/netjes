@@ -1,6 +1,6 @@
 # 0023 – Pages are not output-cached in Development
 
-Status: accepted
+Status: accepted; extends [ADR 0016](0016-page-cache-rules-under-any-output-caching.md)
 
 ## Context
 
