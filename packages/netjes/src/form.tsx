@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, FormHTMLAttributes, SubmitEvent } from 'react';
+import type { ComponentPropsWithRef, SubmitEvent } from 'react';
 import { RETURN_FIELD, actionMetaOf } from './actions.tsx';
 import { encodeForm } from './form-data.ts';
 import type { Href } from './href.ts';
@@ -7,8 +7,8 @@ import { useBasePath, useInternalRouter, usePagePayload, withBasePath } from './
 /** A React form action, e.g. the `formAction` from `useAction(serverAction('name'))`. */
 export type FormAction = (formData: FormData) => void | Promise<void>;
 
-/** The props of `<Form>`: a form's own, with client navigation and server action support. */
-export type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> & {
+/** The props of `<Form>`: a form's own and its ref, with client navigation and server action support. */
+export type FormProps = Omit<ComponentPropsWithRef<'form'>, 'method' | 'action'> & {
   method?: 'get' | 'post';
   /**
    * Where to submit. Default: the current URL, which is where `MapPageAction` handlers for this page listen. Or a
@@ -108,8 +108,8 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
   );
 }
 
-/** The props of `<SubmitButton>`: a button's own, except `type`. */
-export type SubmitButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'>;
+/** The props of `<SubmitButton>`: a button's own and its ref, except `type`. */
+export type SubmitButtonProps = Omit<ComponentPropsWithRef<'button'>, 'type'>;
 
 /**
  * A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and

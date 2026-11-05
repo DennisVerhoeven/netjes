@@ -1,9 +1,9 @@
-import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import type { ComponentPropsWithRef, MouseEvent } from 'react';
 import type { Href } from './href.ts';
-import { useBasePath, useInternalRouter, usePathname, withBasePath } from './router.tsx';
+import { useBasePath, useInternalRouter, usePathname, useSearchParams, withBasePath } from './router.tsx';
 
-/** The props of `<Link>`: an anchor's own, with a typed `href` and the client navigation options. */
-export type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+/** The props of `<Link>`: an anchor's own and its ref, with a typed `href` and the client navigation options. */
+export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   /** Typed by the app's routes once `netjes generate` has registered them. */
   href: Href;
   replace?: boolean;
@@ -17,9 +17,31 @@ export type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & 
 
 const BASE = 'http://netjes.invalid';
 
-function isCurrentPath(href: string, pathname: string) {
-  const url = new URL(href, BASE + pathname);
-  return url.origin === BASE && url.pathname === pathname;
+/** One trailing slash makes no other page: `/docs/` is `/docs`, and `/` stays `/`. */
+function withoutTrailingSlash(path: string) {
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+/** The same values, in any order, as often each. */
+function sameValues(a: string[], b: string[]) {
+  const sorted = [...b].sort();
+  return a.length === b.length && [...a].sort().every((value, i) => value === sorted[i]);
+}
+
+/**
+ * Whether the link goes to the page on screen. An href with a `#` points to a place in a page, so it never does.
+ * Otherwise its URL under the base path has the page's path, give or take one trailing slash, and the page's
+ * values for each query parameter it names; parameters it leaves out do not count. Only the path and the query
+ * enter, against a fixed origin, so the server and the browser agree.
+ */
+function isCurrentPage(href: string, pathname: string, search: URLSearchParams, basePath: string) {
+  if (href.includes('#')) return false;
+  const query = search.toString();
+  // The page's URL as the browser has it: the base path, then the page's path, even one that starts like the base path.
+  const page = new URL(BASE + basePath + pathname + (query ? `?${query}` : ''));
+  const target = new URL(withBasePath(href, basePath), page);
+  if (target.origin !== BASE || withoutTrailingSlash(target.pathname) !== withoutTrailingSlash(page.pathname)) return false;
+  return [...new Set(target.searchParams.keys())].every((key) => sameValues(target.searchParams.getAll(key), search.getAll(key)));
 }
 
 function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -39,6 +61,7 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
 export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
   const router = useInternalRouter();
   const pathname = usePathname();
+  const search = useSearchParams();
   const basePath = useBasePath();
   const warm = () => {
     if (prefetch === 'intent' && !reloadDocument) router.prefetch(href);
@@ -47,7 +70,7 @@ export function Link({ href, replace = false, scroll = true, prefetch = 'intent'
   return (
     <a
       href={withBasePath(href, basePath)}
-      aria-current={isCurrentPath(href, pathname) ? 'page' : undefined}
+      aria-current={isCurrentPage(href, pathname, search, basePath) ? 'page' : undefined}
       {...rest}
       onClick={(event) => {
         onClick?.(event);

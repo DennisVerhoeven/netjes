@@ -56,7 +56,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 
 | Next.js | Netjes |
 |---|---|
-| `next/link` | `<Link>`: client navigation, prefetching on hover and focus, `aria-current` on the current page. [React API](reference/react-api.md) |
+| `next/link` | `<Link>`: client navigation, prefetching on hover and focus, and a `ref` to its `<a>`. Unlike `next/link`, it sets `aria-current="page"` on a link to the page on screen, by its path and the query parameters it names, and never on a `#` link. [Links](guides/routing.md#links) |
 | `useRouter()` from `next/navigation` | `useRouter()`: `push`, `replace`, `prefetch`, `refresh`, `back`, `forward` |
 | `usePathname`, `useSearchParams`, `useParams`, `useSelectedLayoutSegment(s)` | The same names, from `netjes` |
 | `notFound()`, `forbidden()`, `unauthorized()` | `Page.NotFound()`, `Page.Forbidden()`, `Page.Unauthorized()`, returned from a page or layout loader |

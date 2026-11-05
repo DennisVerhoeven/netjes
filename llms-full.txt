@@ -807,7 +807,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 
 | Next.js | Netjes |
 |---|---|
-| `next/link` | `<Link>`: client navigation, prefetching on hover and focus, `aria-current` on the current page. [React API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md) |
+| `next/link` | `<Link>`: client navigation, prefetching on hover and focus, and a `ref` to its `<a>`. Unlike `next/link`, it sets `aria-current="page"` on a link to the page on screen, by its path and the query parameters it names, and never on a `#` link. [Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links) |
 | `useRouter()` from `next/navigation` | `useRouter()`: `push`, `replace`, `prefetch`, `refresh`, `back`, `forward` |
 | `usePathname`, `useSearchParams`, `useParams`, `useSelectedLayoutSegment(s)` | The same names, from `netjes` |
 | `notFound()`, `forbidden()`, `unauthorized()` | `Page.NotFound()`, `Page.Forbidden()`, `Page.Unauthorized()`, returned from a page or layout loader |
@@ -1112,10 +1112,32 @@ import { route } from '../generated/netjes.ts';
 ```
 
 - `href` is typed by the app's routes once `netjes generate` has written `generated/netjes.ts`: a path no page serves is a type error. `Href.parse(value)` from the generated file checks a URL that comes from data, such as a CMS ([Typed links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#typed-links)).
-- The link gets `aria-current="page"` when its path is the current one, for styling the current link.
+- The link gets `aria-current="page"` when it goes to the page on screen, which screen readers announce and styles can target: its path is the page's, with `/docs` and `/docs/` counted as one, and the page has the same values for every query parameter the link names, in any order. Parameters the link leaves out do not count: on `/blog?tag=react&utm_source=nl`, the links `/blog?tag=react` and `/blog` are marked and `/blog?tag=vue` is not. Names and values are compared with their case, as `useSearchParams()` reads them: a loader's `tag` parameter gets `react` on `/blog?Tag=react` too, since ASP.NET Core binds query names in any case, but `/blog?tag=react` is not marked there. A link with a `#`, such as `/#features`, points to a place in a page and is never marked, nor is a URL with its own scheme or host (`https://…`, `mailto:`).
+- An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
+
+### The current section
+
+`<Link>` marks only a link to the page on screen. A link that stands for a whole section, such as Docs in a header shown on every page under `/docs`, sets `aria-current` itself: `"page"` on the section's own page and `"true"` on the pages below it.
+
+```tsx
+import { Link, useSelectedLayoutSegments } from 'netjes';
+
+// In the root layout the segments are the whole path: ['docs'] on /docs, ['docs', 'intro'] on /docs/intro.
+export function DocsLink() {
+  const [section, ...below] = useSelectedLayoutSegments();
+  const current = section !== 'docs' ? undefined : below.length > 0 ? 'true' : 'page';
+  return (
+    <Link href="/docs" aria-current={current}>
+      Docs
+    </Link>
+  );
+}
+```
+
+A selector on `[aria-current]` styles both values. `usePathname()` works as well (`pathname.startsWith('/docs/')`), but the segments count `/docs/` as `/docs`, as `<Link>` does. In the section's own layout, `useSelectedLayoutSegment()` is `null` on the section's page and names the segment below it on the others ([Reading the URL](#reading-the-url)).
 
 ### Back and forward
 
@@ -3926,7 +3948,7 @@ The props of an `error.tsx`: what was thrown, with the HTTP status when the serv
 ```ts
 function Link(props: LinkProps): JSX.Element;
 
-type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   href: Href;
   replace?: boolean;            // replace the history entry instead of adding one
   scroll?: boolean;             // default true: scroll to the top, or to the #fragment
@@ -3935,7 +3957,7 @@ type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
 };
 ```
 
-An `<a>` that navigates on the client. It sets `aria-current="page"` when its path is the current one, and puts its `href` under the base path. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links).
 
 #### `useRouter`
 
@@ -4041,7 +4063,7 @@ The request culture the page was rendered in with `AddNetjesLocalization`, such 
 ```ts
 function Form(props: FormProps): JSX.Element;
 
-type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> & {
+type FormProps = Omit<ComponentPropsWithRef<'form'>, 'method' | 'action'> & {
   method?: 'get' | 'post';        // default 'get'
   action?: string | FormAction;   // default: the current URL
   replace?: boolean;              // for a GET form: replace the history entry
@@ -4051,17 +4073,17 @@ type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> 
 type FormAction = (formData: FormData) => void | Promise<void>;
 ```
 
-A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. See [`<Form>` in detail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#form-in-detail).
+A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. A `ref` gets the `<form>` element. See [`<Form>` in detail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#form-in-detail).
 
 #### `SubmitButton`
 
 ```ts
 function SubmitButton(props: SubmitButtonProps): JSX.Element;
 
-type SubmitButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'>;
+type SubmitButtonProps = Omit<ComponentPropsWithRef<'button'>, 'type'>;
 ```
 
-A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript.
+A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript. A `ref` gets the `<button>` element.
 
 #### `serverAction`
 
@@ -4170,7 +4192,7 @@ The page's Content-Security-Policy nonce, for inline scripts and styles of your 
 ```ts
 function Image(props: ImageProps): JSX.Element;
 
-type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
+type ImageProps = Omit<ComponentPropsWithRef<'img'>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
   src: string;           // a path in public/ or a URL on an allowed remote host
   alt: string;           // '' for a decorative image
   width: number;         // the intrinsic size in CSS pixels
@@ -4182,7 +4204,7 @@ type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | '
 };
 ```
 
-An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. See [Images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md).
+An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. A `ref` gets the `<img>` element. See [Images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md).
 
 #### `Script`
 
@@ -5915,7 +5937,8 @@ Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route
 
 ## Links and navigation
 
-- `<Link href={route('/blog/[slug]', { slug })}>`: client navigation with prefetch on hover and focus, `aria-current` on the active link. `route()` and the `Href` type come from `generated/netjes.ts`, so a wrong path or a missing parameter is a type error.
+- `<Link href={route('/blog/[slug]', { slug })}>`: client navigation with prefetch on hover and focus; takes a `ref`, as `<Form>`, `<SubmitButton>` and `<Image>` do. `route()` and the `Href` type come from `generated/netjes.ts`, so a wrong path or a missing parameter is a type error.
+- `aria-current="page"` goes on a link to the page on screen: the same path (`/x` and `/x/` are one) and the page's values for every query parameter the link names. Parameters it leaves out do not count, and a `#` link is never marked. Pass `aria-current` to decide yourself: `undefined` on an "All" filter (`/blog`) while a filter is on, `"true"` on a section link (Docs) below the section's page, from `useSelectedLayoutSegments()` or `usePathname()`.
 - `useRouter()`: `push`, `replace`, `prefetch`, `refresh`, `back`, `forward`.
 - `usePathname()`, `useSearchParams(schema?)`, `useParams(schema?)`: with a schema the values are parsed; catch-all params are arrays. Search values a schema rejects are dropped so its defaults apply; a rejected route param goes to the error page, so constrain route params in C#.
 - `useSelectedLayoutSegment()`, `useSelectedLayoutSegments()`: the active child segment in a layout (tabs).
@@ -6264,6 +6287,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0021 – Signing in or out reaches the app's other tabs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0021-signing-in-or-out-reaches-the-other-tabs.md): a tab that sees a cookie change tells the others on a `BroadcastChannel`, and they forget and reload the same way.
 - [0022 – The client entry hydrates once the shell is parsed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0022-hydrate-once-the-shell-is-parsed.md): it waits for the empty element that ends every document's body, so a cached entry never hydrates half a document.
 - [0023 – Pages are not output-cached in Development](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md): there every request renders the page, nothing is stored, and the page goes out `no-store`, so no edit meets a stale document.
+- [0024 – Link marks the current page by its path and the query parameters it names](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0024-link-marks-the-current-page-by-path-and-query.md): `aria-current="page"` goes on a link to the page on screen, never on a `#` link, and query parameters the link does not name do not count.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -6275,9 +6299,17 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Added
+
+- `<Link>`, `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` to the element they render. `LinkProps`, `FormProps`, `SubmitButtonProps` and `ImageProps` now start from React's `ComponentPropsWithRef` instead of the `*HTMLAttributes` types, which left the ref out, so `<Link ref={ref}>` is no longer a type error. The ref already reached the element at runtime, and only the types refused it; an app that worked around the type error, for example with `document.getElementById(id)`, can pass the ref instead. The four types also include `key` now; React handles it, as for any element, and never passes it to the component.
+
 ### Changed
 
 - Pages are no longer output-cached in the Development environment. Under `CachePage` or any other output caching, every request there renders the page, nothing is stored, and an output-cached page goes out `Cache-Control: no-store, private` unless it sets its own header. A stored page used to outlive every edit, and its markup and styles no longer matched the code, so React reported a hydration error ([ADR 0023](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0023-pages-are-not-output-cached-in-development.md)). Production and every other environment are unchanged, and `netjes routes` still lists `CachePage` pages as cached. A `WebApplicationFactory` test that checks page caching in the Development environment now sees every request render: run it with `UseEnvironment("Testing")` and `Netjes:Mode` set to `Development`. An app that kept `UseOutputCache()` out of Development can drop that guard, and caches data that is slow or costly to load in the service that loads it (`IMemoryCache`, `HybridCache`). In Development the cookie warning now says that outside Development the render is stored, and `Netjes.Rendering.PageCachePolicy` logs once, at Information, that pages are not output-cached there.
+
+### Fixed
+
+- `<Link>` sets `aria-current="page"` only on a link to the page on screen ([ADR 0024](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0024-link-marks-the-current-page-by-path-and-query.md)). It used to compare the link's path alone, byte for byte. Now a link with a `#` (`/#features`, `#top`) is never marked; a link with a query is marked only while the page has the same values for every parameter the link names, in any order (`/search?q=other` is no longer marked on `/search?q=cache`); `/x` and `/x/` count as one page; and a link whose `href` already starts with the base path is marked on its page. Parameters a link leaves out still do not count, so a link that names fewer of them than the page is still marked, such as an "All" filter (`/blog`) on `/blog?tag=react`, or a `?page=2` link that drops the page's filter: set `aria-current` on such links yourself (`aria-current={undefined}` leaves it off). Check how filter and tab bars that style `aria-current` look, since which of their links are marked can change. Links with neither a `#` nor a query are marked as before, and now also when the page's path differs from theirs by a trailing slash. The [routing guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#the-current-section) shows how to mark a section link, such as Docs on every page under `/docs`, with `aria-current="true"`.
 
 ## [0.0.2] - 2026-11-03
 
@@ -6337,7 +6369,6 @@ The work in progress, what comes next, what is planned without a date, and what 
 - valibot as an alternative to zod in the generated file.
 - Navigations that keep what an unmatched parallel-route slot showed, as Next.js does after a soft navigation.
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
-- `<Link>` treating `/x` and `/x/` as the same page for `aria-current`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
 
