@@ -7,6 +7,9 @@ internal interface IAssetResolver
     /// <summary>Identifies the client build; a client on another version reloads instead of navigating.</summary>
     string Version { get; }
 
+    /// <summary>The origin of the Vite dev server, which documents load their scripts from in Development; null for a client build.</summary>
+    string? DevServerOrigin => null;
+
     /// <summary>Assets for a document showing the given modules (layouts and page, outermost first).</summary>
     DocumentAssets Resolve(IReadOnlyList<string> modules);
 }
@@ -16,9 +19,11 @@ internal sealed class DevAssetResolver(NetjesContext context, NodeSidecar sideca
 {
     public string Version => "development";
 
+    public string? DevServerOrigin => sidecar.ViteOrigin ?? $"http://localhost:{context.Options.ViteDevPort}";
+
     public DocumentAssets Resolve(IReadOnlyList<string> modules)
     {
-        var origin = sidecar.ViteOrigin ?? $"http://localhost:{context.Options.ViteDevPort}";
+        var origin = DevServerOrigin;
         return new DocumentAssets([], [], [$"{origin}/@vite/client", $"{origin}/@netjes/client-entry"]);
     }
 }
