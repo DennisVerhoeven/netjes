@@ -91,6 +91,7 @@ public sealed class Netjes.NetjesOptions
   public string NodeExecutable { get; set; }
   public System.Collections.Generic.IReadOnlyList<string> PrivateFormFields { get; set; }
   public string PublicDirectory { get; set; }
+  public bool RedirectLiteralCase { get; set; }
   public TimeSpan RenderTimeout { get; set; }
   public string? Root { get; set; }
   public Netjes.NetjesSecurityHeaderOptions SecurityHeaders { get; set; }
@@ -102,6 +103,7 @@ public sealed class Netjes.NetjesOptions
   public TimeSpan StartupTimeout { get; set; }
   public bool StreamDocuments { get; set; }
   public TimeSpan StreamTimeout { get; set; }
+  public Netjes.TrailingSlash TrailingSlash { get; set; }
   public string? TypesFile { get; set; }
   public int ViteDevPort { get; set; }
   public Netjes.NetjesOptions UseSharedProps<T>(Func<Microsoft.AspNetCore.Http.HttpContext, System.Threading.Tasks.ValueTask<T>> factory)
@@ -208,6 +210,9 @@ public static class Netjes.SitemapEndpointRouteBuilderExtensions
 public sealed class Netjes.SsrRenderException : Exception
   public SsrRenderException(string message, string? jsStack, Exception? inner = null)
   public string? JsStack { get; }
+public enum Netjes.TrailingSlash
+  Ignore = 0
+  Never = 1
 
 namespace Netjes.Images
 public interface Netjes.Images.IImageProcessor
