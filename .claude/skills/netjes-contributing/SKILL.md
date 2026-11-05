@@ -42,7 +42,7 @@ Tests that pin internal details are hard to keep. Assert what an app or a browse
 
 - Conventional subjects, imperative, at most 72 characters, no trailing period. Add a body when the reason isn't obvious from the diff.
 - Stage explicit paths and check `git diff --cached --stat`; never `git add .`. Never `--no-verify`.
-- Generated files (`generated/netjes.ts`, the golden files, `llms.txt` and `llms-full.txt`) are regenerated, never edited by hand, and committed with the change that caused them. `UPDATE_GOLDEN=1 dotnet test --project tests/Netjes.Tests` rewrites the typegen golden files, `packages/netjes/test/fixtures/client-render/shell.html`, the client-render shell that the .NET and Vitest suites both check, and the public API listings in `tests/Netjes.Tests/PublicApi/`; review the diff, and make a new public type or member a decision, not a default.
+- Generated files (`generated/netjes.ts`, the golden files, `llms.txt` and `llms-full.txt`) are regenerated, never edited by hand, and committed with the change that caused them. `UPDATE_GOLDEN=1 dotnet test --project tests/Netjes.Tests` rewrites the typegen golden files, the template's `packages/netjes/template/generated/netjes.ts`, `packages/netjes/test/fixtures/client-render/shell.html`, the client-render shell that the .NET and Vitest suites both check, and the public API listings in `tests/Netjes.Tests/PublicApi/`; review the diff, and make a new public type or member a decision, not a default.
 
 ## 6. Ready for review
 

@@ -215,12 +215,17 @@ export type Route = '/' | '/login' | '/projects' | `/projects/${string}` | `/pro
 /** What `<Link href>` and `router.push` accept: the app's routes, with a query or fragment, or another site. */
 export type Href = Route | `${Route}?${string}` | `${Route}#${string}` | `?${string}` | `#${string}` | `http://${string}` | `https://${string}` | `mailto:${string}` | `tel:${string}`;
 
-/** The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. */
+/**
+ * The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. The third argument is the
+ * query, and `{ hash }` in the fourth adds a fragment: `route('/docs/[...path]', { path }, undefined, { hash: 'keys' })`.
+ */
 export function route<P extends RoutePattern>(
   pattern: P,
-  ...args: {} extends RouteParams[P] ? [params?: RouteParams[P], search?: SearchParamsInput] : [params: RouteParams[P], search?: SearchParamsInput]
+  ...args: {} extends RouteParams[P]
+    ? [params?: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
+    : [params: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
 ): Href {
-  return buildHref(pattern, args[0] ?? {}, args[1]) as Href;
+  return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;
 }
 /** Every page's URL pattern. */
 export const routePatterns = ["/", "/login", "/projects", "/projects/[id]", "/projects/[id]/settings", "/projects/[id]/tasks/[taskId]", "/register"] as const;

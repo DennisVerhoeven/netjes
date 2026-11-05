@@ -50,6 +50,37 @@ describe('buildHref', () => {
     expect(buildHref('/blog', {}, {})).toBe('/blog');
   });
 
+  it('appends an encoded fragment', () => {
+    expect(buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })).toBe('/docs/guides/caching#keys');
+    expect(buildHref('/blog', {}, { tag: 'a' }, { hash: 'top' })).toBe('/blog?tag=a#top');
+    expect(buildHref('/', {}, undefined, { hash: 'start' })).toBe('/#start');
+    expect(buildHref('/blog', {}, undefined, { hash: 'a b' })).toBe('/blog#a%20b');
+    // After the path and the query, each encoded on its own: a space is %20 in a path and a fragment, + in a query.
+    expect(buildHref('/blog/[slug]', { slug: 'a b' }, { q: 'x y' }, { hash: 'c d' })).toBe('/blog/a%20b?q=x+y#c%20d');
+  });
+
+  it('drops one leading # from the hash', () => {
+    expect(buildHref('/blog', {}, undefined, { hash: '#top' })).toBe('/blog#top');
+    expect(buildHref('/blog', {}, { tag: 'a' }, { hash: '#top' })).toBe('/blog?tag=a#top');
+    expect(buildHref('/blog', {}, undefined, { hash: '##top' })).toBe('/blog#%23top');
+  });
+
+  it('encodes every character that could end or change the fragment', () => {
+    expect(buildHref('/blog', {}, undefined, { hash: 'a/b?c:d&e=f#g' })).toBe('/blog#a%2Fb%3Fc%3Ad%26e%3Df%23g');
+    expect(buildHref('/blog', {}, undefined, { hash: 'line\nbreak' })).toBe('/blog#line%0Abreak');
+    expect(buildHref('/blog', {}, undefined, { hash: 'über-uns' })).toBe('/blog#%C3%BCber-uns');
+    // Whatever the hash holds stays in the fragment of this path; it never starts another URL.
+    expect(buildHref('/blog', {}, undefined, { hash: '//evil.example/x' })).toBe('/blog#%2F%2Fevil.example%2Fx');
+  });
+
+  it('adds no fragment for an empty or missing hash', () => {
+    for (const options of [undefined, {}, { hash: undefined }, { hash: '' }, { hash: '#' }]) {
+      expect(buildHref('/blog', {}, undefined, options), JSON.stringify(options)).toBe('/blog');
+      expect(buildHref('/blog', {}, { tag: 'a' }, options), JSON.stringify(options)).toBe('/blog?tag=a');
+    }
+    expect(buildHref('/blog', {})).toBe('/blog');
+  });
+
   it('throws for a missing parameter or an empty catch-all', () => {
     expect(() => buildHref('/blog/[slug]', {})).toThrow("netjes: route '/blog/[slug]' needs the parameter 'slug'");
     expect(() => buildHref('/docs/[...path]', { path: [] })).toThrow("needs the parameter 'path'");

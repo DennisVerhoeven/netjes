@@ -128,7 +128,7 @@ Netjes has built-in 404 and error pages for apps that have neither file. Special
 
 A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, but route values reach loaders and `params` as the URL spelled them.
 
-Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays:
+Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. The third argument is the query, and `{ hash }` in the fourth is the fragment:
 
 ```tsx
 import { route } from '../generated/netjes.ts';
@@ -136,6 +136,7 @@ import { route } from '../generated/netjes.ts';
 route('/blog/[slug]', { slug: post.slug });          // '/blog/hello-world'
 route('/docs/[...path]', { path: ['guides', 'a b'] }); // '/docs/guides/a%20b'
 route('/projects/[id]', { id }, { done: 2 });          // '/projects/web?done=2'
+route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' }); // '/docs/guides/caching#keys'
 ```
 
 ## Route groups and private folders
@@ -201,6 +202,7 @@ import { Link } from 'netjes';
 import { route } from '../generated/netjes.ts';
 
 <Link href={route('/blog/[slug]', { slug: post.slug })}>{post.title}</Link>
+<Link href={route('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })}>Cache keys</Link>
 <Link href="/about" className="aria-[current=page]:font-bold">About</Link>
 ```
 
@@ -208,6 +210,7 @@ import { route } from '../generated/netjes.ts';
 - The link gets `aria-current="page"` when it goes to the page on screen, which screen readers announce and styles can target: its path is the page's, with `/docs` and `/docs/` counted as one, and the page has the same values for every query parameter the link names, in any order. Parameters the link leaves out do not count: on `/blog?tag=react&utm_source=nl`, the links `/blog?tag=react` and `/blog` are marked and `/blog?tag=vue` is not. Names and values are compared with their case, as `useSearchParams()` reads them: a loader's `tag` parameter gets `react` on `/blog?Tag=react` too, since ASP.NET Core binds query names in any case, but `/blog?tag=react` is not marked there. A link with a `#`, such as `/#features`, points to a place in a page and is never marked, nor is a URL with its own scheme or host (`https://…`, `mailto:`).
 - An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
+- To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names. `scroll={false}` keeps the scroll position, and `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
 

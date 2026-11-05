@@ -164,6 +164,19 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_Route_TakesAFragment()
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx", "app/blog/[slug]/page.tsx"]);
+
+        var output = await GenerateAsync(app);
+
+        // One tuple for the routes whose parameters are all optional, one for those that need some: both end with the options.
+        Assert.Contains("[params?: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]", output);
+        Assert.Contains("[params: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]", output);
+        Assert.Contains("return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;", output);
+    }
+
+    [Fact]
     public async Task Generate_RegisteredGroups_AreExported()
     {
         await using var app = await TestApp.StartAsync(

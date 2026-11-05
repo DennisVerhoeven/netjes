@@ -303,12 +303,17 @@ internal sealed class TypeScriptGenerator(
             " | `http://${string}` | `https://${string}` | `mailto:${string}` | `tel:${string}`;\n\n");
         output.Append(
             """
-            /** The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. */
+            /**
+             * The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. The third argument is the
+             * query, and `{ hash }` in the fourth adds a fragment: `route('/docs/[...path]', { path }, undefined, { hash: 'keys' })`.
+             */
             export function route<P extends RoutePattern>(
               pattern: P,
-              ...args: {} extends RouteParams[P] ? [params?: RouteParams[P], search?: SearchParamsInput] : [params: RouteParams[P], search?: SearchParamsInput]
+              ...args: {} extends RouteParams[P]
+                ? [params?: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
+                : [params: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
             ): Href {
-              return buildHref(pattern, args[0] ?? {}, args[1]) as Href;
+              return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;
             }
 
             """.ReplaceLineEndings("\n"));

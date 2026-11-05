@@ -38,9 +38,16 @@ export function isRouteHref(value: string, patterns: readonly string[]): boolean
 
 /**
  * Builds the URL for a route pattern written in file-name syntax (`/blog/[slug]`, `/docs/[...path]`,
- * `/shop/[[...filters]]`), encoding every segment value. The generated `route()` helper calls this with typed params.
+ * `/shop/[[...filters]]`), encoding every segment value. `options.hash` adds a fragment after the query: the id of an
+ * element in the page, with one leading `#` dropped and the rest encoded; with nothing left, no fragment is added. The
+ * generated `route()` helper calls this with typed params.
  */
-export function buildHref(pattern: string, params: Record<string, unknown>, search?: SearchParamsInput): string {
+export function buildHref(
+  pattern: string,
+  params: Record<string, unknown>,
+  search?: SearchParamsInput,
+  options?: { hash?: string | undefined },
+): string {
   const missing = (name: string): never => {
     throw new Error(`netjes: route '${pattern}' needs the parameter '${name}'`);
   };
@@ -75,5 +82,6 @@ export function buildHref(pattern: string, params: Record<string, unknown>, sear
     }
   }
   const queryString = query.toString();
-  return `/${segments.join('/')}${queryString ? `?${queryString}` : ''}`;
+  const fragment = (options?.hash ?? '').replace(/^#/, '');
+  return `/${segments.join('/')}${queryString ? `?${queryString}` : ''}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`;
 }
