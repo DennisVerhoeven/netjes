@@ -215,6 +215,28 @@ public class NonPageEndpointCacheTests
         Assert.Equal(expectedCalls, calls);
     }
 
+    /// <summary>The policy the guide shows for a text file, run as written.</summary>
+    [Fact]
+    public async Task ATextFileCachedWithTheGuidesPolicy_IsStoredOnceForAnyQueryString_UntilItsTagIsRevalidated()
+    {
+        var calls = 0;
+        await using var app = await StartAsync(a => a
+            .MapGet("/llms.txt", () => Results.Text($"call {Interlocked.Increment(ref calls)}", "text/plain; charset=utf-8"))
+            .CacheOutput(p => p.SetVaryByQuery([]).Expire(TimeSpan.FromMinutes(10)).Tag("docs")));
+
+        var stored = new[]
+        {
+            await app.Client.GetStringAsync("/llms.txt", Ct),
+            await app.Client.GetStringAsync("/llms.txt?v=1", Ct),
+            await app.Client.GetStringAsync("/llms.txt?v=2&utm_source=feed", Ct),
+        };
+        await app.App.Services.GetRequiredService<IPageCache>().RevalidateTagAsync("docs", Ct);
+        var evicted = await app.Client.GetStringAsync("/llms.txt?v=1", Ct);
+
+        Assert.Equal(["call 1", "call 1", "call 1"], stored);
+        Assert.Equal("call 2", evicted);
+    }
+
     /// <summary>
     /// The path tag that <c>RevalidatePath</c> evicts by belongs to the page rules, which an endpoint of the app does
     /// not get. A tag the policy sets is evicted by <c>Revalidate</c>, as for a page.
