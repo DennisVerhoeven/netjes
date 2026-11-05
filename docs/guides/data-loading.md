@@ -62,7 +62,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ post }) {
 });
 ```
 
-`pages['/blog/[slug]']` is the zod schema of `PostProps`, written from the loader's return type. Props the schema rejects throw `Invalid props: ...` to the nearest error boundary. `definePage` works with any [Standard Schema](https://standardschema.dev) library, so a hand-written valibot or arktype schema works as well. Dates arrive as ISO strings (`z.iso.date()`, `z.iso.datetime()`), as System.Text.Json writes them.
+`pages['/blog/[slug]']` is the zod schema of `PostProps`, written from the loader's return type. Props the schema rejects throw `Invalid props: ...` to the nearest error boundary. `definePage` works with any [Standard Schema](https://standardschema.dev) library, so a hand-written valibot or arktype schema works as well, and so does a generated schema extended where no C# type fits, such as `pages['/blog/[slug]'].extend({ canonical: Href })` for a link in a type the app cannot change. Dates arrive as ISO strings (`z.iso.date()`, `z.iso.datetime()`), as System.Text.Json writes them.
 
 A page without a loader renders with no props, and its schema is `z.object({})`.
 
@@ -308,7 +308,7 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
 
-The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`) gets another name. Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](../decisions/0006-types-and-zod-from-csharp-contracts.md)).
+The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](../decisions/0006-types-and-zod-from-csharp-contracts.md)).
 
 The app writes the file when it starts in Development, when its content changed, so a running `npm run dev` picks up a C# change on its next restart. `npx netjes generate` writes it on demand, also while `npm run dev` runs, and `npx netjes generate --check` exits 1 when it is out of date: run that in CI ([the netjes command](../reference/cli.md#netjes-generate)). Commit the file and never edit it by hand. `NetjesOptions.TypesFile` moves it; `null` turns generation off.
 
@@ -334,7 +334,29 @@ import { Href, route } from '../generated/netjes.ts';
 <Link href={Href.parse(item.href)}>{item.label}</Link>            // a URL from data, checked at the boundary
 ```
 
-`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search, { hash })` builds an encoded URL: `search` is the query and `hash` the id of an element on the page, added as a fragment ([Links](routing.md#links)). `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS or shared props.
+`Route` is the union of URLs the pages serve (`` '/about' | `/blog/${string}` ``), and `Href` adds a query or fragment, `?…` and `#…` on their own, and `http(s):`, `mailto:` and `tel:` URLs. `route(pattern, params, search, { hash })` builds an encoded URL: `search` is the query and `hash` the id of an element on the page, added as a fragment ([Links](routing.md#links)). `isHref(value)` and the `Href` zod schema check a string that comes from data, such as a CMS: they accept a root-relative URL that one of the pages serves, a `?…` or `#…` link, and an `http(s):`, `mailto:` or `tel:` URL, and refuse every URL that holds an ASCII control character or starts or ends with a space, since browsers drop those characters (`/\t/evil.example` goes to `evil.example`).
+
+#### Links from C#
+
+A link that C# sends to one of the app's pages is a `Netjes.Href` in the props type. The generated schema holds it as the `Href` schema, so the props parse checks it against the pages, and the component passes it to `<Link>` as it is:
+
+```csharp
+public sealed record NavLink(Href Href, string Label);
+public sealed record SiteProps(string SiteName, IReadOnlyList<NavLink> Navigation);
+
+options.UseSharedProps(_ => ValueTask.FromResult(new SiteProps("Shop", [new(new Href("/products"), "Products"), new(new Href("/about"), "About")])));
+```
+
+```tsx
+const { navigation } = useSharedProps(sharedProps);
+
+{navigation.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
+```
+
+- `new Href(url)` throws `ArgumentException` unless the URL starts with `/` (but not `//` or `/\`, which browsers read as another host), `?`, `#`, or `http:`, `https:`, `mailto:` or `tel:`, and holds no ASCII control character and no space at either end. `Href.TryCreate(url, out var href)` returns `false` instead. `Href?`, lists, dictionaries and `Deferred<Href>` work as for any other type ([`Href`](../reference/csharp-api.md#href)).
+- C# checks the shape of the URL, not whether a page serves it. A root-relative `Href` that no page serves fails the props parse with `Invalid props: …` (`Invalid layout props: …` in a layout's props, `Invalid shared props: …` in the shared props), takes the rest of the props with it, and renders the nearest error boundary. When the server renders the page, it answers 500 if the component that parses is outside every Suspense boundary. Under one, such as a `loading.tsx`, React sends that boundary's fallback in a document with the loader's status, usually 200, and the error page shows once the parse fails in the browser, as it does after a client navigation. So make an `Href` only of a URL the code knows to be a page, such as one built from a page's pattern. A link to an endpoint or a file, such as `/llms.txt`, stays a `string`, rendered with `<a href={useHref(url)}>` or `<Link reloadDocument>` ([Endpoints next to pages](routing.md#endpoints-next-to-pages)). A link from a CMS stays a `string` too, checked with `isHref` or `Href.parse` where it is rendered, so that one bad entry does not take the page down.
+- Build the URL as `route()` builds one: root-relative, with each value encoded (`new Href($"/blog/{Uri.EscapeDataString(slug)}")`), and without the base path, which the router adds as it does for every link. `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so pass them `pathBase: PathString.Empty`.
+- No query value or route value binds to an `Href`, also through `[AsParameters]`. A URL from the request, such as a `returnUrl`, stays a `string`, checked with `Page.IsLocalUrl` ([What a loader returns](#what-a-loader-returns)). An action input reads an `Href` from JSON, as a server action called with an object sends it, checked for its shape only. Form binding fills one only from a field named after the constructor's parameter (`next.url` for a property `Next`), also checked for its shape only, and never from the field `next` that a form posts: that leaves an `init` property `null` and fails a positional record's post with 400. So a `[FromForm]` input takes a `string` and makes the `Href` with `Href.TryCreate`.
 
 ## JSON endpoints
 

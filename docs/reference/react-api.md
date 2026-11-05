@@ -473,7 +473,7 @@ One query value.
 function isRouteHref(value: string, patterns: readonly string[]): boolean;
 ```
 
-Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or an `http(s):`, `mailto:` or `tel:` URL. `//host` and `/\host` are not. The generated `isHref()` and `Href` schema call it.
+Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or an `http(s):`, `mailto:` or `tel:` URL. `//host` and `/\host` are not, and neither is any URL that holds an ASCII control character or starts or ends with a space: browsers drop those characters, so `/\t/evil.example` goes to `evil.example`. The generated `isHref()` and `Href` schema call it. A root-relative URL has to match a pattern, which a C# `Netjes.Href`, checked for its shape only, does not ask.
 
 ### Payload types
 
@@ -712,8 +712,8 @@ The entry is internal, but the mark is public. The client router puts `data-netj
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
 | `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |
 | `Route` | The URLs the pages serve, as template literal types. |
-| `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`. |
-| `isHref(value)` | Whether a string is an `Href`. |
+| `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`, which the schemas use for each C# `Netjes.Href` property ([Links from C#](../guides/data-loading.md#links-from-c)). The file declares the schema, with `isHref` and `routePatterns`, right after its imports, before the schemas that use it. |
+| `isHref(value)` | Whether a string is an `Href`, by the rules of [`isRouteHref`](#isroutehref). |
 | `RouteParams`, `RoutePattern`, `routePatterns` | The parameters per pattern, the patterns as a type, and as an array. |
 
 TanStack Query's hooks (`useQuery`, `useMutation`, `useQueryClient` and the rest) come straight from `@tanstack/react-query`; Netjes provides the client ([Server state](../guides/data-loading.md#server-state-with-tanstack-query)).

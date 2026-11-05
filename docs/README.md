@@ -79,6 +79,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0037 – Netjes keeps an app's Content-Security-Policy as written in Development, and warns](decisions/0037-csp-kept-as-written-in-development-with-warnings.md)
 - [0038 – `netjes/testing` renders a page's document from its props](decisions/0038-netjes-testing-renders-a-pages-document.md)
 - [0039 – A page URL has one spelling](decisions/0039-a-page-url-has-one-spelling.md)
+- [0040 – Links from C# are a Href type](decisions/0040-links-from-csharp-are-a-href-type.md)
 
 ## The project
 

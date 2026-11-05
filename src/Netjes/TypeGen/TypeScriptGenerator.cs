@@ -87,7 +87,12 @@ internal sealed class TypeScriptGenerator(
         }
 
         output.Append("import { z } from 'zod';\n\n");
-        output.Append(declarations);
+        // Before the declarations: a schema with an Href property reads Href as the module loads.
+        AppendHref(output, table);
+        if (declarations.Length > 0)
+        {
+            output.Append('\n').Append(declarations);
+        }
 
         output.Append("\n/** Props of each page by URL pattern, as its C# loader returns them: `definePage(pages['/blog/[slug]'], Page)`. */\n");
         AppendMap(output, "pages", pages.Select(p => (p.Pattern, p.Type switch
@@ -267,6 +272,30 @@ internal sealed class TypeScriptGenerator(
         output.Append("} as const;\n");
     }
 
+    /// <summary>The <c>Href</c> schema, which checks a URL against the pages, and what it calls.</summary>
+    private static void AppendHref(StringBuilder output, RouteTable table)
+    {
+        output.Append("/** Every page's URL pattern. */\n");
+        output.Append("export const routePatterns = [")
+            .Append(string.Join(", ", table.Pages.Select(p => JsonSerializer.Serialize(p.Pattern))))
+            .Append("] as const;\n\n");
+        output.Append(
+            """
+            /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
+            export function isHref(value: string): value is Href {
+              return isRouteHref(value, routePatterns);
+            }
+
+            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. The schemas below use it for each C# `Netjes.Href`. */
+            export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
+    /// The route types and <c>route()</c>, last: <c>isHref</c> and the <c>Href</c> schema name the <c>Href</c> type
+    /// before its declaration, as TypeScript allows for a type.
+    /// </summary>
     private static void AppendRoutes(StringBuilder output, RouteTable table)
     {
         output.Append("\n/** Every page's URL pattern and the parameters `route()` needs for it. */\n");
@@ -315,21 +344,6 @@ internal sealed class TypeScriptGenerator(
             ): Href {
               return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;
             }
-
-            """.ReplaceLineEndings("\n"));
-        output.Append("/** Every page's URL pattern. */\n");
-        output.Append("export const routePatterns = [")
-            .Append(string.Join(", ", table.Pages.Select(p => JsonSerializer.Serialize(p.Pattern))))
-            .Append("] as const;\n\n");
-        output.Append(
-            """
-            /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
-            export function isHref(value: string): value is Href {
-              return isRouteHref(value, routePatterns);
-            }
-
-            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. */
-            export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
 
             declare module 'netjes' {
               interface Register {

@@ -3,6 +3,17 @@
 import { buildHref, isRouteHref, serverAction, type SearchParamsInput } from 'netjes';
 import { z } from 'zod';
 
+/** Every page's URL pattern. */
+export const routePatterns = ["/", "/about"] as const;
+
+/** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
+export function isHref(value: string): value is Href {
+  return isRouteHref(value, routePatterns);
+}
+
+/** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. The schemas below use it for each C# `Netjes.Href`. */
+export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
+
 export const HomeProps = z.object({
   message: z.string(),
   renderedAt: z.iso.datetime({ offset: true, local: true }),
@@ -60,16 +71,6 @@ export function route<P extends RoutePattern>(
 ): Href {
   return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;
 }
-/** Every page's URL pattern. */
-export const routePatterns = ["/", "/about"] as const;
-
-/** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
-export function isHref(value: string): value is Href {
-  return isRouteHref(value, routePatterns);
-}
-
-/** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. */
-export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
 
 declare module 'netjes' {
   interface Register {
