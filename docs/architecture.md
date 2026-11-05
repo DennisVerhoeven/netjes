@@ -93,6 +93,8 @@ sequenceDiagram
   B->>B: load client entry, hydrateRoot(document)
 ```
 
+In development, the sidecar also inlines the CSS that the page and its segment files import, as `<style data-vite-dev-id>` elements in the head, so that the page is styled before its scripts run. It finds the files in the SSR environment's module graph, which loaded those modules, and takes each file's text from the client environment's build: the JSON string on the `const __vite__css = ` line of the module the browser imports for the file, the string Vite's client passes to `updateStyle`. Vite keeps that module in its cache and serves it to the browser, so when the page's modules load, before hydration, Vite's client adopts each element with the text already in it, and React hydrates the text the server rendered. A module without that line, from a Vite or a plugin that writes it otherwise, gets the SSR environment's `?inline` build of the file instead, which can differ from the browser's, and the sidecar logs a warning once ([ADR 0035](decisions/0035-development-styles-are-inlined-from-the-client-build.md)). `Document` renders the elements with `suppressHydrationWarning`, because Vite's client owns their text once it runs: a file edited between the render and the import differs, and React reports nothing for it.
+
 ## A client navigation
 
 ```mermaid
