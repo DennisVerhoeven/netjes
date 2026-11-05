@@ -13,7 +13,11 @@ public class SidecarPoolTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static SidecarPool Create(
-        int processes, NetjesMode mode = NetjesMode.Production, Action<Process>? killTree = null, Action<NetjesOptions>? configure = null)
+        int processes,
+        NetjesMode mode = NetjesMode.Production,
+        Action<Process>? killTree = null,
+        Action<NetjesOptions>? configure = null,
+        SidecarWatchdog? watchdog = null)
     {
         var options = new NetjesOptions
         {
@@ -25,7 +29,7 @@ public class SidecarPoolTests
         };
         configure?.Invoke(options);
         var environment = new HostingEnvironment { ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" };
-        return new SidecarPool(new NetjesContext(Options.Create(options), environment), NullLoggerFactory.Instance, killTree);
+        return new SidecarPool(new NetjesContext(Options.Create(options), environment), NullLoggerFactory.Instance, killTree, watchdog);
     }
 
     [Fact]
@@ -330,5 +334,33 @@ public class SidecarPoolTests
 
         Assert.Equal(HealthStatus.Degraded, health.Status);
         Assert.Equal("1 of 2 Node sidecars ready; the others are restarting.", health.Description);
+    }
+
+    [Fact]
+    public async Task HealthCheck_IsUnhealthyWhileAHungProcessRestarts_ThenHealthy()
+    {
+        // The watchdog looks every 200 ms, and a second without an answer is a hang.
+        await using var pool = Create(processes: 1, watchdog: new SidecarWatchdog(TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)));
+        await pool.StartAsync(Ct);
+        var check = new NodeSidecarHealthCheck(pool);
+
+        var hung = pool.RenderAsync("""{"page":"hang"}""", Ct);
+
+        Assert.Equal(HealthStatus.Unhealthy, await HealthWithinAsync(check, HealthStatus.Unhealthy, TimeSpan.FromSeconds(10)));
+        Assert.Equal(HealthStatus.Healthy, await HealthWithinAsync(check, HealthStatus.Healthy, TimeSpan.FromSeconds(10)));
+        await Assert.ThrowsAsync<SsrRenderException>(() => hung);
+    }
+
+    /// <summary>The check's status once it is <paramref name="expected"/>, or the last one after <paramref name="within"/>.</summary>
+    private static async Task<HealthStatus> HealthWithinAsync(NodeSidecarHealthCheck check, HealthStatus expected, TimeSpan within)
+    {
+        var status = (await check.CheckHealthAsync(new HealthCheckContext(), Ct)).Status;
+        for (var waited = Stopwatch.StartNew(); status != expected && waited.Elapsed < within;)
+        {
+            await Task.Delay(20, Ct);
+            status = (await check.CheckHealthAsync(new HealthCheckContext(), Ct)).Status;
+        }
+
+        return status;
     }
 }

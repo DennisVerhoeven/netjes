@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -28,7 +29,8 @@ public class NodeSidecarTests
         Action<NetjesOptions>? configure = null,
         HttpMessageHandler? handler = null,
         ILoggerFactory? loggers = null,
-        Action<Process>? killTree = null)
+        Action<Process>? killTree = null,
+        SidecarWatchdog? watchdog = null)
     {
         var options = new NetjesOptions
         {
@@ -41,7 +43,7 @@ public class NodeSidecarTests
         var environment = new HostingEnvironment { ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" };
         return new NodeSidecar(
             new NetjesContext(Options.Create(options), environment), (loggers ?? NullLoggerFactory.Instance).CreateLogger<NodeSidecar>(), handler,
-            killTree);
+            killTree, watchdog);
     }
 
     [Fact]
@@ -362,12 +364,19 @@ public class NodeSidecarTests
     /// <summary>Sends through a real handler, unless <paramref name="fail"/> has an exception for that send (counted from 1).</summary>
     private sealed class FailingHandler(Func<int, Exception?> fail) : DelegatingHandler(new HttpClientHandler())
     {
+        private readonly ConcurrentQueue<HttpMethod> _methods = new();
         private int _sends;
 
         public int Sends => Volatile.Read(ref _sends);
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            fail(Interlocked.Increment(ref _sends)) is { } failure ? throw failure : await base.SendAsync(request, cancellationToken);
+        /// <summary>The method of each request sent through it.</summary>
+        public IReadOnlyList<HttpMethod> Methods => [.. _methods];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            _methods.Enqueue(request.Method);
+            return fail(Interlocked.Increment(ref _sends)) is { } failure ? throw failure : await base.SendAsync(request, cancellationToken);
+        }
     }
 
     [Fact]
@@ -877,6 +886,250 @@ public class NodeSidecarTests
         var html = await sidecar.RenderAsync("""{"page":"app/back/page.tsx"}""", Ct);
 
         Assert.Equal("<html>app/back/page.tsx production</html>", html);
+    }
+
+    /// <summary>A watchdog quick enough for a test: it looks every 200 ms, and a second without an answer is a hang.</summary>
+    private static readonly SidecarWatchdog Quick = new(TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
+
+    [Fact]
+    public async Task AProcessThatStopsAnswering_IsTakenOutAndRestarted()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // The process keeps running, and nothing it was sent is answered from here on.
+        var hung = sidecar.RenderAsync("""{"page":"hang"}""", Ct);
+        await WaitUntilAsync(() => !sidecar.IsReady, "The process that stopped answering still counts as ready.");
+        await WaitUntilAsync(() => sidecar.IsReady, "The process that stopped answering was not restarted.");
+
+        Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.Contains(logs.Entries, e => e.Level == LogLevel.Error
+            && e.Message == $"The Node sidecar {pid} has not answered for 1s; killing it so that it restarts.");
+        // It was sent to the process, so it is not sent again.
+        await Assert.ThrowsAsync<SsrRenderException>(() => hung);
+    }
+
+    [Fact]
+    public async Task AProcessThatStopsAnswering_AndCannotBeKilledAtFirst_StaysOutUntilItIs()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        var kills = 0;
+        await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick, killTree: process =>
+        {
+            if (Interlocked.Increment(ref kills) == 1)
+            {
+                throw new Win32Exception(1, "Operation not permitted");
+            }
+
+            process.Kill(entireProcessTree: true);
+        });
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        var hung = sidecar.RenderAsync("""{"page":"hang"}""", Ct);
+        var failed = await WaitForLogAsync(logs, e => e.Level == LogLevel.Error
+            && e.Message.StartsWith($"Killing the Node sidecar {pid} failed: Operation not permitted", StringComparison.Ordinal));
+
+        Assert.NotNull(failed);
+        Assert.False(sidecar.IsReady);
+        // The next ping finds it hung again, and that kill goes through.
+        Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.Equal(2, Volatile.Read(ref kills));
+        await Assert.ThrowsAsync<SsrRenderException>(() => hung);
+    }
+
+    [Fact]
+    public async Task AProcessWithdrawnByARefusal_ThatThenHangs_IsStillKilledAndRestarted()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick with { Timeout = TimeSpan.FromMilliseconds(500) });
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Refused while the process does not listen, which takes it out of the ready ones: a process still running two
+        // seconds later counts as ready again. This one listens again after 300 ms, and answers nothing.
+        await sidecar.RenderAsync("""{"page":"withdraw-then-hang"}""", Ct);
+        Assert.Null(await sidecar.TryRenderAsync("""{"page":"x"}""", Ct));
+        var refused = Stopwatch.StartNew();
+
+        // Waits for the process that is ready next.
+        Assert.NotEqual(pid, await SidecarPoolTests.PidAsync(sidecar));
+        // Past the two seconds after which the hung process would have been taken back.
+        if (TimeSpan.FromSeconds(2.5) - refused.Elapsed is { Ticks: > 0 } left)
+        {
+            await Task.Delay(left, Ct);
+        }
+
+        Assert.DoesNotContain(logs.Entries, e => e.Message.EndsWith(" kept running; it takes renders again.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AProcessBusyForLessThanTheTimeout_IsNotRestarted()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Each render keeps the process busy for two of the watchdog's intervals, so a ping waits behind it.
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Equal("<html>blocked</html>", await sidecar.RenderAsync("""{"page":"block","ms":400}""", Ct));
+        }
+
+        Assert.Equal(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task AProcessThatIsSlowToRenderButKeepsAnswering_IsNotRestarted()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("fake-sidecar.mjs", loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Two seconds, twice the watchdog's timeout, waiting rather than busy: the process answers pings meanwhile.
+        Assert.Equal("<html>slow</html>", await sidecar.RenderAsync("""{"page":"slow"}""", Ct));
+
+        Assert.Equal(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task OnlyAProcessThatHasNotAnsweredLately_IsPinged()
+    {
+        var handler = new FailingHandler(_ => null);
+        var interval = TimeSpan.FromMilliseconds(300);
+        await using var sidecar = Create("fake-sidecar.mjs", handler: handler, watchdog: new SidecarWatchdog(interval, TimeSpan.FromSeconds(1)));
+        await sidecar.StartAsync(Ct);
+
+        // Answers far more often than the watchdog looks: each look finds one since the last.
+        var before = await PingsAsync(sidecar);
+        for (var busy = Stopwatch.StartNew(); busy.Elapsed < TimeSpan.FromSeconds(1.5);)
+        {
+            await sidecar.RenderAsync("""{"page":"app/page.tsx"}""", Ct);
+            await Task.Delay(50, Ct);
+        }
+
+        var whileBusy = await PingsAsync(sidecar) - before;
+
+        // Idle, it is pinged at every look. Reading the count is a render, so the reads are four intervals apart.
+        var idle = await PingsAsync(sidecar);
+        var pinged = idle;
+        for (var waited = TimeSpan.Zero; pinged - idle < 3 && waited < TimeSpan.FromSeconds(10); waited += interval * 4)
+        {
+            await Task.Delay(interval * 4, Ct);
+            pinged = await PingsAsync(sidecar);
+        }
+
+        Assert.InRange(whileBusy, 0, 1);
+        Assert.InRange(pinged - idle, 3, int.MaxValue);
+        // Not through the HTTP client, whose spans and metrics are the renders'.
+        Assert.DoesNotContain(HttpMethod.Get, handler.Methods);
+    }
+
+    [Fact]
+    public async Task ASidecarScriptThatCrashesOnThePing_SaysSoWhenItExits()
+    {
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("ping-crash-sidecar.mjs", loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Idle, the process is pinged, and the ping ends it.
+        var warning = await WaitForLogAsync(logs, e => e.Level == LogLevel.Warning
+            && e.Message.StartsWith($"The Node sidecar {pid} exited while ", StringComparison.Ordinal));
+
+        Assert.NotNull(warning);
+        Assert.Contains("GET /health", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("Netjes:SidecarScript", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InDevelopment_AProcessThatStopsAnswering_IsLeftAlone()
+    {
+        // There the process hosts the Vite dev server, and it stops at a breakpoint in page code.
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create("fake-sidecar.mjs", configure: o => o.Mode = NetjesMode.Development, loggers: loggers, watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+        using var giveUp = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var hung = sidecar.RenderAsync("""{"page":"hang"}""", giveUp.Token);
+
+        // Longer than an interval and a timeout together, after which production takes the process out.
+        await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+
+        Assert.True(sidecar.IsReady);
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
+        await giveUp.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hung);
+        // Now rather than at the end of the stop's grace: a blocked process never sees its stdin close.
+        using var process = Process.GetProcessById(pid);
+        process.Kill();
+    }
+
+    [Fact]
+    public async Task TheSidecarScriptNetjesShips_AnswersThePing()
+    {
+        // The script apps run, with a server entry of a few lines: a ping it did not answer would get it killed.
+        using var dir = new TempDirectory();
+        Directory.CreateDirectory(Path.Combine(dir.FullName, "dist", "server"));
+        await File.WriteAllTextAsync(Path.Combine(dir.FullName, "package.json"), """{ "type": "module" }""", Ct);
+        await File.WriteAllTextAsync(
+            Path.Combine(dir.FullName, "dist", "server", "server-entry.js"),
+            "export const render = async () => `<html>${process.pid}</html>`;\n",
+            Ct);
+        var logs = new ListLoggerProvider();
+        using var loggers = new LoggerFactory([logs]);
+        await using var sidecar = Create(
+            Path.Combine(RepoRoot(), "packages", "netjes", "sidecar", "server.mjs"), configure: o => o.Root = dir.FullName, loggers: loggers,
+            watchdog: Quick);
+        await sidecar.StartAsync(Ct);
+        var pid = await SidecarPoolTests.PidAsync(sidecar);
+
+        // Idle for longer than an interval and a timeout together, twice.
+        await Task.Delay(TimeSpan.FromSeconds(2.5), Ct);
+
+        Assert.Equal(pid, await SidecarPoolTests.PidAsync(sidecar));
+        Assert.DoesNotContain(logs.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    /// <summary>The number of health pings the fake sidecar has answered.</summary>
+    private static async Task<int> PingsAsync(NodeSidecar sidecar) =>
+        int.Parse((await sidecar.RenderAsync("""{"page":"pings"}""", Ct))["<html>".Length..^"</html>".Length], System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Waits until <paramref name="condition"/> holds, up to ten seconds.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, string failure)
+    {
+        for (var waited = 0; !condition() && waited < 10_000; waited += 10)
+        {
+            await Task.Delay(10, Ct);
+        }
+
+        Assert.True(condition(), failure);
+    }
+
+    private static string RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "Netjes.slnx")))
+            {
+                return dir.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("Repository root not found.");
     }
 
     /// <summary>Waits until the process no longer counts as ready, up to five seconds.</summary>
