@@ -14,7 +14,9 @@ namespace Netjes.Sidecar;
 /// refused or reset the connection) stops counting as ready: it is exiting, though .NET may not have handled that yet,
 /// or on Windows its accept queue is full. The render reached nobody, so it goes to the next pick, as does one whose
 /// pick is not ready when it is tried: none was, or it was taken out just after it was picked. One with deferred
-/// values stays, since they are sent to its process, and waits for that one to take renders again.
+/// values stays, since they are sent to its process, and waits for that one to take renders again. In production a
+/// process that stops answering stops counting as ready too, from the moment its sidecar takes it out to kill it (see
+/// <see cref="SidecarWatchdog"/>).
 /// </summary>
 internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
 {
