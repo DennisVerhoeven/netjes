@@ -4,11 +4,36 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
+import { createElement as h } from 'react';
 import { describe, expect, it } from 'vitest';
-import { CSP_SCRIPT_HASHES } from '../src/index.ts';
+import { CSP_SCRIPT_HASHES, Form, SubmitButton, serverAction, useAction } from '../src/index.ts';
 import { createServerRenderer } from '../src/server-render.tsx';
 
-const renderer = createServerRenderer({ '/app/page.tsx': async () => ({ default: () => null }) });
+const save = serverAction('notes.save');
+
+/** A form for a server action, as the guides write it. */
+function ServerActionForm() {
+  const [, formAction] = useAction(save);
+  return h(Form, { action: formAction }, h('button', { type: 'submit' }, 'Save'));
+}
+
+/** The same server action on a submit button instead. */
+function ServerActionButton() {
+  const [, formAction] = useAction(save);
+  return h(Form, { method: 'post', action: '/notes' }, h(SubmitButton, { formAction }, 'Save'));
+}
+
+/** A form whose action is a function of the page's own. */
+function FunctionForm() {
+  return h(Form, { action: async () => {} }, h('button', { type: 'submit' }, 'Go'));
+}
+
+const renderer = createServerRenderer({
+  '/app/page.tsx': async () => ({ default: () => null }),
+  '/app/server-action-form.tsx': async () => ({ default: ServerActionForm }),
+  '/app/server-action-button.tsx': async () => ({ default: ServerActionButton }),
+  '/app/function-form.tsx': async () => ({ default: FunctionForm }),
+});
 
 /** A page with no layouts, props or deferred values, and the one script a build always has: the client entry. */
 function payload(overrides: Record<string, unknown> = {}): string {
@@ -73,5 +98,27 @@ describe('CSP_SCRIPT_HASHES', () => {
     const guide = await readFile(new URL('../../../docs/guides/security.md', import.meta.url), 'utf8');
 
     expect(guide).toContain(`\`${CSP_SCRIPT_HASHES}\``);
+  });
+});
+
+describe('a form action', () => {
+  it('from useAction in <Form action> adds no inline script, since the server renders the form with its URL', async () => {
+    const html = await renderer.render(payload({ page: 'app/server-action-form.tsx' }));
+
+    expect(html).toContain('<form action="/_netjes/actions/notes.save" method="post">');
+    expect([...new Set(inlineScripts(html).map(hashSource))].sort()).toEqual(CSP_SCRIPT_HASHES.split(' ').sort());
+  });
+
+  // React's script replays a submission made before the page hydrates. Its text follows the React version, so
+  // CSP_SCRIPT_HASHES leaves it out, and the security guide tells apps under a hash-based policy what to do about it.
+  it.each([
+    ['another function in <Form action>', 'app/function-form.tsx'],
+    ['a server action in <SubmitButton formAction>', 'app/server-action-button.tsx'],
+  ])('that is %s makes React add an inline script that CSP_SCRIPT_HASHES does not list', async (_, page) => {
+    const html = await renderer.render(payload({ page }));
+
+    const listed = CSP_SCRIPT_HASHES.split(' ');
+    const hashes = [...new Set(inlineScripts(html).map(hashSource))];
+    expect(hashes.filter((hash) => !listed.includes(hash))).toHaveLength(1);
   });
 });
