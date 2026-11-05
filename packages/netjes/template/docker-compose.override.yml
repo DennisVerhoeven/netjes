@@ -1,11 +1,12 @@
-# Development: dotnet watch for C#, the Vite dev server for pages (HMR on 5173). Open http://localhost:8080.
-# Both ports are bound to localhost only: dev error pages show stack traces and Vite serves the source.
+# Development: dotnet watch for C#, the Vite dev server for pages (HMR on 5173). Open http://localhost:8080, or the port
+# APP_PORT names. Both ports are bound to localhost only: dev error pages show stack traces and Vite serves the source.
 services:
   app:
     build:
       target: dev
     ports:
-      - "127.0.0.1:8080:8080"
+      # The host's port for the app: APP_PORT, from the shell or a .env file next to this file, or 8080. Vite keeps 5173.
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
       - "127.0.0.1:5173:5173"
     volumes:
       - .:/src
