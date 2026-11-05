@@ -69,6 +69,15 @@ internal static class LoaderBinding
     }
 
     /// <summary>
+    /// Whether minimal API binding needs a value for the parameter, and without one calls no handler (a page loader's
+    /// endpoint answers 400): it has no default value and its type is not nullable, as minimal APIs read nullability
+    /// (<see cref="IParameterBindingMetadata.IsOptional"/>). An array is never required: without a value in the query
+    /// string, it binds an empty one.
+    /// </summary>
+    public static bool RequiresAValue(IParameterBindingMetadata parameter) =>
+        !parameter.IsOptional && !parameter.ParameterInfo.ParameterType.IsArray;
+
+    /// <summary>
     /// How a loader's request delegate binds: like a minimal API GET handler, from the given route parameters (null when
     /// they are not known, as minimal APIs take them when they build no endpoint), the query string and services, and
     /// never from an inferred body.

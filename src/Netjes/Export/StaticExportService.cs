@@ -17,7 +17,8 @@ namespace Netjes.Export;
 /// <c>netjes export</c> (<c>NETJES_COMMAND=export</c>): renders every page through the running app into static
 /// HTML files, like Next.js <c>output: 'export'</c>. Dynamic pages are rendered for their <c>.StaticParams(...)</c>;
 /// pages that need a server (form actions, authorization) fail the export unless excluded. A page whose loader, or a
-/// layout loader above it, reads the query string is exported with a warning, since every URL is requested without one.
+/// layout loader above it, reads the query string is exported with a warning, since every URL is requested without one;
+/// when the loader requires a value there, the page fails without one, and the warning says why.
 /// </summary>
 internal sealed class StaticExportService(
     IServiceProvider services,
@@ -49,6 +50,20 @@ internal sealed class StaticExportService(
     private const string QueryStringLayoutPages =
         "{File} reads {Parameters} from the query string, but netjes export writes the {Count} pages below it ({Urls}) without one, and a static host serves those files for every query string. " +
         "To export a page for each value, make it a route parameter with .StaticParams(...); to keep the pages on a server, exclude them with .ExcludeFromExport(), which on the layout loader leaves out every page below the layout.";
+
+    // For a loader that requires a value from the query string ({Parameters} names those keys only), which minimal API
+    // binding does not call without one (LoaderBinding.RequiresAValue): the page answers 400, and the export fails on it.
+    private const string QueryStringRequiredPage =
+        "{File} requires {Parameters} from the query string, but netjes export requests {Pattern} without one, so the app answers 400 and the export fails. " +
+        "To export the page without one, give each such parameter a default value or a nullable type; to export a page for each value, make it a route parameter with .StaticParams(...); to keep the page on a server, exclude it with .ExcludeFromExport().";
+
+    private const string QueryStringRequiredDynamicPage =
+        "{File} requires {Parameters} from the query string, but netjes export requests each URL of {Pattern} without one, so the app answers 400 and the export fails. " +
+        "To export the pages without one, give each such parameter a default value or a nullable type; to export a page for each value, make it a route parameter with .StaticParams(...); to keep the pages on a server, exclude them with .ExcludeFromExport().";
+
+    private const string QueryStringRequiredLayout =
+        "{File} requires {Parameters} from the query string, but netjes export requests every page below it ({Urls}) without one, so the layout loader cannot run and the export fails. " +
+        "To export them without one, give each such parameter a default value or a nullable type; to export a page for each value, make it a route parameter with .StaticParams(...); to keep them on a server, exclude them with .ExcludeFromExport(), which on the layout loader leaves out every page below the layout.";
 
     /// <summary>A URL no page serves, so the app answers with its 404 page.</summary>
     private const string NotFoundProbe = "/__netjes_export_404";
@@ -291,9 +306,10 @@ internal sealed class StaticExportService(
     /// <summary>
     /// One warning for each exported page whose loader reads the query string, and one for each layout loader that reads
     /// it above an exported page: the export requests every URL without a query string, and a static host serves the
-    /// file it wrote for any. What a loader reads is what minimal API binding infers for its parameters
-    /// (<see cref="LoaderBinding.QueryKeyOf"/>), so a loader that reads <c>HttpContext.Request.Query</c> itself, or takes
-    /// a type that binds itself (<c>BindAsync</c>), goes unreported.
+    /// file it wrote for any. A loader that requires a value there (<see cref="LoaderBinding.RequiresAValue"/>) does not
+    /// run without one, so its warning names those keys and says that the export fails. What a loader reads is what
+    /// minimal API binding infers for its parameters (<see cref="LoaderBinding.QueryKeyOf"/>), so a loader that reads
+    /// <c>HttpContext.Request.Query</c> itself, or takes a type that binds itself (<c>BindAsync</c>), goes unreported.
     /// </summary>
     private List<ExportWarning> QueryStringWarnings(List<ExportedPage> exported)
     {
@@ -306,8 +322,12 @@ internal sealed class StaticExportService(
             }
 
             // A page mapped in a route group has the group's route parameters too.
-            var keys = QueryKeys(get.Metadata.OfType<IParameterBindingMetadata>(), [.. get.RoutePattern.Parameters.Select(p => p.Name)]);
-            if (keys.Count > 0)
+            var (keys, required) = QueryKeys(get.Metadata.OfType<IParameterBindingMetadata>(), [.. get.RoutePattern.Parameters.Select(p => p.Name)]);
+            if (required.Count > 0)
+            {
+                warnings.Add(new(page.Parameters.Count == 0 ? QueryStringRequiredPage : QueryStringRequiredDynamicPage, [page.File, Quoted(required), page.Pattern]));
+            }
+            else if (keys.Count > 0)
             {
                 warnings.Add(new(page.Parameters.Count == 0 ? QueryStringPage : QueryStringDynamicPage, [page.File, Quoted(keys), page.Pattern]));
             }
@@ -327,7 +347,7 @@ internal sealed class StaticExportService(
                 continue;
             }
 
-            var keys = QueryKeys(parameters, loader.Segment.Parameters);
+            var (keys, required) = QueryKeys(parameters, loader.Segment.Parameters);
             var below = exported.Where(e => e.Route.Segments.Any(s => s.Id == loader.Segment.Id)).SelectMany(e => e.Urls).Distinct().ToList();
             if (keys.Count == 0 || below.Count == 0)
             {
@@ -335,17 +355,27 @@ internal sealed class StaticExportService(
             }
 
             var named = below.Count <= 3 ? string.Join(", ", below) : $"{string.Join(", ", below.Take(3))}, and {below.Count - 3} more";
-            warnings.Add(below.Count == 1
-                ? new(QueryStringLayoutPage, [loader.Segment.Layout, Quoted(keys), named])
+            warnings.Add(required.Count > 0 ? new(QueryStringRequiredLayout, [loader.Segment.Layout, Quoted(required), named])
+                : below.Count == 1 ? new(QueryStringLayoutPage, [loader.Segment.Layout, Quoted(keys), named])
                 : new(QueryStringLayoutPages, [loader.Segment.Layout, Quoted(keys), below.Count, named]));
         }
 
         return warnings;
     }
 
-    /// <summary>The query string keys the parameters read, each once in any case, as ASP.NET Core matches them.</summary>
-    private static List<string> QueryKeys(IEnumerable<IParameterBindingMetadata> parameters, IReadOnlyList<string> routeParameters) =>
-        [.. parameters.Select(p => LoaderBinding.QueryKeyOf(p, routeParameters)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)];
+    /// <summary>
+    /// The query string keys the parameters read, and those that some parameter requires a value for, each once in any
+    /// case, as ASP.NET Core matches them.
+    /// </summary>
+    private static (List<string> Keys, List<string> Required) QueryKeys(IEnumerable<IParameterBindingMetadata> parameters, IReadOnlyList<string> routeParameters)
+    {
+        var read = parameters.Select(p => (Key: LoaderBinding.QueryKeyOf(p, routeParameters), Required: LoaderBinding.RequiresAValue(p)))
+            .Where(r => r.Key is not null)
+            .ToList();
+        return (Once(read.Select(r => r.Key!)), Once(read.Where(r => r.Required).Select(r => r.Key!)));
+
+        static List<string> Once(IEnumerable<string> keys) => [.. keys.Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
 
     /// <summary>'q', 'q' and 'page', or 'q', 'page' and 'sort'.</summary>
     private static string Quoted(List<string> keys)

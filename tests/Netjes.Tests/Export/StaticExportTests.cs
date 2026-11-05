@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using Netjes.Export;
 using Netjes.Rendering;
 using Netjes.Tests.Endpoints;
@@ -648,6 +649,69 @@ public class StaticExportTests
 
         Assert.Equal(0, _exitCode);
         Assert.Contains(pages, Assert.Single(QueryStringWarnings(app)).Message);
+    }
+
+    public sealed record RequiredQuery(string? Q, int Page);
+
+    [Theory]
+    [InlineData("int", "'page'")]
+    [InlineData("string", "'q'")]
+    [InlineData("FromQuery", "'p'")]
+    [InlineData("StringValues", "'tags'")]
+    [InlineData("AsParameters", "'Page'")]
+    public async Task Export_PageWhoseLoaderRequiresAQueryStringValue_IsWarnedThatTheExportFails(string kind, string keys)
+    {
+        // Without a default value or a nullable type, minimal APIs answer 400 to a request without the value; only the
+        // keys of such parameters are named ('page', not 'q').
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/search/page.tsx"],
+            map: a => _ = kind switch
+            {
+                "int" => a.MapPageLoader("/search", (string? q, int page) => Page.Props(new { q, page })),
+                "string" => a.MapPageLoader("/search", (string q) => Page.Props(new { q })),
+                "FromQuery" => a.MapPageLoader("/search", ([FromQuery(Name = "p")] int page) => Page.Props(new { page })),
+                "StringValues" => a.MapPageLoader("/search", (StringValues tags) => Page.Props(new { tags = tags.Count })),
+                _ => a.MapPageLoader("/search", ([AsParameters] RequiredQuery query) => Page.Props(new { query.Q, query.Page })),
+            });
+
+        Assert.Equal(1, _exitCode);
+        Assert.False(File.Exists(Out("search/index.html")));
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.StartsWith(
+            $"app/search/page.tsx requires {keys} from the query string, but netjes export requests /search without one, so the app answers 400 and the export fails.",
+            warning.Message);
+        Assert.Contains("give each such parameter a default value or a nullable type", warning.Message);
+        Assert.Contains(app.Logs, l => l.Message.Contains("Cannot export /search: the app answered 400"));
+    }
+
+    [Fact]
+    public async Task Export_DynamicPageWhoseLoaderRequiresAQueryStringValue_IsWarnedThatTheExportFails()
+    {
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/blog/[slug]/page.tsx"],
+            map: a => a.MapPageLoader("/blog/[slug]", (string slug, int page) => Page.Props(new PostProps(slug)))
+                .StaticParams(_ => [new { slug = "hello" }]));
+
+        Assert.Equal(1, _exitCode);
+        Assert.StartsWith(
+            "app/blog/[slug]/page.tsx requires 'page' from the query string, but netjes export requests each URL of /blog/[slug] without one, so the app answers 400",
+            Assert.Single(QueryStringWarnings(app)).Message);
+    }
+
+    [Fact]
+    public async Task Export_LayoutLoaderThatRequiresAQueryStringValue_IsWarnedThatThePagesBelowItFail()
+    {
+        await using var app = await ExportAsync(
+            ["app/page.tsx", "app/docs/layout.tsx", "app/docs/page.tsx", "app/docs/intro/page.tsx"],
+            map: a => a.MapLayoutLoader("/docs", (string? version, int page) => Page.Props(new { version, page })));
+
+        Assert.Equal(1, _exitCode);
+        Assert.False(File.Exists(Out("docs/index.html")));
+        var warning = Assert.Single(QueryStringWarnings(app));
+        Assert.StartsWith(
+            "app/docs/layout.tsx requires 'page' from the query string, but netjes export requests every page below it (/docs, /docs/intro) without one, so the layout loader cannot run and the export fails.",
+            warning.Message);
+        Assert.Contains("give each such parameter a default value or a nullable type", warning.Message);
     }
 
     [Fact]
