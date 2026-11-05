@@ -18,10 +18,12 @@ export function Document({ info, dataJson, children }: DocumentProps) {
   // Netjes owns <html> and <body>: the app's layout renders inside the body, so its markup cannot give either one an
   // attribute. A script that runs before hydration can (a theme, a browser extension, a translator), and in development
   // React logs a mismatch for each attribute on an element that its props do not have. suppressHydrationWarning ends
-  // that check for the element's own attributes and no further, so its children are checked as before. React does not
-  // write the prop into the markup, and production does not check attributes at all. The check is off for `lang` too:
-  // the server and the client read it from the same payload, so it differs only when a script changed it, or when
-  // Netjes has a bug.
+  // that check for the element's own attributes. It also makes React accept any text that is the element's own child,
+  // in production too: text that a layout or a page renders outside any element or Suspense boundary sits directly in
+  // the body, and a mismatch there is neither reported nor repaired. The elements in the body are checked as before,
+  // their attributes and their text. React does not write the prop into the markup, and production does not check
+  // attributes at all. The check is off for `lang` too: the server and the client read it from the same payload, so it
+  // differs only when a script changed it, or when Netjes has a bug.
   return (
     <html lang={info.lang} suppressHydrationWarning>
       <head>
