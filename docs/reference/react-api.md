@@ -74,7 +74,7 @@ type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
 };
 ```
 
-An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](../guides/routing.md#links).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. See [Links](../guides/routing.md#links) and [Focus and announcements](../guides/routing.md#focus-and-announcements).
 
 #### `useRouter`
 
@@ -91,7 +91,7 @@ type Router = {
 };
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). Throws outside a Netjes page.
 
 #### `useNavigation`
 
