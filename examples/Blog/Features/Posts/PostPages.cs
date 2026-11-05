@@ -31,9 +31,13 @@ public static class PostPages
                         .ToList()))
                 .WithMetadata(new PageMetadata { Title = tag is null ? "Blog" : $"Posts tagged {tag}" }));
 
-        // Like incremental static regeneration: rendered at most every 30 seconds. The like count is seeded into the
-        // page's TanStack Query cache (key ["likes", slug], see LikeButton.tsx) and refreshed on the client.
-        // Related posts are deferred: the page streams without them and they fill in when ready.
+        // Output-cached for 30 seconds outside the Development environment, like incremental static regeneration, but
+        // here only the payloads of client navigations: the Blog's Content-Security-Policy uses a nonce (Program.cs),
+        // and a document with a nonce is never stored (Netjes logs a warning once), so every full page load is
+        // rendered. A hash-based policy would let documents be stored, but no hash covers the scripts that stream the
+        // Page.Defer values below. The like count is seeded into the page's TanStack Query cache (key ["likes", slug],
+        // see LikeButton.tsx) and refreshed on the client. Related posts are deferred: the page streams without them
+        // and they fill in when ready.
         app.MapPageLoader("/blog/[slug]", (string slug, PostStore store, HttpContext http) =>
                 store.Find(slug) is { } post
                     ? Page.Props(new PostProps(

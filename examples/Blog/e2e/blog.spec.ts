@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -203,7 +204,8 @@ test.describe('in the browser', () => {
 
   test('the like button calls a server action and keeps the count in TanStack Query', async ({ page }) => {
     const errors = watchForErrors(page);
-    // The page is output-cached, so the count it was rendered with can be behind; the client refetches it.
+    // LikeButton refetches the count once the page is interactive. Wait for that, so a refetch answered before the like
+    // cannot arrive after it and put the old count back.
     const refetched = page.waitForResponse((response) => response.url().endsWith('/api/posts/forms-that-work-without-javascript/likes'));
     await page.goto('/blog/forms-that-work-without-javascript');
     await markWindow(page);
@@ -488,6 +490,36 @@ test.describe('output caching', () => {
       // already, the first comes from the cache, and the entry (30 seconds) can expire before the second.
       expect(second.headers()['age'] ?? first.headers()['age']).toBeDefined();
     }
+  });
+
+  test("a post's documents render on every request under the nonce CSP, while its client payloads come from the output cache", async ({ request }, testInfo) => {
+    test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
+    // Each query string is an entry of its own, so no earlier run, retry or test has stored this one.
+    const url = `/blog/file-based-routing?run=${randomUUID()}`;
+
+    // A stored document would hand every visitor the same nonce, so a document that carries one is rendered each time.
+    const documents = [await request.get(url), await request.get(url)];
+    for (const response of documents) {
+      expect(response.status()).toBe(200);
+      expect(response.headers()['cache-control']).toBe('no-store, private');
+      expect(response.headers()['age']).toBeUndefined();
+    }
+    const [firstNonce, secondNonce] = documents.map((response) => /'nonce-([^']+)'/.exec(response.headers()['content-security-policy'] ?? '')?.[1]);
+    expect(firstNonce).toBeTruthy();
+    expect(secondNonce).toBeTruthy();
+    expect(secondNonce).not.toBe(firstNonce);
+
+    // A client navigation's payload carries no nonce: the first is rendered and stored, the second is that copy.
+    const headers = { 'X-Netjes-Data': '1' };
+    const first = await request.get(url, { headers });
+    const second = await request.get(url, { headers });
+    for (const response of [first, second]) {
+      expect(response.status()).toBe(200);
+      expect(response.headers()['cache-control']).toBeUndefined();
+    }
+    expect(first.headers()['age']).toBeUndefined();
+    expect(second.headers()['age']).toBeDefined();
+    expect(await second.text()).toBe(await first.text());
   });
 });
 
