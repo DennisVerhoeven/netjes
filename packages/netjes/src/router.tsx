@@ -31,6 +31,7 @@ import {
   parseAntiforgery,
   parseNavigationPayload,
 } from './payload.ts';
+import { RouteAnnouncer } from './route-announcer.tsx';
 import { ErrorBoundary, LayoutDepthContext, RouteTree } from './route-tree.tsx';
 import { type StandardSchemaV1, parseLenient, parseWith } from './schema.ts';
 
@@ -1035,6 +1036,9 @@ export function RouterProvider({
               />
             </ErrorBoundary>
           </Shell>
+          {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
+              new page has set. */}
+          <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
         </NavigationContext>
       </ViewContext>
     </RouterContext>

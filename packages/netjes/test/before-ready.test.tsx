@@ -185,7 +185,9 @@ describe('the router used as soon as the page is hydrated', () => {
 
       const page = await hydrate(payload('app/menu/page.tsx', '/menu'));
 
-      await vi.waitFor(() => expect(page.textContent).toBe('Done'));
+      // The page's heading, not the container's whole text: the router's live region, after the page, names it too.
+      await vi.waitFor(() => expect(page.querySelector('h1')?.textContent).toBe('Done'));
+      expect(page.textContent).not.toContain('Menu');
       expect(loaded).toBe(1);
       expect(window.location.pathname).toBe('/done');
       window.history.back();
