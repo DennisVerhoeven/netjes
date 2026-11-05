@@ -78,6 +78,8 @@ export default function RootLayout({ children }: LayoutProps) {
 
 React renders the whole document ([ADR 0003](../decisions/0003-react-renders-the-whole-document.md)): Netjes writes `<html>`, `<head>` and `<body>` around the root layout, so a layout returns what goes inside the body. Tags such as `<title>` and `<link rel="icon">` that a layout or page renders end up in the head.
 
+A layout cannot put attributes on `<html>` or `<body>`, but a script can before React hydrates the document: a theme script, a browser extension or a translator. In development React logs a hydration error for an attribute on an element that it did not render (it does not check attributes in production), so Netjes renders both elements with `suppressHydrationWarning`. React then logs nothing for the attributes of those two elements, and leaves an attribute as the script set it. The prop covers the two elements' own attributes, `lang` included, and nothing below them; a mismatch in the head or in the body's content is reported as before ([ADR 0026](../decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)).
+
 A layout that needs data gets it from a C# layout loader, `app.MapLayoutLoader(...)`, and declares it with `defineLayout` ([Layout loaders](data-loading.md#layout-loaders)). A layout loader's conventions, such as `.RequireAuthorization()`, cover every page below it.
 
 ### Error, not-found, forbidden and unauthorized pages

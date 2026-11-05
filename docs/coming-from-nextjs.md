@@ -9,7 +9,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Next.js | Netjes |
 |---|---|
 | `app/` with `page.tsx` | The same. Page and segment files are `.tsx` or `.jsx`; every other file in `app/` is colocated code. [Routing](guides/routing.md) |
-| `layout.tsx` | The same, and it stays mounted across navigations. A root layout renders its content, not `<html>` and `<body>`: Netjes renders the document around it ([ADR 0003](decisions/0003-react-renders-the-whole-document.md)) |
+| `layout.tsx` | The same, and it stays mounted across navigations. A root layout renders its content, not `<html>` and `<body>`: Netjes renders the document around it ([ADR 0003](decisions/0003-react-renders-the-whole-document.md)), with the `suppressHydrationWarning` on `<html>` and `<body>` that a Next.js root layout adds for a script that sets an attribute on them before hydration ([ADR 0026](decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)) |
 | `template.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `forbidden.tsx`, `unauthorized.tsx`, `global-error.tsx` | The same files. Built-in pages stand in for a missing `not-found.tsx` or `error.tsx`. `global-error.tsx` belongs at the root of `app/`; anywhere else it stops the app at startup |
 | `[slug]`, `[...slug]`, `[[...slug]]`, `(group)`, `_private` | The same. Each page becomes an ASP.NET Core route (`[slug]` is `{slug}`), so ASP.NET Core's matcher decides precedence |
 | Parallel routes: `@slot` folders, `default.tsx` | The same: the layout gets each slot as a prop |
