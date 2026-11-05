@@ -180,7 +180,8 @@ test.describe('in the browser', () => {
 
   test('the like button calls a server action and keeps the count in TanStack Query', async ({ page }) => {
     const errors = watchForErrors(page);
-    // The page is output-cached, so the count it was rendered with can be behind; the client refetches it.
+    // LikeButton refetches the count once the page is interactive. Wait for that, so a refetch answered before the like
+    // cannot arrive after it and put the old count back.
     const refetched = page.waitForResponse((response) => response.url().endsWith('/api/posts/forms-that-work-without-javascript/likes'));
     await page.goto('/blog/forms-that-work-without-javascript');
     await markWindow(page);
