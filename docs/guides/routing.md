@@ -413,7 +413,7 @@ That hides every kind, and the warning logged when the check itself cannot run. 
 
 `netjes routes` (or `npm run routes` in an app made with `netjes new`) prints the pages as ASP.NET Core maps them: pattern, file, loader, page action, props type, output caching and authorization, then the other endpoints and the route warnings. `--json` prints the same as JSON. See [the netjes command](../reference/cli.md#netjes-routes).
 
-App code and tests read the same from the endpoints, without the command. Every endpoint that serves a page carries `PageRouteMetadata`: its `Pattern` is the page's pattern in the report, and the report's loader is the `IsLoader` of the page's `GET` endpoint, true when `MapPageLoader` maps it. The report's output caching is true under any output caching of the page, `CachePage` or another policy, while `CachedPageMetadata`, with the duration and tags, is only on the endpoints `CachePage` is put on. See [endpoint metadata](../reference/csharp-api.md#endpoint-metadata).
+App code and tests can read the same from the endpoints, without running the command. Every endpoint that serves a page carries `PageRouteMetadata`: its `Pattern` is the page's pattern in the report, and the report's loader is the `IsLoader` of the page's `GET` endpoint, true when `MapPageLoader` maps it. The report's output caching is true under any output caching of the page, `CachePage` or another policy, while `CachedPageMetadata`, with the duration and tags, is only on the endpoints `CachePage` is put on. See [endpoint metadata](../reference/csharp-api.md#endpoint-metadata).
 
 ## In development and production
 
