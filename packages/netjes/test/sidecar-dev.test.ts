@@ -139,12 +139,13 @@ beforeAll(async () => {
       // The port Vite listens on, for the requests a browser makes.
       "const port = { name: 'port', configureServer(server) { server.httpServer.once('listening', () => console.log(`VITE_PORT ${server.httpServer.address().port}`)); } };",
       // An edit, which the watcher would report: GET /__netjes-test/edit?file=<path> answers once Vite has handled it
-      // in every environment (hotUpdateEnvironments, below), with the type of each message Vite sent the browsers.
+      // in every environment (hotUpdateEnvironments, below), with the type of each message Vite sent the browsers. A
+      // full reload that names no file is the dependency optimizer's, which can come at any time, and is left out.
       'let handled;',
       "const edits = { name: 'edits', configureServer(server) {",
       '  const sent = [];',
       '  const send = server.ws.send.bind(server.ws);',
-      "  server.ws.send = (payload, ...rest) => { sent.push(typeof payload === 'string' ? payload : payload.type); return send(payload, ...rest); };",
+      "  server.ws.send = (payload, ...rest) => { if (payload.type !== 'full-reload' || payload.triggeredBy) sent.push(payload.type ?? payload); return send(payload, ...rest); };",
       "  server.middlewares.use('/__netjes-test/edit', (req, res) => {",
       '    sent.length = 0;',
       "    handled = () => { handled = undefined; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(sent)); };",
