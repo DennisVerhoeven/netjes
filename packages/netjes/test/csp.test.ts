@@ -11,19 +11,25 @@ import { createServerRenderer } from '../src/server-render.tsx';
 const renderer = createServerRenderer({ '/app/page.tsx': async () => ({ default: () => null }) });
 
 /** A page with no layouts, props or deferred values, and the one script a build always has: the client entry. */
-const payload = JSON.stringify({
-  kind: 'page',
-  route: '/',
-  page: 'app/page.tsx',
-  segments: [],
-  props: {},
-  params: {},
-  shared: null,
-  status: 200,
-  url: '/',
-  version: 'v1',
-  document: { lang: 'en', assets: { stylesheets: [], modulePreloads: [], scripts: ['/assets/client-entry.js'] }, errorPage: null },
-});
+function payload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    kind: 'page',
+    route: '/',
+    page: 'app/page.tsx',
+    segments: [],
+    props: {},
+    params: {},
+    shared: null,
+    status: 200,
+    url: '/',
+    version: 'v1',
+    ...overrides,
+    document: { lang: 'en', assets: { stylesheets: [], modulePreloads: [], scripts: ['/assets/client-entry.js'] }, errorPage: null },
+  });
+}
+
+/** What a URL that no page matches gets: Netjes's own not-found page. */
+const notFound = { route: null, page: null, status: 404, url: '/missing' };
 
 async function text(stream: Readable): Promise<string> {
   let html = '';
@@ -46,8 +52,9 @@ const hashSource = (script: string) => `'sha256-${createHash('sha256').update(sc
 
 describe('CSP_SCRIPT_HASHES', () => {
   it.each([
-    ['a complete document', () => renderer.render(payload)],
-    ['a streamed document', async () => text(await renderer.renderToStream(payload))],
+    ['a complete document', () => renderer.render(payload())],
+    ['a streamed document', async () => text(await renderer.renderToStream(payload()))],
+    ['a not-found document', () => renderer.render(payload(notFound))],
   ])('lists the hash of every inline script in %s', async (_, render) => {
     const html = await render();
 

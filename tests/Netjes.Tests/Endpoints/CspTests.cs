@@ -173,14 +173,16 @@ public partial class CspTests
         Assert.DoesNotContain(app.Logs, l => l.Message.Contains("hash-based", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task ScriptHashes_AreTheHashesOfTheInlineScriptsTheClientRenderShellCarries()
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/missing")]
+    public async Task ScriptHashes_AreTheHashesOfTheInlineScriptsTheClientRenderShellCarries(string url)
     {
-        // The document .NET writes itself while no sidecar is ready; packages/netjes/test/csp.test.ts hashes the
-        // scripts of the documents the sidecar renders.
+        // The document .NET writes itself while no sidecar is ready, for a page and for the not-found page;
+        // packages/netjes/test/csp.test.ts hashes the scripts of the documents the sidecar renders.
         await using var app = await ClientRenderFallbackTests.StartAsync(configure: o => o.ContentSecurityPolicy = HashPolicy);
 
-        var html = await (await app.GetDocumentAsync("/")).Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var html = await (await app.GetDocumentAsync(url)).Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Contains("No Node sidecar was ready", html);
         var hashes = InlineScripts(html).Select(HashSource).Distinct().Order(StringComparer.Ordinal);
