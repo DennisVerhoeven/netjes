@@ -9,6 +9,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { actionRequest, expectActionClient, fetchAction, setActionClient } from './actions.tsx';
@@ -16,6 +17,7 @@ import { deferredRegistry, revivePayload } from './deferred.ts';
 import type { EncodedForm } from './form-data.ts';
 import type { Href } from './href.ts';
 import { MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
+import { moveFocusAfterNavigation } from './navigation-focus.ts';
 import {
   type ActionResponse,
   type AntiforgeryToken,
@@ -90,6 +92,13 @@ type PageRequest = { method: 'GET' } | ({ method: 'POST' } & SubmitBody);
 function isLoaded(result: LoadResult): result is Loaded {
   return 'payload' in result;
 }
+
+/**
+ * What remounts the page and its templates when it changes: the page's path, or for an intercepted page the key of the
+ * page under it, which stays on screen. Two views with one key show the same page.
+ */
+const pageKeyOf = (loaded: Loaded) => loaded.pageKey ?? loaded.url.pathname;
+
 type ScrollIntent = { kind: 'none' } | { kind: 'top' } | { kind: 'hash'; hash: string } | { kind: 'restore'; x: number; y: number };
 type HistoryMode = 'push' | 'replace' | 'none' | 'auto';
 
@@ -289,7 +298,8 @@ type NavigatorDeps = {
   showDocument(html: string, url: string): void;
   download(file: Blob, name: string): void;
   setPending(state: NavigationState): void;
-  commit(loaded: Loaded, scroll: ScrollIntent): void;
+  /** `focusedAtStart`: what had the focus when the navigation started, which decides where the focus goes after it. */
+  commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null): void;
 };
 
 type GoOptions = {
@@ -395,7 +405,7 @@ class Navigator {
       const key = createKey();
       window.history[history === 'push' ? 'pushState' : 'replaceState']({ [STATE_KEY]: key }, '', url.href);
       this.setCurrent(key, { ...this.current, url });
-      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE);
+      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, document.activeElement);
       return;
     }
 
@@ -561,13 +571,16 @@ class Navigator {
     if (known) {
       this.active?.controller.abort();
       this.setCurrent(key, { ...known, url });
-      this.deps.commit(this.current, scroll);
+      this.deps.commit(this.current, scroll, document.activeElement);
       return;
     }
     void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true });
   }
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
+    // Read before anything this navigation starts can move it: inside the click (or the keypress) that started it,
+    // before React has handled that event's own state updates, such as a menu that closes.
+    const focusedAtStart = document.activeElement;
     if (url.origin !== window.location.origin) {
       // navigate() and Form hand other origins to the browser, and every page URL the router keeps is on this one.
       // Refuse one that gets here all the same: a failed load would send the browser to it.
@@ -646,7 +659,7 @@ class Navigator {
       this.forgetToken();
       committed = true;
       const scroll = shown.base ? NONE : options.scroll === 'auto' ? (shown.url.pathname === previous.pathname ? NONE : TOP) : options.scroll;
-      this.deps.commit(shown, scroll);
+      this.deps.commit(shown, scroll, focusedAtStart);
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
       if (request.method === 'POST') {
@@ -817,21 +830,22 @@ function elementForFragment(fragment: string): HTMLElement | null {
   return document.getElementById(decoded) ?? document.getElementById(fragment);
 }
 
-function applyScroll(intent: ScrollIntent) {
+/** Scrolls as the intent says, and returns the element a fragment names, which then takes the focus. */
+function applyScroll(intent: ScrollIntent): HTMLElement | null {
   switch (intent.kind) {
     case 'none':
-      return;
+      return null;
     case 'top':
       window.scrollTo(0, 0);
-      return;
+      return null;
     case 'restore':
       window.scrollTo(intent.x, intent.y);
-      return;
+      return null;
     case 'hash': {
       const target = elementForFragment(intent.hash.slice(1));
       if (target) target.scrollIntoView();
       else window.scrollTo(0, 0);
-      return;
+      return target;
     }
     default: {
       const exhaustive: never = intent;
@@ -840,7 +854,7 @@ function applyScroll(intent: ScrollIntent) {
   }
 }
 
-type View = { loaded: Loaded; id: number; scroll: ScrollIntent };
+type View = { loaded: Loaded; id: number; scroll: ScrollIntent; focusedAtStart: Element | null };
 type ViewValue = { payload: PagePayload; url: URL };
 
 const RouterContext = createContext<InternalRouter | null>(null);
@@ -904,6 +918,7 @@ export function RouterProvider({
     },
     id: 0,
     scroll: NONE,
+    focusedAtStart: null,
   }));
   const [navigation, setNavigation] = useState<NavigationState>(IDLE);
   const [navigator] = useState(() => {
@@ -918,9 +933,9 @@ export function RouterProvider({
         showDocument,
         download,
         setPending: setNavigation,
-        commit: (loaded, scroll) =>
+        commit: (loaded, scroll, focusedAtStart) =>
           startTransition(() => {
-            setView((previous) => ({ loaded, id: previous.id + 1, scroll }));
+            setView((previous) => ({ loaded, id: previous.id + 1, scroll, focusedAtStart }));
             setNavigation(IDLE);
           }),
       },
@@ -990,8 +1005,18 @@ export function RouterProvider({
     html.setAttribute(HYDRATED_ATTRIBUTE, '');
     return () => html.removeAttribute(HYDRATED_ATTRIBUTE);
   }, []);
+  // The key of the page on screen before this commit.
+  const committedPageKey = useRef(pageKeyOf(view.loaded));
+  // In the commit that shows the page, before the browser paints it, and after the layout effects of the page and its
+  // layouts, which have focused an autoFocus element by then. Every focus call keeps the scroll position applyScroll
+  // sets, the one Back restores included.
   useLayoutEffect(() => {
-    if (view.id > 0) applyScroll(view.scroll);
+    if (view.id === 0) return;
+    const target = applyScroll(view.scroll);
+    const key = pageKeyOf(view.loaded);
+    const replaced = key !== committedPageKey.current;
+    committedPageKey.current = key;
+    moveFocusAfterNavigation({ target, replaced, keep: view.scroll.kind === 'none', focusedAtStart: view.focusedAtStart });
   }, [view]);
 
   const router = useMemo<InternalRouter>(
@@ -1030,7 +1055,7 @@ export function RouterProvider({
                 params={payload.params}
                 status={payload.status}
                 pageKind={payload.pageKind}
-                pageKey={view.loaded.pageKey ?? url.pathname}
+                pageKey={pageKeyOf(view.loaded)}
                 retry={() => void router.refresh()}
                 metadata={payload.metadata}
               />

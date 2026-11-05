@@ -101,6 +101,20 @@ describe('intercepting routes', () => {
     expect(screen.getByText('at /feed')).toBeDefined();
   });
 
+  it('Back from the modal leaves the focus on the link that opened it', async () => {
+    server.use(http.get(`${origin}/photo/7`, () => HttpResponse.json(photo)));
+    const user = await renderAt(payload('app/feed/page.tsx', '/feed'));
+    const link = screen.getByRole('link', { name: 'Photo 7' });
+
+    await user.click(link);
+    await screen.findByRole('dialog', { name: 'Photo' });
+    await act(async () => window.history.back());
+
+    // The feed stayed on screen under the modal, and is the same page: its path changed twice, its page did not.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(link);
+  });
+
   it('stay open when the page refreshes, with fresh data for the modal and the page under it', async () => {
     let edited = false;
     server.use(

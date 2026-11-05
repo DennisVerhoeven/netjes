@@ -6,13 +6,15 @@ import type { ReactNode } from 'react';
 import { type Root, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
-import { RouterProvider, useRouter } from '../src/router.tsx';
+import { RouterProvider, useRouter, useSearchParams } from '../src/router.tsx';
 
 // What a screen reader and a keyboard user get from a client navigation: the router names the new page in a polite
-// live region, as a screen reader names the page a document load opens.
+// live region, as a screen reader names the page a document load opens, and the focus starts over at the top of the
+// document when the page is replaced, as after a page load, or goes to the element a fragment names.
 
 const origin = window.location.origin;
 const server = setupServer();
@@ -28,6 +30,7 @@ afterEach(() => {
   }
   server.resetHandlers();
   vi.restoreAllMocks();
+  document.body.removeAttribute('tabindex');
 });
 afterAll(() => server.close());
 
@@ -35,21 +38,40 @@ afterAll(() => server.close());
 let router: ReturnType<typeof useRouter> | undefined;
 
 function Layout({ children }: { children: ReactNode }) {
-  router = useRouter();
+  const layoutRouter = useRouter();
+  router = layoutRouter;
   return (
     <div>
       <nav aria-label="Main">
         <Link href="/">Home</Link>
         <Link href="/about">About</Link>
         <Link href="/contact">Contact</Link>
+        <Link href="/welcome">Welcome</Link>
+        <Link href="/tabs/two" scroll={false}>
+          Tab two
+        </Link>
       </nav>
-      {children}
+      {/* Navigates as the user types, from any page. */}
+      <input type="search" aria-label="Search" onChange={(event) => void layoutRouter.replace(`/search?q=${encodeURIComponent(event.currentTarget.value)}`)} />
+      <input aria-label="Note" />
+      <main>{children}</main>
     </div>
   );
 }
 
 const Home = () => <h1>Home</h1>;
-const About = () => <h1>About</h1>;
+function About() {
+  return (
+    <>
+      <h1>About</h1>
+      <Link href="/contact">Contact us</Link>
+      <h2 id="team">Team</h2>
+      <button id="closed" type="button" disabled>
+        Closed
+      </button>
+    </>
+  );
+}
 const Contact = () => <h1>Contact</h1>;
 const Plain = () => <p>A page without a heading.</p>;
 function Article() {
@@ -57,11 +79,52 @@ function Article() {
     <article>
       <h1>Article</h1>
       <Link href="#end">To the end</Link>
+      <Link href="#more">To more</Link>
       <h2 id="end">End</h2>
+      <button id="more" type="button">
+        More
+      </button>
     </article>
   );
 }
 const Guestbook = (props: Record<string, unknown>) => <h1>{`Guestbook ${String(props.entries)}`}</h1>;
+function Results() {
+  const search = useSearchParams();
+  return (
+    <>
+      <h1>Results</h1>
+      <p>{`page ${search.get('page') ?? '1'}`}</p>
+      <Link href="/results?page=2">Next page</Link>
+    </>
+  );
+}
+function Search() {
+  const search = useSearchParams();
+  return <h1>{`Results for ${search.get('q') ?? ''}`}</h1>;
+}
+function Welcome() {
+  return (
+    <>
+      <h1>Welcome</h1>
+      <input aria-label="Your name" autoFocus />
+    </>
+  );
+}
+const TabOne = () => <h1>Tab one</h1>;
+function TabTwo(props: Record<string, unknown>) {
+  const pageRouter = useRouter();
+  return (
+    <>
+      <h1>{`Tab two ${String(props.version)}`}</h1>
+      <button type="button" onClick={() => void pageRouter.refresh()}>
+        Refresh
+      </button>
+      <Form method="post">
+        <button type="submit">Save</button>
+      </Form>
+    </>
+  );
+}
 
 const modules = {
   '/app/layout.tsx': async () => ({ default: Layout }),
@@ -71,7 +134,14 @@ const modules = {
   '/app/plain/page.tsx': async () => ({ default: Plain }),
   '/app/article/page.tsx': async () => ({ default: Article }),
   '/app/guestbook/page.tsx': async () => ({ default: Guestbook }),
+  '/app/results/page.tsx': async () => ({ default: Results }),
+  '/app/search/page.tsx': async () => ({ default: Search }),
+  '/app/welcome/page.tsx': async () => ({ default: Welcome }),
+  '/app/tabs/one/page.tsx': async () => ({ default: TabOne }),
+  '/app/tabs/two/page.tsx': async () => ({ default: TabTwo }),
 };
+
+const antiforgery = { formFieldName: '__RequestVerificationToken', headerName: 'RequestVerificationToken', requestToken: 'tok' };
 
 function payload(page: string, url: string, overrides: Partial<PagePayload> = {}): PagePayload {
   return {
@@ -187,5 +257,159 @@ describe('the route announcer', () => {
     await act(() => router!.refresh());
     expect(await screen.findByRole('heading', { name: 'Guestbook 4' })).toBeDefined();
     expect(announcer().textContent).toBe('');
+  });
+});
+
+describe('the focus after a navigation', () => {
+  it('starts the focus over at the top of the document when a navigation replaces the page', async () => {
+    server.use(pageHandler('/about', payload('about', '/about')), pageHandler('/contact', payload('contact', '/contact')));
+    const { user } = await renderApp();
+    // An app's own tabindex on body is put back.
+    document.body.setAttribute('tabindex', '0');
+    const focus = vi.spyOn(document.body, 'focus');
+
+    // From a link in the layout, which stays mounted with the focus unless the router moves it.
+    await user.click(screen.getByRole('link', { name: 'About' }));
+    await screen.findByRole('heading', { name: 'About' });
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+    expect(document.body.getAttribute('tabindex')).toBe('0');
+
+    // From a link in the page, which goes with it.
+    document.body.removeAttribute('tabindex');
+    focus.mockClear();
+    await user.click(screen.getByRole('link', { name: 'Contact us' }));
+    await screen.findByRole('heading', { name: 'Contact' });
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+    expect(document.body.hasAttribute('tabindex')).toBe(false);
+  });
+
+  it('moves the focus to the target of a fragment link on the same page', async () => {
+    // Hovering a link prefetches its page, this one included.
+    server.use(pageHandler('/article', payload('article', '/article')));
+    const { user } = await renderApp(payload('article', '/article'));
+    const end = screen.getByRole('heading', { name: 'End' });
+    const more = screen.getByRole('button', { name: 'More' });
+    const focusEnd = vi.spyOn(end, 'focus');
+    const focusMore = vi.spyOn(more, 'focus');
+
+    // A heading takes the focus only with a tabindex, which the router gives it until it loses the focus.
+    await user.click(screen.getByRole('link', { name: 'To the end' }));
+    await waitFor(() => expect(document.activeElement).toBe(end));
+    expect(end.getAttribute('tabindex')).toBe('-1');
+    expect(focusEnd).toHaveBeenCalled();
+    for (const [options] of focusEnd.mock.calls) expect(options).toEqual({ preventScroll: true });
+    expect(end.scrollIntoView).toHaveBeenCalled();
+
+    // A button takes it as it is.
+    await user.click(screen.getByRole('link', { name: 'To more' }));
+    await waitFor(() => expect(document.activeElement).toBe(more));
+    expect(end.hasAttribute('tabindex')).toBe(false);
+    expect(more.hasAttribute('tabindex')).toBe(false);
+    expect(focusMore).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+  });
+
+  it("moves the focus to the fragment's target on the page it navigates to", async () => {
+    server.use(pageHandler('/about', payload('about', '/about')));
+    await renderApp();
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    await act(() => router!.push('/about#team'));
+
+    const team = await screen.findByRole('heading', { name: 'Team' });
+    expect(document.activeElement).toBe(team);
+    expect(team.getAttribute('tabindex')).toBe('-1');
+    expect(focus).toHaveBeenCalled();
+    for (const [options] of focus.mock.calls) expect(options).toEqual({ preventScroll: true });
+  });
+
+  it("leaves the focus to the other rules when the fragment's element cannot take it", async () => {
+    server.use(pageHandler('/about', payload('about', '/about')));
+    await renderApp();
+    const focusBody = vi.spyOn(document.body, 'focus');
+
+    await act(() => router!.push('/about#closed'));
+
+    // A disabled button takes no focus, not even with a tabindex, which the router takes off again. On another page the
+    // focus then starts over at the top.
+    const closed = await screen.findByRole('button', { name: 'Closed' });
+    expect(closed.hasAttribute('tabindex')).toBe(false);
+    expect(focusBody).toHaveBeenCalledExactlyOnceWith({ preventScroll: true, focusVisible: false });
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('leaves the focus where it is when only the query changes', async () => {
+    server.use(http.get(`${origin}/results`, ({ request }) => HttpResponse.json(payload('results', `/results${new URL(request.url).search}`))));
+    const { user } = await renderApp(payload('results', '/results'));
+    const next = screen.getByRole('link', { name: 'Next page' });
+
+    await user.click(next);
+
+    expect(await screen.findByText('page 2')).toBeDefined();
+    expect(document.activeElement).toBe(next);
+  });
+
+  it('keeps the focus in a field of the layout that navigates to another page as you type', async () => {
+    server.use(http.get(`${origin}/search`, ({ request }) => HttpResponse.json(payload('search', `/search${new URL(request.url).search}`))));
+    const { user } = await renderApp();
+    const field = screen.getByRole('searchbox', { name: 'Search' });
+
+    await user.type(field, 'ab');
+
+    expect(await screen.findByRole('heading', { name: 'Results for ab' })).toBeDefined();
+    expect(window.location.pathname).toBe('/search');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('leaves the focus alone with scroll={false} while its link still has it, on refresh, and after a post that stays on its page', async () => {
+    let version = 0;
+    const tabTwo = () => HttpResponse.json(payload('tabs/two', '/tabs/two', { antiforgery, props: { version: ++version } }));
+    server.use(http.get(`${origin}/tabs/two`, tabTwo), http.post(`${origin}/tabs/two`, tabTwo));
+    const { user } = await renderApp(payload('tabs/one', '/tabs/one', { antiforgery }));
+    const tab = screen.getByRole('link', { name: 'Tab two' });
+
+    await user.click(tab);
+    expect(await screen.findByRole('heading', { name: 'Tab two 1' })).toBeDefined();
+    expect(document.activeElement).toBe(tab);
+
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    await user.click(refresh);
+    expect(await screen.findByRole('heading', { name: 'Tab two 2' })).toBeDefined();
+    expect(document.activeElement).toBe(refresh);
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    await user.click(save);
+    expect(await screen.findByRole('heading', { name: 'Tab two 3' })).toBeDefined();
+    expect(window.location.pathname).toBe('/tabs/two');
+    expect(document.activeElement).toBe(save);
+  });
+
+  it('leaves the focus where the new page or the user put it', async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      pageHandler('/welcome', payload('welcome', '/welcome')),
+      http.get(`${origin}/contact`, async () => {
+        await held;
+        return HttpResponse.json(payload('contact', '/contact'));
+      }),
+    );
+    const { user } = await renderApp();
+
+    // The new page's autoFocus.
+    await user.click(screen.getByRole('link', { name: 'Welcome' }));
+    const name = await screen.findByRole('textbox', { name: 'Your name' });
+    expect(document.activeElement).toBe(name);
+
+    // A field the user went to while the next page was on its way.
+    await user.click(screen.getByRole('link', { name: 'Contact' }));
+    const note = screen.getByRole('textbox', { name: 'Note' });
+    await user.click(note);
+    await act(async () => release());
+    expect(await screen.findByRole('heading', { name: 'Contact' })).toBeDefined();
+    expect(document.activeElement).toBe(note);
   });
 });
