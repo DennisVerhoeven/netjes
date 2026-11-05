@@ -371,9 +371,36 @@ const locale = useLocale(); // 'nl' at /nl/about; null without AddNetjesLocaliza
 
 [Redirects, rewrites and headers](redirects-rewrites-headers.md) shows how to send translated strings to the client through shared props.
 
+## Endpoints next to pages
+
+The app's own endpoints share URLs with its pages: an API under `/api`, a file such as `/robots.txt`, or a Markdown copy of each docs page at `/docs/routing.md` next to `app/docs/[...path]/page.tsx`. For a request, ASP.NET Core takes the endpoints whose routes match the URL and ranks them:
+
+1. By order, lowest first. Pages, page actions and the endpoints an app maps with `MapGet`, `MapPost` and the like have order 0; `.WithOrder(-1)` puts an endpoint ahead of them.
+2. By route precedence, segment by segment from the first: a literal (`search.json`) ranks first, then a parameter with a constraint (`{id:int}`), a parameter without one, a catch-all with a constraint and, last, a catch-all without one. A page's `[slug]` is a parameter without a constraint, `[...slug]` a catch-all with one (`minlength(1)`), and `[[...slug]]` a catch-all without one.
+3. By HTTP methods, then hosts, then accepted content types: an endpoint that names its HTTP methods ranks ahead of one that names none, then one that requires a host (`RequireHost`) ahead of one that does not, and then one that lists the content types it accepts (because it binds a form or a JSON body) ahead of one that takes every content type. Pages answer GET and HEAD, and a page action POST.
+
+The first endpoint in that order whose route constraints, host, method and content type fit the request answers it. When two endpoints rank first together and both fit, ASP.NET Core cannot choose: it throws an `AmbiguousMatchException`, and the request answers 500. Netjes warns at startup about an endpoint that ties with a page or a page action ([An endpoint that ties with a page](#an-endpoint-that-ties-with-a-page)).
+
+A file next to a catch-all page is the common case. Its route, a literal and then a catch-all with a constraint, ranks the same as the page's `[...path]`, so give it `.WithOrder(-1)`:
+
+```csharp
+// app/docs/[...path]/page.tsx renders /docs/routing; this endpoint answers /docs/routing.md.
+app.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Head],
+        (string path, DocsStore docs) => docs.Markdown(path[..^".md".Length]) is { } markdown
+            ? Results.Text(markdown, "text/markdown; charset=utf-8")
+            : Results.NotFound())
+    .WithOrder(-1);
+```
+
+The endpoint then answers every URL its constraint allows, and the page every other URL below `/docs/`. `MapMethods` with GET and HEAD answers both, as a page does; with `MapGet` alone, the page would get the HEAD requests for the file.
+
+A `<Link>` to such a URL still works, but the router first asks the server for a page, gets the file, and then has the browser load the URL in full: one request more. Link it with `<Link reloadDocument href="/docs/routing.md">`, which the browser follows with a full page load and which gets the base path, or with `<a href={useHref('/docs/routing.md')}>`. A plain `<a href="/docs/routing.md">` misses the base path when the app has one ([Base path](#base-path)).
+
+In Next.js, a route handler cannot share a folder with a page, so a Markdown URL below `app/docs/[...path]` takes a rewrite in `next.config.js` to a route handler at another path. Here the endpoint's order does it.
+
 ## Route warnings
 
-Some mistakes in routes and actions fail without an error, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](../decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0017](../decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs).
+Some mistakes in routes and actions fail without an error, or only when a request meets them, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](../decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0029](../decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md) for endpoints that tie with pages, [ADR 0017](../decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs).
 
 ### A loader parameter that reads the query string instead of a route value
 
@@ -401,6 +428,20 @@ Pages that cannot match one URL get no warning: literals that differ, or a catch
 
 To fix it, rename or move one of the pages so the patterns do not overlap. For a page next to an optional catch-all, drop the page and handle the empty case in the catch-all, or make the catch-all a required `[...slug]`. Two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, are not a warning but an error that stops the app at startup, and so are two files for one convention in one folder (`page.tsx` and `page.jsx`).
 
+### An endpoint that ties with a page
+
+An endpoint of the app that ranks the same as a page or a page action for some URLs makes ASP.NET Core answer those requests with 500 ([Endpoints next to pages](#endpoints-next-to-pages)). The warning names the endpoint's HTTP methods and route, the page file, or the page's action, and the URLs they share:
+
+```text
+GET /docs/{**path:regex(\.md$)} and the page app/docs/[...path]/page.tsx both match URLs like /docs/[...path] with the same order and route precedence, so ASP.NET Core cannot choose between them and answers those requests with 500 (AmbiguousMatchException). Give the endpoint .WithOrder(-1) if it should answer them, or change its route.
+```
+
+An endpoint is warned when all of these hold for it and the page or its action: an HTTP method in common; the same order and the same route precedence; the same literals, in any case; a host in common, as written, or no host required by either; and accepted content types listed by both, or by neither. So `app.MapGet("/About")` next to `app/about/page.tsx` is warned, as are `app.MapGet("/blog/{id}")` next to `app/blog/[slug]/page.tsx`, `app.MapPost("/contact", () => ...)` next to a page action of `app/contact/page.tsx` that binds no form input, and `app.MapLocaleRedirect()` next to `app/page.tsx`. Two that both list content types tie for a request without a body, which has no content type, even when they accept different ones: next to a page action that binds a form, a `MapPost` that binds JSON gets the JSON posts and the page action the form posts, but a POST without a body answers 500.
+
+An endpoint that ranks ahead of the page or after it, or that no request reaches together with it, is not warned: a literal such as `/docs/search.json` next to `[...path]`, an endpoint with `.WithOrder(-1)`, one with other HTTP methods than the page, one that requires a host where the pages require none (or the reverse), one whose host differs from the pages' only in case, which ASP.NET Core keeps apart, and one that answers every method (`app.Map`), which ranks after the page for GET and HEAD, so the page answers those. Hosts are compared as written, so a host wildcard next to one it covers (`*.example.com` and `*.shop.example.com`), which can tie, is not warned. Some warnings name endpoints that never fail: route constraints are not compared, so `/{org:alpha}/projects` is warned next to a page loader mapped in `app.MapGroup("/{tenant:int}")`, though no URL fits both; a matcher policy of the app's own can tell an endpoint apart from a page, as API versioning can; and two endpoints that list different content types fail no request when a third endpoint for the URL takes every content type, such as the app's `MapFallback`, which then gets the posts without a body.
+
+To fix it, give the endpoint `.WithOrder(-1)` if it should answer those URLs, or change its route. If the page should answer them, give the endpoint an order above 0, such as `.WithOrder(1)`.
+
 ### A form input that refuses a post without a checkbox
 
 A browser leaves an unchecked checkbox out of the post it sends, and a list with nothing checked or chosen (checkboxes of one name, a `<select multiple>`). ASP.NET Core's form binding builds a positional record only from every one of its constructor's fields, so it refuses such a post with 400 before the action runs. A server action or page action that binds a `[FromForm]` positional record whose constructor takes a `bool`, a `bool?` or a list gets a warning naming the action (the page file, for a page action), the type and those fields:
@@ -421,7 +462,7 @@ A positional record of text fields only gets no warning, since a browser posts a
 
 ### Hiding the warnings
 
-There is no option to turn the check off. For an overlap you keep on purpose, or a route value only middleware reads, raise the category's log level in `appsettings.json`:
+There is no option to turn the check off. For an overlap you keep on purpose, a route value only middleware reads, or an endpoint that a matcher policy of your own tells apart from a page, raise the category's log level in `appsettings.json`:
 
 ```json
 {
@@ -445,7 +486,7 @@ In development Netjes reads the page files from `app/` and reads them again when
 
 ## What is not there
 
-- **Route handlers.** A `route.ts` file in `app/` stops the app in development and fails `vite build` (and so `netjes build` and `dotnet publish`), with a message saying what to do instead: an API is a C# minimal API endpoint, mapped next to the pages (`app.MapGet`, `app.MapPost`). Its JSON shape reaches the client through the generated `api` schemas ([JSON endpoints](data-loading.md#json-endpoints)).
+- **Route handlers.** A `route.ts` file in `app/` stops the app in development and fails `vite build` (and so `netjes build` and `dotnet publish`), with a message saying what to do instead: an API is a C# minimal API endpoint, mapped next to the pages (`app.MapGet`, `app.MapPost`; [Endpoints next to pages](#endpoints-next-to-pages)). Its JSON shape reaches the client through the generated `api` schemas ([JSON endpoints](data-loading.md#json-endpoints)).
 - **The pages router.** Only `app/` is routed ([ADR 0010](../decisions/0010-app-router-with-csharp-layout-loaders.md)). An app with Next.js pages router files in a `pages/` folder stops at startup, and the message says what to do with each:
   - A page moves to its `app/` name: `pages/about.tsx` to `app/about/page.tsx`, `pages/index.tsx` to `app/page.tsx`. A `.js` page moves to a `.jsx` file, since `app/` routes `.tsx` and `.jsx` only: `pages/index.js` to `app/page.jsx`.
   - `pages/404.tsx` moves to `app/not-found.tsx`, and `pages/500.tsx` and `pages/_error.tsx` to `app/error.tsx`.

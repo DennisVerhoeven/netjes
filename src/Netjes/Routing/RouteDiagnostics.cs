@@ -19,11 +19,13 @@ namespace Netjes.Routing;
 /// <c>query-binding</c>: a loader parameter binds from the query string next to an unbound route parameter, or a
 /// layout loader's, named after a route parameter of a page below the layout.
 /// <c>overlap</c>: two pages match the same URLs and route precedence picks one.
+/// <c>ambiguous-endpoint</c>: an endpoint of the app ranks the same as a page or a page action for URLs both match, so
+/// ASP.NET Core answers those requests with 500.
 /// <c>form-input</c>: an action binds a <c>[FromForm]</c> positional record with a field a browser leaves out of a post.
 /// </param>
 /// <param name="Files">
-/// The files the warning is about: the loader's page or layout, the winning page and the other, or a page action's page
-/// (none for a server action).
+/// The files the warning is about: the loader's page or layout, the winning page and the other, the page an endpoint ties
+/// with, or a page action's page (none for a server action).
 /// </param>
 internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> Files, string Template, object?[] Arguments)
 {
@@ -44,7 +46,8 @@ internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> F
 /// Checks what the matcher and minimal API binding would do quietly: a loader parameter that binds from the query
 /// string while a route parameter of its pattern goes unbound, a layout loader parameter that binds from the query
 /// string though a page below has a route parameter of its name, two pages that match the same URLs, where route
-/// precedence picks one, and an action's form input that form binding refuses when a checkbox is left unchecked.
+/// precedence picks one, an endpoint of the app that ties with a page, which fails each request both match, and an
+/// action's form input that form binding refuses when a checkbox is left unchecked.
 /// </summary>
 internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteDiagnostics> logger)
 {
@@ -73,6 +76,11 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         "{Winner} wins over {Loser} for URLs like {Url}: both match them, and ASP.NET Core's route precedence decides. " +
         "Rename or move one of the pages if the other should get them.";
 
+    // {Endpoint} is the endpoint's HTTP methods and route; {Page} is "the page app/x/page.tsx" or "the action of app/x/page.tsx".
+    private const string AmbiguousEndpoint =
+        "{Endpoint} and {Page} both match URLs like {Url} with the same order and route precedence, so ASP.NET Core cannot choose between them and answers those requests with 500 (AmbiguousMatchException). " +
+        "Give the endpoint .WithOrder(-1) if it should answer them, or change its route.";
+
     // {Fields} is a list of quoted constructor parameter names: 'Pinned' and 'Tags'.
     private const string FormInput =
         "{Action} binds {Type} from the form through its constructor, and form binding refuses a post without one of the constructor's fields with 400. " +
@@ -96,6 +104,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .. PageLoaderWarnings(table, endpoints, boundBySegment),
                 .. LayoutLoaderWarnings(table, layouts, boundBySegment),
                 .. OverlapWarnings(table, endpoints),
+                .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
             ];
         }
@@ -306,6 +315,97 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             }
         }
     }
+
+    /// <summary>
+    /// Endpoints of the app that tie with a page or a page action, which ASP.NET Core finds only on a request that
+    /// matches both. It ranks the endpoints a URL matches by order, then route precedence, then its matcher policies in
+    /// turn (an endpoint with HTTP methods ahead of one without, then one with hosts, then one with accepted content
+    /// types), and a request that the two first in rank both fit fails with an AmbiguousMatchException, a 500. Every
+    /// endpoint without the page marker is compared with the pages (the not-found fallback and the server actions carry it
+    /// without a pattern), Netjes's own included: the locale redirect ties with <c>app/page.tsx</c>. One that names no
+    /// HTTP method ranks after the pages, and has no method in common with them. Endpoints the matcher skips
+    /// (<see cref="ISuppressMatchingMetadata"/>) are left out.
+    /// </summary>
+    private static IEnumerable<RouteWarning> EndpointTieWarnings(RouteTable table, IEnumerable<RouteEndpoint> endpoints)
+    {
+        var matched = endpoints.Where(e => e.Metadata.GetMetadata<ISuppressMatchingMetadata>()?.SuppressMatching != true).ToList();
+        var others = matched.Where(e => e.Metadata.GetMetadata<PageEndpointMetadata>() is null).ToList();
+        foreach (var (page, endpoint) in PageAndActionEndpoints(table, matched))
+        {
+            var name = endpoint.Metadata.GetMetadata<PageActionMetadata>() is null ? $"the page {page.File}" : $"the action of {page.File}";
+            // A page mapped in a route group (app.MapGroup("/{tenant}")) is named as mapped, with the group's prefix.
+            var url = endpoint.RoutePattern.RawText is { } mapped && mapped != page.Template ? mapped : page.Pattern;
+            foreach (var other in others.Where(o => Tie(o, endpoint)))
+            {
+                yield return new RouteWarning("ambiguous-endpoint", [page.File], AmbiguousEndpoint,
+                    [$"{string.Join(", ", Methods(other))} {other.RoutePattern.RawText}", name, url]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The endpoints of the route table's pages, with each one's page: the endpoint that answers GET and HEAD (its
+    /// loader's, or the file data source's) and, when one is mapped, the page action's.
+    /// </summary>
+    private static IEnumerable<(PageRoute Page, RouteEndpoint Endpoint)> PageAndActionEndpoints(RouteTable table, IEnumerable<RouteEndpoint> endpoints)
+    {
+        foreach (var endpoint in endpoints)
+        {
+            if (endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is { Pattern: { } pattern } && table.Find(pattern) is { } page)
+            {
+                yield return (page, endpoint);
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> Methods(RouteEndpoint endpoint) => endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? [];
+
+    /// <summary>
+    /// Whether a request can match both endpoints with neither ranked ahead: an HTTP method in common, the same order and
+    /// route precedence, the same literals, a host in common or none on either, and accepted content types listed by both
+    /// or by neither. One route precedence means one number of segments and one kind of segment at each position: a
+    /// literal, a parameter or a catch-all, each with or without a constraint. Constraints are not compared. A page's own
+    /// are a catch-all's <c>minlength(1)</c>, which shares URLs with any constraint of the endpoint there but one that
+    /// allows only an empty value, and those of a route group's prefix, which can share none: the endpoint's
+    /// <c>{org:alpha}</c> next to a page under <c>/{tenant:int}</c> is a tie no request meets.
+    /// </summary>
+    private static bool Tie(RouteEndpoint a, RouteEndpoint b) =>
+        Methods(a).Intersect(Methods(b), StringComparer.OrdinalIgnoreCase).Any()
+        && a.Order == b.Order
+        && a.RoutePattern.InboundPrecedence == b.RoutePattern.InboundPrecedence
+        && SameLiterals(a.RoutePattern, b.RoutePattern)
+        && Meet(a.Metadata.GetMetadata<IHostMetadata>()?.Hosts, b.Metadata.GetMetadata<IHostMetadata>()?.Hosts)
+        && ListsContentTypes(a) == ListsContentTypes(b);
+
+    /// <summary>
+    /// Whether the endpoint lists the content types it accepts. Two that both do tie for a request without a Content-Type,
+    /// whatever they list: when no endpoint for the URL takes every content type, the matcher keeps them all for such a
+    /// request, and it ranks endpoints only by whether they list content types. A request with a type both accept reaches
+    /// both as well.
+    /// </summary>
+    private static bool ListsContentTypes(RouteEndpoint endpoint) => endpoint.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes is { Count: > 0 };
+
+    /// <summary>Whether two patterns of one route precedence have the same literal wherever both have one, in any case, as the matcher compares them.</summary>
+    private static bool SameLiterals(RoutePattern a, RoutePattern b) =>
+        a.PathSegments.Zip(b.PathSegments).All(s =>
+            Literal(a, s.First) is not { } x || Literal(b, s.Second) is not { } y || string.Equals(x, y, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The segment's literal; a parameter with a required value, as MVC gives a controller action's route, is matched as that value.</summary>
+    private static string? Literal(RoutePattern pattern, RoutePatternPathSegment segment) => segment.Parts switch
+    {
+        [RoutePatternLiteralPart literal] => literal.Content,
+        [RoutePatternParameterPart parameter] when pattern.RequiredValues.TryGetValue(parameter.Name, out var value)
+            && Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) is { Length: > 0 } text => text,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Whether two endpoints' hosts let a request through to both: neither lists any, or they list one in common, as
+    /// written. The host policy keeps two hosts that differ only in case apart, though it matches a request's host in any
+    /// case, and sends each request to one of them. Wildcards and ports are compared as written too.
+    /// </summary>
+    private static bool Meet(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
+        a is { Count: > 0 } && b is { Count: > 0 } ? a.Intersect(b, StringComparer.Ordinal).Any() : a is null or [] && b is null or [];
 
     /// <summary>
     /// Server actions and page actions that bind a <c>[FromForm]</c> positional record (a class or record built through
