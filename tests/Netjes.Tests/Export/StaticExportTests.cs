@@ -653,10 +653,13 @@ public class StaticExportTests
     [Fact]
     public async Task Export_LoaderThatReadsNoQueryString_IsNotWarned()
     {
-        // Route values (in another case too, or through [FromRoute], which minimal APIs read before [FromQuery]), a
-        // header, services and the request: nothing that a static file leaves out.
+        // Route values (in another case too, of a page or of a layout's own URL, or through [FromRoute], which minimal
+        // APIs read before [FromQuery]), a header, services and the request: nothing that a static file leaves out.
         await using var app = await ExportAsync(
-            ["app/page.tsx", "app/docs/layout.tsx", "app/docs/page.tsx", "app/blog/[slug]/page.tsx", "app/tags/[tag]/page.tsx"],
+            [
+                "app/page.tsx", "app/docs/layout.tsx", "app/docs/page.tsx", "app/blog/[slug]/page.tsx", "app/tags/[tag]/page.tsx",
+                "app/team/[team]/layout.tsx", "app/team/[team]/page.tsx",
+            ],
             map: a =>
             {
                 a.MapPageLoader("/", (HttpContext http, CancellationToken cancellationToken) => Page.Props());
@@ -665,11 +668,15 @@ public class StaticExportTests
                     .StaticParams<Slugs>(slugs => slugs.All.Select(s => new { slug = s }));
                 a.MapPageLoader("/tags/[tag]", ([FromRoute(Name = "tag"), FromQuery(Name = "t")] string name) => Page.Props(new PostProps(name)))
                     .StaticParams(_ => [new { tag = "dotnet" }]);
+                a.MapLayoutLoader("/team/[team]", (string Team) => Page.Props(new PostProps(Team)));
+                a.MapPageLoader("/team/[team]", (string team) => Page.Props(new PostProps(team)))
+                    .StaticParams(_ => [new { team = "red" }]);
             },
             services: s => s.AddSingleton(new Slugs(["one", "two"])));
 
         Assert.Equal(0, _exitCode);
         Assert.True(File.Exists(Out("blog/two/index.html")));
+        Assert.True(File.Exists(Out("team/red/index.html")));
         Assert.Empty(QueryStringWarnings(app));
     }
 
