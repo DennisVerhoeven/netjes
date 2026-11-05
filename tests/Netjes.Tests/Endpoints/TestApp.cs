@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Netjes.Rendering;
 
@@ -12,7 +13,10 @@ namespace Netjes.Tests.Endpoints;
 
 /// <summary>
 /// A Netjes app on TestServer, rooted in a temporary directory, with SSR replaced by a recording fake (or, with
-/// <c>sidecar</c>, rendered by the real sidecar pool running a test script).
+/// <c>sidecar</c>, rendered by the real sidecar pool running a test script). It runs in the Development environment
+/// unless a test names another; <c>mode</c> sets the Netjes mode, so a test can run Netjes's development mode in another
+/// environment, and <c>developmentOutputCache</c> marks a test that means to use output caching in the Development
+/// environment. Its services are validated on build in every environment.
 /// </summary>
 internal sealed class TestApp : IAsyncDisposable
 {
@@ -47,7 +51,9 @@ internal sealed class TestApp : IAsyncDisposable
         bool kestrel = false,
         string? sidecar = null,
         Action<FakeSsrRenderer>? renderer = null,
-        Action<WebApplication>? beforeNetjes = null)
+        Action<WebApplication>? beforeNetjes = null,
+        NetjesMode? mode = null,
+        bool developmentOutputCache = false)
     {
         var root = Directory.CreateTempSubdirectory("netjes-test-").FullName;
         WebApplication? app = null;
@@ -77,8 +83,20 @@ internal sealed class TestApp : IAsyncDisposable
                 builder.WebHost.UseTestServer();
             }
 
+            // As in Development, in every environment: a service that cannot be resolved fails the start, not a request.
+            builder.Host.UseDefaultServiceProvider(o =>
+            {
+                o.ValidateScopes = true;
+                o.ValidateOnBuild = true;
+            });
             var logs = new ListLoggerProvider();
             builder.Logging.AddProvider(logs);
+            if (mode is { } netjesMode)
+            {
+                // What Netjes:Mode sets; the test's own configure still has the last word.
+                builder.Services.Configure<NetjesOptions>(o => o.Mode = netjesMode);
+            }
+
             builder.Services.AddNetjes(configure);
             services?.Invoke(builder.Services);
             var fake = new FakeSsrRenderer();
