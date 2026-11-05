@@ -20,6 +20,10 @@ public static class PostPages
             Page.Props(new HomeProps(store.All.OrderByDescending(p => p.PublishedOn).Take(3).Select(Summarize).ToList())));
 
         // The title depends on the tag, so the loader sends it; the root layout's template adds the site name.
+        // The tag comes from the query string (/blog?tag=react), which netjes export does not send: the exported file
+        // lists every post, a static host serves it for every tag, and the export warns about this loader
+        // (Netjes.Export.QueryString). The Blog keeps the filter as its example of a loader that reads the query string.
+        // A site that exports its tag pages makes the tag a route parameter (/blog/tags/[tag]) with .StaticParams(...).
         app.MapPageLoader("/blog", (string? tag, PostStore store) =>
             Page.Props(new BlogIndexProps(
                     tag,
