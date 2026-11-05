@@ -73,7 +73,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | `export const metadata` | The same, on pages and layouts: title templates, description, Open Graph, Twitter, robots, canonical. Twitter tags that are not set fill in from Open Graph and the page's title and description, as in Next.js |
 | `generateMetadata` | `.WithMetadata(new PageMetadata { Title = post.Title })` on the loader's result, merged over the files' metadata |
 | `next/head` | `metadata`, or React 19's own `<title>` and `<meta>` |
-| `next/script` | `<Script strategy="afterInteractive">`, `lazyOnload` or `beforeInteractive` |
+| `next/script` | `<Script strategy="afterInteractive">`, `lazyOnload` or `beforeInteractive`. A `beforeInteractive` script can stand in any component the server renders in the shell, not only the root layout: inline code runs where it stands, before what follows it is painted, and external scripts run in order once the shell is parsed, before the page's code and hydration ([code that runs before the first paint](guides/metadata.md#code-that-runs-before-the-first-paint)) |
 | `next/image` | `<Image>` and the `/_netjes/image` endpoint: configured widths, allow-listed remote hosts, WebP with `Netjes.Images.SkiaSharp`. [Images](guides/images.md) |
 | `images.remotePatterns`, `deviceSizes`, `imageSizes` | `Netjes:Images:RemoteHosts` and `Netjes:Images:Widths` |
 | `next/dynamic` | `dynamic(() => import('./Chart.tsx'), { ssr: false })`, and `clientOnly(Component)` |

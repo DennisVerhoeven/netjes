@@ -95,6 +95,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0040 – Links from C# are a Href type](decisions/0040-links-from-csharp-are-a-href-type.md)
 - [0041 – The export warns about loaders that read the query string](decisions/0041-the-export-warns-about-loaders-that-read-the-query-string.md)
 - [0042 – The app's image runs an init as PID 1, so a crash ends the container](decisions/0042-the-apps-image-runs-an-init-as-pid-1.md)
+- [0044 – `beforeInteractive` scripts run before the page's code](decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)
 
 ## The project
 

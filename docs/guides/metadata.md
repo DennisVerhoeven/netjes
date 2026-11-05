@@ -141,7 +141,7 @@ Leave `/_netjes/` out of `disallow`. `<Image>` serves every image through `/_net
 
 ## Third-party scripts: `<Script>`
 
-`<Script>` loads a script without blocking the page, like `next/script`. It renders nothing where it stands; each script is added to the document once, by its `id` or `src`, however many components render it.
+`<Script>` loads a script without blocking the page, like `next/script`. Each script is added to the document once, by its `id` or `src`, however many components render it. An `afterInteractive` or `lazyOnload` script renders nothing where it stands; a `beforeInteractive` one is written into the server-rendered document ([below](#code-that-runs-before-the-first-paint)).
 
 ```tsx
 import { Script } from 'netjes';
@@ -155,9 +155,46 @@ import { Script } from 'netjes';
 |---|---|
 | `afterInteractive` (default) | Added once the page has hydrated. |
 | `lazyOnload` | Added after the page's `load` event, when the browser is idle. |
-| `beforeInteractive` | Written into the server-rendered head, before the page's own scripts. External scripts only; an inline one is added after hydration. |
+| `beforeInteractive` | In a server-rendered document: inline code runs where it stands, as the parser reaches it, before what follows it is painted; an external script runs once the shell is parsed, in order with the others, before the page's own code and hydration. A component that mounts in the browser adds it as `afterInteractive` does. |
 
 - Inline code goes in as the children, with an `id`, which a script without `src` needs.
 - `onLoad` and `onError` are called once the script has loaded or failed, also for a component that renders a script another one added before it.
 - Other attributes, such as `integrity`, `crossOrigin` or `data-*`, are set on the element.
 - Under a [Content-Security-Policy](security.md) with a nonce, `<Script>` puts the page's nonce on the script. For an inline script of your own, read it with `useNonce()`.
+
+### Code that runs before the first paint
+
+A `beforeInteractive` script with inline code is written into the server's HTML where the component stands, so the browser runs it as its parser reaches it, before it parses or paints anything below it. That is the place for code the first paint depends on, such as a theme read from storage, set on `<html>` before any of the page shows:
+
+```tsx
+// app/layout.tsx
+import { type LayoutProps, Script } from 'netjes';
+
+const theme = `
+  let theme = 'light';
+  try { theme = localStorage.getItem('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch {}
+  document.documentElement.dataset.theme = theme;
+`;
+
+export default function RootLayout({ children }: LayoutProps) {
+  return (
+    <>
+      <Script id="theme" strategy="beforeInteractive">{theme}</Script>
+      {children}
+    </>
+  );
+}
+```
+
+React leaves an attribute that such a script sets on `<html>` or `<body>` as it is when it hydrates the page ([Layouts](routing.md#layouts)). After a hydration error, React renders the page in the browser instead and replaces the attributes of both elements with its own, and the script does not run again.
+
+- A browser runs inline code only once the stylesheets before it in the document have loaded, so it runs after the head's stylesheets, and before the page's own code. Put it first in the root layout, as above; a script takes no focus, so a skip link after it is still the first element Tab reaches.
+- An external script (`src`) is preloaded from the head, so the browser fetches it while it parses the document. Once the shell is parsed, Netjes runs the external `beforeInteractive` scripts in it one after the other, in the order they stand in the document, with the page's nonce. They do not hold up the parser or the page's rendering: the page shows while they load. Hydration waits for them: the page's own modules run, and the page responds to clicks, once each of them has loaded or failed, so a host that is slow to answer delays the page's interactivity.
+- All the inline code in the shell runs before any external script, so inline code cannot use what an external `beforeInteractive` script defines.
+- A page with a `beforeInteractive` script runs its own modules once the shell is parsed, instead of while the rest of the shell arrives ([ADR 0044](../decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)).
+- Keep these scripts in the shell, outside any Suspense boundary that may still wait when the shell goes out (a `loading.tsx` included). In such a boundary, inline code runs when the boundary's content arrives, and an external script runs when that part of the page hydrates, not before the page's code.
+- Render each one in one place, such as the root layout: a server-rendered document carries the inline code of every `beforeInteractive` script a component renders, so the same code rendered by two components runs twice. An external script runs once per `id`, or `src` when it has none, as with the other strategies.
+- On a page the browser renders itself (after a client navigation, when no sidecar was ready, or in a `createTestApp()` test) a component that mounts adds the script after it mounts, as `afterInteractive` does. A script the server's document already ran is not added again.
+- `onLoad` and `onError` are called once an external script has loaded or failed, and `onLoad` once inline code has run, after the component mounts.
+- `async`, `defer` and `type="module"` do not apply. In development Netjes warns about them: an external script runs in order whatever `async` and `defer` say, and inline code with `type="module"` would wait until the whole document is parsed.
+- Under a nonce-based policy the script carries the page's nonce. Under a hash-based one, list the hash of the inline code as the document carries it: Netjes writes the `s` of `<script` and `</script` (in any case) as `\u0073` (`\u0053` for `S`), as React does in its own scripts, so the code cannot end its element. JavaScript reads that as the same letter in strings, template literals, regular expressions and names, and the hash is of the text with it. Code without `<script` or `</script` in it is written as it is. `inlineScriptHashes(await renderDocument(...))` from `netjes/testing` lists the hash of each such script on a page ([the document](testing.md#the-document)), and an external script's host goes in `script-src` ([security](security.md#hash-based)).
