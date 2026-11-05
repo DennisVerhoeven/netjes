@@ -310,7 +310,7 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
 
 ### IPageCache
 

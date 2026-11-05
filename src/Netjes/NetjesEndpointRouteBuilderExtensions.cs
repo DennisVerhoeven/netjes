@@ -248,7 +248,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <c>UseOutputCache()</c>. Cached pages carry no antiforgery token. Draft mode bypasses the cache. How entries are
     /// keyed is the same under any output caching of a page (<c>CacheOutput</c> too); on an endpoint that is no page
     /// (a minimal API returning <c>Page.Render</c>), only with <c>CachePage</c>. In the Development environment
-    /// nothing is stored: each request renders the page, which goes out <c>Cache-Control: no-store, private</c>.
+    /// nothing is stored: each request renders the page, which goes out <c>Cache-Control: no-store, private</c>
+    /// unless it sets its own <c>Cache-Control</c>.
     /// </summary>
     public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags)
         where TBuilder : IEndpointConventionBuilder =>
