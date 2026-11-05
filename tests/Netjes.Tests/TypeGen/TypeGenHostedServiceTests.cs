@@ -265,7 +265,7 @@ public class TypeGenHostedServiceTests
         int? exitCode = null;
         var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
         await using var app = await TestApp.StartAsync(
-            ["app/layout.tsx", "app/page.tsx", "app/blog/[slug]/page.tsx"],
+            ["app/layout.tsx", "app/page.tsx", "app/blog/[slug]/page.tsx", "app/about/page.tsx"],
             map: a =>
             {
                 HomeLoader(a);
@@ -280,6 +280,7 @@ public class TypeGenHostedServiceTests
         var text = await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken);
         var json = JsonNode.Parse(text)!;
         var blog = json["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == "/blog/[slug]")!;
+        var about = json["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == "/about")!;
 
         Assert.Equal(0, exitCode);
         // The same bytes on every system, as netjes routes --json prints them.
@@ -291,6 +292,8 @@ public class TypeGenHostedServiceTests
         Assert.True((bool?)blog["action"]);
         Assert.True((bool?)blog["cached"]);
         Assert.Equal("HomeProps", (string?)blog["props"]);
+        // A page file without MapPageLoader is served by its own endpoint.
+        Assert.False((bool?)about["loader"]);
         Assert.False((bool?)json["routes"]![0]!["action"]);
         File.Delete(output);
     }
