@@ -99,6 +99,34 @@ public class NonPageEndpointCacheTests
     }
 
     /// <summary>
+    /// <c>CachePage</c> on an endpoint that renders no page, such as a JSON endpoint in a group it is put on, puts its
+    /// entries under the page rules but leaves its headers to the handler: the default <c>no-store, private</c> is a
+    /// page's. Outside the Development environment its answer is stored and served again; in it, the endpoint runs for
+    /// every request, as pages do.
+    /// </summary>
+    [Theory]
+    [InlineData("Testing")]
+    [InlineData("Development")]
+    public async Task AnEndpointOfTheApp_UnderCachePage_StillGetsNoCacheControlFromNetjes(string environment)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup("/api").CachePage(TimeSpan.FromMinutes(5)).MapGet("/count", () => Interlocked.Increment(ref calls)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: environment,
+            mode: NetjesMode.Development,
+            developmentOutputCache: environment == "Development");
+
+        var first = await app.Client.GetAsync("/api/count", Ct);
+        var second = await app.Client.GetAsync("/api/count", Ct);
+
+        Assert.Equal(environment == "Development" ? 2 : 1, calls);
+        Assert.All([first, second], response => Assert.False(response.Headers.Contains("Cache-Control")));
+    }
+
+    /// <summary>
     /// The key holds the path upper-cased unless <c>UseCaseSensitivePaths</c> is set, route values included: the
     /// handler answers the first spelling to arrive, and every other spelling is served that answer.
     /// </summary>
