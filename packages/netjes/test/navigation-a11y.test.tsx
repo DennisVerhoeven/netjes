@@ -320,6 +320,18 @@ describe('the route announcer', () => {
     await waitFor(() => expect(announcer().textContent).toBe('/plain'));
   });
 
+  it('reads the path of a page without a title or an h1 decoded, as a person reads it', async () => {
+    server.use(pageHandler('/caf%C3%A9/men%C3%BC', payload('plain', '/caf%C3%A9/men%C3%BC')), pageHandler('/caf%E9', payload('plain', '/caf%E9')));
+    await renderApp();
+
+    await act(() => router!.push('/café/menü'));
+    expect(announcer().textContent).toBe('/café/menü');
+
+    // A segment that is no UTF-8 when decoded is read as it is.
+    await act(() => router!.push('/caf%E9'));
+    expect(announcer().textContent).toBe('/caf%E9');
+  });
+
   it('announces nothing on a fragment link or a refresh, with or without a title', async () => {
     let entries = 3;
     server.use(

@@ -21,9 +21,18 @@ const subscribe = () => () => {};
 const inBrowser = () => true;
 const onServer = () => false;
 
-/** How a screen reader can name the page on screen: its title, else its first `h1`, else its path. */
+/** A segment as a person reads it, `café` rather than `caf%C3%A9`; one that does not decode stays as it is. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** How a screen reader can name the page on screen: its title, else its first `h1`, else its path, decoded. */
 function pageName(path: string): string {
-  return document.title.trim() || document.querySelector('h1')?.textContent?.trim() || path;
+  return document.title.trim() || document.querySelector('h1')?.textContent?.trim() || path.split('/').map(decodeSegment).join('/');
 }
 
 type RouteAnnouncerProps = {
