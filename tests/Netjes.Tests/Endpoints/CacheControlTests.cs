@@ -81,6 +81,7 @@ public class CacheControlTests
         Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
     }
 
+    /// <summary>Outside the Development environment, a page the output cache stores goes out without <c>Cache-Control</c>.</summary>
     [Fact]
     public async Task CachedPages_AreLeftToOutputCaching()
     {
@@ -88,7 +89,9 @@ public class CacheControlTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var response = await app.GetDataAsync("/");
 
@@ -133,7 +136,9 @@ public class CacheControlTests
                 }
 
                 a.UseOutputCache();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var request = new HttpRequestMessage(HttpMethod.Get, "/");
         if (reason == "authorization header")
         {
@@ -152,7 +157,9 @@ public class CacheControlTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDocumentAsync("/");
         var stored = await app.GetDocumentAsync("/");

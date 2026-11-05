@@ -34,7 +34,9 @@ public class PageCacheTests
                 });
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         await app.GetDataAsync("/posts/1");
         await app.GetDataAsync("/posts/2");
 
@@ -59,7 +61,9 @@ public class PageCacheTests
             map: a => a.MapPageLoader("/s/[code]", (string code) => Page.Props(new { Value = codes.GetValueOrDefault(code) }))
                 .CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDataJsonAsync("/s/Ab");
         var second = await app.GetDataJsonAsync("/s/aB");
@@ -79,13 +83,20 @@ public class PageCacheTests
         return System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
     }
 
-    private static Task<TestApp> StartWithCookieSharedPropsAsync() =>
+    /// <summary>
+    /// A cached page whose shared props read a cookie. In the Testing environment, with Netjes in development mode
+    /// (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the Development environment.
+    /// </summary>
+    private static Task<TestApp> StartWithCookieSharedPropsAsync(bool development = false) =>
         TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
             configure: o => o.SharedProps = http => ValueTask.FromResult<object?>(new { Theme = http.Request.Cookies["theme"] }),
             map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>
     /// CachePage keeps storing: a render that reads a cookie is stored and served to everyone (the warning says so),
@@ -124,7 +135,9 @@ public class PageCacheTests
             {
                 a.UseOutputCache();
                 a.UseAuthentication();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDataAsync("/");
         await app.GetDataAsync("/");
@@ -141,7 +154,9 @@ public class PageCacheTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await DataWithCookieAsync(app, "/", "theme=dark; __netjes_draft=forged");
         var second = await DataWithCookieAsync(app, "/", "theme=light");
@@ -170,7 +185,9 @@ public class PageCacheTests
                     Interlocked.Increment(ref reads);
                 });
                 a.UseOutputCache();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         for (var i = 0; i < 3; i++)
         {

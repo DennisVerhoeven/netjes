@@ -95,7 +95,9 @@ public partial class CspTests
             configure: o => o.ContentSecurityPolicy = Policy,
             map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDocumentAsync("/");
         var second = await app.GetDocumentAsync("/");
@@ -122,7 +124,9 @@ public partial class CspTests
                     http.Response.Headers.ContentSecurityPolicy = $"script-src 'nonce-{http.GetCspNonce()}'";
                     return next(http);
                 });
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDocumentAsync("/");
         var second = await app.GetDocumentAsync("/");
@@ -155,7 +159,9 @@ public partial class CspTests
             configure: o => o.ContentSecurityPolicy = HashPolicy,
             map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDocumentAsync("/");
         var cached = await app.GetDocumentAsync("/");
@@ -172,7 +178,9 @@ public partial class CspTests
             ["app/page.tsx"],
             configure: o => o.ContentSecurityPolicy = Policy,
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDocumentAsync("/");
 

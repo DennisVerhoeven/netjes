@@ -32,9 +32,13 @@ public class PageOutputCacheKeyTests
 
     private static readonly string[] Files = ["app/layout.tsx", "app/[team]/layout.tsx", "app/[team]/page.tsx"];
 
-    /// <summary>The team page under <paramref name="policy"/>, below a layout with a loader.</summary>
+    /// <summary>
+    /// The team page under <paramref name="policy"/>, below a layout with a loader. In the Testing environment, with
+    /// Netjes in development mode (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the
+    /// Development environment.
+    /// </summary>
     private static Task<TestApp> StartAsync(
-        Policy policy, Func<int> load, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null) =>
+        Policy policy, Func<int> load, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null, bool development = false) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -51,7 +55,10 @@ public class PageOutputCacheKeyTests
                 AddOutputCache(s, policy);
                 services?.Invoke(s);
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>Caches <paramref name="page"/> under <paramref name="policy"/>; an <c>[OutputCache]</c> attribute is the loader's own.</summary>
     private static void CacheUnder(Policy policy, RouteHandlerBuilder page) =>
@@ -66,10 +73,11 @@ public class PageOutputCacheKeyTests
 
     /// <summary>
     /// The team page with <paramref name="loader"/> under <paramref name="policy"/>. For <see cref="Policy.Attribute"/>,
-    /// the endpoint gets the metadata an <c>[OutputCache]</c> attribute on the loader gives it.
+    /// the endpoint gets the metadata an <c>[OutputCache]</c> attribute on the loader gives it. Its environment is
+    /// <see cref="StartAsync"/>'s.
     /// </summary>
     private static Task<TestApp> StartWithLoaderAsync(
-        Policy policy, Delegate loader, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null) =>
+        Policy policy, Delegate loader, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null, bool development = false) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -84,7 +92,10 @@ public class PageOutputCacheKeyTests
                 AddOutputCache(s, policy);
                 services?.Invoke(s);
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     private static void AddOutputCache(IServiceCollection services, Policy policy) =>
         services.AddOutputCache(o =>
@@ -380,8 +391,11 @@ public class PageOutputCacheKeyTests
         Assert.NotNull((string?)failedPost["antiforgery"]!["requestToken"]);
     }
 
-    /// <summary>A minimal API that renders a page: an endpoint the page rules key only under CachePage.</summary>
-    private static Task<TestApp> StartElsewhereAsync(Policy policy, Func<int> load) =>
+    /// <summary>
+    /// A minimal API that renders a page: an endpoint the page rules key only under CachePage. Its environment is
+    /// <see cref="StartAsync"/>'s.
+    /// </summary>
+    private static Task<TestApp> StartElsewhereAsync(Policy policy, Func<int> load, bool development = false) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -404,7 +418,10 @@ public class PageOutputCacheKeyTests
                     o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(5)));
                 }
             }),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>
     /// Nothing would keep such an endpoint's documents and payloads apart, so under output caching other than
@@ -467,7 +484,9 @@ public class PageOutputCacheKeyTests
                 a.MapPageLoader("/[team]", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5));
             },
             services: s => s.AddOutputCache(o => o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(5)))),
-            beforeNetjes: a => a.UseOutputCache());
+            beforeNetjes: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var visitor = await Visitor.ReturningAsync(app);
 
         await visitor.DataAsync("/core");
@@ -602,7 +621,9 @@ public class PageOutputCacheKeyTests
             map: a => a.MapPageLoader("/[team]", (string? page) => Page.Props(new { Page = page }))
                 .CacheOutput(p => p.SetVaryByQuery("page")),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var first = await (await Visitor.ReturningAsync(app)).DataAsync("/core?page=2&email=first%40example.com");
 
         var second = await (await Visitor.ReturningAsync(app)).DataAsync("/core?page=2&email=second%40example.com");
@@ -628,7 +649,9 @@ public class PageOutputCacheKeyTests
                 _ => pages.CacheOutput(p => p.Expire(TimeSpan.FromMinutes(5))),
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var visitor = await Visitor.ReturningAsync(app);
 
         var payload = await visitor.DataAsync("/about");
