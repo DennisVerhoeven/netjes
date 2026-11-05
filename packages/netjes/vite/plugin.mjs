@@ -74,12 +74,15 @@ function canResolve(root, name) {
 
 /**
  * Vitest settings for component tests, unless the app set them itself: a DOM (when jsdom is installed), Testing
- * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders. One
- * exception: Netjes's own setup file goes into every app's setupFiles, which Vite appends to the app's own.
+ * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders. Two
+ * exceptions, which Vite merges into what the app set: Netjes's own setup file goes into every app's setupFiles,
+ * after the app's own, and provide['netjes:query'] holds the app's query defaultOptions, which that file hands to
+ * createTestApp. Only that key is returned, so the app's own provide keys are not merged twice.
  * @param {Record<string, unknown> | undefined} test
  * @param {string} root
+ * @param {{ defaultOptions?: import('@tanstack/react-query').DefaultOptions } | null} query
  */
-function testDefaults(test = {}, root) {
+function testDefaults(test = {}, root, query) {
   /** @type {Record<string, unknown>} */
   const defaults = {};
   if (test.environment === undefined && canResolve(root, 'jsdom')) defaults.environment = 'jsdom';
@@ -88,6 +91,7 @@ function testDefaults(test = {}, root) {
   }
   const cleanup = test.setupFiles === undefined && canResolve(root, '@testing-library/react');
   defaults.setupFiles = cleanup ? [TEST_SETUP, TEST_VITEST] : [TEST_VITEST];
+  if (query) defaults.provide = { 'netjes:query': query.defaultOptions ?? {} };
   return defaults;
 }
 
@@ -178,7 +182,7 @@ export default function netjes(options = {}) {
       const userTest = /** @type {{ test?: Record<string, unknown> }} */ (/** @type {unknown} */ (config)).test;
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
-      const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root) } : {};
+      const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
       const base = env.command === 'build' && basePath ? { base: `${basePath}/` } : {};
       return {

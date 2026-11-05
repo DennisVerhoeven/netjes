@@ -40,7 +40,7 @@ function callConfig(plugin: Plugin, config: UserConfig = {}, env: ConfigEnv = se
 }
 
 /** The app's Vitest settings once Vite has merged the plugin's into them, as it does with what a config hook returns. */
-function mergedTest(plugin: Plugin, config: UserConfig & { test?: Record<string, unknown> }) {
+function mergedTest(plugin: Plugin, config: UserConfig) {
   return (mergeConfig(config, callConfig(plugin, config) ?? {}) as { test?: Record<string, unknown> }).test;
 }
 
@@ -341,6 +341,20 @@ describe('Vitest defaults', () => {
 
     expect(test?.environment).toBeUndefined();
     expect(test?.setupFiles).toEqual([OWN_SETUP]);
+  });
+
+  it("provides the app's query defaultOptions to the tests, next to the app's own provide", async () => {
+    const defaultOptions = { queries: { staleTime: Number.POSITIVE_INFINITY, retry: 1 }, mutations: { retry: 2 } };
+
+    expect(callConfig((await core({ query: { defaultOptions } })).plugin)?.test?.provide).toEqual({ 'netjes:query': defaultOptions });
+    expect(callConfig((await core()).plugin)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(callConfig((await core({ query: {} })).plugin)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(callConfig((await core({ query: false })).plugin)?.test?.provide).toBeUndefined();
+
+    // A provide key of the app's own, which the app would declare in Vitest's ProvidedContext.
+    const mine = { test: { provide: { mine: [1, 2] } } } as unknown as UserConfig;
+    expect(callConfig((await core()).plugin, mine)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(mergedTest((await core()).plugin, mine)?.provide).toEqual({ mine: [1, 2], 'netjes:query': {} });
   });
 
   it('adds nothing with test: false', async () => {

@@ -80,11 +80,18 @@ function RegisterActionClient({ client }: { client: ActionClient }) {
 const TEST_TOKEN: AntiforgeryToken = { formFieldName: '__RequestVerificationToken', headerName: 'RequestVerificationToken', requestToken: 'test-token' };
 
 /**
- * The harness's own query defaults, over the Netjes defaults: a failed query or mutation is tried as often as in the
- * app, but without the wait between the tries (TanStack Query's 1, 2 and 4 seconds would outlast a test), and data
- * stays in the client for the whole test.
+ * The harness's own query defaults, over the app's: a failed query or mutation is tried as often as in the app, but
+ * without the wait between the tries (TanStack Query's 1, 2 and 4 seconds would outlast a test), and data stays in the
+ * client for the whole test.
  */
 const HARNESS_DEFAULTS: DefaultOptions = { queries: { retryDelay: 0, gcTime: Number.POSITIVE_INFINITY }, mutations: { retryDelay: 0 } };
+
+/** The app's `netjes({ query })` defaults, where Netjes's Vitest setup file keeps them (src/testing-vitest.ts). */
+const APP_QUERY_DEFAULTS = Symbol.for('netjes.testing.queryDefaults');
+
+function appQueryDefaults(): DefaultOptions | undefined {
+  return (globalThis as Record<symbol, DefaultOptions | undefined>)[APP_QUERY_DEFAULTS];
+}
 
 function dataOf(body: SubmitBody): URLSearchParams | FormData {
   return body.contentType === null ? body.body : new URLSearchParams(body.body);
@@ -93,7 +100,9 @@ function dataOf(body: SubmitBody): URLSearchParams | FormData {
 /** Creates a fake app around the components under test: pass its `Wrapper` to Testing Library's `render`. The router loads nothing; it records what was asked of it. */
 export function createTestApp(options: TestAppOptions = {}): TestApp {
   const navigations: TestNavigation[] = [];
-  const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: mergeOptions(HARNESS_DEFAULTS, options.defaultOptions) });
+  // The Netjes defaults, then the app's, then the harness's, then the test's.
+  const defaultOptions = mergeOptions(appQueryDefaults(), HARNESS_DEFAULTS, options.defaultOptions);
+  const queryClient = options.queryClient ?? new QueryClient({ defaultOptions });
   const now = Date.now();
   const seeded = dehydratedStateOf(options.queries?.map((query) => ({ ...query, updatedAt: now })));
   if (seeded) hydrate(queryClient, seeded);

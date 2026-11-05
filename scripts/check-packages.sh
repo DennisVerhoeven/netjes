@@ -60,14 +60,15 @@ done
 diff -r .claude/skills/netjes "$work/existing/.claude/skills/netjes"
 
 echo "== Vitest glue"
-# netjes() adds a setup file of its own after an app's own setup files: Testing Library advances Vitest's fake timers.
-# The three files are removed before the tests and type checks below, which would pick them up.
+# netjes() adds a setup file of its own after an app's own setup files: createTestApp() starts from the app's
+# netjes({ query }) defaults without their waits, and Testing Library advances Vitest's fake timers. The three files
+# are removed before the tests and type checks below, which would pick them up.
 cat > vitest.glue.config.ts <<'TS'
 import netjes from 'netjes/vite';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [netjes()],
+  plugins: [netjes({ query: { defaultOptions: { queries: { staleTime: Infinity, retry: 1, retryDelay: 1000 } } } })],
   test: { include: ['glue.test.tsx'], setupFiles: ['./glue-setup.ts'] },
 });
 TS
@@ -86,6 +87,10 @@ const jest = () => (globalThis as { jest?: unknown }).jest;
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+it("starts from the app's query defaults, without their waits", () => {
+  expect(createTestApp().queryClient.getDefaultOptions().queries).toMatchObject({ staleTime: Infinity, retry: 1, retryDelay: 0 });
 });
 
 it('has a jest global only while the timers are fake', () => {

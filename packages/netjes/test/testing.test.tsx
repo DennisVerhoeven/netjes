@@ -262,6 +262,29 @@ describe('createTestApp', () => {
     expect(await screen.findByText('Loaded 3 likes')).toBeDefined();
   });
 
+  it("layers the test's defaultOptions over the harness's, and the harness's over the app's", () => {
+    // Where Netjes's Vitest setup file keeps the app's netjes({ query }) defaults; this file does not import it.
+    const appDefaults = Symbol.for('netjes.testing.queryDefaults');
+    const global = globalThis as Record<symbol, unknown>;
+    global[appDefaults] = { queries: { retry: 1, staleTime: 5000, retryDelay: 1000, gcTime: 1000 } };
+    try {
+      expect(createTestApp().queryClient.getDefaultOptions().queries).toEqual({
+        retry: 1,
+        staleTime: 5000,
+        retryDelay: 0,
+        gcTime: Number.POSITIVE_INFINITY,
+      });
+      expect(createTestApp({ defaultOptions: { queries: { retry: false, retryDelay: 10 } } }).queryClient.getDefaultOptions().queries).toEqual({
+        retry: false,
+        staleTime: 5000,
+        retryDelay: 10,
+        gcTime: Number.POSITIVE_INFINITY,
+      });
+    } finally {
+      delete global[appDefaults];
+    }
+  });
+
   it('provides params, a navigation state and a QueryClient seeded with queries', () => {
     function Post() {
       const { slug } = useParams(z.object({ slug: z.string() }));
