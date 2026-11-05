@@ -36,6 +36,8 @@ public class TypeScriptGeneratorTests
         public int Length => Title.Length;
     }
 
+    public sealed record NavProps(Href Next, IReadOnlyList<Href> Links);
+
     private static async Task<string> GenerateAsync(TestApp app) =>
         app.App.Services.GetRequiredService<TypeScriptGenerator>().Generate();
 
@@ -161,6 +163,27 @@ public class TypeScriptGeneratorTests
         Assert.Contains("export function isHref(value: string): value is Href {\n  return isRouteHref(value, routePatterns);\n}", output);
         Assert.Contains("export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');", output);
         Assert.Contains("declare module 'netjes' {\n  interface Register {\n    href: Href;\n  }\n}", output);
+    }
+
+    [Fact]
+    public async Task Generate_HrefSchema_IsDeclaredBeforeTheSchemasThatUseIt()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/docs/[...path]/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new NavProps(new Href("/docs/intro"), []))));
+
+        var output = await GenerateAsync(app);
+
+        // A schema with an Href property reads Href as the module loads, so Href and what it calls come first: declared
+        // after it, Href would throw a ReferenceError on import. The types and route() stay at the end.
+        string[] order =
+        [
+            "import { z } from 'zod';\n", "export const routePatterns = [", "export function isHref(", "export const Href = z.custom<Href>(",
+            "export const NavProps = ", "export const pages = ", "export type RouteParams = ", "export type Href = ",
+            "export function route<", "declare module 'netjes' {",
+        ];
+        Assert.All(order, text => Assert.Contains(text, output));
+        Assert.Equal(order, order.OrderBy(text => output.IndexOf(text, StringComparison.Ordinal)));
     }
 
     [Fact]
