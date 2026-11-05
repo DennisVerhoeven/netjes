@@ -139,20 +139,20 @@ npm run dev          # http://localhost:5080
 | Start | [Getting started](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/getting-started.md), [Coming from Next.js](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/coming-from-nextjs.md) |
 | Guides | [Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md), [Data loading](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md), [Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md), [Rendering and streaming](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md), [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md), [Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md), [Images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md), [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md), [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md), [Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md), [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md), [Redirects, rewrites and headers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/redirects-rewrites-headers.md), [Coding agents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md) |
 | Reference | [React API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md), [C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md), [Options](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md), [The netjes command](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md), [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md) |
-| How it works | [Architecture](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/architecture.md), [Design decisions](https://github.com/DennisVerhoeven/netjes/tree/main/docs/decisions) |
+| How it works | [Architecture](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/architecture.md), [Design decisions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/README.md) |
 | Project | [Roadmap](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/roadmap.md), [Changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md), [Contributing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CONTRIBUTING.md), [Security policy](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/SECURITY.md) |
 
 [docs/README.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/README.md) lists every page with a line on what it covers.
 
-Two example apps show the pieces together. The [Blog](https://github.com/DennisVerhoeven/netjes/tree/main/examples/Blog) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](https://github.com/DennisVerhoeven/netjes/tree/main/examples/TaskBoard) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
+Two example apps show the pieces together. The [Blog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/Blog/README.md) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/README.md) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
 
 ## Packages
 
 | Package | What it holds |
 |---|---|
-| [`netjes`](https://github.com/DennisVerhoeven/netjes/tree/main/packages/netjes) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
-| [`Netjes`](https://github.com/DennisVerhoeven/netjes/tree/main/src/Netjes) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
-| [`Netjes.Images.SkiaSharp`](https://github.com/DennisVerhoeven/netjes/tree/main/src/Netjes.Images.SkiaSharp) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
+| [`netjes`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/README.md) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
+| [`Netjes`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/src/Netjes/README.md) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
+| [`Netjes.Images.SkiaSharp`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/src/Netjes.Images.SkiaSharp/README.md) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
 
 The three are released together under one version. An app uses the same version of `netjes` and `Netjes`, which `netjes new` pins and `netjes info` checks.
 
@@ -745,7 +745,7 @@ To add Netjes to an ASP.NET Core project you already have:
 
 - [Coming from Next.js](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/coming-from-nextjs.md), if you know the App Router.
 - The [guides](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/README.md#guides), one per topic.
-- The [Blog](https://github.com/DennisVerhoeven/netjes/tree/main/examples/Blog) and [TaskBoard](https://github.com/DennisVerhoeven/netjes/tree/main/examples/TaskBoard) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.
+- The [Blog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/Blog/README.md) and [TaskBoard](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/README.md) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/coming-from-nextjs.md -->
 

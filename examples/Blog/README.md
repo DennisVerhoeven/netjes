@@ -1,6 +1,6 @@
 # Blog
 
-A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard) is the larger example, with authentication and a database.
+A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard/README.md) is the larger example, with authentication and a database.
 
 ## Run it
 

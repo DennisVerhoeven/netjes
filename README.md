@@ -131,20 +131,20 @@ npm run dev          # http://localhost:5080
 | Start | [Getting started](docs/getting-started.md), [Coming from Next.js](docs/coming-from-nextjs.md) |
 | Guides | [Routing](docs/guides/routing.md), [Data loading](docs/guides/data-loading.md), [Actions and forms](docs/guides/actions-and-forms.md), [Rendering and streaming](docs/guides/rendering-and-streaming.md), [Caching](docs/guides/caching.md), [Metadata](docs/guides/metadata.md), [Images](docs/guides/images.md), [Static export](docs/guides/static-export.md), [Security](docs/guides/security.md), [Deployment](docs/guides/deployment.md), [Testing](docs/guides/testing.md), [Redirects, rewrites and headers](docs/guides/redirects-rewrites-headers.md), [Coding agents](docs/guides/coding-agents.md) |
 | Reference | [React API](docs/reference/react-api.md), [C# API](docs/reference/csharp-api.md), [Options](docs/reference/options.md), [The netjes command](docs/reference/cli.md), [Vite plugin](docs/reference/vite-plugin.md) |
-| How it works | [Architecture](docs/architecture.md), [Design decisions](docs/decisions/) |
+| How it works | [Architecture](docs/architecture.md), [Design decisions](docs/decisions/README.md) |
 | Project | [Roadmap](docs/roadmap.md), [Changelog](CHANGELOG.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md) |
 
 [docs/README.md](docs/README.md) lists every page with a line on what it covers.
 
-Two example apps show the pieces together. The [Blog](examples/Blog) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](examples/TaskBoard) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
+Two example apps show the pieces together. The [Blog](examples/Blog/README.md) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](examples/TaskBoard/README.md) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
 
 ## Packages
 
 | Package | What it holds |
 |---|---|
-| [`netjes`](packages/netjes) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
-| [`Netjes`](src/Netjes) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
-| [`Netjes.Images.SkiaSharp`](src/Netjes.Images.SkiaSharp) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
+| [`netjes`](packages/netjes/README.md) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
+| [`Netjes`](src/Netjes/README.md) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
+| [`Netjes.Images.SkiaSharp`](src/Netjes.Images.SkiaSharp/README.md) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
 
 The three are released together under one version. An app uses the same version of `netjes` and `Netjes`, which `netjes new` pins and `netjes info` checks.
 

@@ -551,4 +551,4 @@ To add Netjes to an ASP.NET Core project you already have:
 
 - [Coming from Next.js](coming-from-nextjs.md), if you know the App Router.
 - The [guides](README.md#guides), one per topic.
-- The [Blog](../examples/Blog) and [TaskBoard](../examples/TaskBoard) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.
+- The [Blog](../examples/Blog/README.md) and [TaskBoard](../examples/TaskBoard/README.md) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.

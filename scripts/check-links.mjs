@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // @ts-check
 // Checks every link in the Markdown files git tracks. A relative link must point at a file or folder git tracks, and
-// with an #anchor at a heading of that file, by the ids GitHub gives headings. Links to this repository on GitHub
-// (blob/main, tree/main and raw files on main) are checked the same way against the local tree, so the text that
-// apps copy from the template and the skill stays right too. Other http(s) links are not fetched. Links in code are
-// not links. Test fixtures are left out.
+// with an #anchor at a heading of that file, by the ids GitHub gives headings. A folder that holds a README.md is
+// linked by that file (examples/Blog/README.md, not examples/Blog): GitHub shows the README for the folder, but a site
+// or a tool built from the Markdown maps files to pages, not folders, and llms.mjs turns a folder link into a link to
+// GitHub's page for the folder. A tree/main link asks for that page on purpose and is left alone, and a folder without
+// a README is linked as the folder. Links to this repository on GitHub (blob/main, tree/main and raw files on main)
+// are checked the same way against the local tree, so the text that apps copy from the template and the skill stays
+// right too. Other http(s) links are not fetched. Links in code are not links. Test fixtures are left out.
 //
 //   node scripts/check-links.mjs     print each broken link as file:line: link (reason), exit 1 if there is one
 //                                     (part of npm run docs:check)
@@ -15,10 +18,14 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** Links to these, followed by a path in the repository, are checked against the local tree. */
+/**
+ * Links to these, followed by a path in the repository, are checked against the local tree. A `folderView` URL asks for
+ * a folder's page on purpose, so a link to a folder that holds a README is fine there.
+ */
 const REPOSITORY_URLS = [
-  { prefix: /^https:\/\/github\.com\/DennisVerhoeven\/netjes\/(?:blob|tree)\/main(?:\/|$)/i, raw: false },
-  { prefix: /^https:\/\/raw\.githubusercontent\.com\/DennisVerhoeven\/netjes\/main(?:\/|$)/i, raw: true },
+  { prefix: /^https:\/\/github\.com\/DennisVerhoeven\/netjes\/blob\/main(?:\/|$)/i, raw: false, folderView: false },
+  { prefix: /^https:\/\/github\.com\/DennisVerhoeven\/netjes\/tree\/main(?:\/|$)/i, raw: false, folderView: true },
+  { prefix: /^https:\/\/raw\.githubusercontent\.com\/DennisVerhoeven\/netjes\/main(?:\/|$)/i, raw: true, folderView: false },
 ];
 
 /** The same URLs written bare in prose, which GitHub turns into links. */
@@ -264,6 +271,18 @@ function decodePath(text) {
 }
 
 /**
+ * The link to a folder, written as a link to its README.md: the same text up to the folder's name, then `/README.md`,
+ * then the query and fragment the link had. `../examples/Blog/` becomes `../examples/Blog/README.md`, and
+ * `Blog?plain=1#run-it` becomes `Blog/README.md?plain=1#run-it`.
+ * @param {string} link
+ */
+function readmeLink(link) {
+  const end = link.search(/[?#]/);
+  const folder = end === -1 ? link : link.slice(0, end);
+  return `${folder.replace(/\/+$/, '')}/README.md${end === -1 ? '' : link.slice(end)}`;
+}
+
+/**
  * Checks the links of every Markdown file git tracks under `root`.
  * @param {string} root
  * @returns {Promise<{ files: number; links: number; broken: Broken[] } | null>} null when `root` is not a git checkout
@@ -324,6 +343,9 @@ export async function checkLinks(root) {
       return onDisk ? 'not tracked by git' : 'no such file';
     }
     if (repository?.raw && isFolder) return 'not a file';
+    if (isFolder && !repository?.folderView && tracked.has(target === '.' ? 'README.md' : `${target}/README.md`)) {
+      return `a folder: link ${readmeLink(link)}`;
+    }
     if (anchor && !isFolder && /\.md$/i.test(target) && !(await anchorsOf(target)).has(anchor)) return `no heading for #${anchor}`;
     return null;
   };
