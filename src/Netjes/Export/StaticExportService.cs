@@ -387,7 +387,7 @@ internal sealed class StaticExportService(
             var route = methods.Count > 0 ? $"{string.Join(", ", methods)} {raw}" : raw;
             if (methods.Count > 0 && !methods.Contains(HttpMethods.Get, StringComparer.OrdinalIgnoreCase))
             {
-                problems.Add($"{route} is included in the export, which requests it with GET, but it does not answer GET. Map it for GET, or exclude it with .ExcludeFromExport().");
+                problems.Add($"{route} is included in the export, which requests it with GET, but it does not answer GET. Map it for GET, as MapGet does, or exclude it with .ExcludeFromExport().");
                 continue;
             }
 
