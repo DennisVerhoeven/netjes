@@ -35,12 +35,14 @@ public class StaticExportTests
         Action<IServiceCollection>? services = null,
         Action<string>? prepareRoot = null,
         Action<FakeSsrRenderer>? renderer = null,
-        Action<NetjesOptions>? configure = null)
+        Action<NetjesOptions>? configure = null,
+        Action<IEndpointConventionBuilder>? mapPages = null)
     {
         var pages = (files ?? ["app/page.tsx", "app/about/page.tsx"]).ToList();
         return TestApp.StartAsync(
             [],
             map: map,
+            pages: mapPages,
             renderer: renderer,
             environment: "Production",
             prepareRoot: root =>
@@ -844,6 +846,27 @@ public class StaticExportTests
 
         Assert.Equal(0, _exitCode);
         Assert.False(File.Exists(Out("llms.txt")));
+    }
+
+    [Fact]
+    public async Task Export_PageLoaderMarkedIncludeInExport_IsWrittenAsAPage()
+    {
+        await using var app = await ExportAsync(map: a => a.MapPageLoader("/about", () => Page.Props()).IncludeInExport());
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("about/index.html")));
+        Assert.Contains(app.Logs, l => l.Message.StartsWith("Exported 2 pages and 0 files to "));
+    }
+
+    [Fact]
+    public async Task Export_MapPagesMarkedIncludeInExport_WritesThePagesAsPages()
+    {
+        await using var app = await ExportAsync(mapPages: pages => pages.IncludeInExport());
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("index.html")));
+        Assert.True(File.Exists(Out("about/index.html")));
+        Assert.Contains(app.Logs, l => l.Message.StartsWith("Exported 2 pages and 0 files to "));
     }
 
     [Theory]
