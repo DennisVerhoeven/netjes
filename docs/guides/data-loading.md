@@ -1,6 +1,6 @@
 # Data loading
 
-This guide is for app developers. It covers how a page and its layouts get their data: C# loaders that run in the request, props shared by every page, public configuration, the TypeScript types and zod schemas generated from the C# types, and server state through TanStack Query. Netjes has no React Server Components: a C# loader does the work a server component would, and React renders what it is sent ([ADR 0010](../decisions/0010-app-router-with-csharp-layout-loaders.md)).
+This guide is for app developers. It covers how a page and its layouts get their data: C# loaders that run in the request, props shared by every page, public configuration, the TypeScript types and zod schemas generated from the C# types, typed URLs for the app's endpoints, and server state through TanStack Query. Netjes has no React Server Components: a C# loader does the work a server component would, and React renders what it is sent ([ADR 0010](../decisions/0010-app-router-with-csharp-layout-loaders.md)).
 
 ## A page loader
 

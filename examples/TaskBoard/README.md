@@ -45,7 +45,7 @@ Migrations never run on app start in production. The `migrate` service runs `dot
 | Titles: `export const metadata` with a template in the root layout, `.WithMetadata` from C# | `app/layout.tsx`, every loader |
 | Loading and error states inside their layouts | `app/(app)/projects/[id]/loading.tsx`, `app/(app)/error.tsx`, `app/error.tsx` |
 | Data: EF Core, snake_case names, `IEntityTypeConfiguration` per entity, the `InitialSchema` migration | `Data/` |
-| Types from C#: page and layout props (`pages[...]`, `layouts[...]`), shared props, the stats API (`api[...]`), server actions (`serverActions[...]`) and typed routes (`route()`, `<Link href>`), all generated from the C# records | `generated/netjes.ts`, `Program.cs` (`UseSharedProps`, the enum converter) |
+| Types from C#: page and layout props (`pages[...]`, `layouts[...]`), shared props, the stats API (`api[...]`) and its URL (`endpointUrl()`), server actions (`serverActions[...]`) and typed routes (`route()`, `<Link href>`), all generated from the C# records | `generated/netjes.ts`, `Program.cs` (`UseSharedProps`, the enum converter), `lib/project.ts` |
 
 ## Things worth knowing
 

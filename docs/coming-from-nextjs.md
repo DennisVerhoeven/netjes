@@ -122,7 +122,7 @@ A server action is a named minimal API endpoint, not a function whose identity t
 
 ### Typed contracts generated from C#
 
-There is no shared TypeScript between server and client to keep in step by hand. `generated/netjes.ts` is written from the C# types, through the same System.Text.Json contracts the app serializes with: zod schemas for page and layout props, shared props and JSON endpoints, typed server action references, and the app's routes ([ADR 0006](decisions/0006-types-and-zod-from-csharp-contracts.md)). `definePage` parses the props with the schema, so a payload that does not match fails with an `Invalid props` error before the component renders. The app rewrites the file in development; you commit it, and `netjes generate --check` fails CI when it is stale.
+There is no shared TypeScript between server and client to keep in step by hand. `generated/netjes.ts` is written from the C# types, through the same System.Text.Json contracts the app serializes with: zod schemas for page and layout props, shared props and JSON endpoints, typed server action references, the app's routes and the URLs of its endpoints ([ADR 0006](decisions/0006-types-and-zod-from-csharp-contracts.md)). `definePage` parses the props with the schema, so a payload that does not match fails with an `Invalid props` error before the component renders. The app rewrites the file in development; you commit it, and `netjes generate --check` fails CI when it is stale.
 
 ### ASP.NET Core owns the request
 

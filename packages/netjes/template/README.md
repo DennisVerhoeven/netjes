@@ -17,7 +17,7 @@ dotnet publish -c Release
 - `Features/` holds the C# side, one folder per feature: `Features/Home/HomePage.cs` maps the home page's loader and the `home.greet` server action the form calls.
 - `AGENTS.md` tells coding agents how the app is laid out and what the rules are; `CLAUDE.md` imports it for Claude Code.
 - `Properties/launchSettings.json` holds the `http` launch profile that `dotnet run` and IDEs (F5) use: the app in Development on http://localhost:5080, as `npm run dev` runs it but without `dotnet watch`.
-- `generated/netjes.ts` holds zod schemas for what the loaders and actions return, typed server action references and typed routes. The app rewrites it when it starts in Development; commit it, and run `npx netjes generate --check` in CI.
+- `generated/netjes.ts` holds zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app rewrites it when it starts in Development; commit it, and run `npx netjes generate --check` in CI.
 
 Outside Development, `Program.cs` sends HSTS on https responses and redirects http to https once the app knows its https port (`ASPNETCORE_HTTPS_PORT` or `ASPNETCORE_HTTPS_PORTS`). Behind a proxy that terminates TLS, add `UseForwardedHeaders()` (trusting only that proxy) so proxied requests count as https and get HSTS, and let the proxy redirect plain http. Netjes adds `X-Content-Type-Options: nosniff` to every response that passes through `UseNetjes()`, static files and API endpoints included, and `Referrer-Policy` and `X-Frame-Options` (`SAMEORIGIN`, or what a Content-Security-Policy's `frame-ancestors` implies) to every document it renders; see `NetjesOptions.SecurityHeaders` to change that.
 

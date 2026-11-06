@@ -52,7 +52,7 @@ my-app/
   Features/Home/HomePage.cs  the home page's loader and the home.greet server action
   Program.cs                 services and the request pipeline
   SiteProps.cs               the shared props every page and layout gets
-  generated/netjes.ts        zod schemas, typed actions and routes, generated from the C# types
+  generated/netjes.ts        zod schemas, typed actions, routes and endpoint URLs, generated from the C# types
   styles/global.css          Tailwind CSS, imported by app/layout.tsx
   public/favicon.svg         the favicon, the Netjes mark until you put your own there
   MyApp.csproj, package.json, vite.config.ts, tsconfig.json
