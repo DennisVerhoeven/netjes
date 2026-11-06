@@ -7464,7 +7464,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 ## Now
 
-- **The 0.0.1 release.** The packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template.
+- **Early releases (0.0.x).** The packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. What each release changed is in the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md).
 
 ## Next
 
@@ -7482,6 +7482,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 - Partial prerendering: a cached HTML shell, resumed by React with the parts that differ per request.
 - valibot as an alternative to zod in the generated file.
+- Endpoints with route values in the export: an overload of `.IncludeInExport()` that lists them, as `.StaticParams(...)` does for pages.
 - Navigations that keep what an unmatched parallel-route slot showed, as Next.js does after a soft navigation.
 - Back and Forward that give the focus back to the element that had it when the user left the entry, found again in the page that renders anew ([ADR 0033](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0033-client-navigations-announce-the-page-and-start-the-focus-over.md)).
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
