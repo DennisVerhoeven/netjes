@@ -175,6 +175,11 @@ describe('buildEndpointUrl', () => {
     expect(buildEndpointUrl('/api/search', {}, { q: undefined, page: null })).toBe('/api/search');
   });
 
+  it('writes an empty query value, which leaves out only a route value', () => {
+    expect(buildEndpointUrl('/api/search', { q: '' })).toBe('/api/search?q=');
+    expect(buildEndpointUrl('/api/search', {}, { q: '' })).toBe('/api/search?q=');
+  });
+
   it('writes the literal parts of a template as they are, with what the generator encoded in them', () => {
     expect(buildEndpointUrl('/a%7Bb%7D/{id}', { id: 'c' })).toBe('/a%7Bb%7D/c');
     expect(buildEndpointUrl('/100%25/c%23/a%5Cb/{id}', { id: 'c' })).toBe('/100%25/c%23/a%5Cb/c');
