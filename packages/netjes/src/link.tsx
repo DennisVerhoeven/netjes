@@ -14,7 +14,7 @@ export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   scroll?: boolean;
   /** `intent` (default) fetches the next page on hover, focus or touch. */
   prefetch?: 'intent' | 'none';
-  /** Let the browser follow it with a full page load, e.g. for a file download or a page outside Netjes. */
+  /** Let the browser follow it with a full page load: for a page of the app that must load in full, or a page on another site. */
   reloadDocument?: boolean;
 };
 
