@@ -619,7 +619,7 @@ internal sealed class StaticExportService(
             var segments = PortableKey(file.Path).Split('/');
             for (var depth = 1; depth < segments.Length; depth++)
             {
-                if (seen.TryGetValue(string.Join('/', segments[..depth]), out var other) && other != file)
+                if (seen.TryGetValue(string.Join('/', segments[..depth]), out var other))
                 {
                     var why = PathOf(file.Path).StartsWith(PathOf(other.Path) + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                         ? ""
