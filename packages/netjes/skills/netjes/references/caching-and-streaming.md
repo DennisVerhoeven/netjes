@@ -79,6 +79,7 @@ function ActivityFeed({ activity }: { activity: PromiseLike<ActivityItem[]> }) {
 - A deferred task runs alongside the rest of the request: give it its own `DbContext`, never the request's, and pass `http.RequestAborted`. Either create one from `IDbContextFactory<T>`, as above, or use the overload that runs the work in its own DI scope, started once the page's payload is written: `Page.Defer(services => services.GetRequiredService<AppDb>().ActivityAsync(id, http.RequestAborted))`.
 - Without JavaScript, a fallback that is still pending stays. Crawlers (`CrawlerUserAgents`), apps with `StreamDocuments = false` and `netjes export` get the complete document.
 - A boundary that is ready when the shell goes out is written in place, so it shows without JavaScript too.
+- A value that fails rejects, so `use()` throws to the nearest `error.tsx`: with error details off its message is a stand-in marked `withheld`, and a cancelled task fails with "The value was cancelled".
 
 ## Static export
 
