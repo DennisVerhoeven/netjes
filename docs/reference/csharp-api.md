@@ -535,7 +535,7 @@ public interface ISsrRenderer
 public sealed record SsrStreamOptions(bool WaitForAll, string? RenderId = null);
 ```
 
-What renders a page payload (HTML-safe JSON) to an HTML document; by default the sidecar pool. Register your own to replace server rendering, as tests do to run the app without Node (see [testing](../guides/testing.md#the-app-over-http)): the sidecar then does not start. `RenderStreamAsync` streams the shell first and each Suspense boundary as it resolves, and throws before it returns if the shell fails; `WaitForAll` asks for the complete document (crawlers, export), and `RenderId` is set when the payload has deferred values, which `ResolveAsync` delivers.
+What renders a page payload (HTML-safe JSON) to an HTML document; by default the sidecar pool. Register your own to replace server rendering, as tests do to run the app without Node (see [testing](../guides/testing.md#the-app-over-http)): the sidecar then does not start. `RenderStreamAsync` streams the shell first and each Suspense boundary as it resolves, and throws before it returns if the shell fails; `WaitForAll` asks for the complete document (crawlers, export), and `RenderId` is set when the payload has deferred values, which `ResolveAsync` delivers. An empty `error` in `ResolveAsync` is a failure whose message is withheld: pass it on as it is, so that the browser rejects the value with its own stand-in, marked `withheld`.
 
 ### SsrRenderException
 
