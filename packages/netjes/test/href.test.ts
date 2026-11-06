@@ -152,6 +152,24 @@ describe('buildEndpointUrl', () => {
     expect(() => buildEndpointUrl('/files/{name}.{ext?}', { ext: 'md' })).toThrow("needs the route value 'name'");
   });
 
+  it('throws for an optional value left out before a segment that stays, whose place the next value would take', () => {
+    // Routing does not match `/a/b`, and reads the `2` of `/two/2` as `x`. LinkGenerator gives no URL for these either.
+    expect(() => buildEndpointUrl('/a/{x?}/b', {}, undefined, 'GET /a/{x?}/b')).toThrow("netjes: endpoint 'GET /a/{x?}/b' needs the route value 'x'");
+    expect(() => buildEndpointUrl('/two/{x?}/{y?}', { y: 2 })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/rest/{x?}/{**rest}', { rest: 'a/b' })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/mid/{x?}/{y=1}/c', {})).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/end/{x?}/{y=1}', { y: 2 })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/cy/{x?}/{name}.{ext?}', { name: 'a' })).toThrow("needs the route value 'x'");
+  });
+
+  it('leaves out what can go at the end, and part of a segment wherever it is', () => {
+    expect(buildEndpointUrl('/two/{x?}/{y?}', {})).toBe('/two');
+    expect(buildEndpointUrl('/two/{x?}/{y?}', { x: 1 })).toBe('/two/1');
+    expect(buildEndpointUrl('/end/{x?}/{y=1}', {})).toBe('/end');
+    expect(buildEndpointUrl('/dflt/{x=1}/{y?}', { y: 2 })).toBe('/dflt/1/2');
+    expect(buildEndpointUrl('/cx/{name}.{ext?}/z', { name: 'a' })).toBe('/cx/a/z');
+  });
+
   it('appends the open search values after the typed ones', () => {
     expect(buildEndpointUrl('/api/search', { q: 'a b', page: 2 }, { sort: ['x', 'y'], q: 'c' })).toBe('/api/search?q=a+b&page=2&sort=x&sort=y&q=c');
     expect(buildEndpointUrl('/api/search', {}, { q: undefined, page: null })).toBe('/api/search');

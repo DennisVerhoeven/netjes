@@ -102,14 +102,14 @@ function absent(value: unknown): boolean {
 
 /**
  * Builds the URL of one of the app's endpoints from its route template, as the generated file writes it: the
- * literals as they are (with `%`, `{`, `}`, `#` and `\\` encoded), `{name}`, `{name?}`, `{name=default}` (the default encoded),
- * `{*name}` and `{**name}`, without constraints. Each route value is encoded; a `{**name}` value keeps its slashes,
- * and a `{*name}` value has them encoded. A missing, `null` or empty optional value drops its segment, or its part of
- * a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, except at the end,
- * where it is dropped; a missing required value throws `netjes: endpoint '<endpoint>' needs the route value
- * '<name>'`. The values the template does not name are the query string, followed by `search`. The result is
- * root-relative and has no base path: pass it through `useHref` for a `fetch` or an `<a href>`. The generated
- * `endpointUrl()` calls this with typed values.
+ * literals as they are (with `%`, `{`, `}`, `#` and `\` encoded), `{name}`, `{name?}`, `{name=default}` (the default
+ * encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded; a `{**name}` value keeps its
+ * slashes, and a `{*name}` value has them encoded. A missing, `null` or empty optional value drops its segment, or its
+ * part of a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, except at
+ * the end, where it is dropped; a missing required value, or an optional one whose segment is followed by one that
+ * stays, throws `netjes: endpoint '<endpoint>' needs the route value '<name>'`. The values the template does not name
+ * are the query string, followed by `search`. The result is root-relative and has no base path: pass it through
+ * `useHref` for a `fetch` or an `<a href>`. The generated `endpointUrl()` calls this with typed values.
  */
 export function buildEndpointUrl(
   template: string,
@@ -117,12 +117,13 @@ export function buildEndpointUrl(
   search?: SearchParamsInput,
   endpoint?: string,
 ): string {
+  const needs = (name: string) => new Error(`netjes: endpoint '${endpoint ?? template}' needs the route value '${name}'`);
   const named = new Set<string>();
-  // Each segment's text, and whether it is a lone value that its default filled in (dropped at the end).
-  const segments: { text: string; defaulted: boolean }[] = [];
+  // Each segment's text, and the name of the value it is missing, when the segment can go for want of it.
+  const segments: { text: string; missing: string | undefined }[] = [];
   for (const segment of template.split('/').filter(Boolean)) {
     let text = '';
-    let defaulted = false;
+    let missing: string | undefined;
     for (const part of segment.split(/(\{[^}]*\})/).filter(Boolean)) {
       const parameter = /^\{(\*\*?)?([^=?]+?)(\?|=([^]*))?\}$/.exec(part);
       if (!parameter) {
@@ -137,17 +138,21 @@ export function buildEndpointUrl(
         text += star === '**' ? String(value).split('/').map((piece) => encodeURIComponent(piece)).join('/') : encodeURIComponent(String(value));
       } else if (fallback !== undefined) {
         text += fallback;
-        defaulted = part === segment;
+        if (part === segment) missing = name;
       } else if (marker === '?' || star) {
         // An optional value after a literal `.` takes the dot with it.
         if (text.endsWith('.')) text = text.slice(0, -1);
+        if (!text) missing = name;
       } else {
-        throw new Error(`netjes: endpoint '${endpoint ?? template}' needs the route value '${name}'`);
+        throw needs(name);
       }
     }
-    if (text) segments.push({ text, defaulted });
+    if (text || missing) segments.push({ text, missing });
   }
-  while (segments.at(-1)?.defaulted) segments.pop();
+  while (segments.at(-1)?.missing) segments.pop();
+  // A segment left out before one that stays: routing would not match, or would read the next value as this one.
+  const leftOut = segments.find((segment) => !segment.text)?.missing;
+  if (leftOut) throw needs(leftOut);
 
   const query = new URLSearchParams();
   appendSearch(query, Object.fromEntries(Object.entries(values).filter(([key]) => !named.has(key))));

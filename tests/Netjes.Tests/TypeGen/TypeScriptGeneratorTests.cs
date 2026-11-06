@@ -222,9 +222,10 @@ public class TypeScriptGeneratorTests
                 // The template needs a value however the handler declares it.
                 a.MapGet("/opt/{slug}", (string? slug) => slug ?? "");
                 // Without a value, binding answers 400 for these, and the URL is no use. The analyzer warns about the
-                // first, which an app that does not treat warnings as errors builds all the same.
+                // first two, which an app that does not treat warnings as errors builds all the same.
 #pragma warning disable ASP0007
                 a.MapGet("/id/{id?}", (int id) => $"{id}");
+                a.MapGet("/bound/{x?}/{y?}", (string? x, int y) => x ?? "");
 #pragma warning restore ASP0007
                 a.MapGet("/cat/{**path}", (string path) => path);
                 a.MapGet("/maybe/{id?}", (int? id) => $"{id}");
@@ -233,6 +234,15 @@ public class TypeScriptGeneratorTests
                 a.MapGet("/page/{page=1}", (int page) => $"{page}");
                 // Nothing binds it, so it is a string the template makes optional.
                 a.MapGet("/raw/{id?}", (HttpContext http) => "raw");
+                // A segment that must be there after it: the matcher does not match the URL without the value's segment.
+                a.MapGet("/mid/{x?}/b", (string? x) => x ?? "");
+                a.MapGet("/mid/{x?}/{y=1}/c", (string? x, int y) => x ?? "");
+                a.MapGet("/mid/{x?}/{name}.{ext?}", (string? x, string name, string? ext) => name);
+                // Only what can go at the end comes after it.
+                a.MapGet("/end/{x?}/{y?}", (string? x, string? y) => x ?? "");
+                a.MapGet("/last/{x?}/{y=1}", (string? x, int y) => x ?? "");
+                // Part of a segment goes on its own, whatever follows.
+                a.MapGet("/part/{name}.{ext?}/z", (string name, string? ext) => name);
             });
 
         var output = await GenerateAsync(app);
@@ -241,11 +251,18 @@ public class TypeScriptGeneratorTests
             """
             export type EndpointParams = {
               "GET /any/{**path}": { path?: string | null | undefined };
+              "GET /bound/{x?}/{y?}": { x: string; y: number };
               "GET /cat/{**path}": { path: string };
+              "GET /end/{x?}/{y?}": { x?: string | null | undefined; y?: string | null | undefined };
               "GET /id/{id?}": { id: number };
+              "GET /last/{x?}/{y=1}": { x?: string | null | undefined; y?: number | null | undefined };
               "GET /maybe/{id?}": { id?: number | null | undefined };
+              "GET /mid/{x?}/b": { x: string };
+              "GET /mid/{x?}/{name}.{ext?}": { x: string; name: string; ext?: string | null | undefined };
+              "GET /mid/{x?}/{y=1}/c": { x: string; y?: number | null | undefined };
               "GET /opt/{slug}": { slug: string };
               "GET /page/{page=1}": { page?: number | null | undefined };
+              "GET /part/{name}.{ext?}/z": { name: string; ext?: string | null | undefined };
               "GET /raw/{id?}": { id?: string | null | undefined };
             };
             """.ReplaceLineEndings("\n"),

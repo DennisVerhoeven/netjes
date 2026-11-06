@@ -71,10 +71,9 @@ internal static class EndpointUrls
 
     /// <summary>
     /// The route parameters, typed from the parameter that binds each one (a string when none does), then the query
-    /// string keys the handler binds (<see cref="LoaderBinding.UrlSource"/>). A route value is optional when routing
-    /// fills in a default, or when the route makes it optional (<c>{id?}</c>, a catch-all) and no parameter that needs a
-    /// value binds it: without one, binding would answer 400. A query value is optional unless binding needs it, and a
-    /// list always, since binding gives an empty one. An MVC action reports no parameters: its route values are strings.
+    /// string keys the handler binds (<see cref="LoaderBinding.UrlSource"/>). A route value is optional as
+    /// <see cref="OptionalRouteValues"/> says. A query value is optional unless binding needs it, and a list always,
+    /// since binding gives an empty one. An MVC action reports no parameters: its route values are strings.
     /// </summary>
     private static List<Value> Values(RouteEndpoint endpoint)
     {
@@ -84,12 +83,15 @@ internal static class EndpointUrls
             .Select(binding => (Binding: binding, Source: LoaderBinding.UrlSource(binding, routeParameters)))
             .ToList();
 
+        IParameterBindingMetadata? BindingOf(RoutePatternParameterPart parameter) =>
+            bindings.FirstOrDefault(b => string.Equals(b.Source.Route, parameter.Name, StringComparison.OrdinalIgnoreCase)).Binding;
+
+        var optional = OptionalRouteValues(pattern, parameter => BindingOf(parameter)?.IsOptional != false);
         var values = new List<Value>();
         foreach (var parameter in pattern.Parameters)
         {
-            var binding = bindings.FirstOrDefault(b => string.Equals(b.Source.Route, parameter.Name, StringComparison.OrdinalIgnoreCase)).Binding;
-            var optional = parameter.Default is not null || ((parameter.IsOptional || parameter.IsCatchAll) && binding?.IsOptional != false);
-            values.Add(new Value(parameter.Name, binding is null ? "string" : TypeOf(binding.ParameterInfo.ParameterType), optional));
+            var binding = BindingOf(parameter);
+            values.Add(new Value(parameter.Name, binding is null ? "string" : TypeOf(binding.ParameterInfo.ParameterType), optional.Contains(parameter)));
         }
 
         foreach (var (binding, (_, query)) in bindings)
@@ -105,6 +107,33 @@ internal static class EndpointUrls
         }
 
         return values;
+    }
+
+    /// <summary>
+    /// The route values a URL can leave out: those routing fills in a default for, and those the route makes optional
+    /// (<c>{id?}</c>, a catch-all) that no parameter needing a value binds, since binding would answer 400 without one.
+    /// A value that is a whole segment also needs every later segment to be able to go: the matcher does not match
+    /// <c>/a/b</c> for <c>/a/{x?}/b</c>. An optional part of a segment (<c>{name}.{ext?}</c>) goes on its own.
+    /// </summary>
+    private static HashSet<RoutePatternParameterPart> OptionalRouteValues(RoutePattern pattern, Func<RoutePatternParameterPart, bool> bindingNeedsNoValue)
+    {
+        var optional = new HashSet<RoutePatternParameterPart>();
+        var aSegmentStays = false;
+        foreach (var segment in pattern.PathSegments.Reverse())
+        {
+            foreach (var parameter in segment.Parts.OfType<RoutePatternParameterPart>())
+            {
+                if (parameter.Default is not null
+                    || ((parameter.IsOptional || parameter.IsCatchAll) && bindingNeedsNoValue(parameter) && !(segment.IsSimple && aSegmentStays)))
+                {
+                    optional.Add(parameter);
+                }
+            }
+
+            aSegmentStays |= !(segment.IsSimple && segment.Parts[0] is RoutePatternParameterPart whole && optional.Contains(whole));
+        }
+
+        return optional;
     }
 
     private static bool IsList(Type type) => type.IsArray || type == typeof(StringValues) || type == typeof(StringValues?);
