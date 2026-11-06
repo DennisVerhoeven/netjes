@@ -2,7 +2,7 @@ namespace Netjes.Export;
 
 /// <summary>
 /// What <c>netjes export</c> writes, for the endpoints it requests: <c>MapSitemap</c> lists these pages instead of the
-/// route table's, so the sitemap names exactly the pages there are files for.
+/// route table's, so the sitemap names only pages there are files for.
 /// </summary>
 internal sealed class ExportPlan
 {

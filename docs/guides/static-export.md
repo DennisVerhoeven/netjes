@@ -14,7 +14,7 @@ npx netjes export --no-build
 
 - `out/index.html` for `/`, and `out/<path>/index.html` for every other page,
 - `out/404.html`, the not-found page,
-- `out/sitemap.xml` and `out/robots.txt` when the app maps `MapSitemap` and `MapRobotsTxt`, the sitemap listing exactly the pages the export writes ([below](#sitemap-and-robotstxt)),
+- `out/sitemap.xml` and `out/robots.txt` when the app maps `MapSitemap` and `MapRobotsTxt`, the sitemap listing only pages the export writes ([below](#sitemap-and-robotstxt)),
 - a file at its URL for each endpoint marked `.IncludeInExport()`, such as `out/llms.txt` ([below](#other-endpoints-as-files-includeinexport)),
 - a copy of the client build (`dist/client`, without Vite's `.vite/` folder).
 
@@ -82,7 +82,7 @@ A parameter counts when minimal API binding takes its value from the query strin
 
 An app that maps `MapSitemap` and `MapRobotsTxt` ([metadata](metadata.md#sitemap-and-robots)) gets both files in the export. The export requests them from the app after the pages, as it requests the pages, and writes what the app answers:
 
-- `sitemap.xml` lists exactly the pages the export writes, in the order it writes them: each page without parameters, and each dynamic page for every value of its `.StaticParams(...)`, except the pages marked `.ExcludeFromSitemap()`. A page marked `.ExcludeFromExport()` has no file on the static host, so the exported sitemap leaves it out, while the sitemap the app serves still lists it.
+- `sitemap.xml` lists the pages the export writes, in the order it writes them: each page without parameters, and each dynamic page for every value of its `.StaticParams(...)`, except the pages marked `.ExcludeFromSitemap()`. A page marked `.ExcludeFromExport()` has no file on the static host, so the exported sitemap leaves it out, while the sitemap the app serves still lists it.
 - `robots.txt` is the file the app serves: its `Disallow` or `Allow` lines and its `Sitemap:` line.
 
 Both build their URLs from the `siteUrl` that the app passes to `MapSitemap` and `MapRobotsTxt` when it runs in the Production environment, which is the environment the export runs in. Pass the static host's URL there, for example from configuration, with the app reading `app.Configuration["SiteUrl"]`:

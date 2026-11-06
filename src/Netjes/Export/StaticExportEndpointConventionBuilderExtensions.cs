@@ -26,7 +26,11 @@ public static class StaticExportEndpointConventionBuilderExtensions
         return builder.StaticParams(services => parameters(services.GetRequiredService<TService>()));
     }
 
-    /// <summary>Leaves the page out of <c>netjes export</c>, e.g. a page that needs a server for its form or its user.</summary>
+    /// <summary>
+    /// Leaves the page out of <c>netjes export</c>, e.g. a page that needs a server for its form or its user. On an
+    /// endpoint marked <c>.IncludeInExport()</c>, such as <c>MapSitemap</c> or <c>MapRobotsTxt</c>, it leaves that
+    /// endpoint's file out.
+    /// </summary>
     public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
     {
         builder.Add(endpoint => endpoint.Metadata.Add(new ExcludeFromExportMetadata()));
