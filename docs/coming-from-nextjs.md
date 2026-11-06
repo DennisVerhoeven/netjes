@@ -153,6 +153,7 @@ Next.js prerenders what it can. Netjes renders every page per request and sends 
   - Only the first `%s` in a template is replaced. Next.js replaces every `%s`.
 - A URL that spells a page's folders in another case (`/About` for `app/about/page.tsx`) answers 308 with the file's spelling, `/about`, where Next.js, which matches a route in its file's case only, answers 404. A trailing slash is answered as it is by default; `TrailingSlash.Never` sends `/about/` to `/about`, as Next.js's default `trailingSlash: false` does ([One URL per page](guides/routing.md#one-url-per-page)).
 - `notFound()`, `redirect()` and the like are not thrown from React components: the loader decides, in C#, before anything renders.
+- `error.digest` has no counterpart yet. Where Next.js masks a server error's message, Netjes marks the stand-in with `error.withheld`, and `error.status` holds the status of the server's answer ([error pages](guides/routing.md#error-not-found-forbidden-and-unauthorized-pages)).
 - There is no Pages Router. An app with Pages Router files in `pages/` stops at startup and says what to do with each: a page moves to its `app/` name (a `.js` page to a `.jsx` file), `404.tsx` to `app/not-found.tsx`, `500.tsx` and `_error.tsx` to `app/error.tsx`, `_app.tsx` and `_document.tsx` to the root layout, and an API route in `pages/api/` becomes a minimal API endpoint ([Routing](guides/routing.md#what-is-not-there)).
 
 ## Moving an app over
