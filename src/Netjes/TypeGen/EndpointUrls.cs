@@ -48,16 +48,17 @@ internal static class EndpointUrls
 
     /// <summary>
     /// The route as the matcher reads it, for <c>buildEndpointUrl</c>: from the root (an MVC attribute route has no
-    /// leading slash), with each literal as written but <c>%</c>, <c>{</c> and <c>}</c> encoded, so that braces mark only
-    /// the values; <c>{name}</c>, <c>{name?}</c>, <c>{name=default}</c> (the default encoded), <c>{*name}</c> and
-    /// <c>{**name}</c> without constraints; and without a trailing slash, which the matcher ignores.
+    /// leading slash), with each literal as written but <c>{</c> and <c>}</c> encoded, so that braces mark only the
+    /// values, and <c>%</c>, <c>#</c> and <c>\</c>, which a browser reads otherwise in a path; <c>{name}</c>,
+    /// <c>{name?}</c>, <c>{name=default}</c> (the default encoded), <c>{*name}</c> and <c>{**name}</c> without
+    /// constraints; and without a trailing slash, which the matcher ignores.
     /// </summary>
     public static string Template(RoutePattern pattern) =>
         "/" + string.Join("/", pattern.PathSegments.Select(segment => string.Concat(segment.Parts.Select(Part))));
 
     private static string Part(RoutePatternPart part) => part switch
     {
-        RoutePatternLiteralPart literal => literal.Content.Replace("%", "%25").Replace("{", "%7B").Replace("}", "%7D"),
+        RoutePatternLiteralPart literal => literal.Content.Replace("%", "%25").Replace("{", "%7B").Replace("}", "%7D").Replace("#", "%23").Replace("\\", "%5C"),
         RoutePatternSeparatorPart separator => separator.Content,
         RoutePatternParameterPart parameter => "{"
             + (parameter.IsCatchAll ? parameter.EncodeSlashes ? "*" : "**" : "")

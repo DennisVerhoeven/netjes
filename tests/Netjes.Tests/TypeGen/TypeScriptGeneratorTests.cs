@@ -351,20 +351,25 @@ public class TypeScriptGeneratorTests
                 a.MapGet("/files/{name}.{ext?}", (string name, string? ext) => name);
                 a.MapGet("/a{{b}}/{id}", (string id) => id);
                 a.MapGet("/100%/{id}", (string id) => id);
+                a.MapGet("/c#/{id}", (string id) => id);
+                a.MapGet("/a\\b", () => "a");
                 a.MapGet("/", () => "home");
             });
 
         var output = await GenerateAsync(app);
 
         // As the matcher reads them: without constraints or a trailing slash, which it ignores, and with a literal's
-        // braces encoded, so that only a value's braces are left, and its % too, which would start an escape.
+        // braces encoded, so that only a value's braces are left. So are the characters a browser reads otherwise in
+        // a path: % starts an escape, # the fragment, and \ is read as /.
         Assert.Contains(
             """
             const endpointTemplates: Record<EndpointKey, string> = {
               "GET /": "/",
               "GET /100%/{id}": "/100%25/{id}",
+              "GET /a\\b": "/a%5Cb",
               "GET /api/posts/{slug}/likes/": "/api/posts/{slug}/likes",
               "GET /a{{b}}/{id}": "/a%7Bb%7D/{id}",
+              "GET /c#/{id}": "/c%23/{id}",
               "GET /docs/{**path:regex(\\.md$)}": "/docs/{**path}",
               "GET /files/{name}.{ext?}": "/files/{name}.{ext?}",
               "GET /list/{page:int=1}": "/list/{page=1}",

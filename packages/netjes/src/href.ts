@@ -102,7 +102,7 @@ function absent(value: unknown): boolean {
 
 /**
  * Builds the URL of one of the app's endpoints from its route template, as the generated file writes it: the
- * literals as they are (with `{` and `}` encoded), `{name}`, `{name?}`, `{name=default}` (the default encoded),
+ * literals as they are (with `%`, `{`, `}`, `#` and `\\` encoded), `{name}`, `{name?}`, `{name=default}` (the default encoded),
  * `{*name}` and `{**name}`, without constraints. Each route value is encoded; a `{**name}` value keeps its slashes,
  * and a `{*name}` value has them encoded. A missing, `null` or empty optional value drops its segment, or its part of
  * a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, except at the end,
