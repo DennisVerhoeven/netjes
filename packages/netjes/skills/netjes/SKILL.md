@@ -70,7 +70,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
 - Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in `app/layout.tsx` that takes the focus: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](references/routing.md)).
 - Never edit `generated/netjes.ts`; regenerate it and commit it with the change.
-- Anything in `Netjes:PublicConfig` or shared props is sent to the browser.
+- Anything in `Netjes:PublicConfig` or shared props is sent to the browser. So is the route of each endpoint with an `endpointUrl` key, one mapped only in Development included, once any component calls `endpointUrl`: keep secrets out of routes, and authorize on the endpoint.
 - Caching, streaming and static export have sharp edges: read [references/caching-and-streaming.md](references/caching-and-streaming.md) before using `.CachePage`, `Page.Defer` or `netjes export`.
 - Shipping: [references/deployment.md](references/deployment.md).
 
