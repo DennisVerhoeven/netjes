@@ -12,7 +12,8 @@ export type LayoutComponent = ComponentType<LayoutProps & Record<string, unknown
  * - `error.status` is the HTTP status of a server answer behind the error: the status of the error page the server
  *   rendered, or of a server action call that failed. An error thrown in the browser has none.
  * - `error.withheld` is true when the message is Netjes's stand-in for one it does not show: the server's reason
- *   phrase for an exception while error details are off, or "Something went wrong" for a thrown value that has no
+ *   phrase for an exception while error details are off, "Something went wrong" for a `Page.Defer` failure the server
+ *   withheld or a thrown value that has no message, or Netjes's own text for a server action whose answer had no
  *   message. Render `error.message` only when `!error.withheld`.
  * - `error.stack` is the server's stack when error details are on, and undefined for a server error sent without one.
  */
