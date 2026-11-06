@@ -86,7 +86,7 @@ A layout that needs data gets it from a C# layout loader, `app.MapLayoutLoader(.
 
 ### Error, not-found, forbidden and unauthorized pages
 
-An `error.tsx` gets `{ error, reset }` (`ErrorPageProps`). `error.status` holds the HTTP status of a server answer behind the error, such as the status the server rendered the page with, and `reset()` renders the segment again. `error.withheld` is true when the message is a stand-in that Netjes wrote for one it does not show, such as the reason phrase the server sends for an exception while error details are off, so the page shows the message only when it is not withheld:
+An `error.tsx` gets `{ error, reset }` (`ErrorPageProps`). `error.status` holds the HTTP status of a server answer behind the error, such as the status the server rendered the page with. `reset()` renders the segment again after an error a segment's boundary caught, and loads the page from the server again (`router.refresh()`) on an error page the server rendered. `error.withheld` is true when the message is a stand-in that Netjes wrote for one it does not show, such as the reason phrase the server sends for an exception while error details are off, so the page shows the message only when it is not withheld:
 
 ```tsx
 // app/error.tsx
@@ -104,7 +104,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
 }
 ```
 
-An error thrown in the browser reaches the page as it was thrown, with its own class, message and stack, also when only the router's own boundary caught it and handed it to the root `app/error.tsx`. Of those, only a failed server action's `ServerActionError` has a `status`, so `error.status ?? 500` shows 500 for the others. The [React API reference](../reference/react-api.md#errorpageprops) lists what the error holds for each kind of failure.
+An error thrown in the browser reaches the page as it was thrown, with its own class, message and stack, also when only the router's own boundary caught it and handed it to the root `app/error.tsx`. Of those, only a failed server action's `ServerActionError` has a `status`, so `error.status ?? 500` shows 500 for the others. On the page the router's own boundary shows, `reset()` does nothing: that boundary clears only when the page changes, so a retry there is a link or a full reload. The [React API reference](../reference/react-api.md#errorpageprops) lists what the error holds for each kind of failure.
 
 An error boundary sits inside its folder's layout, so it catches errors in the pages and folders below, not in that layout itself. To catch an error in a layout, put an `error.tsx` in the folder above. On the server, an exception in a loader or a render gets the nearest `error.tsx` above the failing segment, with status 500 (or the status of a `BadHttpRequestException`).
 

@@ -7,7 +7,7 @@ export type PageComponent = ComponentType<Record<string, unknown>>;
 export type LayoutProps = { children: ReactNode; params: Params };
 export type LayoutComponent = ComponentType<LayoutProps & Record<string, unknown>>;
 /**
- * The props of an `error.tsx`: what was thrown, and a way to try rendering the segment again.
+ * The props of an `error.tsx`: what was thrown, and a way to try again.
  *
  * - `error.status` is the HTTP status of a server answer behind the error: the status of the error page the server
  *   rendered, or of a server action call that failed. An error thrown in the browser has none.
@@ -16,6 +16,9 @@ export type LayoutComponent = ComponentType<LayoutProps & Record<string, unknown
  *   withheld or a thrown value that has no message, or Netjes's own text for a server action whose answer had no
  *   message. Render `error.message` only when `!error.withheld`.
  * - `error.stack` is the server's stack when error details are on, and undefined for a server error sent without one.
+ * - `reset()` renders the segment again after an error a segment's boundary caught. On an error page the server
+ *   rendered it loads the page from the server again (`router.refresh()`), and on the page the router's own boundary
+ *   shows it does nothing: offer a link or a full reload there.
  */
 export type ErrorPageProps = { error: Error & { status?: number; withheld?: boolean }; reset: () => void };
 
