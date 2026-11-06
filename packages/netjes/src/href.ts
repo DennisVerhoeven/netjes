@@ -105,10 +105,10 @@ function absent(value: unknown): boolean {
  * literals as they are (with `%`, `{`, `}`, `#` and `\` encoded), `{name}`, `{name?}`, `{name=default}` (the default
  * encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded; a `{**name}` value keeps its
  * slashes, and a `{*name}` value has them encoded. A missing, `null` or empty optional value drops its segment, or its
- * part of a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, except at
- * the end, where it is dropped; a missing required value, or an optional one whose segment is followed by one that
- * stays, throws `netjes: endpoint '<endpoint>' needs the route value '<name>'`. The values the template does not name
- * are the query string, followed by `search`. The result is root-relative and has no base path: pass it through
+ * part of a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, unless it
+ * is a whole segment at the end, which is dropped; a missing, `null` or empty required value, or an optional one whose
+ * segment is followed by one that stays, throws `netjes: endpoint '<endpoint>' needs the route value '<name>'`. The
+ * values the template does not name are the query string, followed by `search`. The result is root-relative and has no base path: pass it through
  * `useHref` for a `fetch` or an `<a href>`. The generated `endpointUrl()` calls this with typed values.
  */
 export function buildEndpointUrl(
