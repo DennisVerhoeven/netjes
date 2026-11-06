@@ -75,7 +75,8 @@ app.MapPostLikesApi();
 app.MapDocsPages();
 app.MapGuestbookPage();
 app.MapStreamingDemo();
-// sitemap.xml from the route table (docs through their StaticParams), and robots.txt pointing at it.
+// sitemap.xml from the route table (docs through their StaticParams), and robots.txt pointing at it. netjes export
+// writes both files from this URL, so set SiteUrl for an export that goes online.
 var siteUrl = new Uri(app.Configuration["SiteUrl"] ?? "http://localhost:5080");
 app.MapSitemap(siteUrl);
 app.MapRobotsTxt(siteUrl);
