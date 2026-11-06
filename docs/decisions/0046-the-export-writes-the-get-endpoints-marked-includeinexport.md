@@ -1,6 +1,6 @@
 # 0046 – The export writes the GET endpoints marked IncludeInExport
 
-Status: accepted
+Status: accepted; extends [ADR 0041](0041-the-export-warns-about-loaders-that-read-the-query-string.md)
 
 ## Context
 
