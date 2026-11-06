@@ -953,6 +953,27 @@ public class StaticExportTests
     }
 
     [Theory]
+    [InlineData("robots.txt", ", and the server serves the file: ")]
+    [InlineData(".well-known/security.txt", ", and the server serves the file: ")]
+    // The server's file provider leaves out a file whose name starts with a dot: there the endpoint answers.
+    [InlineData(".htaccess", ": ")]
+    public async Task Export_EndpointAndAClientBuildFile_SayWhatTheServerAnswers(string file, string why)
+    {
+        await using var app = await ExportAsync(
+            map: a => a.MapGet($"/{file}", () => "theirs").IncludeInExport(),
+            prepareRoot: root =>
+            {
+                var copied = Path.Combine(root, "dist", "client", file.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(copied)!);
+                File.WriteAllText(copied, "mine");
+            });
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains($"both make /{file}{why}remove one"));
+        Assert.False(Directory.Exists(_out));
+    }
+
+    [Theory]
     [InlineData(500)]
     [InlineData(404)]
     [InlineData(302)]

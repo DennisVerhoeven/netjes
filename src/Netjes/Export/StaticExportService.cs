@@ -480,7 +480,8 @@ internal sealed class StaticExportService(
     /// <summary>
     /// Endpoints written as files whose path a file of the client build has too, which the export copies: the server
     /// serves that file ahead of routing, so the endpoint never answers there. Compared as the output's paths are, so a
-    /// file that differs only in case is one on Windows and macOS.
+    /// file that differs only in case is one on Windows and macOS. The server leaves out a file whose name starts with a
+    /// dot, but the copy and the endpoint's file would still be one file in the output.
     /// </summary>
     private IEnumerable<string> ClientBuildProblems(List<PlannedFile> files)
     {
@@ -500,9 +501,9 @@ internal sealed class StaticExportService(
             var path = string.Join('/', file.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.UnescapeDataString));
             foreach (var match in copied[PortableKey(file.Url)])
             {
-                var why = match == path
-                    ? ", and the server serves the file"
-                    : " on Windows and macOS, where paths that differ only in case, Unicode normalization or trailing dots and spaces are one file";
+                var why = match != path
+                    ? " on Windows and macOS, where paths that differ only in case, Unicode normalization or trailing dots and spaces are one file"
+                    : Path.GetFileName(match).StartsWith('.') ? "" : ", and the server serves the file";
                 yield return $"{dist}/{match} (copied from {publicDirectory}/ by the build, or written by a Vite plugin) and the endpoint {file.Route} both make {file.Url}{why}: " +
                     "remove one, or exclude the endpoint with .ExcludeFromExport().";
             }
