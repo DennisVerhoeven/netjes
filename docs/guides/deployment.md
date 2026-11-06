@@ -238,7 +238,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
 | `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
 | `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, why a page or an endpoint marked `.IncludeInExport()` could not be exported, and warnings about a `sitemap.xml` or `robots.txt` written for a loopback site URL ([static export](static-export.md#sitemap-and-robotstxt)). |
-| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages that read the query string, which the export never sends ([static export](static-export.md#loaders-that-read-the-query-string)). |
+| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages, and endpoints marked `.IncludeInExport()`, that read the query string, which the export never sends ([static export](static-export.md#loaders-that-read-the-query-string)). |
 
 Set their levels as for any category:
 

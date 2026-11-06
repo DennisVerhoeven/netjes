@@ -3274,7 +3274,7 @@ There are two fixes:
 - Make the value a route parameter and list its values with `.StaticParams(...)`: `/blog/tags/[tag]` instead of `/blog?tag=`, exported once for each tag.
 - Keep the page on a server: `.ExcludeFromExport()` on its loader, or on the layout loader for every page below the layout.
 
-If the page without a query string is what the static site should show, keep it, and set the category's log level to `Error` (`Logging:LogLevel:Netjes.Export.QueryString`, see [logs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#logs)) to silence the warning. That silences it for every loader, including those added later; the export's own messages, in `Netjes.Export.StaticExportService`, still appear.
+If the page without a query string is what the static site should show, keep it, and set the category's log level to `Error` (`Logging:LogLevel:Netjes.Export.QueryString`, see [logs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#logs)) to silence the warning. That silences it for every loader and every endpoint marked `.IncludeInExport()`, including those added later; the export's own messages, in `Netjes.Export.StaticExportService`, still appear.
 
 A loader that requires the value cannot be exported as it is. A parameter with no default value and a type that is not nullable, such as `int page`, or `string q` with nullable reference types on, has to have one: minimal APIs answer 400 to the export's request without it, so the export fails on that page, and a layout loader that requires one fails every page below it. The warning then says so, names only the keys the loader requires, and adds a third fix: give the parameter a default value or a nullable type (`int page = 1`, `string? q`) to export the page without one. An array never requires a value: without one, it binds an empty array.
 
@@ -4437,7 +4437,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
 | `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
 | `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, why a page or an endpoint marked `.IncludeInExport()` could not be exported, and warnings about a `sitemap.xml` or `robots.txt` written for a loopback site URL ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#sitemap-and-robotstxt)). |
-| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages that read the query string, which the export never sends ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#loaders-that-read-the-query-string)). |
+| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages, and endpoints marked `.IncludeInExport()`, that read the query string, which the export never sends ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#loaders-that-read-the-query-string)). |
 
 Set their levels as for any category:
 
