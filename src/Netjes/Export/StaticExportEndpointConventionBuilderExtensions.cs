@@ -40,7 +40,10 @@ public static class StaticExportEndpointConventionBuilderExtensions
     /// <summary>
     /// Writes this endpoint's answer to a <c>GET</c> into <c>netjes export</c>'s output, as a file at its URL, like a
     /// Next.js route handler with <c>dynamic = 'force-static'</c>: <c>app.MapGet("/llms.txt", ...).IncludeInExport()</c>
-    /// writes <c>out/llms.txt</c>. <c>.ExcludeFromExport()</c> wins over it.
+    /// writes <c>out/llms.txt</c>. The endpoint must answer <c>GET</c>, have no route parameters, end in a file extension
+    /// and allow anonymous requests, or the export fails before it writes anything. The export requests it without a
+    /// query string and writes only the body of a 200, without its headers; any other status fails the export.
+    /// <c>.ExcludeFromExport()</c> wins over it.
     /// </summary>
     public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
     {
