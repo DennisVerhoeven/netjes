@@ -18,7 +18,7 @@ netjes --version
 | [`start`](#netjes-start) | Run the app in Production, from a build or a published app |
 | [`generate`](#netjes-generate) | Write `generated/netjes.ts` from the C# types |
 | [`routes`](#netjes-routes) | Print the route table and its warnings, as the app sees them |
-| [`export [dir]`](#netjes-export) | Build, then write every page as static HTML into a folder |
+| [`export [dir]`](#netjes-export) | Build, then write every page, and each endpoint marked `IncludeInExport`, into a folder as static files |
 | [`info`](#netjes-info) | Check the tools and the project setup |
 | [`agents [dir]`](#netjes-agents) | Add `AGENTS.md`, `CLAUDE.md` and the Netjes skill for coding agents to an existing app |
 
@@ -186,7 +186,7 @@ netjes export [dir] [--no-build]
 
 Builds the app (as `netjes build` does), then runs it once in Production and writes every page as static HTML into `dir`, with `404.html`, the client assets, and a file for each endpoint marked `.IncludeInExport()`, such as `sitemap.xml` and `robots.txt` from `MapSitemap` and `MapRobotsTxt`. [Static export](../guides/static-export.md) has the rules: which pages and endpoints can be exported, `.StaticParams(...)` for dynamic pages, and where the output may go.
 
-The export logs a warning, in the category `Netjes.Export.QueryString`, for each page loader of a page it writes, and each layout loader above one, that reads the query string, which the export never sends. The page is still written and the exit code does not change. A loader that requires a query value still fails the export, and its warning says so ([loaders that read the query string](../guides/static-export.md#loaders-that-read-the-query-string)).
+The export logs a warning, in the category `Netjes.Export.QueryString`, for each page loader of a page it writes, each layout loader above one, and each endpoint marked `.IncludeInExport()` that reads the query string, which the export never sends. The file is still written and the exit code does not change. A loader or an endpoint that requires a query value still fails the export, and its warning says so ([loaders that read the query string](../guides/static-export.md#loaders-that-read-the-query-string)). It also logs a warning, in `Netjes.Export.StaticExportService`, when `MapSitemap` or `MapRobotsTxt` has a loopback `siteUrl` ([sitemap and robots.txt](../guides/static-export.md#sitemap-and-robotstxt)).
 
 | Argument or option | What it does | Default |
 |---|---|---|

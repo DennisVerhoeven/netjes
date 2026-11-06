@@ -59,7 +59,7 @@ Adds a health check named `netjes` for the Node processes: Healthy when all are 
 public static string? GetNetjesCommand(this IHost host)
 ```
 
-The `netjes` CLI command this run of the app is for (`generate`, `routes` or `export`), or `null` for an ordinary run. `generate` and `routes` answer no requests, so startup work they do not need can be skipped: `if (app.GetNetjesCommand() is null) await SeedAsync(app.Services);`. `export` renders every page, so it needs what the pages need.
+The `netjes` CLI command this run of the app is for (`generate`, `routes` or `export`), or `null` for an ordinary run. `generate` and `routes` answer no requests, so startup work they do not need can be skipped: `if (app.GetNetjesCommand() is null) await SeedAsync(app.Services);`. `export` requests every page and each endpoint marked `.IncludeInExport()`, so it needs what they need.
 
 ## Pages and loaders
 

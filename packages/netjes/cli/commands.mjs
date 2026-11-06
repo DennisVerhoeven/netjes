@@ -437,7 +437,7 @@ export const COMMANDS = {
   },
 
   export: {
-    summary: 'Build, then write every page as static HTML into a folder',
+    summary: 'Build, then write every page, and each endpoint marked IncludeInExport, into a folder as static files',
     args: '[dir]',
     arguments: { '[dir]': { description: 'The folder to write the site to, inside the app', default: 'out' } },
     options: {

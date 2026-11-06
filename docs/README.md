@@ -26,7 +26,7 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 ### Publish
 
 - [Metadata](guides/metadata.md): titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`.
-- [Static export](guides/static-export.md): `netjes export`, static parameters, what cannot be exported, and Content-Security-Policy for exported pages.
+- [Static export](guides/static-export.md): `netjes export`, static parameters, what cannot be exported, the sitemap, `robots.txt` and other endpoints as files (`.IncludeInExport()`), and Content-Security-Policy for exported pages.
 - [Redirects, rewrites and headers](guides/redirects-rewrites-headers.md): what Next.js configures in `next.config.js`, done with ASP.NET Core.
 
 ### Run
