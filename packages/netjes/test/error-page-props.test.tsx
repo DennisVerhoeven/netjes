@@ -182,5 +182,13 @@ describe('the error an error page is handed', () => {
 
     expect(await screen.findByText('500')).toBeDefined();
     expect(screen.getByText('no title')).toBeDefined();
+
+    cleanup();
+    // A thrown string keeps its text there too.
+    thrown = 'The archive is closed for the night';
+    await renderApp(payload('app/throws/page.tsx', '/throws'));
+
+    expect(await screen.findByText('500')).toBeDefined();
+    expect(screen.getByText('The archive is closed for the night')).toBeDefined();
   });
 });
