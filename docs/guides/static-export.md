@@ -85,7 +85,7 @@ An app that maps `MapSitemap` and `MapRobotsTxt` ([metadata](metadata.md#sitemap
 - `sitemap.xml` lists the pages the export writes, in the order it writes them: each page without parameters, and each dynamic page for every value of its `.StaticParams(...)`, except the pages marked `.ExcludeFromSitemap()`. A page marked `.ExcludeFromExport()` has no file on the static host, so the exported sitemap leaves it out, while the sitemap the app serves still lists it.
 - `robots.txt` is the file the app serves: its `Disallow` or `Allow` lines and its `Sitemap:` line.
 
-Both build their URLs from the `siteUrl` that the app passes to `MapSitemap` and `MapRobotsTxt` when it runs in the Production environment, which is the environment the export runs in. Pass the static host's URL there, for example from configuration, with the app reading `app.Configuration["SiteUrl"]`:
+Both build their URLs from the `siteUrl` that the app passes to `MapSitemap` and `MapRobotsTxt` when it runs in the Production environment, which is the environment the export runs in unless `ASPNETCORE_ENVIRONMENT` says otherwise ([environment variables](../reference/cli.md#environment-variables)). Pass the static host's URL there, for example from configuration, with the app reading `app.Configuration["SiteUrl"]`:
 
 ```bash
 SiteUrl=https://www.example.com npx netjes export
