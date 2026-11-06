@@ -143,8 +143,8 @@ export const api = {
 
 /**
  * What the app's endpoints read from their URLs, by method and route as in `api`: the route values, then the
- * query string values the handler binds. A JSON endpoint has a key for each of its methods, and any other
- * endpoint one for GET.
+ * query string values the handler binds. A JSON endpoint has a key for each of its methods except HEAD, and any
+ * other endpoint one for GET, if it answers GET.
  */
 export type EndpointParams = {
   "GET /api/posts/{slug}/likes/": { slug: string };
