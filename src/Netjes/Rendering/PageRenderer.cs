@@ -238,10 +238,14 @@ internal sealed class PageRenderer(
 
     private enum Boundary { NotFound, Error, Forbidden, Unauthorized }
 
+    /// <summary>
+    /// An exception's message and stack with error details, else the status's reason phrase, marked as withheld when it
+    /// stands in for an exception's message. A status alone (a 403 from a loader) has only its reason phrase to show.
+    /// </summary>
     private ErrorProps ErrorPropsFor(int status, Exception? exception) =>
         context.IncludeErrorDetails && exception is not null
             ? new ErrorProps(status, exception.Message, exception is SsrRenderException ssrError ? ssrError.JsStack : exception.ToString())
-            : new ErrorProps(status, ReasonPhrases.GetReasonPhrase(status), null);
+            : new ErrorProps(status, ReasonPhrases.GetReasonPhrase(status), null, Withheld: exception is not null);
 
     private PageRoute? RouteOf(HttpContext http) =>
         http.GetEndpoint()?.Metadata.GetMetadata<PageEndpointMetadata>()?.Pattern is { } pattern ? routes.Current.Find(pattern) : null;
@@ -597,6 +601,12 @@ internal sealed class PageRenderer(
         await http.Response.Body.FlushAsync(http.RequestAborted);
     }
 
+    /// <summary>
+    /// The error sent for a deferred value whose message is withheld (no error details): empty, so the client can tell
+    /// it from Netjes's own messages and put a stand-in marked as withheld in its place.
+    /// </summary>
+    private const string WithheldError = "";
+
     /// <summary>One NDJSON line: <c>{"id":"d0","value":...}</c>, the value already JSON, or <c>{"id":"d0","error":"..."}</c>.</summary>
     private static string DeferredLine(string id, string? valueJson, string? error) =>
         error is null
@@ -639,7 +649,7 @@ internal sealed class PageRenderer(
                         // A value that cannot be written (a cycle, a System.Type, a getter on a disposed DbContext, one
                         // that throws OperationCanceledException: serializing takes no token) fails its own boundary only.
                         logger.LogWarning(ex, "Deferred value {Id} for {Path} could not be serialized: {Message}", id, http.Request.Path, ex.Message);
-                        await deliver(id, null, context.IncludeErrorDetails ? ex.Message : "Something went wrong");
+                        await deliver(id, null, context.IncludeErrorDetails ? ex.Message : WithheldError);
                         continue;
                     }
 
@@ -647,9 +657,16 @@ internal sealed class PageRenderer(
                     continue;
                 }
 
+                if (done.IsCanceled)
+                {
+                    logger.LogWarning("Deferred value {Id} for {Path} was cancelled", id, http.Request.Path);
+                    await deliver(id, null, "The value was cancelled");
+                    continue;
+                }
+
                 var error = done.Exception?.GetBaseException();
                 logger.LogWarning(error, "Deferred value {Id} for {Path} failed: {Message}", id, http.Request.Path, error?.Message);
-                await deliver(id, null, context.IncludeErrorDetails && error is not null ? error.Message : "Something went wrong");
+                await deliver(id, null, context.IncludeErrorDetails && error is not null ? error.Message : WithheldError);
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested && !http.RequestAborted.IsCancellationRequested)

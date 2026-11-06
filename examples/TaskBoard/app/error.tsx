@@ -9,7 +9,7 @@ export default function RootError({ error, reset }: ErrorPageProps) {
       <div role="alert" className="grid max-w-md gap-4 text-center">
         <p className="key">{error.status ?? 500}</p>
         <h1 className="text-2xl font-semibold">Something went wrong</h1>
-        <p className="whitespace-pre-wrap wrap-anywhere text-ink-300">{error.message}</p>
+        {!error.withheld && <p className="whitespace-pre-wrap wrap-anywhere text-ink-300">{error.message}</p>}
         <button type="button" className="btn mx-auto" onClick={reset}>
           Try again
         </button>

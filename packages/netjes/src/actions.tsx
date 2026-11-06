@@ -23,13 +23,19 @@ export interface ServerAction<TInput, TResult> {
   readonly url: string;
 }
 
-/** Thrown into the nearest error boundary when the server could not run the action (not for validation errors). */
+/**
+ * Thrown into the nearest error boundary when the server could not run the action (not for validation errors).
+ * `status` is the status of the server's answer. `withheld` is true when the server sent no message, as for a 5xx
+ * with error details off: the message is then Netjes's own, which names the action and the status.
+ */
 export class ServerActionError extends Error {
   override name = 'ServerActionError';
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly withheld: boolean;
+  constructor(message: string, status: number, withheld = false) {
     super(message);
     this.status = status;
+    this.withheld = withheld;
   }
 }
 
@@ -170,7 +176,7 @@ export function serverAction<TInput = FormData, TResult = unknown>(
     const active = client ?? (await readyClient(name));
     const answer = await active.invoke(name, url, input);
     if (!answer.ok && answer.status !== 422) {
-      throw new ServerActionError(answer.message ?? `Server action ${name} failed with status ${answer.status}`, answer.status);
+      throw new ServerActionError(answer.message ?? `Server action ${name} failed with status ${answer.status}`, answer.status, answer.message === undefined);
     }
     if (!answer.ok) {
       const values = submittedValues(input, active.tokenField?.(), answer.fields);

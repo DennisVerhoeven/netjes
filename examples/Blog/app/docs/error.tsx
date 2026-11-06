@@ -5,7 +5,7 @@ export default function DocsError({ error, reset }: ErrorPageProps) {
   return (
     <section role="alert" className="prose">
       <h1>This doc failed to load</h1>
-      <p className="whitespace-pre-wrap wrap-anywhere">{error.message}</p>
+      {!error.withheld && <p className="whitespace-pre-wrap wrap-anywhere">{error.message}</p>}
       <button type="button" className="button" onClick={reset}>
         Try again
       </button>

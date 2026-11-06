@@ -494,6 +494,7 @@ public class PageEndpointTests
         Assert.Equal(500, (int?)payload["props"]!["status"]);
         Assert.Equal("database is down", (string?)payload["props"]!["message"]);
         Assert.Contains("InvalidOperationException", (string?)payload["props"]!["stack"]);
+        Assert.Null(payload["props"]!["withheld"]);
     }
 
     [Fact]
@@ -510,6 +511,40 @@ public class PageEndpointTests
         Assert.Equal(500, (int?)payload["status"]);
         Assert.Null((string?)payload["page"]);
         Assert.DoesNotContain("secret detail", payload.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Loader_Throwing_OutsideDevelopment_MarksTheMessageAsWithheld()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/error.tsx", "app/page.tsx"],
+            map: a => a.MapPageLoader("/", IResult () => throw new InvalidOperationException("database is down")),
+            configure: o => o.Mode = NetjesMode.Development,
+            environment: "Production");
+
+        await app.GetDocumentAsync("/");
+
+        var props = app.Renderer.LastPayload["props"]!;
+        Assert.Equal("Internal Server Error", (string?)props["message"]);
+        Assert.True((bool?)props["withheld"]);
+        Assert.Null(props["stack"]);
+    }
+
+    [Fact]
+    public async Task LoaderForbidden_WithoutForbiddenPage_IsNotWithheld()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/error.tsx", "app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Forbidden()),
+            configure: o => o.Mode = NetjesMode.Development,
+            environment: "Production");
+
+        await app.GetDocumentAsync("/");
+
+        var payload = app.Renderer.LastPayload;
+        Assert.Equal("app/error.tsx", (string?)payload["page"]);
+        Assert.Equal("Forbidden", (string?)payload["props"]!["message"]);
+        Assert.Null(payload["props"]!["withheld"]);
     }
 
     [Fact]

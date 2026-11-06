@@ -53,10 +53,18 @@ The props of every layout component. A layout with parallel routes also gets eac
 #### `ErrorPageProps`
 
 ```ts
-type ErrorPageProps = { error: Error & { status?: number }; reset: () => void };
+type ErrorPageProps = { error: Error & { status?: number; withheld?: boolean }; reset: () => void };
 ```
 
-The props of an `error.tsx`: what was thrown, with the HTTP status when the server rendered the page for an error, and `reset()` to render the segment again.
+The props of an `error.tsx`: what was thrown, and `reset()` to render the segment again. `error.status` is the HTTP status of a server answer behind the error. `error.withheld` is true when `error.message` is a stand-in that Netjes wrote in place of a message it does not show, so an error page renders the message only when `!error.withheld`. What the error holds depends on where it came from:
+
+- **The server rendered the error page** for an exception in a loader, an action without JavaScript or the render: `status` is the response's status, 500 or a `BadHttpRequestException`'s. With error details on ([`IncludeErrorDetails`](options.md#rendering-and-the-sidecar), on in the Development environment), `message` and `stack` are the exception's. With them off, `message` is the status's reason phrase, such as `Internal Server Error`, `withheld` is true and `stack` is undefined.
+- **The server rendered the error page for a status alone**, such as `Page.Forbidden()` in a folder without a `forbidden.tsx`, or an empty 400 from binding: `message` is the status's reason phrase, such as `Forbidden`, in every environment, and it is not withheld. `stack` is undefined.
+- **An error thrown in the browser**, caught by a segment's `error.tsx`, or by the router's own boundary, which hands it to the root `app/error.tsx`: the error as it was thrown, with its own class, message and stack, and no `status` unless it is a `ServerActionError`. A thrown string becomes an `Error` with that text. Any other thrown value becomes an `Error` with the message `Something went wrong`, and `withheld` true.
+- **A server action that failed**: a [`ServerActionError`](#serveractionerror), with the status of the server's answer, withheld when the server sent no message.
+- **A `Page.Defer` value that failed**, read with `use()`: with error details on, the exception's message; with them off, `Something went wrong`, and `withheld` true. A value that did not arrive within `StreamTimeout` (`The value did not arrive in time`), one whose task was cancelled (`The value was cancelled`) and one whose navigation stream ended first carry Netjes's own message, which is not withheld.
+
+`withheld` is not a development switch. It says whether this message stands in for another, so in production an error thrown in the browser keeps its own message, and the reason phrase for a status alone is not withheld; in development, with error details on, the server withholds nothing. Netjes sets it only on the errors it builds, as it does `status`, but an error class of the app's own with a `withheld` property of its own reads the same way.
 
 ### Navigation
 
@@ -261,10 +269,13 @@ After the input of the page's action (`MapPageAction`) failed its DataAnnotation
 class ServerActionError extends Error {
   name: 'ServerActionError';
   readonly status: number;
+  readonly withheld: boolean;
 }
 ```
 
 Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429.
+
+`status` is the status of the server's answer. `message` is the message the server sent: the exception's (for a 4xx always, for a 5xx only with error details on), or the reason phrase for a call the server refused, such as `Forbidden`. `withheld` is true when the server sent no message, as for a 5xx with error details off; `message` is then `Server action <name> failed with status <status>`. An answer that is not JSON, such as a proxy's 502 page, gets that message too, but is not withheld.
 
 ### Server data
 
@@ -600,6 +611,7 @@ type TestActionAnswer = ActionState<unknown> & {
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // set, as .WithQuery does
   invalidate?: ReadonlyArray<readonly unknown[]>;                      // invalidated, as .Invalidate does
   fields?: readonly string[]; // after a failure: the fields `values` keeps, as the server names them (default all)
+  message?: string;           // after a failure other than a 422: the message the server would send (default none: withheld)
 };
 ```
 
@@ -616,7 +628,7 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)).
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)).
 
 #### `renderDocument`
 

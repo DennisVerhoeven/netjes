@@ -2,6 +2,7 @@ import { type Readable, Transform, Writable } from 'node:stream';
 import type { ReactNode } from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
 import { type DeferredSource, deferredScript, revivePayload } from './deferred.ts';
+import { isWithheld } from './errors.ts';
 import { type ModuleMap, createModuleLoader } from './modules.ts';
 import { type InitialPayload, parseInitialPayload } from './payload.ts';
 import { RenderCleanupContext } from './render-cleanup.ts';
@@ -75,7 +76,9 @@ function renderToStream(
     for (const id of deferredIds) {
       source(id).then(
         (value) => send(deferredScript(id, value, undefined, nonce)),
-        (error: unknown) => send(deferredScript(id, null, error instanceof Error ? error.message : String(error), nonce)),
+        // A withheld message goes on as an empty one, which the browser replaces with its own stand-in.
+        (error: unknown) =>
+          send(deferredScript(id, null, isWithheld(error) ? '' : error instanceof Error ? error.message : String(error), nonce)),
       );
     }
     let started = false;

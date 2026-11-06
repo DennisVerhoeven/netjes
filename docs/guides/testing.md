@@ -90,6 +90,14 @@ expect(await screen.findByText('Tell us your name.')).toBeDefined();
 
 An answer can also carry `queries` (`[{ key, data }]`) and `invalidate` (query keys), like `.WithQuery` and `.Invalidate` on a C# result.
 
+A failure other than a 422 throws a `ServerActionError` into the nearest error boundary, as it does in the app. `message` is what the server would send: the status's reason phrase for a call it refused, or the exception's message with error details on. Without one, the call fails as a 5xx does with error details off, whatever its status: the error is [`withheld`](../reference/react-api.md#errorpageprops), and an error page that renders the message only when `!error.withheld` leaves it out. So a test of a refused call sends the server's message:
+
+```tsx
+const app = createTestApp({
+  actions: { 'posts.archive': () => ({ ok: false, status: 403, errors: {}, message: 'Forbidden' }) },
+});
+```
+
 The `Wrapper` puts its stand-in for the router in place before the components inside it run any effect, so an action a component calls from `useEffect` or `useLayoutEffect` as it mounts is answered and recorded like any other call. Render such a component inside the `Wrapper`: outside it there is no router to wait for, and the call fails at once with "called before the page was ready".
 
 ### Pages
@@ -183,7 +191,7 @@ it('renders the post inside the blog layout, which lists the categories', async 
 - The test file runs in Vitest's node environment: start it with `// @vitest-environment node`. The server renders without a DOM, and parts of a page take another path where there is one, such as a `<Form>` for a server action, which renders with the action's URL only on the server. In a DOM environment, such as the jsdom the plugin sets by default, `renderDocument` rejects with an error that says so.
 - The Vitest config has the `netjes()` plugin, as the template's `vite.config.ts` does. The plugin provides the pages map: the page, layout and boundary files in `app/`, from which `renderDocument` builds the segments the server would send, by the server's rules ([ADR 0038](../decisions/0038-netjes-testing-renders-a-pages-document.md)). A test can pass a map of its own as `modules`, keyed `/app/...` as `import.meta.glob` keys it.
 - No C# runs. The props, each layout's props (by the layout's file), the shared props, the route values and the URL are what the test passes, and a layout that `layouts` does not name gets no props. Nothing else the server would send with the page is in the document (below).
-- It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
+- It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, with `withheld: true` when the message stands in for an exception's (error details off), from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
 - A boundary file renders as the server renders it in place of a page in or below its folder: inside the layouts down to its own folder, that folder's layout included, and `global-error` without any layout. The payload's route is `null`, which the server sends only when no page matched; in place of a page, it sends that page's route. One case renders otherwise: for a user who fails the authorization of a section's layout loader, the server renders the section's own `forbidden` or `unauthorized` file without the section's layout, and `renderDocument` renders that file inside it.
 - The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place.
 

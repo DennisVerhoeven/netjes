@@ -51,6 +51,12 @@ export type TestActionAnswer = ActionState<unknown> & {
   invalidate?: ReadonlyArray<readonly unknown[]>;
   /** After a failure: the submitted fields the state's `values` keep, as the server names them (the action's declared, non-private fields). Default: all. */
   fields?: readonly string[];
+  /**
+   * After a failure other than a 422: the message the server would send, which the `ServerActionError` then carries, as
+   * the server does for a 4xx (`Forbidden`) and for a 5xx with error details on. Without one, the call fails as a 5xx
+   * does with error details off: the error's message is Netjes's own and `withheld` is true.
+   */
+  message?: string;
 };
 
 /** One thing the component under test did: a navigation, a router call, a form post or a server action call. */
@@ -128,6 +134,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
             status: answer.status,
             errors: answer.errors,
             ...(answer.fields ? { fields: [...answer.fields] } : {}),
+            ...(answer.message !== undefined ? { message: answer.message } : {}),
             revalidate: false,
           };
     },

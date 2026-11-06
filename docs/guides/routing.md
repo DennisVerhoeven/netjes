@@ -86,7 +86,7 @@ A layout that needs data gets it from a C# layout loader, `app.MapLayoutLoader(.
 
 ### Error, not-found, forbidden and unauthorized pages
 
-An `error.tsx` gets `{ error, reset }` (`ErrorPageProps`). `error.status` holds the HTTP status when the server rendered the page for an error, and `reset()` renders the segment again:
+An `error.tsx` gets `{ error, reset }` (`ErrorPageProps`). `error.status` holds the HTTP status of a server answer behind the error, such as the status the server rendered the page with, and `reset()` renders the segment again. `error.withheld` is true when the message is a stand-in that Netjes wrote for one it does not show, such as the reason phrase the server sends for an exception while error details are off, so the page shows the message only when it is not withheld:
 
 ```tsx
 // app/error.tsx
@@ -97,12 +97,14 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
     <section role="alert">
       <h1>Something went wrong</h1>
       {/* In development the message can take several lines: a syntax error comes with a code frame. */}
-      <p style={{ whiteSpace: 'pre-wrap' }}>{error.message}</p>
+      {!error.withheld && <p style={{ whiteSpace: 'pre-wrap' }}>{error.message}</p>}
       <button type="button" onClick={reset}>Try again</button>
     </section>
   );
 }
 ```
+
+An error thrown in the browser reaches the page as it was thrown, with its own class, message and stack, also when only the router's own boundary caught it and handed it to the root `app/error.tsx`. Of those, only a failed server action's `ServerActionError` has a `status`, so `error.status ?? 500` shows 500 for the others. The [React API reference](../reference/react-api.md#errorpageprops) lists what the error holds for each kind of failure.
 
 An error boundary sits inside its folder's layout, so it catches errors in the pages and folders below, not in that layout itself. To catch an error in a layout, put an `error.tsx` in the folder above. On the server, an exception in a loader or a render gets the nearest `error.tsx` above the failing segment, with status 500 (or the status of a `BadHttpRequestException`).
 

@@ -1006,6 +1006,27 @@ describe('server actions', () => {
     vi.restoreAllMocks();
   });
 
+  it('marks a failure the server sent without a message as withheld', async () => {
+    const answers = [
+      action({ ok: false, status: 500 }, 500),
+      action({ ok: false, status: 403, message: 'Forbidden' }, 403),
+      action({ ok: false, status: 500, message: 'db down' }, 500),
+      new HttpResponse('<h1>Bad gateway</h1>', { status: 502, headers: { 'Content-Type': 'text/html' } }),
+    ];
+    server.use(http.post(`${origin}/_netjes/actions/notes.save`, () => answers.shift()));
+    await renderApp(payload('app/notes/page.tsx', '/notes'));
+
+    const failures: unknown[] = [];
+    for (let i = 0; i < 4; i++) failures.push(await saveNote({ title: 'Groceries' }).catch((error: unknown) => error));
+
+    expect(failures.map((error) => error instanceof ServerActionError && [error.status, error.message, error.withheld])).toEqual([
+      [500, 'Server action notes.save failed with status 500', true],
+      [403, 'Forbidden', false],
+      [500, 'db down', false],
+      [502, 'Server action notes.save failed with status 502', false],
+    ]);
+  });
+
   it('start from the state a failed post without JavaScript left in the payload', async () => {
     await renderApp(
       payload('app/guestbook/page.tsx', '/guestbook', {

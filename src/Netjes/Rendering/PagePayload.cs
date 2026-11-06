@@ -100,4 +100,12 @@ internal sealed record AntiforgeryPayload(string FormFieldName, string? HeaderNa
 /// <summary>A TanStack Query cache entry; <paramref name="UpdatedAt"/> is Unix milliseconds, like <c>dataUpdatedAt</c>.</summary>
 internal sealed record QueryPayload(IReadOnlyList<object?> Key, object? Data, long UpdatedAt);
 
-internal sealed record ErrorProps(int Status, string Message, string? Stack);
+/// <summary>
+/// The props of an error page. <paramref name="Withheld"/> says <paramref name="Message"/> is a stand-in for the
+/// exception's own message, which only error details show: the client marks the error it builds from these props.
+/// </summary>
+internal sealed record ErrorProps(
+    int Status,
+    string Message,
+    string? Stack,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Withheld = false);
