@@ -377,7 +377,8 @@ internal sealed class StaticExportService(
         {
             if (endpoint.Metadata.GetMetadata<IncludeInExportMetadata>() is null
                 || endpoint.Metadata.GetMetadata<ExcludeFromExportMetadata>() is not null
-                || endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is not null)
+                // A server action carries the page marker too, but it is no page: it answers no GET, as below.
+                || (endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is not null && endpoint.Metadata.GetMetadata<ServerActionMetadata>() is null))
             {
                 continue;
             }

@@ -869,6 +869,16 @@ public class StaticExportTests
         Assert.Contains(app.Logs, l => l.Message.StartsWith("Exported 2 pages and 0 files to "));
     }
 
+    [Fact]
+    public async Task Export_ServerActionMarkedIncludeInExport_FailsBeforeWritingAnything()
+    {
+        await using var app = await ExportAsync(map: a => a.MapAction("save", () => ServerAction.Ok()).IncludeInExport());
+
+        Assert.Equal(1, _exitCode);
+        Assert.Contains(app.Logs, l => l.Level == LogLevel.Error && l.Message.Contains("POST /_netjes/actions/save") && l.Message.Contains("does not answer GET"));
+        Assert.False(Directory.Exists(_out));
+    }
+
     [Theory]
     [InlineData("parameters", "/files/{name}.txt", "parameters")]
     [InlineData("catch-all", "/files/{**path}", "parameters")]
