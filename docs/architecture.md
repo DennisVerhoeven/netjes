@@ -246,7 +246,7 @@ Seeded entries carry server timestamps; the browser has its own clock. The clien
 
 ```mermaid
 flowchart LR
-  endpoints[Endpoint metadata<br/>PageResult&lt;T&gt;, Produces, Accepts, FromForm] --> generator[TypeScriptGenerator]
+  endpoints[Endpoint metadata<br/>PageResult&lt;T&gt;, Produces, Accepts, FromForm,<br/>route patterns, parameter binding] --> generator[TypeScriptGenerator]
   shared[UseSharedProps&lt;T&gt;] --> generator
   table[RouteTable] --> generator
   json[App JsonOptions<br/>JsonTypeInfo contracts] --> zod[ZodSchemas] --> generator
@@ -316,14 +316,14 @@ Under `app.UsePathBase(...)` the payload carries `basePath`, its `url` includes 
 
 | Path | Responsibility |
 |---|---|
-| `src/Netjes/Routing/` | The `app/` file conventions (`RouteTable`), route table providers for development and production, the page endpoint data source, layout loaders and segment keys, route warnings, the startup check for a leftover `pages/`, the public page endpoint metadata (`PageRouteMetadata`, `CachedPageMetadata`), the redirect of other spellings of a page's URL (`OtherSpellings`) |
+| `src/Netjes/Routing/` | The `app/` file conventions (`RouteTable`), route table providers for development and production, the page endpoint data source, layout loaders and segment keys, route warnings, the startup check for a leftover `pages/`, the public page endpoint metadata (`PageRouteMetadata`, `CachedPageMetadata`), the redirect of other spellings of a page's URL (`OtherSpellings`), the app's own endpoints (`AppEndpoints`) |
 | `src/Netjes/Rendering/` | Payload building, segment loading and boundaries, streaming and deferred values, data vs document responses, the client-render shell, asset resolution, error page middleware, re-execution for no-JS actions, action input validation, the output-cache rules for pages (`PageCachePolicy`, `CachePaths`, `CachedSegments`, `CacheBypass`), the Content-Security-Policy checks (`CspChecks`) |
 | `src/Netjes/ServerAction.cs`, `Deferred.cs`, `Page.cs`, `PageMetadata.cs`, `Href.cs`, `TrailingSlash.cs` | Server action results and their filters, `Page.Defer`, page results, metadata from C#, links from C# (`Href`, `HrefJsonConverter`), the trailing-slash setting |
 | `src/Netjes/Sidecar/` | Spawning and supervising Node: ready handshake, token, restart with backoff, the watchdog that restarts a process that stops answering, the pool, shutdown, the health check |
 | `src/Netjes/*Extensions.cs` | The public API: `AddNetjes`, `UseNetjes`, `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `GetNetjesCommand`, `GetCspNonce` |
 | `src/Netjes/DraftMode.cs`, `NetjesLocalization.cs`, `Sitemap.cs`, `WebVitalsEndpoint.cs`, `NetjesTelemetry.cs`, `NetjesContentSecurityPolicy.cs` | Draft mode and its cache policy, locale routing, `sitemap.xml` and `robots.txt`, the vitals endpoint, traces and metrics, the script hashes for a Content-Security-Policy without a nonce |
-| `src/Netjes/TypeGen/` | zod schemas from System.Text.Json contracts, the generated file, the generate/routes commands |
-| `src/Netjes/Export/` | The export command and its `StaticParams`/`ExcludeFromExport` conventions |
+| `src/Netjes/TypeGen/` | zod schemas from System.Text.Json contracts, the URLs of the app's endpoints (`EndpointUrls`), the generated file, the generate/routes commands |
+| `src/Netjes/Export/` | The export command, the pages and files it writes, and its `StaticParams`/`ExcludeFromExport`/`IncludeInExport` conventions |
 | `src/Netjes/Images/` | The image optimiser endpoint, its slots and local file checks, and the `IImageProcessor` contract |
 | `src/Netjes/build/Netjes.targets` | What a referencing project imports: `dotnet publish` runs the client build and ships `dist/` |
 | `src/Netjes.Images.SkiaSharp/` | Optional processor: resizing and WebP with SkiaSharp |
