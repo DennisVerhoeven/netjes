@@ -28,6 +28,8 @@ async function exportBlog(): Promise<string> {
     ASPNETCORE_URLS: `http://127.0.0.1:${process.env.E2E_EXPORT_PORT ?? '0'}`,
     NETJES_COMMAND: 'export',
     NETJES_OUTPUT: output,
+    // The static host's URL, for the links in sitemap.xml and robots.txt (Program.cs falls back to localhost).
+    SiteUrl: SITE,
   };
   delete env.NETJES_CHECK;
   const child = spawn('dotnet', ['run', '--no-build', '--no-launch-profile'], { cwd: app, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -134,4 +136,22 @@ test('the export warns that /blog reads tag from the query string', () => {
   // every tag link. The Blog keeps the filter as its example of a loader that reads the query string (PostPages.cs).
   expect(exportLog.split('Netjes.Export.QueryString').length - 1).toBe(1);
   expect(exportLog).toContain("app/blog/page.tsx reads 'tag'");
+});
+
+test('the export writes sitemap.xml with the exported pages, and robots.txt', () => {
+  const sitemap = readFileSync(path.join(output, 'sitemap.xml'), 'utf8');
+  const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((match) => match[1] ?? '');
+
+  expect(locs).toContain(`${SITE}/`);
+  expect(locs.filter((loc) => loc.startsWith(`${SITE}/blog/`)).length).toBeGreaterThan(0);
+  expect(locs.filter((loc) => loc.startsWith(`${SITE}/docs/`)).length).toBeGreaterThan(0);
+  // The guestbook needs a server for its form, so the export leaves it out (GuestbookPage.cs), and the sitemap too.
+  expect(locs).not.toContain(`${SITE}/guestbook`);
+  // Every URL it lists is a page the export wrote.
+  for (const loc of locs) {
+    const segments = decodeURIComponent(new URL(loc).pathname).split('/').filter(Boolean);
+    expect(existsSync(path.join(output, ...segments, 'index.html')), loc).toBe(true);
+  }
+  expect(readFileSync(path.join(output, 'robots.txt'), 'utf8')).toContain(`\nSitemap: ${SITE}/sitemap.xml\n`);
+  expect(exportLog).not.toContain('loopback');
 });

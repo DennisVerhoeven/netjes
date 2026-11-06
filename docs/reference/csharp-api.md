@@ -11,7 +11,7 @@ The extension methods belong to these static classes, which app code never names
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
 | `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage` |
-| `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport` |
+| `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
 | `NetjesHostExtensions` | `Microsoft.Extensions.Hosting` | `GetNetjesCommand` |
@@ -270,6 +270,7 @@ In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.j
 
 - `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
 - `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
+- `netjes export` writes both files, since both carry `IncludeInExport`, unless the call is `.ExcludeFromExport()`. In the export, the sitemap lists the pages the export writes, in its order, without those marked `.ExcludeFromSitemap()`, so a page marked `.ExcludeFromExport()` is not listed. Both use the `siteUrl` passed in the Production environment, where the export runs, and the export logs a warning when it is a loopback address such as `http://localhost:5080` ([static export](../guides/static-export.md#sitemap-and-robotstxt)).
 
 Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body. Each answers one spelling of its path, as a page does: another case (`/Sitemap.xml`), or a trailing slash under `TrailingSlash.Never`, gets a 308 to `/sitemap.xml` or `/robots.txt`, as `RedirectLiteralCase` and `TrailingSlash` ask ([One URL per page](../guides/routing.md#one-url-per-page)).
 
@@ -375,10 +376,12 @@ public static TBuilder StaticParams<TBuilder>(this TBuilder builder, Func<IServi
 public static RouteHandlerBuilder StaticParams<TService>(this RouteHandlerBuilder builder, Func<TService, IEnumerable<object>> parameters)
     where TService : notnull;
 public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder;
+public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder;
 ```
 
 - `StaticParams` lists the route values a dynamic page is exported for, like `generateStaticParams`: one object per page (`new { slug = "hello" }`), with arrays for catch-all parameters. The second overload resolves `TService` for you. `MapSitemap` uses the same list.
-- `ExcludeFromExport` leaves the page out of `netjes export`.
+- `ExcludeFromExport` leaves the page out of `netjes export`. On an endpoint marked `IncludeInExport`, such as `MapSitemap` or `MapRobotsTxt`, it leaves that endpoint's file out.
+- `IncludeInExport` makes `netjes export` write an endpoint that is no page as a file at its URL: it requests it with a `GET` without a query string after the pages, and writes the body of its 200 byte for byte, without its headers, like a Next.js route handler with `dynamic = 'force-static'`. The endpoint must answer `GET`, have no route parameters, end in a file extension (`/llms.txt`, `/feeds/news.xml` under a route group) and allow anonymous requests, and no file of the client build may have its path; otherwise the export fails before it writes anything. `ExcludeFromExport` wins over it. `MapSitemap` and `MapRobotsTxt` carry it.
 
 See [static export](../guides/static-export.md).
 

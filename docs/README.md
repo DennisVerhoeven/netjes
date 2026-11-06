@@ -98,6 +98,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0043 – Netjes marks the errors whose message it withheld](decisions/0043-netjes-marks-the-errors-whose-message-it-withheld.md)
 - [0044 – `beforeInteractive` scripts run before the page's code](decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)
 - [0045 – Typed URLs for the app's endpoints](decisions/0045-typed-urls-for-the-apps-endpoints.md)
+- [0046 – The export writes the GET endpoints marked IncludeInExport](decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)
 
 ## The project
 

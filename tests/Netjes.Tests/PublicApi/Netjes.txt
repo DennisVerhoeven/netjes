@@ -15,6 +15,7 @@ public static class Microsoft.AspNetCore.Builder.NetjesLocalizationApplicationBu
   public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjesLocalization(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
 public static class Microsoft.AspNetCore.Builder.StaticExportEndpointConventionBuilderExtensions
   public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder StaticParams<TService>(this Microsoft.AspNetCore.Builder.RouteHandlerBuilder builder, Func<TService, System.Collections.Generic.IEnumerable<object>> parameters) where TService : notnull
   public static TBuilder StaticParams<TBuilder>(this TBuilder builder, Func<IServiceProvider, System.Collections.Generic.IEnumerable<object>> parameters) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
 

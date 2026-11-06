@@ -24,3 +24,6 @@ internal sealed class ExportClient(Func<HttpClient> create)
 internal sealed record StaticParamsMetadata(Func<IServiceProvider, IEnumerable<object>> Parameters);
 
 internal sealed class ExcludeFromExportMetadata;
+
+/// <summary>On an endpoint that is no page, whose answer to a <c>GET</c> the export writes as a file at its URL.</summary>
+internal sealed class IncludeInExportMetadata;

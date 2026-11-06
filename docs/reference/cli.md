@@ -184,7 +184,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 netjes export [dir] [--no-build]
 ```
 
-Builds the app (as `netjes build` does), then runs it once in Production and writes every page as static HTML into `dir`, with `404.html` and the client assets. [Static export](../guides/static-export.md) has the rules: which pages can be exported, `.StaticParams(...)` for dynamic ones, and where the output may go.
+Builds the app (as `netjes build` does), then runs it once in Production and writes every page as static HTML into `dir`, with `404.html`, the client assets, and a file for each endpoint marked `.IncludeInExport()`, such as `sitemap.xml` and `robots.txt` from `MapSitemap` and `MapRobotsTxt`. [Static export](../guides/static-export.md) has the rules: which pages and endpoints can be exported, `.StaticParams(...)` for dynamic pages, and where the output may go.
 
 The export logs a warning, in the category `Netjes.Export.QueryString`, for each page loader of a page it writes, and each layout loader above one, that reads the query string, which the export never sends. The page is still written and the exit code does not change. A loader that requires a query value still fails the export, and its warning says so ([loaders that read the query string](../guides/static-export.md#loaders-that-read-the-query-string)).
 

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,8 @@ namespace Netjes.Export;
 /// HTML files, like Next.js <c>output: 'export'</c>. Dynamic pages are rendered for their <c>.StaticParams(...)</c>;
 /// pages that need a server (form actions, authorization) fail the export unless excluded. A page whose loader, or a
 /// layout loader above it, reads the query string is exported with a warning, since every URL is requested without one;
-/// when the loader requires a value there, the page fails without one, and the warning says why.
+/// when the loader requires a value there, the page fails without one, and the warning says why. Endpoints marked
+/// <c>.IncludeInExport()</c> are written as files at their URLs, as they answer a <c>GET</c>.
 /// </summary>
 internal sealed class StaticExportService(
     IServiceProvider services,
@@ -65,6 +67,20 @@ internal sealed class StaticExportService(
         "{File} requires {Parameters} from the query string, but netjes export requests every page below it ({Urls}) without one, so the layout loader cannot run and the export fails. " +
         "To export them without one, give each such parameter a default value or a nullable type; to export a page for each value, make it a route parameter with .StaticParams(...); to keep them on a server, exclude them with .ExcludeFromExport(), which on the layout loader leaves out every page below the layout.";
 
+    // For an endpoint marked IncludeInExport; {Route} is its methods and route, as GET /feed.xml.
+    private const string QueryStringFile =
+        "{Route} reads {Parameters} from the query string, but netjes export writes {Url} once, without one, and a static host serves that file for every query string. " +
+        "To keep it on a server, exclude it with .ExcludeFromExport().";
+
+    private const string QueryStringRequiredFile =
+        "{Route} requires {Parameters} from the query string, but netjes export requests {Url} without one, so the app answers 400 and the export fails. " +
+        "To export it without one, give each such parameter a default value or a nullable type; to keep it on a server, exclude it with .ExcludeFromExport().";
+
+    // For MapSitemap and MapRobotsTxt; {SiteUrl} is what their links start with, as http://localhost:5080.
+    private const string LoopbackSiteUrl =
+        "{Url} is written with the site URL {SiteUrl}, a loopback address, so its links point at the machine of whoever opens them. " +
+        "Pass the static host's URL to MapSitemap and MapRobotsTxt in the {Environment} environment that netjes export runs in, for example through configuration.";
+
     /// <summary>A URL no page serves, so the app answers with its 404 page.</summary>
     private const string NotFoundProbe = "/__netjes_export_404";
 
@@ -110,9 +126,17 @@ internal sealed class StaticExportService(
 
     private async Task<int> ExportAsync(string output, CancellationToken cancellationToken)
     {
-        var (pages, problems, warnings) = await PlanAsync();
-        problems.AddRange(CollisionProblems(pages));
-        problems.AddRange(DeviceNameProblems(pages));
+        var (pages, endpointFiles, problems, warnings) = await PlanAsync();
+        List<OutputFile> files =
+        [
+            new("/" + Marker, "the export's marker"),
+            new("/404.html", "the not-found page"),
+            .. pages.Select(page => new OutputFile(page.Url.TrimEnd('/') + "/index.html", $"{page.Url} ({page.Pattern})")),
+            .. endpointFiles.Select(file => new OutputFile(file.Url, $"{file.Url} ({file.Route})")),
+        ];
+        problems.AddRange(ClientBuildProblems(endpointFiles));
+        problems.AddRange(CollisionProblems(files));
+        problems.AddRange(DeviceNameProblems(files));
         problems.AddRange(OutputProblems(output));
 
         if (problems.Count > 0)
@@ -125,11 +149,23 @@ internal sealed class StaticExportService(
             return 1;
         }
 
+        // Before the first request: MapSitemap lists these pages in the export.
+        services.GetRequiredService<ExportPlan>().Pages = [.. pages.Select(page => (page.Url, page.Pattern))];
         var queryStrings = services.GetRequiredService<ILoggerFactory>().CreateLogger(QueryStringCategory);
         foreach (var warning in warnings)
         {
             // The template is one of the constants above, so log sinks keep the file, the keys and the URLs as fields.
             queryStrings.LogWarning(warning.Template, warning.Arguments);
+        }
+
+        // A warning, not a problem: an export checked on the machine that made it has nowhere else to point.
+        foreach (var file in endpointFiles)
+        {
+            if (file.Endpoint.Metadata.GetMetadata<SiteUrlMetadata>() is { } site && IsLoopback(site.SiteUrl))
+            {
+                logger.LogWarning(LoopbackSiteUrl, file.Url, site.SiteUrl.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                    services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            }
         }
 
         if (Directory.Exists(output))
@@ -163,12 +199,25 @@ internal sealed class StaticExportService(
             failures++;
         }
 
+        foreach (var file in endpointFiles)
+        {
+            if (await FetchAsync(client, file.Url, cancellationToken) is not { } bytes)
+            {
+                failures++;
+                continue;
+            }
+
+            var path = FileFor(output, file.Url, index: null);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+        }
+
         if (failures > 0)
         {
             return 1;
         }
 
-        logger.LogInformation("Exported {Count} pages to {Output}", pages.Count, output);
+        logger.LogInformation("Exported {Count} pages and {Files} files to {Output}", pages.Count, endpointFiles.Count, output);
         return 0;
     }
 
@@ -217,6 +266,18 @@ internal sealed class StaticExportService(
     /// <summary>A URL to render and the page pattern it comes from.</summary>
     private sealed record PlannedPage(string Url, string Pattern);
 
+    /// <summary>
+    /// A file the export writes: its path in the output as a URL path (<c>/about/index.html</c>, each segment as the URL
+    /// has it), and what writes it, for the messages (<c>/about (/about)</c>).
+    /// </summary>
+    private sealed record OutputFile(string Path, string Name);
+
+    /// <summary>
+    /// An endpoint marked <c>.IncludeInExport()</c> that the export writes as a file at <paramref name="Url"/>, and its
+    /// methods and route for the messages (<c>GET /llms.txt</c>).
+    /// </summary>
+    private sealed record PlannedFile(string Url, string Route, RouteEndpoint Endpoint);
+
     /// <summary>A page the export writes: its route, the endpoint that answers GET for it, and the URLs it is written for.</summary>
     private sealed record ExportedPage(PageRoute Route, RouteEndpoint? Get, IReadOnlyList<string> Urls);
 
@@ -224,10 +285,10 @@ internal sealed class StaticExportService(
     private sealed record ExportWarning(string Template, object?[] Arguments);
 
     /// <summary>
-    /// The URL of every page to render, or why some page cannot be exported, and the warnings about the pages it would
-    /// write (<see cref="QueryStringWarnings"/>).
+    /// The URL of every page to render and of every endpoint to write as a file, or why some page or endpoint cannot be
+    /// exported, and the warnings about what it would write (<see cref="QueryStringWarnings"/>).
     /// </summary>
-    private async Task<(List<PlannedPage> Pages, List<string> Problems, List<ExportWarning> Warnings)> PlanAsync()
+    private async Task<(List<PlannedPage> Pages, List<PlannedFile> Files, List<string> Problems, List<ExportWarning> Warnings)> PlanAsync()
     {
         var table = services.GetRequiredService<IRouteTableProvider>().Current;
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
@@ -300,7 +361,153 @@ internal sealed class StaticExportService(
             exported.Add(new(page, get, urls));
         }
 
-        return (planned, problems, QueryStringWarnings(exported));
+        var files = PlanFiles(endpoints, fallback, problems);
+        return (planned, files, problems, [.. QueryStringWarnings(exported), .. FileQueryStringWarnings(files)]);
+    }
+
+    /// <summary>
+    /// The endpoints marked <c>.IncludeInExport()</c>, each at the URL of its route, or why one cannot be a file there: it
+    /// must answer <c>GET</c> (one that names no method answers every one), have no route parameters, end in a file
+    /// extension and need no authorization. <c>.ExcludeFromExport()</c> wins, and a page is written as a page.
+    /// </summary>
+    private static List<PlannedFile> PlanFiles(IEnumerable<RouteEndpoint> endpoints, AuthorizationPolicy? fallback, List<string> problems)
+    {
+        var files = new List<PlannedFile>();
+        foreach (var endpoint in endpoints)
+        {
+            if (endpoint.Metadata.GetMetadata<IncludeInExportMetadata>() is null
+                || endpoint.Metadata.GetMetadata<ExcludeFromExportMetadata>() is not null
+                // A server action carries the page marker too, but it is no page: it answers no GET, as below.
+                || (endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is not null && endpoint.Metadata.GetMetadata<ServerActionMetadata>() is null))
+            {
+                continue;
+            }
+
+            var methods = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? [];
+            var raw = "/" + (endpoint.RoutePattern.RawText ?? "").TrimStart('/');
+            var route = methods.Count > 0 ? $"{string.Join(", ", methods)} {raw}" : raw;
+            if (methods.Count > 0 && !methods.Contains(HttpMethods.Get, StringComparer.OrdinalIgnoreCase))
+            {
+                problems.Add($"{route} is included in the export, which requests it with GET, but it does not answer GET. Map it for GET, as MapGet does, or exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            if (endpoint.RoutePattern.Parameters.Count > 0 || endpoint.RoutePattern.PathSegments.Any(s => s.Parts.Any(p => !p.IsLiteral)))
+            {
+                problems.Add($"{route} is included in the export, which writes it once, at one URL, but its route has parameters. Give it a URL without any, or exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            // Each segment becomes a directory or file name, as each value of a page's StaticParams does.
+            var segments = endpoint.RoutePattern.PathSegments.Select(s => string.Concat(s.Parts.OfType<RoutePatternLiteralPart>().Select(p => p.Content))).ToList();
+            if (segments.FirstOrDefault(segment => !IsSafeSegment(segment)) is { } unsafeSegment)
+            {
+                problems.Add(
+                    $"{route} is included in the export, but its path segment '{unsafeSegment.Replace("\0", "\\0", StringComparison.Ordinal)}' is not a safe file or directory name " +
+                    "(empty, '.', '..', or containing '/', '\\', ':' or NUL). Give it another URL, or exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            var url = "/" + string.Join('/', segments.Select(Uri.EscapeDataString));
+            if (segments.Count == 0 || !HasExtension(segments[^1]))
+            {
+                problems.Add(
+                    $"{route} is included in the export, but {url} has no file extension, which a static host needs to send the file with its type, as for /feed.xml. " +
+                    "Add one, or exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            if (endpoint.Metadata.GetMetadata<IAuthorizeData>() is not null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            {
+                problems.Add($"{route} requires authorization, which a static file cannot check. Exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            if (fallback is not null && endpoint.Metadata.GetMetadata<IAuthorizeData>() is null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            {
+                problems.Add(
+                    $"{route} requires authorization through the fallback policy, which a static file cannot check. " +
+                    "Mark it .AllowAnonymous() or exclude it with .ExcludeFromExport().");
+                continue;
+            }
+
+            files.Add(new(url, route, endpoint));
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Whether a URL's host is this machine: <c>localhost</c> and the names below it, with or without the final dot, and
+    /// the loopback addresses.
+    /// </summary>
+    private static bool IsLoopback(Uri url)
+    {
+        var host = url.IdnHost.TrimEnd('.');
+        return url.IsLoopback
+            || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Whether a file name has an extension: a dot with something after it (<c>feed.xml</c>, <c>.htaccess</c>).</summary>
+    private static bool HasExtension(string segment)
+    {
+        var dot = segment.LastIndexOf('.');
+        return dot >= 0 && dot < segment.Length - 1;
+    }
+
+    /// <summary>
+    /// One warning for each endpoint written as a file that reads the query string: the export requests it without one,
+    /// and a static host serves the file for any. One that requires a value there answers 400 without one, so its
+    /// warning says that the export fails (<see cref="QueryStringWarnings"/>).
+    /// </summary>
+    private static IEnumerable<ExportWarning> FileQueryStringWarnings(List<PlannedFile> files)
+    {
+        foreach (var file in files)
+        {
+            var (keys, required) = QueryKeys(file.Endpoint.Metadata.OfType<IParameterBindingMetadata>(), []);
+            if (required.Count > 0)
+            {
+                yield return new(QueryStringRequiredFile, [file.Route, Quoted(required), file.Url]);
+            }
+            else if (keys.Count > 0)
+            {
+                yield return new(QueryStringFile, [file.Route, Quoted(keys), file.Url]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Endpoints written as files whose path a file of the client build has too, which the export copies: the server
+    /// serves that file ahead of routing, so the endpoint never answers there. Compared as the output's paths are, so a
+    /// file that differs only in case is one on Windows and macOS. The server leaves out a file whose name starts with a
+    /// dot, but the copy and the endpoint's file would still be one file in the output.
+    /// </summary>
+    private IEnumerable<string> ClientBuildProblems(List<PlannedFile> files)
+    {
+        if (files.Count == 0 || !Directory.Exists(context.ClientDist))
+        {
+            yield break;
+        }
+
+        var copied = Directory.EnumerateFiles(context.ClientDist, "*", SearchOption.AllDirectories)
+            .Select(file => Path.GetRelativePath(context.ClientDist, file).Replace(Path.DirectorySeparatorChar, '/'))
+            .Where(relative => relative.Split('/')[0] != ".vite")
+            .ToLookup(relative => PortableKey(string.Join('/', relative.Split('/').Select(Uri.EscapeDataString))));
+        var dist = Path.GetRelativePath(context.Root, context.ClientDist).Replace(Path.DirectorySeparatorChar, '/');
+        var publicDirectory = Path.GetRelativePath(context.Root, context.PublicDirectory).Replace(Path.DirectorySeparatorChar, '/');
+        foreach (var file in files)
+        {
+            var path = string.Join('/', file.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.UnescapeDataString));
+            foreach (var match in copied[PortableKey(file.Url)])
+            {
+                var why = match != path
+                    ? " on Windows and macOS, where paths that differ only in case, Unicode normalization or trailing dots and spaces are one file"
+                    : Path.GetFileName(match).StartsWith('.') ? "" : ", and the server serves the file";
+                yield return $"{dist}/{match} (copied from {publicDirectory}/ by the build, or written by a Vite plugin) and the endpoint {file.Route} both make {file.Url}{why}: " +
+                    "remove one, or exclude the endpoint with .ExcludeFromExport().";
+            }
+        }
     }
 
     /// <summary>
@@ -385,37 +592,56 @@ internal sealed class StaticExportService(
     }
 
     /// <summary>
-    /// Pages that would write one file. Windows and macOS treat paths that differ only in case or Unicode normalization
-    /// as one, and Windows drops trailing dots and spaces, so the export refuses what one file system would merge.
+    /// Output files that would be one file. Windows and macOS treat paths that differ only in case or Unicode
+    /// normalization as one, and Windows drops trailing dots and spaces, so the export refuses what one file system
+    /// would merge.
     /// </summary>
-    private static IEnumerable<string> CollisionProblems(IEnumerable<PlannedPage> pages)
+    private static IEnumerable<string> CollisionProblems(IEnumerable<OutputFile> files)
     {
-        var seen = new Dictionary<string, PlannedPage>(StringComparer.Ordinal);
-        foreach (var page in pages.Distinct())
+        var seen = new Dictionary<string, OutputFile>(StringComparer.Ordinal);
+        foreach (var file in files.Distinct())
         {
-            var key = PortableKey(page.Url);
+            var key = PortableKey(file.Path);
             if (seen.TryGetValue(key, out var other))
             {
-                var why = other.Url == page.Url
+                var why = other.Path == file.Path
                     ? ""
                     : " (on Windows and macOS, paths that differ only in case, Unicode normalization or trailing dots and spaces are one file)";
-                yield return $"{other.Url} ({other.Pattern}) and {page.Url} ({page.Pattern}) map to the same output file, " +
-                    $"{Path.Join(PathOf(other.Url), "index.html")}{why}; give one of them another path or exclude it with .ExcludeFromExport().";
+                yield return $"{other.Name} and {file.Name} map to the same output file, " +
+                    $"{PathOf(other.Path)}{why}; give one of them another path or exclude it with .ExcludeFromExport().";
                 continue;
             }
 
-            seen.Add(key, page);
+            seen.Add(key, file);
+        }
+
+        // A file where another needs a directory of that name: /feed.xml and /feed.xml/index.html.
+        foreach (var file in files.Distinct())
+        {
+            var segments = PortableKey(file.Path).Split('/');
+            for (var depth = 1; depth < segments.Length; depth++)
+            {
+                if (seen.TryGetValue(string.Join('/', segments[..depth]), out var other))
+                {
+                    var why = PathOf(file.Path).StartsWith(PathOf(other.Path) + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                        ? ""
+                        : " (on Windows and macOS, paths that differ only in case, Unicode normalization or trailing dots and spaces are one file)";
+                    yield return $"{other.Name} writes the file {PathOf(other.Path)}, and {file.Name} needs a directory of that name for {PathOf(file.Path)}{why}; " +
+                        "give one of them another path or exclude it with .ExcludeFromExport().";
+                    break;
+                }
+            }
         }
     }
 
     /// <summary>
-    /// Pages with a path segment Windows reserves for a device (<c>con</c>, <c>nul.txt</c>, <c>com1</c>): there it names
-    /// the device in any case and with any extension, so no file or directory can have it.
+    /// Output files with a path segment Windows reserves for a device (<c>con</c>, <c>nul.txt</c>, <c>com1</c>): there it
+    /// names the device in any case and with any extension, so no file or directory can have it.
     /// </summary>
-    private static IEnumerable<string> DeviceNameProblems(IEnumerable<PlannedPage> pages) =>
-        pages.Distinct()
-            .Where(page => page.Url.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => IsDeviceName(Uri.UnescapeDataString(segment))))
-            .Select(page => $"{page.Url} ({page.Pattern}) has a path segment that names a Windows device (CON, PRN, AUX, NUL, COM0-9, LPT0-9), " +
+    private static IEnumerable<string> DeviceNameProblems(IEnumerable<OutputFile> files) =>
+        files.Distinct()
+            .Where(file => file.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(segment => IsDeviceName(Uri.UnescapeDataString(segment))))
+            .Select(file => $"{file.Name} has a path segment that names a Windows device (CON, PRN, AUX, NUL, COM0-9, LPT0-9), " +
                 "which cannot be a file or directory there; give it another path or exclude it with .ExcludeFromExport().");
 
     private static bool IsDeviceName(string segment)
@@ -426,7 +652,7 @@ internal sealed class StaticExportService(
                 && (char.IsAsciiDigit(name[3]) || name[3] is '\u00b9' or '\u00b2' or '\u00b3'));
     }
 
-    private static string PortableKey(string url) => string.Join('/', url.Split('/', StringSplitOptions.RemoveEmptyEntries)
+    private static string PortableKey(string path) => string.Join('/', path.Split('/', StringSplitOptions.RemoveEmptyEntries)
         .Select(segment => Uri.UnescapeDataString(segment).Normalize(NormalizationForm.FormC).TrimEnd('.', ' ').ToUpperInvariant())
         .Where(segment => segment.Length > 0));
 
@@ -470,6 +696,20 @@ internal sealed class StaticExportService(
         }
 
         return "/" + string.Join('/', segments);
+    }
+
+    /// <summary>An endpoint's answer to a <c>GET</c>, as it sent it, or null when that is no 200 (logged).</summary>
+    private async Task<byte[]?> FetchAsync(HttpClient client, string url, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(url, cancellationToken);
+        var status = (int)response.StatusCode;
+        if (status != StatusCodes.Status200OK)
+        {
+            logger.LogError("Cannot export {Url}: the app answered {Status} instead of {Expected}", url, status, StatusCodes.Status200OK);
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
     }
 
     private async Task<string?> RenderAsync(HttpClient client, string url, int expected, CancellationToken cancellationToken)
@@ -557,10 +797,13 @@ internal sealed class StaticExportService(
     private static string PathOf(string url) =>
         Path.Combine([.. url.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.UnescapeDataString)]);
 
-    /// <summary>The file for a page, refusing anything that would land outside the output directory.</summary>
-    private static string FileFor(string output, string url)
+    /// <summary>
+    /// The file for a page (<paramref name="index"/> in the URL's directory) or, without <paramref name="index"/>, for an
+    /// endpoint (the URL's path itself), refusing anything that would land outside the output directory.
+    /// </summary>
+    private static string FileFor(string output, string url, string? index = "index.html")
     {
-        var target = Path.GetFullPath(Path.Combine(output, PathOf(url), "index.html"));
+        var target = Path.GetFullPath(index is null ? Path.Combine(output, PathOf(url)) : Path.Combine(output, PathOf(url), index));
         var root = Path.EndsInDirectorySeparator(output) ? output : output + Path.DirectorySeparatorChar;
         return target.StartsWith(root, StringComparison.Ordinal)
             ? target
