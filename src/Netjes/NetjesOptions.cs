@@ -146,7 +146,11 @@ public sealed class NetjesOptions
     /// <summary>The <c>lang</c> attribute of the rendered <c>&lt;html&gt;</c> element.</summary>
     public string Lang { get; set; } = "en";
 
-    /// <summary>Include exception messages and stacks in error pages. Default: only in the Development environment.</summary>
+    /// <summary>
+    /// Send exception messages and stacks to the browser: on error pages, and in failed server action calls and deferred
+    /// values. Without them the browser gets a stand-in marked <c>withheld</c>, except for a 4xx from a server action call
+    /// made by the client, whose message is always sent. Default: only in the Development environment.
+    /// </summary>
     public bool? IncludeErrorDetails { get; set; }
 
     /// <summary>
