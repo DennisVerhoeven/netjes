@@ -721,7 +721,7 @@ The entry is internal, but the mark is public. The client router puts `data-netj
 | `layouts` | Each layout loader's props schema by folder, for `defineLayout`. Only when the app has layout loaders. |
 | `sharedProps` | The shared props schema, for `useSharedProps`; `z.unknown()` without `UseSharedProps<T>`. |
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
-| `endpointUrl(key, params?, search?)` | The URL of one of the app's endpoints, values encoded, without the base path (pass it through [`useHref`](#usehref)). `key` is the method and route as in `api`; every endpoint of the app that is not a page has one, JSON or not ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)). `search` adds query values the endpoint does not bind. |
+| `endpointUrl(key, params?, search?)` | The URL of one of the app's endpoints, values encoded, without the base path (pass it through [`useHref`](#usehref)). `key` is the method and route as in `api`: a JSON endpoint of the app has one for each of its methods except `HEAD`, any other endpoint one for `GET`, if it answers `GET` ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)). `search` adds query values the endpoint does not bind. |
 | `EndpointParams`, `EndpointKey` | The route values and the query values each endpoint binds, typed from its C# handler, and its keys as a type. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
