@@ -152,6 +152,20 @@ describe('the error an error page is handed', () => {
     expect(handed).toMatchObject({ status: 403, withheld: false });
   });
 
+  it('a fake server action can send the message the server would, which the error page then shows', async () => {
+    const app = createTestApp({ actions: { 'posts.archive': () => ({ ok: false, status: 403, errors: {}, message: 'Forbidden' }) } });
+    render(
+      <RouteTree modules={{ page: Archive, segments: [{ id: 'app', Error: AppError }] }} props={{}} params={{}} status={200} pageKey="/archive" />,
+      { wrapper: app.Wrapper },
+    );
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Archive' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Forbidden');
+    expect(handed).toBeInstanceOf(ServerActionError);
+    expect(handed).toMatchObject({ message: 'Forbidden', status: 403, withheld: false });
+  });
+
   it("the router's top-level boundary hands the app's error page the error it caught", async () => {
     thrown = new TypeError("Cannot read properties of undefined (reading 'title')");
     await renderApp(payload('app/throws/page.tsx', '/throws'), rootErrorPage);
