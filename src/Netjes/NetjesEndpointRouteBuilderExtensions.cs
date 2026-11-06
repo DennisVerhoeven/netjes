@@ -47,6 +47,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             return;
         }
 
+        // GET only, not HEAD: a HEAD would mint the token and its cookie, and the answer would carry no token.
         endpoints.MapGet("/_netjes/antiforgery", (HttpContext http, IAntiforgery antiforgery) =>
             {
                 var tokens = antiforgery.GetAndStoreTokens(http);
@@ -55,6 +56,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             })
             .CacheOutput(policy => policy.NoCache())
             .WithDisplayName("Netjes antiforgery token")
+            .WithMetadata(NetjesEndpointMetadata.Instance)
             .ExcludeFromDescription();
     }
 

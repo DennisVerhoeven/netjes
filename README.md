@@ -13,7 +13,7 @@ Netjes is a React framework for .NET teams. You write pages in `app/` with the N
 
 - **The server is ASP.NET Core.** Loaders and actions are minimal API handlers, with dependency injection, model binding, ASP.NET Core authentication and `RequireAuthorization()`, and the data access you already use. There is no second server to deploy or keep in step.
 - **The pages are React.** Layouts, loading and error boundaries, client navigation, Suspense and streaming, with Vite, Tailwind CSS, TanStack Query and Vitest set up.
-- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references and typed routes, so a renamed property or a mistyped link is a type error.
+- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references, typed routes and typed endpoint URLs, so a renamed property or a mistyped link is a type error.
 - **Forms work without JavaScript.** A form that calls a C# server action posts as a plain HTML form when scripts are off, and comes back with its errors and what was typed.
 
 ## A small example

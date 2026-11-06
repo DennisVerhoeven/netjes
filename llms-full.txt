@@ -21,7 +21,7 @@ Netjes is a React framework for .NET teams. You write pages in `app/` with the N
 
 - **The server is ASP.NET Core.** Loaders and actions are minimal API handlers, with dependency injection, model binding, ASP.NET Core authentication and `RequireAuthorization()`, and the data access you already use. There is no second server to deploy or keep in step.
 - **The pages are React.** Layouts, loading and error boundaries, client navigation, Suspense and streaming, with Vite, Tailwind CSS, TanStack Query and Vitest set up.
-- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references and typed routes, so a renamed property or a mistyped link is a type error.
+- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references, typed routes and typed endpoint URLs, so a renamed property or a mistyped link is a type error.
 - **Forms work without JavaScript.** A form that calls a C# server action posts as a plain HTML form when scripts are off, and comes back with its errors and what was typed.
 
 ## A small example
@@ -851,7 +851,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | `next dev`, `next build`, `next start` | `netjes dev`, `netjes build`, `netjes start`; `dotnet publish` runs the build and ships it. [The netjes command](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md) |
 | `output: 'export'` | `netjes export`. Exported pages navigate with full page loads, and `useSearchParams()` sees no query string there: read `window.location.search` in an effect ([in the browser](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#in-the-browser)). The export warns about loaders that read the query string. [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md) |
 | `next.config.js` | `NetjesOptions` in C# (and the `Netjes` configuration section) for the server, `netjes()` options in `vite.config.ts` for the build. [Options](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md), [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md) |
-| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL |
+| Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL. Endpoints get typed URLs from their C# handlers: `endpointUrl('GET /api/posts/{slug}/likes/', { slug })` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)) |
 | Fast Refresh, Turbopack | Vite with React Fast Refresh ([ADR 0004](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0004-vite-for-dev-server-and-builds.md)) |
 | Tailwind CSS setup | On by default in `netjes()`: `@import "tailwindcss"` in a stylesheet the root layout imports |
 | Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) |
@@ -1174,6 +1174,7 @@ import { route } from '../generated/netjes.ts';
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
+- An endpoint of the app, such as a feed or a file, is not a page, and `href` refuses the `string` that the generated `endpointUrl()` returns for it. Link it with a plain `<a>` under the base path: `<a href={useHref(endpointUrl('GET /feed.xml'))}>` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)).
 - A `ref` gets the `<a>` element, as on a plain `<a>`, to focus the link or scroll it into view. `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` in the same way, for the `<form>`, `<button>` and `<img>` they render.
 
 ### The current section
@@ -1342,7 +1343,7 @@ app.UseNetjes();
 export default defineConfig({ plugins: [netjes({ basePath: '/docs' })] });
 ```
 
-Write links, form actions, redirects and router calls as if the app were at the root (`route()` builds paths that way): `<Link>`, `<Form>`, `useRouter()`, `Page.Redirect` and `ServerAction.Redirect` add the base path, except to paths that already start with it. `usePathname()` and `useNavigation()` locations leave it out. For a URL in your own markup, such as a plain `<a href>` or a `<link rel="icon">`, use `useHref(path)` or prefix `useBasePath()`; for a submit button's `formAction`, use `<SubmitButton formAction>`, which works without JavaScript too. `<Image>` puts its `public/` paths under the base path itself.
+Write links, form actions, redirects and router calls as if the app were at the root (`route()` builds paths that way): `<Link>`, `<Form>`, `useRouter()`, `Page.Redirect` and `ServerAction.Redirect` add the base path, except to paths that already start with it. `usePathname()` and `useNavigation()` locations leave it out. For a URL in your own markup, such as a plain `<a href>` or a `<link rel="icon">`, use `useHref(path)` or prefix `useBasePath()`, and for a `fetch` of one of the app's endpoints, `useHref(endpointUrl(...))` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)); for a submit button's `formAction`, use `<SubmitButton formAction>`, which works without JavaScript too. `<Image>` puts its `public/` paths under the base path itself.
 
 ## Locales
 
@@ -1395,7 +1396,13 @@ app.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Hea
 
 The endpoint then answers every URL its constraint allows, and the page every other URL below `/docs/`. `MapMethods` with GET and HEAD answers both, as a page does; with `MapGet` alone, the page would get the HEAD requests for the file.
 
-A `<Link>` to such a URL still works, but the router first asks the server for a page, gets the file, and then has the browser load the URL in full: one request more. Link it with `<Link reloadDocument href="/docs/routing.md">`, which the browser follows with a full page load and which gets the base path, or with `<a href={useHref('/docs/routing.md')}>`. A plain `<a href="/docs/routing.md">` misses the base path when the app has one ([Base path](#base-path)).
+A `<Link>` to such a URL still works, but the router first asks the server for a page, gets the file, and then has the browser load the URL in full: one request more. Link it with a plain `<a>` instead, its URL built by the generated `endpointUrl()` from the endpoint's method and route and put under the base path by `useHref`:
+
+```tsx
+<a href={useHref(endpointUrl('GET /docs/{**path:regex(\\.md$)}', { path: 'routing.md' }))}>Markdown</a>
+```
+
+`{**path}` keeps the slashes of its value, so `{ path: 'guides/caching.md' }` gives `/docs/guides/caching.md` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)). A plain `<a href="/docs/routing.md">` misses the base path when the app has one ([Base path](#base-path)).
 
 In Next.js, a route handler cannot share a folder with a page, so a Markdown URL below `app/docs/[...path]` takes a rewrite in `next.config.js` to a route handler at another path. Here the endpoint's order does it.
 
@@ -1420,7 +1427,7 @@ app.MapMethods("/feed.xml", [HttpMethods.Get, HttpMethods.Head], (FeedStore feed
     Results.Text(feed.ToXml(), "application/rss+xml"));
 ```
 
-The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0002-server-owns-routing.md)).
+The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. `endpointUrl()` takes the same `GET` key, for that endpoint and for one that does not answer JSON ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)). Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0002-server-owns-routing.md)).
 
 Because Netjes's own endpoints answer `HEAD` themselves, a `HEAD` for `/sitemap.xml` or `/robots.txt` in a localized app reaches the sitemap or `robots.txt`. If they answered `GET` only, `app/[lang]/page.tsx` would take `sitemap.xml` for a locale it does not support and answer with the not-found page.
 
@@ -1833,11 +1840,12 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `layouts` | Each layout loader's props by folder: `layouts['app/docs']` |
 | `sharedProps` | The type given to `UseSharedProps<T>` |
 | `api` | Request and response schemas of JSON minimal APIs, by method and route: `api['GET /api/projects/{slug}/stats']` |
+| `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
 | `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']` |
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
 
-The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0006-types-and-zod-from-csharp-contracts.md)).
+The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`, `EndpointParams`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0006-types-and-zod-from-csharp-contracts.md)).
 
 The app writes the file when it starts in Development, when its content changed, so a running `npm run dev` picks up a C# change on its next restart. `npx netjes generate` writes it on demand, also while `npm run dev` runs, and `npx netjes generate --check` exits 1 when it is out of date: run that in CI ([the netjes command](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md#netjes-generate)). Commit the file and never edit it by hand. `NetjesOptions.TypesFile` moves it; `null` turns generation off.
 
@@ -1883,7 +1891,7 @@ const { navigation } = useSharedProps(sharedProps);
 ```
 
 - `new Href(url)` throws `ArgumentException` unless the URL starts with `/` (but not `//` or `/\`, which browsers read as another host), `?`, `#`, or `http:`, `https:`, `mailto:` or `tel:`, and holds no ASCII control character and no space at either end. `Href.TryCreate(url, out var href)` returns `false` instead. `Href?`, lists, dictionaries and `Deferred<Href>` work as for any other type ([`Href`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#href)).
-- C# checks the shape of the URL, not whether a page serves it. A root-relative `Href` that no page serves fails the props parse with `Invalid props: …` (`Invalid layout props: …` in a layout's props, `Invalid shared props: …` in the shared props), takes the rest of the props with it, and renders the nearest error boundary. When the server renders the page, it answers 500 if the component that parses is outside every Suspense boundary. Under one, such as a `loading.tsx`, React sends that boundary's fallback in a document with the loader's status, usually 200, and the error page shows once the parse fails in the browser, as it does after a client navigation. So make an `Href` only of a URL the code knows to be a page, such as one built from a page's pattern. A link to an endpoint or a file, such as `/llms.txt`, stays a `string`, rendered with `<a href={useHref(url)}>` or `<Link reloadDocument>` ([Endpoints next to pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#endpoints-next-to-pages)). A link from a CMS stays a `string` too, checked with `isHref` or `Href.parse` where it is rendered, so that one bad entry does not take the page down.
+- C# checks the shape of the URL, not whether a page serves it. A root-relative `Href` that no page serves fails the props parse with `Invalid props: …` (`Invalid layout props: …` in a layout's props, `Invalid shared props: …` in the shared props), takes the rest of the props with it, and renders the nearest error boundary. When the server renders the page, it answers 500 if the component that parses is outside every Suspense boundary. Under one, such as a `loading.tsx`, React sends that boundary's fallback in a document with the loader's status, usually 200, and the error page shows once the parse fails in the browser, as it does after a client navigation. So make an `Href` only of a URL the code knows to be a page, such as one built from a page's pattern. A link to an endpoint or a file, such as `/llms.txt`, stays a `string`, rendered with `<a href={useHref(url)}>`; a component can build it with `endpointUrl('GET /llms.txt')` instead ([Endpoint URLs](#endpoint-urls)). A link from a CMS stays a `string` too, checked with `isHref` or `Href.parse` where it is rendered, so that one bad entry does not take the page down.
 - Build the URL as `route()` builds one: root-relative, in the file's spelling, with each value encoded (`new Href($"/blog/{Uri.EscapeDataString(slug)}")`), and without the base path, which the router adds as it does for every link. The props parse compares the literal segments with their case, so `new Href("/About")` fails it for `app/about/page.tsx`, although the server redirects `/About` to `/about` ([One URL per page](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#one-url-per-page)). `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so pass them `pathBase: PathString.Empty`.
 - No query value or route value binds to an `Href`, also through `[AsParameters]`. A URL from the request, such as a `returnUrl`, stays a `string`, checked with `Page.IsLocalUrl` ([What a loader returns](#what-a-loader-returns)). An action input reads an `Href` from JSON, as a server action called with an object sends it, checked for its shape only. Form binding fills one only from a field named after the constructor's parameter (`next.url` for a property `Next`), also checked for its shape only, and never from the field `next` that a form posts: that leaves an `init` property `null` and fails a positional record's post with 400. So a `[FromForm]` input takes a `string` and makes the `Href` with `Href.TryCreate`.
 
@@ -1904,18 +1912,50 @@ app.MapGet("/api/projects/{slug}/stats", async Task<Results<Ok<ProjectStats>, No
 ```
 
 ```ts
-import { api } from '../generated/netjes.ts';
+import { useQuery } from '@tanstack/react-query';
+import { useHref } from 'netjes';
+import { api, endpointUrl } from '../generated/netjes.ts';
 
-async function fetchStats(slug: string) {
-  const response = await fetch(`/api/projects/${encodeURIComponent(slug)}/stats`);
+async function fetchStats(url: string) {
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Stats request failed with ${response.status}`);
   return api['GET /api/projects/{slug}/stats'].response.parse(await response.json());
 }
+
+export function useProjectStats(slug: string) {
+  const url = useHref(endpointUrl('GET /api/projects/{slug}/stats', { slug }));
+  return useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => fetchStats(url) });
+}
 ```
+
+`endpointUrl` fills the route with the encoded `slug`, and `useHref` puts the URL under the base path, which a hand-written `` fetch(`/api/projects/${slug}/stats`) `` misses when the app has one ([Endpoint URLs](#endpoint-urls)).
 
 A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slug}/likes").MapGet("/", ...)` is `api['GET /api/posts/{slug}/likes/']`. A JSON endpoint that browsers post to should require a JSON body, so a cross-site form post cannot reach it.
 
 `MapGet` answers `GET` only. A `HEAD` to its URL goes to whatever else matches the URL, often the not-found page. To answer `HEAD` as well, map the endpoint with `MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its key stays `GET` and the route, as for `MapGet` ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
+
+## Endpoint URLs
+
+`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. The key is the one the endpoint has in `api`, its method and its route as written. Every endpoint the app maps that is not a page has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`. A `POST` endpoint that is not JSON, such as a webhook, has none.
+
+```tsx
+import { useHref } from 'netjes';
+import { endpointUrl } from '../generated/netjes.ts';
+
+endpointUrl('GET /api/posts/{slug}/likes/', { slug: 'hello' });                // '/api/posts/hello/likes'
+endpointUrl('GET /api/search', { q: 'net core', take: 10 }, { ref: 'nav' });    // '/api/search?q=net+core&take=10&ref=nav'
+<a href={useHref(endpointUrl('GET /llms.txt'))}>llms.txt</a>
+```
+
+- `EndpointParams[key]` types the second argument from the endpoint's C# side. It holds each parameter of the route template, typed from the handler parameter that binds it (a `string` when none does), and then each query string value the handler binds, named as binding reads it: `[FromQuery(Name = "v")] int version` is `v`, and a member of an `[AsParameters]` type keeps its C# name, such as `Page`, which binding reads in any case. A name the endpoint does not bind is a type error. Parameters that read nothing from the URL are left out: headers, the body, services, `HttpContext`, `CancellationToken`, `ClaimsPrincipal`, and a type with `BindAsync`, which reads the request itself.
+- The third argument is open. Its values go in the query string after the typed ones, for keys the endpoint does not bind, such as `utm_source`, or that a `BindAsync` type reads. It is a `SearchParamsInput`, as for `route()`.
+- The types are what binding accepts. A number is a `number`, a `bool` a `boolean`, and a string or another type with `TryParse` (`Guid`, `DateOnly`) a `string`. An array is a `readonly` list and `StringValues` a `string` or a list. An enum takes its C# names and its values, `'Open' | 'InProgress' | 0 | 1`: the query string binds those, whatever names the JSON writes with `JsonStringEnumConverter`. A `[Flags]` enum takes any `string` or `number`.
+- A route value is required unless routing fills in a default (`{page=1}`), or the template makes it optional (`{id?}`, a catch-all such as `{**path}`) and the handler parameter that binds it can be left out. So `{id?}` bound by `int id` is required, since binding answers 400 without a value, and `{id?}` bound by `int? id` is not. `{slug}` is required even when the handler takes a `string? slug`, since the template needs it. An optional value that is a whole segment is required too when a segment that has to be there follows it: `/a/{x?}/b` does not match `/a/b`, so `x` is required. A query value can be left out when its parameter has a default or a nullable type, and a list always.
+- `null` and `undefined` leave a value out, and `''` leaves out a route value, while a query value of `''` is written empty (`?q=`), as in `route()`. An optional route value left out drops its segment, or its part of a segment with the `.` before it (`{name}.{ext?}`), and a query value left out its key. A route value with a default is left out at the end of the URL and filled in with the default where segments follow it. A required route value throws `netjes: endpoint '<key>' needs the route value '<name>'` instead, and so does an optional one left out before a value that is given: for `/a/{x?}/{y?}`, `y` alone would be read as `x`.
+- Route values are encoded with `encodeURIComponent`, except that a `{**path}` value keeps its slashes; a `{*path}` value has them encoded. The query string is written by `URLSearchParams`, which writes a space as `+`. The URL routes to the same endpoint as the one `LinkGenerator` writes, but it is not always the same text: a value equal to its default is kept, for example.
+- The URL is root-relative and has no base path. Pass it through `useHref` for a `fetch` or an `<a href>`, as above, so that it works under `UsePathBase` ([Base path](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#base-path)). `<Link>` refuses it as a type error: an endpoint is not a page, and a client navigation to it asks the server for a page first ([Endpoints next to pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#endpoints-next-to-pages)).
+- Netjes's own endpoints have no keys: `/_netjes/image`, `/_netjes/antiforgery` and the vitals beacon, which `MapPages()` maps, and the locale redirect (`MapLocaleRedirect`). Nor do endpoints that name no HTTP method (`app.Map`, `MapHealthChecks`, `MapFallback`), static assets (`MapStaticAssets`) or MVC conventional routes, whose actions share one route. `MapSitemap` and `MapRobotsTxt` have keys (`GET /sitemap.xml`, `GET /robots.txt`), and so does an endpoint marked `ExcludeFromDescription`, which leaves it out of OpenAPI only. An MVC attribute route has a key, with its route values as strings and no query values: MVC reports no binding for an action's parameters.
+- The keys and types follow the C# side when the file is generated: run `npx netjes generate` after changing an endpoint, and a renamed route or parameter is a type error where the old one is used. The templates are in the generated file. Once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file, which pages share, also those that never call it ([Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#errors-and-configuration)).
 
 ## Server state with TanStack Query
 
@@ -3733,6 +3773,7 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 - Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`, marked with `error.withheld`, and no stack. A failed `Page.Defer` value goes to the browser with an empty message, and a server action's 5xx with none; the browser marks both as withheld.
 - Everything in `Netjes:PublicConfig` is sent to the browser as it is. Never put a secret there.
+- The generated file names the app's endpoints: `api` its JSON endpoints, and `endpointUrl()` the method and route of each endpoint that has a key, an endpoint the app maps only in Development included, since the file is generated in Development. The routes are one map in that file, so once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file. Pages share that chunk, usually through the root layout, so expect every page to load it, also one that never calls `endpointUrl`. While nothing calls it, the build leaves the map out. `api` ships its keys the same way. A route in the file is no easier to reach than one outside it: authorization stays on the endpoint (`RequireAuthorization()`) ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)).
 - Output-cached pages are served to every visitor; keep per-visitor data out of them. See [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#shared-props-and-cookies).
 
 ## The development server
@@ -5012,13 +5053,26 @@ function buildHref(
 
 The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'über-uns'` gives `#%C3%BCber-uns`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
 
+#### `buildEndpointUrl`
+
+```ts
+function buildEndpointUrl(
+  template: string,
+  values: Readonly<Record<string, unknown>>,
+  search?: SearchParamsInput,
+  endpoint?: string,
+): string;
+```
+
+The URL of one of the app's endpoints from its route template as the generated file writes it: literals as they are, with `%`, `{`, `}`, `#` and `\` encoded, and `{name}`, `{name?}`, `{name=default}` (the default encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded with `encodeURIComponent`; a `{**name}` value keeps its slashes. A missing, `null` or `''` optional value drops its segment, or its part with the `.` before it; a missing value with a default is filled in where segments follow it and left out at the end; a missing required value, or an optional one whose segment is followed by one that stays (`x` in `/a/{x?}/b`, or in `/a/{x?}/{y?}` with `y` given), throws `netjes: endpoint '<endpoint>' needs the route value '<name>'` (the template when `endpoint` is not given). The values the template does not name are the query string, followed by `search`. The result is root-relative, without the base path: `buildEndpointUrl('/api/items/{id}', { id: 'a b', v: 2 })` is `/api/items/a%20b?v=2`. The generated `endpointUrl()` calls it with typed values ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)).
+
 #### `SearchParamsInput`
 
 ```ts
 type SearchParamsInput = Record<string, SearchValue | readonly SearchValue[]>;
 ```
 
-The query of `buildHref` and `route()`. An array repeats the key; `null` and `undefined` are left out.
+The query of `buildHref`, `route()`, `buildEndpointUrl` and `endpointUrl()`. An array repeats the key; `null` and `undefined` are left out.
 
 #### `SearchValue`
 
@@ -5272,6 +5326,8 @@ The route announcer is public in the same way. After a client navigation to anot
 | `layouts` | Each layout loader's props schema by folder, for `defineLayout`. Only when the app has layout loaders. |
 | `sharedProps` | The shared props schema, for `useSharedProps`; `z.unknown()` without `UseSharedProps<T>`. |
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
+| `endpointUrl(key, params?, search?)` | The URL of one of the app's endpoints, values encoded, without the base path (pass it through [`useHref`](#usehref)). `key` is the method and route as in `api`: a JSON endpoint of the app has one for each of its methods except `HEAD`, any other endpoint one for `GET`, if it answers `GET` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)). `search` adds query values the endpoint does not bind. |
+| `EndpointParams`, `EndpointKey` | The route values and the query values each endpoint binds, typed from its C# handler, and its keys as a type. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
 | `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |
@@ -6238,7 +6294,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 netjes generate [--check]
 ```
 
-Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references and typed routes. The app also rewrites it when it starts in Development; commit it.
+Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts in Development; commit it.
 
 | Option | What it does | Default |
 |---|---|---|
@@ -6679,7 +6735,7 @@ Netjes renders React pages from ASP.NET Core. C# receives every request and owns
 
 1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic.
 2. Change the C# record, loader or action, then run `npx netjes generate` so `generated/netjes.ts` matches (a running `npm run dev` rewrites it when it restarts).
-3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`.
+3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`, `endpointUrl('GET /api/...', params)`.
 4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings.
 
 ## A page with data, end to end
@@ -6726,7 +6782,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 
 - Decisions live in C#: data access, validation, authorization (`.RequireAuthorization()`, `Page.Forbidden()`), redirects, caching. React renders what it is sent.
 - Loaders and actions return Netjes results (`Page.Props(...)`, `Page.NotFound()`, `ServerAction.Ok(...)`), so their types reach `generated/netjes.ts`. Use records for everything that crosses to the browser.
-- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON, `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
+- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON (from `useHref(endpointUrl(...))`, never a hand-built URL), `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
 - Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in `app/layout.tsx` that takes the focus: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/routing.md)).
@@ -6799,7 +6855,7 @@ Loaders bind like minimal APIs: a string or `TryParse` parameter takes the route
 
 ## Endpoints next to pages
 
-ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endpoints have 0), then route precedence (a literal, a constrained parameter, a parameter, a constrained catch-all, then a catch-all), then HTTP methods, hosts and accepted content types, in that order. When two rank first together and both fit a request, it answers 500 (`AmbiguousMatchException`); Netjes warns about such an endpoint next to a page or a page action at startup and in `npm run routes`. A file next to a catch-all page, such as a Markdown copy of each docs page next to `app/docs/[...path]/page.tsx`, ranks the same as the page, so map it ahead of it and for HEAD as well: `app.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Head], ...).WithOrder(-1)`. Link it with `<Link reloadDocument>` or `<a href={useHref(...)}>`; a bare `<a href>` misses the base path.
+ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endpoints have 0), then route precedence (a literal, a constrained parameter, a parameter, a constrained catch-all, then a catch-all), then HTTP methods, hosts and accepted content types, in that order. When two rank first together and both fit a request, it answers 500 (`AmbiguousMatchException`); Netjes warns about such an endpoint next to a page or a page action at startup and in `npm run routes`. A file next to a catch-all page, such as a Markdown copy of each docs page next to `app/docs/[...path]/page.tsx`, ranks the same as the page, so map it ahead of it and for HEAD as well: `app.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Head], ...).WithOrder(-1)`. Link it with `<a href={useHref(endpointUrl('GET /docs/{**path:regex(\\.md$)}', { path }))}>`; a bare `<a href>` misses the base path.
 
 ## Links and navigation
 
@@ -6922,15 +6978,16 @@ app.MapGet("/api/projects/{slug}/stats", async Task<Results<Ok<ProjectStats>, No
 ```
 
 ```ts
-async function fetchStats(slug: string) {
-  const response = await fetch(`/api/projects/${encodeURIComponent(slug)}/stats`);
+async function fetchStats(url: string) {
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Stats request failed with ${response.status}`);
   return api['GET /api/projects/{slug}/stats'].response.parse(await response.json());
 }
-const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => fetchStats(slug) });
+const url = useHref(endpointUrl('GET /api/projects/{slug}/stats', { slug }));
+const stats = useQuery({ queryKey: ['projects', slug, 'stats'], queryFn: () => fetchStats(url) });
 ```
 
-Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
+Typed results (`TypedResults`, `Results<...>`) give the endpoint its `api` schemas, keyed by method and route template. `endpointUrl(key, params, search)` builds the URL of the app's endpoints that are not pages, JSON or not (a JSON endpoint has a key per method except `HEAD`, any other endpoint one for `GET`, if it answers `GET`), by the same key: the route values and the query values its handler binds are typed from C#, an enum as its C# names and values, and `search` adds others. It has no base path: `useHref` adds it, for a `fetch` or an `<a href>`. `<Link>` refuses it, as an endpoint is not a page. Seed the same query key from the loader with `.WithQuery(key, data)` and the query renders on the server with no fetch; keep the key in one place on each side. Seeded data is fresh for the default `staleTime` (one minute).
 
 `MapGet` answers `GET` only: a `HEAD` to its URL goes to whatever else matches it, often the not-found page. For an endpoint that crawlers, link checkers or monitors ask with `HEAD`, map `app.MapMethods(pattern, [HttpMethods.Get, HttpMethods.Head], handler)`; its `api` key stays `GET` and the route. Pages, `/sitemap.xml`, `/robots.txt`, `/_netjes/image` and the locale redirect answer `HEAD` already.
 
@@ -7225,6 +7282,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0042 – The app's image runs an init as PID 1, so a crash ends the container](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0042-the-apps-image-runs-an-init-as-pid-1.md): the template's and the examples' production images start the app with `tini -s --`, so a crash ends the container with code 134 and `docker stop` reaches the app, where .NET as PID 1 spun or exited with another code.
 - [0043 – Netjes marks the errors whose message it withheld](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0043-netjes-marks-the-errors-whose-message-it-withheld.md): `error.withheld` is true on an error whose message Netjes wrote in place of one it does not show, so an error page renders the message only when `!error.withheld`, and the router's top-level boundary hands the app's error page the error it caught.
 - [0044 – `beforeInteractive` scripts run before the page's code](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0044-before-interactive-scripts-run-before-the-pages-code.md): inline code runs where it stands, before what follows it is painted, and external scripts run in order once the shell is parsed, before the page's modules run and the page hydrates.
+- [0045 – Typed URLs for the app's endpoints](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0045-typed-urls-for-the-apps-endpoints.md): the generated `endpointUrl()` builds the URL of each endpoint of the app that is not a page, JSON or not, by its key in `api`, with the route values and query values its handler binds typed in TypeScript as binding accepts them, and without the base path, which `useHref` adds.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -7256,6 +7314,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `APP_PORT` moves the host port of the template's Compose stacks. `APP_PORT=8090 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` publishes the production app on port 8090, and `APP_PORT=8090 docker compose up` publishes development on 127.0.0.1:8090; without it, both publish port 8080 as before. Compose reads it from the shell or from a `.env` file next to the Compose files. The app still listens on 8080 inside the container, and Vite's port, 5173, does not move ([Docker](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#docker)). An app made before this release that wants it changes `"8080:8080"` in its `docker-compose.prod.yml` to `"${APP_PORT:-8080}:8080"`, and `"127.0.0.1:8080:8080"` in its `docker-compose.override.yml` to `"127.0.0.1:${APP_PORT:-8080}:8080"`.
 - `error.withheld` and `ServerActionError.withheld` mark an error whose message Netjes wrote in place of one it does not show: the error an `error.tsx` gets for an exception the server rendered the page for with error details off (`IncludeErrorDetails`, off outside the Development environment), whose message is the status's reason phrase; a `Page.Defer` value whose failure the server sent without its message; a server action call whose answer had no message, as for a 5xx with error details off; and a thrown value that is neither an Error nor a string. `ErrorPageProps` types it as `withheld?: boolean`. A status rendered without an exception, such as `Page.Forbidden()` where no `forbidden.tsx` is, keeps its reason phrase and is not withheld. The template's and the examples' error pages render `error.message` only when `!error.withheld`, so in production they no longer print "Internal Server Error" under their heading. An app's error page that renders `error.message` works as before; to leave the stand-in out, render the message only when `!error.withheld` ([`ErrorPageProps`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#errorpageprops), [ADR 0043](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0043-netjes-marks-the-errors-whose-message-it-withheld.md)).
 - A failure from `createTestApp()`'s `actions` can carry `message`, the message the server would send: `{ ok: false, status: 403, errors: {}, message: 'Forbidden' }`. Without one, a failure other than a 422 throws a `ServerActionError` with `withheld` true, whatever its status, as for a 5xx with error details off. A test that fakes a refused call and expects its error page to show the reason adds the `message` ([Answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)).
+- Typed URLs for the app's endpoints: `endpointUrl()`, `EndpointParams` and `EndpointKey` in the generated file, and `buildEndpointUrl` in `netjes`, which `endpointUrl()` calls. The endpoints the app maps have keys, their method and route as in `api` (`'GET /api/posts/{slug}/likes/'`), JSON or not: a JSON endpoint one for each of its methods except `HEAD`, any other endpoint one for `GET`, if it answers `GET`. Pages, endpoints that name no HTTP method, fallbacks, static assets and MVC conventional routes have none. `endpointUrl(key, params, search)` fills the route with the encoded values and puts the query values the handler binds, then those of `search`, in the query string. The route values and query values are typed from the C# handler, an enum as its C# names and its values, which the query string binds; a missing required route value and a name the endpoint does not bind are type errors. The URL has no base path: pass it through `useHref` for a `fetch` or an `<a href>`, where a hand-built `/api/...` URL misses the base path under `UsePathBase`. Run `npx netjes generate` after upgrading: every app's generated file changes, and imports `buildEndpointUrl` from `netjes`. A C# type named `EndpointParams`, `EndpointKey`, `endpointTemplates`, `endpointUrl` or `buildEndpointUrl` gets a qualified schema name, with its declaring type or its namespace (`MyAppFeaturesEndpointParams` for `MyApp.Features.EndpointParams`): change the app's imports of that schema. The generated file now holds the route of each such endpoint, an endpoint mapped only in Development included. Once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file, which pages share, also those that never call it. Netjes's own endpoints (`/_netjes/image`, `/_netjes/antiforgery`, the vitals beacon and the locale redirect) have no key, and answer as before ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls), [ADR 0045](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0045-typed-urls-for-the-apps-endpoints.md)).
 
 ### Changed
 

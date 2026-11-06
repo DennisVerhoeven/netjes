@@ -69,6 +69,16 @@ internal static class LoaderBinding
     }
 
     /// <summary>
+    /// Where in a URL minimal API binding reads a parameter's value: the route parameter it binds (<see cref="SourceOf"/>),
+    /// else its query string key (<see cref="QueryKeyOf"/>), else nowhere: a header, the body, a service, the request
+    /// itself or a type that binds itself (<c>BindAsync</c>) reads nothing a URL names. An array or <c>StringValues</c>
+    /// that an endpoint for <c>POST</c> or <c>PUT</c> reads from its JSON body reports
+    /// <see cref="IParameterBindingMetadata.HasTryParse"/> false, so it reads nowhere too.
+    /// </summary>
+    public static (string? Route, string? Query) UrlSource(IParameterBindingMetadata parameter, IReadOnlyList<string> routeParameters) =>
+        SourceOf(parameter, routeParameters).Route is { } route ? (route, null) : (null, QueryKeyOf(parameter, routeParameters));
+
+    /// <summary>
     /// Whether minimal API binding needs a value for the parameter, and without one calls no handler (a page loader's
     /// endpoint answers 400): it has no default value and its type is not nullable, as minimal APIs read nullability
     /// (<see cref="IParameterBindingMetadata.IsOptional"/>). An array is never required: without a value in the query

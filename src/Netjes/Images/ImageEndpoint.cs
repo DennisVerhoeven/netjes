@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
+using Netjes.Routing;
 
 namespace Netjes.Images;
 
@@ -34,7 +35,7 @@ internal static class ImageEndpoint
             // processes the image as a GET does, and the output cache keys it by the method, so it has entries of its own.
             .MapMethods(options.Path, [HttpMethods.Get, HttpMethods.Head], HandleAsync)
             .WithDisplayName("Netjes image optimizer")
-            .WithMetadata(SameForEveryone.Instance)
+            .WithMetadata(SameForEveryone.Instance, NetjesEndpointMetadata.Instance)
             .ExcludeFromDescription()
             // Keyed by what changes the output: the canonical query (anything else is a 400), the image as fetched and the
             // negotiated format. The raw Accept header has endless spellings of the same preference, and the Host header

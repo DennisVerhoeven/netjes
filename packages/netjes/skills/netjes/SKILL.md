@@ -18,7 +18,7 @@ Netjes renders React pages from ASP.NET Core. C# receives every request and owns
 
 1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic.
 2. Change the C# record, loader or action, then run `npx netjes generate` so `generated/netjes.ts` matches (a running `npm run dev` rewrites it when it restarts).
-3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`.
+3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`, `endpointUrl('GET /api/...', params)`.
 4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings.
 
 ## A page with data, end to end
@@ -65,7 +65,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 
 - Decisions live in C#: data access, validation, authorization (`.RequireAuthorization()`, `Page.Forbidden()`), redirects, caching. React renders what it is sent.
 - Loaders and actions return Netjes results (`Page.Props(...)`, `Page.NotFound()`, `ServerAction.Ok(...)`), so their types reach `generated/netjes.ts`. Use records for everything that crosses to the browser.
-- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON, `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
+- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON (from `useHref(endpointUrl(...))`, never a hand-built URL), `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
 - Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in `app/layout.tsx` that takes the focus: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](references/routing.md)).

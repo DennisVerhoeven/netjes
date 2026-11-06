@@ -252,6 +252,7 @@ import { route } from '../generated/netjes.ts';
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a file download or a page outside Netjes.
+- An endpoint of the app, such as a feed or a file, is not a page, and `href` refuses the `string` that the generated `endpointUrl()` returns for it. Link it with a plain `<a>` under the base path: `<a href={useHref(endpointUrl('GET /feed.xml'))}>` ([Endpoint URLs](data-loading.md#endpoint-urls)).
 - A `ref` gets the `<a>` element, as on a plain `<a>`, to focus the link or scroll it into view. `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` in the same way, for the `<form>`, `<button>` and `<img>` they render.
 
 ### The current section
@@ -420,7 +421,7 @@ app.UseNetjes();
 export default defineConfig({ plugins: [netjes({ basePath: '/docs' })] });
 ```
 
-Write links, form actions, redirects and router calls as if the app were at the root (`route()` builds paths that way): `<Link>`, `<Form>`, `useRouter()`, `Page.Redirect` and `ServerAction.Redirect` add the base path, except to paths that already start with it. `usePathname()` and `useNavigation()` locations leave it out. For a URL in your own markup, such as a plain `<a href>` or a `<link rel="icon">`, use `useHref(path)` or prefix `useBasePath()`; for a submit button's `formAction`, use `<SubmitButton formAction>`, which works without JavaScript too. `<Image>` puts its `public/` paths under the base path itself.
+Write links, form actions, redirects and router calls as if the app were at the root (`route()` builds paths that way): `<Link>`, `<Form>`, `useRouter()`, `Page.Redirect` and `ServerAction.Redirect` add the base path, except to paths that already start with it. `usePathname()` and `useNavigation()` locations leave it out. For a URL in your own markup, such as a plain `<a href>` or a `<link rel="icon">`, use `useHref(path)` or prefix `useBasePath()`, and for a `fetch` of one of the app's endpoints, `useHref(endpointUrl(...))` ([Endpoint URLs](data-loading.md#endpoint-urls)); for a submit button's `formAction`, use `<SubmitButton formAction>`, which works without JavaScript too. `<Image>` puts its `public/` paths under the base path itself.
 
 ## Locales
 
@@ -473,7 +474,13 @@ app.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Hea
 
 The endpoint then answers every URL its constraint allows, and the page every other URL below `/docs/`. `MapMethods` with GET and HEAD answers both, as a page does; with `MapGet` alone, the page would get the HEAD requests for the file.
 
-A `<Link>` to such a URL still works, but the router first asks the server for a page, gets the file, and then has the browser load the URL in full: one request more. Link it with `<Link reloadDocument href="/docs/routing.md">`, which the browser follows with a full page load and which gets the base path, or with `<a href={useHref('/docs/routing.md')}>`. A plain `<a href="/docs/routing.md">` misses the base path when the app has one ([Base path](#base-path)).
+A `<Link>` to such a URL still works, but the router first asks the server for a page, gets the file, and then has the browser load the URL in full: one request more. Link it with a plain `<a>` instead, its URL built by the generated `endpointUrl()` from the endpoint's method and route and put under the base path by `useHref`:
+
+```tsx
+<a href={useHref(endpointUrl('GET /docs/{**path:regex(\\.md$)}', { path: 'routing.md' }))}>Markdown</a>
+```
+
+`{**path}` keeps the slashes of its value, so `{ path: 'guides/caching.md' }` gives `/docs/guides/caching.md` ([Endpoint URLs](data-loading.md#endpoint-urls)). A plain `<a href="/docs/routing.md">` misses the base path when the app has one ([Base path](#base-path)).
 
 In Next.js, a route handler cannot share a folder with a page, so a Markdown URL below `app/docs/[...path]` takes a rewrite in `next.config.js` to a route handler at another path. Here the endpoint's order does it.
 
@@ -498,7 +505,7 @@ app.MapMethods("/feed.xml", [HttpMethods.Get, HttpMethods.Head], (FeedStore feed
     Results.Text(feed.ToXml(), "application/rss+xml"));
 ```
 
-The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](../decisions/0002-server-owns-routing.md)).
+The handler runs for both, and the server sends the answer to a `HEAD` without its body. A [JSON endpoint](data-loading.md#json-endpoints) mapped this way keeps one key in the generated `api` map, `GET` and its route (`api['GET /api/status']`), and gets none for `HEAD`. `endpointUrl()` takes the same `GET` key, for that endpoint and for one that does not answer JSON ([Endpoint URLs](data-loading.md#endpoint-urls)). Next.js answers `HEAD` for every route handler that exports `GET`; Netjes leaves the app's own endpoints to ASP.NET Core, as it leaves their routing ([ADR 0002](../decisions/0002-server-owns-routing.md)).
 
 Because Netjes's own endpoints answer `HEAD` themselves, a `HEAD` for `/sitemap.xml` or `/robots.txt` in a localized app reaches the sitemap or `robots.txt`. If they answered `GET` only, `app/[lang]/page.tsx` would take `sitemap.xml` for a locale it does not support and answer with the not-found page.
 

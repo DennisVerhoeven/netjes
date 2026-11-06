@@ -97,6 +97,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0042 – The app's image runs an init as PID 1, so a crash ends the container](decisions/0042-the-apps-image-runs-an-init-as-pid-1.md)
 - [0043 – Netjes marks the errors whose message it withheld](decisions/0043-netjes-marks-the-errors-whose-message-it-withheld.md)
 - [0044 – `beforeInteractive` scripts run before the page's code](decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)
+- [0045 – Typed URLs for the app's endpoints](decisions/0045-typed-urls-for-the-apps-endpoints.md)
 
 ## The project
 

@@ -11,7 +11,7 @@ namespace Netjes.TypeGen;
 
 /// <summary>
 /// Writes the app's generated TypeScript: zod schemas for page props, shared props, JSON endpoints and page action
-/// forms (from the endpoints' metadata), plus typed routes from the page files.
+/// forms (from the endpoints' metadata), typed URLs of the app's endpoints, plus typed routes from the page files.
 /// </summary>
 internal sealed class TypeScriptGenerator(
     EndpointDataSource endpoints,
@@ -30,9 +30,9 @@ internal sealed class TypeScriptGenerator(
     {
         // Declared.
         "pages", "sharedProps", "api", "forms", "layouts", "serverActions", "actionInputs", "actionResults", "route", "routePatterns", "isHref",
-        "RouteParams", "RoutePattern", "Route", "Href",
+        "RouteParams", "RoutePattern", "Route", "Href", "EndpointParams", "EndpointKey", "endpointTemplates", "endpointUrl",
         // Imported.
-        "buildHref", "isRouteHref", "serverAction", "SearchParamsInput", "deferred", "z",
+        "buildEndpointUrl", "buildHref", "isRouteHref", "serverAction", "SearchParamsInput", "deferred", "z",
         // Globals.
         "Record", "FormData", "Number",
     };
@@ -79,8 +79,8 @@ internal sealed class TypeScriptGenerator(
         var output = new StringBuilder(Header);
         var declarations = schemas.Declarations();
         output.Append(actions.Count > 0
-            ? "import { buildHref, isRouteHref, serverAction, type SearchParamsInput } from 'netjes';\n"
-            : "import { buildHref, isRouteHref, type SearchParamsInput } from 'netjes';\n");
+            ? "import { buildEndpointUrl, buildHref, isRouteHref, serverAction, type SearchParamsInput } from 'netjes';\n"
+            : "import { buildEndpointUrl, buildHref, isRouteHref, type SearchParamsInput } from 'netjes';\n");
         if (schemas.UsesDeferred)
         {
             output.Append("import { deferred } from 'netjes/zod';\n");
@@ -109,6 +109,7 @@ internal sealed class TypeScriptGenerator(
         AppendMap(output, "api", api.Select(a => (a.Key, Slots(
             ("request", a.Request is null ? null : schemas.Reference(a.Request)),
             ("response", a.Response is null ? null : schemas.Reference(a.Response))))));
+        EndpointUrls.Append(output, EndpointUrls.Entries(all, IsInTheApiMap));
 
         output.Append("\n/** Form fields of page actions (`MapPageAction`), by page pattern. */\n");
         AppendMap(output, "forms", forms.Select(f => (f.Pattern, schemas.Reference(f.Type))));
@@ -213,16 +214,7 @@ internal sealed class TypeScriptGenerator(
         var entries = new List<(string Key, Type? Request, Type? Response)>();
         foreach (var endpoint in all.Where(e => e.Metadata.GetMetadata<PageEndpointMetadata>() is null))
         {
-            var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
-            var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
-            var response = produces
-                .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
-                .Select(p => p.Type)
-                .FirstOrDefault();
-            var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
-            var isJsonEndpoint = response is not null || request is not null
-                || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)));
-            if (!isJsonEndpoint)
+            if (JsonContract(endpoint) is not var (request, response))
             {
                 continue;
             }
@@ -235,6 +227,29 @@ internal sealed class TypeScriptGenerator(
         }
 
         return [.. entries.DistinctBy(e => e.Key).OrderBy(e => e.Key, StringComparer.Ordinal)];
+    }
+
+    /// <summary>Whether the endpoint has keys in the <c>api</c> map: a JSON endpoint that is no page.</summary>
+    public static bool IsInTheApiMap(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is null && JsonContract(endpoint) is not null;
+
+    /// <summary>
+    /// The JSON body an endpoint accepts and the JSON it answers with, or null for an endpoint that is no JSON endpoint:
+    /// it declares neither, and no bodiless 2xx (<c>TypedResults.NoContent()</c>) either.
+    /// </summary>
+    private static (Type? Request, Type? Response)? JsonContract(RouteEndpoint endpoint)
+    {
+        var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
+        var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
+        var response = produces
+            .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
+            .Select(p => p.Type)
+            .FirstOrDefault();
+        var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
+        return response is not null || request is not null
+            || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)))
+            ? (request, response)
+            : null;
     }
 
     private static List<(string Pattern, Type Type)> FormEntries(List<RouteEndpoint> all) =>

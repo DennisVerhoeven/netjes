@@ -1,5 +1,11 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Netjes.Tests.Endpoints;
 using Netjes.TypeGen;
 using static Netjes.Tests.TypeGen.ZodSchemasTests;
 using EdgeCase = Netjes.Tests.TypeGen.ZodSchemasEdgeCaseTests;
@@ -110,6 +116,46 @@ public class GoldenFileTests
         var json = "{\n" + string.Join(",\n", samples.Select(s => $"  {JsonSerializer.Serialize(s.Key)}: {s.Value}")) + "\n}\n";
 
         AssertGolden("edge-case-samples.json", json);
+    }
+
+    public enum TaskState
+    {
+        Open,
+        InProgress,
+    }
+
+    public sealed record LikeCount(string Slug, int Likes);
+
+    public sealed record LikeRequest(string Slug);
+
+    /// <summary>
+    /// The typed URLs of endpoints with each kind of route value, which packages/netjes/test/typegen-urls.test.ts calls
+    /// and typechecks against buildEndpointUrl.
+    /// </summary>
+    [Fact]
+    public async Task EndpointUrls_MatchTheGoldenFile()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/docs/[...path]/page.tsx"],
+            map: a =>
+            {
+                var likes = a.MapGroup("/api/posts/{slug}/likes");
+                likes.MapGet("/", (string slug) => TypedResults.Ok(new LikeCount(slug, 1)));
+                likes.MapPost("/", (string slug, LikeRequest request) => TypedResults.Ok(new LikeCount(slug, 2)));
+                a.MapGet("/api/search", (string? q, int? take, TaskState? state, string[] tag, int page = 1) => TypedResults.Ok(new LikeCount(q ?? "", page)));
+                a.MapMethods("/docs/{**path:regex(\\.md$)}", [HttpMethods.Get, HttpMethods.Head], (string path) => Results.Text(path)).WithOrder(-1);
+                a.MapGet("/files/{*name}", (string name) => Results.Text(name));
+                a.MapGet("/opt/{id?}", (int? id) => Results.Text($"{id}"));
+                a.MapGet("/list/{page=1}", (int page) => Results.Text($"{page}"));
+                a.MapGet("/openapi/{documentName}.json", (string documentName) => Results.Text(documentName));
+                a.MapGet("/feed.xml", http => http.Response.WriteAsync("<rss/>"));
+            });
+        var endpoints = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
+
+        var output = new StringBuilder("import { buildEndpointUrl, type SearchParamsInput } from '../../../src/href.ts';\n");
+        EndpointUrls.Append(output, EndpointUrls.Entries(endpoints, TypeScriptGenerator.IsInTheApiMap));
+
+        AssertGolden("urls.generated.ts", output.ToString());
     }
 
     private static void AssertGolden(string name, string actual)

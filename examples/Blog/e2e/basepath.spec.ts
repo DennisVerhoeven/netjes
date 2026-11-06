@@ -43,6 +43,15 @@ test('the image optimizer answers under the base path', async ({ request }) => {
   expect(response.headers()['content-type']).toBe('image/webp');
 });
 
+test('the like button fetches its count under the base path', async ({ page }) => {
+  // LikeButton fetches the count once the page is interactive, from the endpoint's URL under the base path.
+  const fetched = page.waitForRequest((request) => request.url().endsWith('/likes'));
+  await page.goto('blog/forms-that-work-without-javascript');
+
+  expect(new URL((await fetched).url()).pathname).toBe('/base/api/posts/forms-that-work-without-javascript/likes');
+  await expect(page.getByRole('button', { name: /likes?/ })).toBeEnabled();
+});
+
 test.describe('without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
 
