@@ -856,6 +856,7 @@ public class StaticExportTests
     [InlineData("post", "/feed.xml", "GET")]
     [InlineData("segment", "/a/../feed.xml", "not a safe file or directory name")]
     [InlineData("segment", "/c:feed.xml", "not a safe file or directory name")]
+    [InlineData("segment", "/a\\b.txt", "not a safe file or directory name")]
     [InlineData("device", "/con.txt", "Windows device")]
     [InlineData("device", "/Nul/feed.xml", "Windows device")]
     [InlineData("page", "/about/index.html", "same output file")]
