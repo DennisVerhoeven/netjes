@@ -1183,7 +1183,7 @@ export function usePathname(): string {
   return withoutBasePath(url.pathname, payload.basePath ?? '');
 }
 
-/** An href for a plain `<a>` or attribute, under the base path: what `<Link>` does for its own. */
+/** An href for a plain `<a>`, another attribute or a `fetch`, under the base path: what `<Link>` does for its own. */
 export function useHref(href: string): string {
   return withBasePath(href, useBasePath());
 }

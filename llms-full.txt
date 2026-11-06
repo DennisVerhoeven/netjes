@@ -4822,7 +4822,7 @@ The base path the app is mounted under with `UsePathBase`, or `''` at the root. 
 function useHref(href: string): string;
 ```
 
-`href` under the base path, for a plain `<a href>` or another attribute: what `<Link>` does for its own. Root-relative paths get the base path unless they already start with it; other URLs are returned as they are.
+`href` under the base path, for a plain `<a href>`, another attribute or a `fetch`: what `<Link>` does for its own. Root-relative paths get the base path unless they already start with it; other URLs are returned as they are.
 
 #### `useLocale`
 
