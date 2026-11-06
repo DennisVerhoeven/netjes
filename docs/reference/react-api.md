@@ -347,7 +347,7 @@ An `<img>` that reserves its space, loads lazily and offers resized copies from 
 #### `Script`
 
 ```ts
-function Script(props: ScriptProps): null;
+function Script(props: ScriptProps): JSX.Element | null;
 
 type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad' | 'onError' | 'children' | 'dangerouslySetInnerHTML'> & {
   id?: string;                       // required for an inline script
@@ -360,7 +360,7 @@ type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad' | 'onE
 type ScriptStrategy = 'beforeInteractive' | 'afterInteractive' | 'lazyOnload';
 ```
 
-A third-party script that does not block the page, like `next/script`. Each is added to the document once, by `id` or `src`. `afterInteractive` adds it after hydration, `lazyOnload` once the page has loaded and the browser is idle, and `beforeInteractive` writes an external script into the server-rendered head. The page's CSP nonce is added when there is one. See [Third-party scripts](../guides/metadata.md#third-party-scripts-script).
+A third-party script that does not block the page, like `next/script`. Each is added to the document once, by `id` or `src`, except inline `beforeInteractive` code, which the server writes wherever a component renders it. `afterInteractive` adds it after hydration, and `lazyOnload` once the page has loaded and the browser is idle; neither renders anything where it stands. `beforeInteractive` writes it into a server-rendered document, with a `<meta name="netjes-before-interactive">` in the head: inline code where the component stands, which the parser runs as it reaches it, and for a `src` a preload in the head and an inert entry where the component stands, which runs once the shell is parsed, in order with the others, before the page's modules run and the page hydrates. A `beforeInteractive` component that mounts in the browser adds its script as `afterInteractive` does. The page's CSP nonce is added when there is one. See [Third-party scripts](../guides/metadata.md#third-party-scripts-script) and [Code that runs before the first paint](../guides/metadata.md#code-that-runs-before-the-first-paint).
 
 #### `dynamic`
 
@@ -660,7 +660,7 @@ It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized`
 function inlineScriptHashes(html: string): Promise<string[]>;
 ```
 
-The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and classic scripts with `nomodule` are left out. It runs in any environment. It sees only the scripts in `html`: a document from `renderDocument` is a crawler's, without the scripts React streams to reveal a Suspense boundary for a visitor, and the inline code of a `<Script>`, which `<Script>` adds in the browser, is in no document ([the document](../guides/testing.md#the-document)).
+The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and classic scripts with `nomodule` are left out. It runs in any environment. It sees only the scripts in `html`: a document from `renderDocument` is a crawler's, without the scripts React streams to reveal a Suspense boundary for a visitor, and the inline code of an `afterInteractive` or `lazyOnload` `<Script>`, which `<Script>` adds in the browser, is in no document; a `beforeInteractive` one's is ([the document](../guides/testing.md#the-document)).
 
 ## `netjes/testing/setup`
 

@@ -60,6 +60,7 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 - `export const metadata: Metadata = { title: 'About' }` on pages and layouts; a layout's `title: { default, template: '%s · Site' }` applies to the pages below it. A `default` below the root goes through the nearest template above it, like a string (`'Docs'` under `'%s · Site'` is `Docs · Site`), never through the one beside it; `{ absolute: 'Docs' }` skips every template.
 - From C#: `.WithMetadata(new PageMetadata { Title = post.Title, Description = ... })` on the loader's result, merged over the files' metadata.
 - Below a layout that sets a title, use `metadata`, not a `<title>` element (that makes a second title).
+- Code the first paint needs, such as a theme set on `<html>`, goes in `<Script id="theme" strategy="beforeInteractive">{code}</Script>` first in the root layout: the server writes inline code where it stands and the parser runs it there. An external `beforeInteractive` script runs once the shell is parsed, in order, before the page's code; hydration waits for it, and inline code runs before it. Keep them outside Suspense boundaries. Under a hash-based policy, list the hash of the code as the document carries it, which `inlineScriptHashes` from `netjes/testing` gives.
 
 ## Protecting sections
 

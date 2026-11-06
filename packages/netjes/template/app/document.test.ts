@@ -21,8 +21,9 @@ describe('the home page', () => {
   });
 
   it('has no inline script in its document but the one whose hash Netjes lists for a policy without a nonce', async () => {
-    // NetjesContentSecurityPolicy.ScriptHashes in C# holds the same hashes. The inline code of a <Script> is added in
-    // the browser and is in no document: its hash goes in the policy, not here.
+    // NetjesContentSecurityPolicy.ScriptHashes in C# holds the same hashes. The inline code of an afterInteractive or
+    // lazyOnload <Script> is added in the browser and is in no document: its hash goes in the policy, not here. That of
+    // a beforeInteractive <Script> is in the document: its hash goes in both.
     expect(await inlineScriptHashes(await home())).toEqual(CSP_SCRIPT_HASHES.split(' '));
   });
 });
