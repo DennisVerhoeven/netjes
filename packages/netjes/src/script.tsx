@@ -8,7 +8,10 @@ export type ScriptStrategy = 'beforeInteractive' | 'afterInteractive' | 'lazyOnl
 
 /** The props of `<Script>`: a script's own, with a loading strategy and load callbacks. */
 export type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad' | 'onError' | 'children' | 'dangerouslySetInnerHTML'> & {
-  /** Identifies the script (required for inline scripts): each is added once, however often it is rendered. */
+  /**
+   * Identifies the script (required for inline scripts): it is added once, however often it is rendered, except inline
+   * `beforeInteractive` code, which the server writes wherever a component renders it.
+   */
   id?: string;
   /**
    * `afterInteractive` (default): once the page is interactive. `lazyOnload`: when the browser is idle.
@@ -214,9 +217,11 @@ function warnAboutTiming(key: string, { async, defer, type }: ScriptProps) {
 }
 
 /**
- * Like `next/script`: third-party scripts that should not block the page. Scripts are added to the document once,
- * whichever component renders them first. Only `beforeInteractive` renders anything where it stands, and only into a
- * server-rendered document: the inline script, or an inert entry for an external one, and a marker in the head.
+ * A script loaded by strategy, like `next/script`: `afterInteractive` and `lazyOnload` do not block the page. Scripts
+ * are added to the document once, whichever component renders them first, except inline `beforeInteractive` code, which
+ * the server writes wherever a component renders it. Only `beforeInteractive` renders anything where it stands, and
+ * only into a server-rendered document: the inline script, or an inert entry for an external one, and a marker in the
+ * head.
  */
 export function Script(given: ScriptProps) {
   const pageNonce = useNonce();

@@ -65,7 +65,7 @@ It reports Healthy when every process is ready, Degraded while some are restarti
 
 ## Streamed documents
 
-A document streams. The sidecar sends the shell as soon as it is ready, with a fallback in place of each Suspense boundary that is still waiting, and sends the content of those boundaries as it becomes ready. The browser hydrates the shell while the rest is still arriving, so the page is interactive before its slow parts are there.
+A document streams. The sidecar sends the shell as soon as it is ready, with a fallback in place of each Suspense boundary that is still waiting, and sends the content of those boundaries as it becomes ready. The browser hydrates the shell while the rest is still arriving, so the page is interactive before its slow parts are there. A page with an external `beforeInteractive` script hydrates once that script has loaded or failed ([Metadata](metadata.md#code-that-runs-before-the-first-paint)).
 
 A boundary is either a `loading.tsx` file, which wraps the page below its folder in `<Suspense fallback={<Loading />}>`, or a `<Suspense>` you write in a component. A page waits inside a boundary for two things: a `Page.Defer` value it reads with `use()`, and code that loads late (`React.lazy`, `dynamic()`).
 

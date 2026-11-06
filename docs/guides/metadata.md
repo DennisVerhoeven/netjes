@@ -143,7 +143,7 @@ Leave `/_netjes/` out of `disallow`. `<Image>` serves every image through `/_net
 
 ## Third-party scripts: `<Script>`
 
-`<Script>` loads a script without blocking the page, like `next/script`. Each script is added to the document once, by its `id` or `src`, however many components render it, except inline `beforeInteractive` code, which the server writes wherever a component renders it. An `afterInteractive` or `lazyOnload` script renders nothing where it stands; a `beforeInteractive` one is written into the server-rendered document ([below](#code-that-runs-before-the-first-paint)).
+`<Script>` loads a third-party script, like `next/script`: `afterInteractive` and `lazyOnload` scripts do not block the page, and `beforeInteractive` ones run before the page's code. Each script is added to the document once, by its `id` or `src`, however many components render it, except inline `beforeInteractive` code, which the server writes wherever a component renders it. An `afterInteractive` or `lazyOnload` script renders nothing where it stands; a `beforeInteractive` one is written into the server-rendered document ([below](#code-that-runs-before-the-first-paint)).
 
 ```tsx
 import { Script } from 'netjes';
