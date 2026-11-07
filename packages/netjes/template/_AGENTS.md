@@ -16,6 +16,12 @@ How this app is built, for coding agents and the people working with them. It is
 | `Features/` | The C# side, one folder per feature (`namespace __NAME__.Features.Home`): page loaders (`MapPageLoader`), layout loaders (`MapLayoutLoader`), server actions (`MapAction`) and JSON endpoints, with records for what they take and return. Each feature has a `Map...` extension method that `Program.cs` calls. |
 | `Program.cs` | Services and the pipeline: `AddNetjes`, `UseNetjes`, authentication (when you add it), `UseAntiforgery`, each feature's `Map...`, and `app.MapPages()` last. |
 | `components/` | React components, with their Vitest tests next to them (`*.test.tsx`). |
+<!--netjes:if tests-->
+| `tests/__NAME__.Tests/` | The C# tests, on xUnit v3: `AppFactory.cs` runs the real app in memory with `WebApplicationFactory`, with no Node and no client build, and `HomePageTests.cs` requests the home page and posts its form as the client router does. A new test of a loader or an action goes here. The app's build leaves out the root folders `tests/` and `e2e/` (`DefaultItemExcludes` in `__NAME__.csproj`), so C# for the app does not go in them. |
+<!--netjes:end-->
+<!--netjes:if e2e-->
+| `e2e/` | Playwright tests, which `playwright.config.ts` runs against the app twice: in Development (the Vite dev server) and in Production (the build). |
+<!--netjes:end-->
 | `generated/netjes.ts` | Generated from the C# types and the page files: zod schemas for page and layout props (`pages`, `layouts`), `sharedProps`, typed `serverActions`, `api` schemas for JSON endpoints, `endpointUrl()` for the URLs of the app's endpoints, `route()` and the `Href` type. Never edit it. |
 | `styles/global.css` | Tailwind CSS (`@import 'tailwindcss'`), imported by `app/layout.tsx`. |
 | `public/` | Static files, served at the site root. `favicon.svg` is the Netjes mark, linked by `icons` in the root layout's `metadata`; replace it with the app's own. |
@@ -27,6 +33,12 @@ npm run dev                 # dotnet watch + Vite HMR on http://localhost:5080; 
 npm test                    # Vitest
 npm run typecheck           # strict TypeScript
 dotnet build                # C#, warnings are errors
+<!--netjes:if tests-->
+dotnet test tests/__NAME__.Tests   # the C# tests, in memory: no Node and no client build
+<!--netjes:end-->
+<!--netjes:if e2e-->
+npm run test:e2e            # Playwright, on a development and a production server (run npx playwright install chromium once first)
+<!--netjes:end-->
 npx netjes generate         # rewrite generated/netjes.ts after changing a C# type (--check: fail when stale)
 npm run routes              # the route table as ASP.NET Core sees it, with route warnings
 npx netjes build            # types, then the client and server bundles
@@ -60,8 +72,20 @@ A page without a loader is a plain default export and gets empty props. Forms ca
 
 ## Before you finish
 
+<!--netjes:if tests-->
+```bash
+npm test && npm run typecheck && dotnet build && dotnet test tests/__NAME__.Tests && npx netjes generate --check
+```
+<!--netjes:else-->
 ```bash
 npm test && npm run typecheck && dotnet build && npx netjes generate --check
 ```
 
+This app has no C# test project yet: [testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions) says how to add one.
+<!--netjes:end-->
+
 Then `npm run routes` should print no warnings, and the page should work in `npm run dev`, including with JavaScript turned off for forms.
+<!--netjes:if e2e-->
+
+For a change to a page or a form, also run `npm run test:e2e`.
+<!--netjes:end-->

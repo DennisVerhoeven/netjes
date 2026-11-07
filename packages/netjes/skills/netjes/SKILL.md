@@ -16,10 +16,10 @@ Netjes renders React pages from ASP.NET Core. C# receives every request and owns
 
 ## The loop for any change
 
-1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic.
+1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic (in `tests/<App>.Tests`, where a new app has its test project).
 2. Change the C# record, loader or action, then run `npx netjes generate` so `generated/netjes.ts` matches (a running `npm run dev` rewrites it when it restarts).
 3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`, `endpointUrl('GET /api/...', params)`.
-4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings.
+4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings. Where the app has them, which an app made with `netjes new` does: `dotnet test tests/<App>.Tests` for the C# tests, and `npm run test:e2e` for a change to a page or a form.
 
 ## A page with data, end to end
 
@@ -80,6 +80,8 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 |---|---|
 | `npm run dev` | `dotnet watch` with Vite HMR on http://localhost:5080 |
 | `npm test`, `npm run typecheck` | Vitest; strict TypeScript |
+| `dotnet test tests/<App>.Tests` | The C# tests, in an app that has that project; no Node and no client build |
+| `npm run test:e2e` | Playwright, in an app that has `playwright.config.ts`; `npx playwright install chromium` once first |
 | `npx netjes generate [--check]` | Rewrite `generated/netjes.ts`; `--check` fails when it is stale |
 | `npm run routes` (`netjes routes [--json]`) | The route table and route warnings, as ASP.NET Core sees them |
 | `npx netjes build` | Types, then the client and server bundles |

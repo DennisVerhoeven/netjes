@@ -40,6 +40,8 @@ Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the us
 
 ## Loaders and actions: C#
 
+An app made with `netjes new` has a test project in `tests/<App>.Tests`, with an `AppFactory` set up as below and tests of the home page: `dotnet test tests/<App>.Tests` runs them. In another app, copy that setup from the [testing guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions); the app's project needs `<DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>` first, since the Web SDK compiles everything below it.
+
 - Loader logic: call the loader or the method it uses and read `PageResult<T>.Props` in an xUnit test.
 - Endpoints: test the real app with `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing` (ASP.NET Core 10 makes the `Program` class of top-level statements public, so the test project sees it). No Node is needed when the test sets `Netjes:Mode` to `Development` (routes come from `app/` on disk) and registers an `ISsrRenderer` (`Netjes.Rendering`) of its own that returns fixed HTML, in `ConfigureServices`. Run it in the `Testing` environment (`builder.UseEnvironment("Testing")`), as the testing guide's factory does: `WebApplicationFactory` uses `Development` unless told otherwise, and there Netjes output-caches no page, so a test of `CachePage` would see every request render. Request a page as the client router does, with the header `X-Netjes-Data: 1` (`NetjesHeaders.Data`): the answer is the page payload as JSON, with `props`, `status` and `antiforgery`; a page with `Page.Defer` values answers NDJSON, the payload first. When the app cannot start (no build in Production, `node` not found), `CreateClient()` throws an `InvalidOperationException` that says why.
 - Server actions are `POST /_netjes/actions/{name}`. Call one as the client router does: the fields form-encoded, `X-Netjes-Data: 1`, and the payload's `antiforgery.requestToken` in the header named by `antiforgery.headerName` (a client that keeps cookies, so the antiforgery cookie goes along; `GET /_netjes/antiforgery` returns a token too). A plain form post, as without JavaScript, sends the token as the `antiforgery.formFieldName` field instead.
@@ -47,7 +49,7 @@ Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the us
 
 ## End to end: Playwright
 
-Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
+An app made with `netjes new` has this set up: `playwright.config.ts`, `e2e/home.spec.ts` and `npm run test:e2e`, after `npx playwright install chromium` once. Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
 
 With JavaScript on, wait for hydration after each full page load, before the first click or keystroke; until then links load pages in full and forms post natively, so the test can pass without the client. Netjes puts `data-netjes-hydrated` on `<html>` once the client router runs in the document:
 
@@ -64,7 +66,7 @@ await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
 npm test && npm run typecheck && dotnet build && npx netjes generate --check
 ```
 
-and `npm run routes` without new warnings.
+and `npm run routes` without new warnings. Where the app has them: `dotnet test tests/<App>.Tests`, and `npm run test:e2e` for a change to a page or a form.
 
 ## More
 

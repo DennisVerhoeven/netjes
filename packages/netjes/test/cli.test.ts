@@ -194,6 +194,63 @@ describe('netjes agents', () => {
     expect(out()).not.toContain('kept');
   });
 
+  it('leaves the C# test and Playwright commands out for an app that has neither', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).not.toContain('dotnet test');
+    expect(agents).not.toContain('tests/Shop');
+    expect(agents).not.toContain('test:e2e');
+    expect(agents).not.toContain('`e2e/`');
+    expect(agents).not.toContain('playwright');
+    expect(agents).not.toContain('<!--');
+    expect(agents).toContain('npm test && npm run typecheck && dotnet build && npx netjes generate --check');
+    // It says where to read how to add a test project, in place of the command.
+    expect(agents).toContain('docs/guides/testing.md#c-tests-of-loaders-and-actions');
+  });
+
+  it('lists them for an app that has tests/<Name>.Tests and playwright.config.ts', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.Tests', 'Shop.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFile(path.join(temp, 'playwright.config.ts'), 'export default {};\n');
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('| `tests/Shop.Tests/` |');
+    expect(agents).toContain('npm test && npm run typecheck && dotnet build && dotnet test tests/Shop.Tests && npx netjes generate --check');
+    expect(agents).toContain('| `e2e/` |');
+    expect(agents).toContain('npm run test:e2e');
+    expect(agents).not.toContain('<!--');
+  });
+
+  it('looks at the two separately, and for the test project under the name it gives the app', async () => {
+    await writeFile(path.join(temp, 'playwright.config.ts'), 'export default {};\n');
+    await mkdir(path.join(temp, 'tests', 'Corner.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Corner.Tests', 'Corner.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    const other = recordingIo(temp);
+
+    expect(await run(['agents', '--name', 'Shop'], other.io)).toBe(0);
+
+    const playwrightOnly = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(playwrightOnly).toContain('npm run test:e2e');
+    expect(playwrightOnly).not.toContain('dotnet test');
+
+    await rm(path.join(temp, 'playwright.config.ts'));
+    const named = recordingIo(temp);
+
+    expect(await run(['agents', '--name', 'Corner', '--force'], named.io)).toBe(0);
+
+    const testsOnly = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(testsOnly).toContain('dotnet test tests/Corner.Tests');
+    expect(testsOnly).not.toContain('test:e2e');
+  });
+
   it('writes into the directory it is given, like export', async () => {
     const app = path.join(temp, 'my-app');
     await mkdir(app);

@@ -137,6 +137,22 @@ export function fillNames(text, names) {
   return text.replaceAll('__NAME__', names.dotnet).replaceAll('__name__', names.npm).replaceAll('__TITLE__', names.title);
 }
 
+/**
+ * Keeps or drops the parts of a template file that only some apps have what they name for, and removes the markers
+ * around them, each on a line of its own: what is between `<!--netjes:if name-->` and `<!--netjes:else-->` or
+ * `<!--netjes:end-->` stays when the app has `name`, and what is between `<!--netjes:else-->` and `<!--netjes:end-->`
+ * stays when it does not.
+ * @param {string} text
+ * @param {{ tests: boolean; e2e: boolean }} has what the app has: a C# test project, a Playwright suite
+ */
+export function keepSections(text, has) {
+  return text.replace(
+    /^<!--netjes:if (tests|e2e)-->\n([\s\S]*?)(?:^<!--netjes:else-->\n([\s\S]*?))?^<!--netjes:end-->\n/gm,
+    (_, /** @type {'tests' | 'e2e'} */ name, /** @type {string} */ kept, /** @type {string | undefined} */ otherwise) =>
+      has[name] ? kept : (otherwise ?? ''),
+  );
+}
+
 /** @param {string} file a path in the template @returns {Promise<string>} */
 export const readTemplate = (file) => readFile(path.join(TEMPLATE, file), 'utf8');
 
@@ -177,7 +193,7 @@ export async function scaffold(target, options = {}) {
       const source = path.join(from, entry);
       const destination = path.join(to, fill(RENAMED.get(entry) ?? entry));
       if ((await stat(source)).isDirectory()) await copy(source, destination);
-      else await writeFile(destination, fill(await readFile(source, 'utf8')));
+      else await writeFile(destination, fill(keepSections(await readFile(source, 'utf8'), { tests: true, e2e: true })));
     }
   }
 

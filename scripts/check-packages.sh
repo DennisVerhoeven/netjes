@@ -55,6 +55,10 @@ for file in AGENTS.md CLAUDE.md .claude/skills/netjes/SKILL.md .claude/skills/ne
   [[ -s "$file" ]] || { echo "netjes new did not write $file"; exit 1; }
 done
 grep -q "^# App$" AGENTS.md || { echo "AGENTS.md is not titled after the app"; exit 1; }
+# A new app has both test suites, so its AGENTS.md runs them.
+for command in "dotnet test tests/App.Tests" "npm run test:e2e"; do
+  grep -q "$command" AGENTS.md || { echo "the new app's AGENTS.md does not run $command"; exit 1; }
+done
 # The packed CLI adds the same files to an app that netjes new did not make.
 mkdir "$work/existing"
 touch "$work/existing/Existing.csproj"
@@ -63,6 +67,9 @@ for file in AGENTS.md CLAUDE.md; do
   [[ -s "$work/existing/$file" ]] || { echo "netjes agents did not write $file"; exit 1; }
 done
 diff -r .claude/skills/netjes "$work/existing/.claude/skills/netjes"
+# An app with neither suite gets an AGENTS.md that does not send an agent to commands that fail there.
+if grep -E "dotnet test|test:e2e" "$work/existing/AGENTS.md"; then echo "an existing app's AGENTS.md runs test suites it does not have"; exit 1; fi
+if grep "<!--netjes:" AGENTS.md "$work/existing/AGENTS.md"; then echo "AGENTS.md still has section markers"; exit 1; fi
 
 echo "== Vitest glue"
 # netjes() adds a setup file of its own after an app's own setup files: createTestApp() starts from the app's

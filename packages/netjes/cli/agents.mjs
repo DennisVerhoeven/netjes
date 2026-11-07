@@ -4,7 +4,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fillNames, projectNames, readTemplate, skillFiles } from './scaffold.mjs';
+import { fillNames, keepSections, projectNames, readTemplate, skillFiles } from './scaffold.mjs';
 
 /**
  * The app's names: from `--name`, else its one project file (whose name is its root namespace), else its directory,
@@ -38,8 +38,13 @@ export async function agents(io, dir, options) {
     return 1;
   }
   const names = await namesOf(io, dir, options.name);
+  // AGENTS.md sends an agent only to the test suites this app has, the ones `netjes new` gives a new app.
+  const has = {
+    tests: existsSync(path.join(dir, 'tests', `${names.dotnet}.Tests`, `${names.dotnet}.Tests.csproj`)),
+    e2e: existsSync(path.join(dir, 'playwright.config.ts')),
+  };
   const files = [
-    { path: 'AGENTS.md', text: fillNames(await readTemplate('_AGENTS.md'), names) },
+    { path: 'AGENTS.md', text: fillNames(keepSections(await readTemplate('_AGENTS.md'), has), names) },
     { path: 'CLAUDE.md', text: await readTemplate('_CLAUDE.md') },
     ...(await skillFiles()),
   ];
