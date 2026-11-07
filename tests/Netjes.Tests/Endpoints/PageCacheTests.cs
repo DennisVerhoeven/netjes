@@ -1,5 +1,8 @@
+using System.Net;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
@@ -435,5 +438,100 @@ public class PageCacheTests
         Assert.Contains("outside Development", warning.Message, StringComparison.Ordinal);
         Assert.Contains("stored", warning.Message, StringComparison.Ordinal);
         Assert.Contains("every visitor", warning.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The output cache has an identical request wait for the render in progress and hands it that render's result, a
+    /// failure included. A visitor who leaves, while the loader runs or the page streams a deferred value, ends only
+    /// their own request: the page is not stored, and the request that waited renders it for itself.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AVisitorWhoLeaves_DoesNotFailTheRequestWaitingOnTheirRender(bool inTheLoader)
+    {
+        var loads = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arrivals = new Arrivals();
+        // The first visitor's work never ends: it is cancelled when they leave, as work that takes RequestAborted is.
+        // The next request's ends at once.
+        Delegate loader = inTheLoader
+            ? async (string id, HttpContext http) =>
+            {
+                if (Interlocked.Increment(ref loads) == 1)
+                {
+                    started.TrySetResult();
+                    await UntilCancelledAsync(http.RequestAborted);
+                }
+
+                return Page.Props(new { Id = id, Related = Page.Defer(Task.FromResult(2)) });
+            }
+            : (string id, HttpContext http) =>
+            {
+                var first = Interlocked.Increment(ref loads) == 1;
+                started.TrySetResult();
+                return Page.Props(new { Id = id, Related = Page.Defer(first ? UntilCancelledAsync(http.RequestAborted) : Task.FromResult(2)) });
+            };
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/[id]/page.tsx"],
+            map: a => a.MapPageLoader("/posts/[id]", loader).CachePage(TimeSpan.FromMinutes(5)),
+            services: s => s.AddOutputCache(o => o.AddBasePolicy(arrivals)),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        using var leaving = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var firstRequest = new HttpRequestMessage(HttpMethod.Get, "/posts/1");
+        firstRequest.Headers.Add(NetjesHeaders.Data, "1");
+        var first = app.Client.SendAsync(firstRequest, HttpCompletionOption.ResponseHeadersRead, leaving.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        var second = app.GetDataAsync("/posts/1");
+        await arrivals.Second.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        // Past the policies, the second request goes on to wait for the first render. Nothing says when it is there,
+        // so this gives it the time; were it not there yet, it would render for itself, and the test pass regardless.
+        await Task.Delay(200, Ct);
+        await leaving.CancelAsync();
+        try
+        {
+            (await first).Dispose();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        var response = await second.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var lines = (await response.Content.ReadAsStringAsync(Ct)).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, (int?)JsonNode.Parse(lines[1])!["value"]);
+        Assert.Equal(2, loads);
+    }
+
+    private static async Task<int> UntilCancelledAsync(CancellationToken cancellation)
+    {
+        await Task.Delay(Timeout.Infinite, cancellation);
+        return 1;
+    }
+
+    /// <summary>Tells when a second request reaches the output cache's policies.</summary>
+    private sealed class Arrivals : IOutputCachePolicy
+    {
+        private int _count;
+
+        public TaskCompletionSource Second { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
+        {
+            if (Interlocked.Increment(ref _count) == 2)
+            {
+                Second.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask ServeFromCacheAsync(OutputCacheContext context, CancellationToken cancellation) => ValueTask.CompletedTask;
+
+        public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation) => ValueTask.CompletedTask;
     }
 }

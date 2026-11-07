@@ -329,6 +329,23 @@ internal sealed class PageRenderer(
         RedirectToAsync(http, UnderBasePath(http, location), permanent);
 
     /// <summary>
+    /// Ends a page request whose visitor left (its loader, the render or a deferred value stopped on
+    /// <c>RequestAborted</c>) without an error, and keeps what it sent out of the output cache. The output cache has
+    /// identical requests wait for the render in progress and hands them its result, a failure included: an error here
+    /// would fail every one of them, and a stored copy would be cut off where the visitor left. With neither, each
+    /// renders the page for itself.
+    /// </summary>
+    internal void EndAborted(HttpContext http, OperationCanceledException exception)
+    {
+        if (http.Features.Get<IOutputCacheFeature>() is { } outputCache)
+        {
+            outputCache.Context.AllowCacheStorage = false;
+        }
+
+        logger.LogDebug(exception, "The request for {Path} was aborted before its page was sent", http.Request.Path);
+    }
+
+    /// <summary>
     /// <see cref="RedirectAsync"/> to a location that is complete as it is, its base path included: one built from the
     /// request target, whose base path may be spelled in a way <see cref="UnderBasePath(HttpContext, string)"/> does not
     /// recognise (<c>/b%61se</c> for <c>/base</c>).
