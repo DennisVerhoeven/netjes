@@ -81,7 +81,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 | `npm run dev` | `dotnet watch` with Vite HMR on http://localhost:5080 |
 | `npm test`, `npm run typecheck` | Vitest; strict TypeScript |
 | `dotnet test tests/<App>.Tests` | The C# tests, in an app that has that project; no Node and no client build |
-| `npm run test:e2e` | Playwright, in an app that has `playwright.config.ts`; `npx playwright install chromium` once first |
+| `npm run test:e2e` | Playwright, in an app that has that script; `npx playwright install chromium` once first |
 | `npx netjes generate [--check]` | Rewrite `generated/netjes.ts`; `--check` fails when it is stale |
 | `npm run routes` (`netjes routes [--json]`) | The route table and route warnings, as ASP.NET Core sees them |
 | `npx netjes build` | Types, then the client and server bundles |

@@ -173,6 +173,13 @@ describe('netjes new', () => {
 describe('netjes agents', () => {
   const shipped = path.join(repoRoot, 'packages', 'netjes', 'skills', 'netjes');
   const skill = (dir: string) => path.join(dir, '.claude', 'skills', 'netjes');
+  /** The Playwright suite as `netjes new` lays it out: the config, the specs in e2e/ and the script that runs them. */
+  const playwrightSuite = async (dir: string, scripts: Record<string, string> = { 'test:e2e': 'dotnet build && playwright test' }) => {
+    await writeFile(path.join(dir, 'playwright.config.ts'), 'export default {};\n');
+    await mkdir(path.join(dir, 'e2e'), { recursive: true });
+    await writeFile(path.join(dir, 'e2e', 'home.spec.ts'), '');
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ scripts }));
+  };
 
   it('adds AGENTS.md, CLAUDE.md and the Netjes skill to an existing app, named after its project file', async () => {
     await writeFile(path.join(temp, 'Shop.Web.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
@@ -202,7 +209,7 @@ describe('netjes agents', () => {
 
     const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
     expect(agents).not.toContain('dotnet test');
-    expect(agents).not.toContain('tests/Shop');
+    expect(agents).not.toContain('| `tests/Shop');
     expect(agents).not.toContain('test:e2e');
     expect(agents).not.toContain('`e2e/`');
     expect(agents).not.toContain('playwright');
@@ -212,11 +219,11 @@ describe('netjes agents', () => {
     expect(agents).toContain('docs/guides/testing.md#c-tests-of-loaders-and-actions');
   });
 
-  it('lists them for an app that has tests/<Name>.Tests and playwright.config.ts', async () => {
+  it('lists them for an app that has tests/<Name>.Tests, and playwright.config.ts with e2e/ and a test:e2e script', async () => {
     await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
     await mkdir(path.join(temp, 'tests', 'Shop.Tests'), { recursive: true });
     await writeFile(path.join(temp, 'tests', 'Shop.Tests', 'Shop.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
-    await writeFile(path.join(temp, 'playwright.config.ts'), 'export default {};\n');
+    await playwrightSuite(temp);
     const { io } = recordingIo(temp);
 
     expect(await run(['agents'], io)).toBe(0);
@@ -229,8 +236,57 @@ describe('netjes agents', () => {
     expect(agents).not.toContain('<!--');
   });
 
+  it('says what it did not look at as what netjes new writes, since an app may have its own suites there', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.Tests', 'Shop.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await playwrightSuite(temp);
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const lines = (await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).split('\n');
+    const row = (folder: string) => lines.find((line) => line.startsWith(`| \`${folder}\` |`)) ?? '';
+    // The files, the test framework, the project's excludes and the two servers are those of a new app.
+    expect(row('tests/Shop.Tests/')).toMatch(/In the project `netjes new` writes, on xUnit v3, `AppFactory\.cs`/);
+    expect(row('tests/Shop.Tests/')).toMatch(/which `netjes new` leaves out of the app's build \(`DefaultItemExcludes`/);
+    expect(row('e2e/')).toMatch(/The `playwright\.config\.ts` that `netjes new` writes runs them against the app twice/);
+    const command = (start: string) => lines.find((line) => line.startsWith(start)) ?? '';
+    expect(command('dotnet test tests/Shop.Tests')).not.toContain('no Node');
+    expect(command('npm run test:e2e')).not.toContain('a development and a production server');
+  });
+
+  it('leaves npm run test:e2e out without the script, or without e2e/', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await playwrightSuite(temp, { e2e: 'playwright test' });
+
+    expect(await run(['agents'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+
+    await writeFile(path.join(temp, 'package.json'), '{ "scripts": ');
+    expect(await run(['agents', '--force'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+
+    await playwrightSuite(temp);
+    await rm(path.join(temp, 'e2e'), { recursive: true });
+    expect(await run(['agents', '--force'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+  });
+
+  it('names the folder it looked in for an app whose test project has another name', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.UnitTests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.UnitTests', 'Shop.UnitTests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    expect(await run(['agents'], recordingIo(temp).io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).not.toMatch(/has no C# test project/);
+    expect(agents).toContain('No C# test project was at `tests/Shop.Tests/` when this file was written');
+  });
+
   it('looks at the two separately, and for the test project under the name it gives the app', async () => {
-    await writeFile(path.join(temp, 'playwright.config.ts'), 'export default {};\n');
+    await playwrightSuite(temp);
     await mkdir(path.join(temp, 'tests', 'Corner.Tests'), { recursive: true });
     await writeFile(path.join(temp, 'tests', 'Corner.Tests', 'Corner.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
     const other = recordingIo(temp);

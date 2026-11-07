@@ -341,6 +341,8 @@ describe('netjes new tests', () => {
     expect(agents).toContain('npm test && npm run typecheck && dotnet build && dotnet test tests/MyShop.Tests && npx netjes generate --check');
     expect(agents).toContain('npm run test:e2e');
     expect(agents).toContain('npx playwright install chromium');
+    // A plain `dotnet test` at the root builds the app's project, finds no tests and exits 0.
+    expect(agents).toContain("a plain dotnet test here finds only the app's project and runs none");
     expect(agents).not.toContain('<!--');
     // The line for an app without the test project stays out.
     expect(agents).not.toContain('npm run typecheck && dotnet build && npx netjes generate --check');
