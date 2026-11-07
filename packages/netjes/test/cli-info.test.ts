@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -212,6 +213,25 @@ describe('netjes info', () => {
     await writeFile(path.join(app, 'Features', 'tests', 'Nested.cs'), 'class Nested { }');
 
     expect((await info()).out).toMatch(/^! generated\/netjes\.ts is older than Features\/tests\/Nested\.cs$/m);
+  });
+
+  it('leaves out the root tests folder in another case where the file system takes it for the same folder', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    const old = new Date(Date.now() - 60_000);
+    for (const file of ['generated/netjes.ts', 'Program.cs', 'SiteProps.cs', 'Features/Home/HomePage.cs']) {
+      await utimes(path.join(app, file), old, old);
+    }
+    // The template's tests/, renamed.
+    await rename(path.join(app, 'tests'), path.join(app, 'Tests'));
+    await writeFile(path.join(app, 'Tests', 'App.Tests', 'NewTests.cs'), 'class NewTests { }');
+    // The app's build ignores the case where the file system does (macOS and Windows), and compiles Tests/ where it does not.
+    const sameFolder = existsSync(path.join(app, 'tests'));
+
+    const { out } = await info();
+
+    if (sameFolder) expect(out).toContain('✓ generated/netjes.ts is newer than the C# code');
+    else expect(out).toMatch(/^! generated\/netjes\.ts is older than Tests\/App\.Tests\/NewTests\.cs$/m);
   });
 
   it('warns when this netjes is not the one the app has installed', async () => {

@@ -282,12 +282,15 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
 async function newestSource(cwd) {
   /** @type {{ file: string; mtimeMs: number } | null} */
   let newest = null;
+  // The build leaves out `Tests/` too where the file system ignores case, as it then finds `tests/` there.
+  const isTestProjects = (/** @type {string} */ file) =>
+    file.toLowerCase() === TEST_PROJECTS && (file === TEST_PROJECTS || existsSync(path.join(cwd, TEST_PROJECTS)));
   /** @param {string} relative */
   async function walk(relative) {
     for (const entry of await readdir(path.join(cwd, relative), { withFileTypes: true })) {
       const file = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (!SKIPPED.has(entry.name) && !entry.name.startsWith('.') && file !== TEST_PROJECTS) await walk(file);
+        if (!SKIPPED.has(entry.name) && !entry.name.startsWith('.') && !isTestProjects(file)) await walk(file);
       } else if (entry.name.endsWith('.cs')) {
         const { mtimeMs } = await stat(path.join(cwd, file));
         if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };
