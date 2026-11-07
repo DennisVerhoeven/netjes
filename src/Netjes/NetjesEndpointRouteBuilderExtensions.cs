@@ -249,11 +249,13 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <c>.RevalidatePath(path)</c>, other code with <see cref="IPageCache"/>. Requires <c>AddOutputCache()</c> and
     /// <c>UseOutputCache()</c>. Cached pages carry no antiforgery token. Draft mode bypasses the cache. How entries are
     /// keyed is the same under any output caching of a page (<c>CacheOutput</c> too); on an endpoint that is no page
-    /// (a minimal API returning <c>Page.Render</c>), only with <c>CachePage</c>. In the Development environment
-    /// nothing is stored: each request renders the page, which goes out <c>Cache-Control: no-store, private</c>
-    /// unless it sets its own <c>Cache-Control</c>. Each endpoint it is put on carries a
-    /// <see cref="CachedPageMetadata"/> with <paramref name="duration"/> and a copy of <paramref name="tags"/>, the copy
-    /// the cache entries are tagged with, so changing the array after the call changes neither.
+    /// (a minimal API returning <c>Page.Render</c>), only with <c>CachePage</c>. Entries are keyed on the query string
+    /// as sent; <see cref="CacheQueryKeys{TBuilder}"/> keeps query strings the page does not read out of the cache. In
+    /// the Development environment nothing is stored: each request renders the page, which goes out
+    /// <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c>. Each endpoint it is put on
+    /// carries a <see cref="CachedPageMetadata"/> with <paramref name="duration"/> and a copy of
+    /// <paramref name="tags"/>, the copy the cache entries are tagged with, so changing the array after the call changes
+    /// neither.
     /// </summary>
     public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags)
         where TBuilder : IEndpointConventionBuilder
@@ -272,11 +274,11 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// Names the query keys a cached page reads, so that other query strings, such as a tracking link's, add no entries
     /// to the output cache. A request is cached as usual, keyed on its query string as sent, when it has no query string
     /// or when every segment of that query string names one of <paramref name="keys"/>, compared without regard to case.
-    /// Any other query string, one with another key, an empty segment (<c>?page=2&amp;</c>) or a segment without a name
-    /// (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored in it. The page
-    /// rendered for it goes out <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c> (or
-    /// gets antiforgery's, on a visitor's first page under a policy other than <c>CachePage</c>), and its payload keeps
-    /// the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules apply: on
+    /// Any other query string, one with another key, an empty segment (<c>?</c>, <c>?page=2&amp;</c>) or a segment
+    /// without a name (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored
+    /// in it. The page rendered for it goes out <c>Cache-Control: no-store, private</c> unless it sets its own
+    /// <c>Cache-Control</c> (or gets antiforgery's, on a visitor's first page under a policy other than
+    /// <c>CachePage</c>), and its payload keeps the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules apply: on
     /// a page under any output caching, and on an endpoint <c>CachePage</c> is put on. It does not make a page cached, and
     /// elsewhere it does nothing, so a route group can mix pages and APIs: an endpoint outside the page rules narrows its
     /// key with <c>SetVaryByQuery</c>. Of two calls on one endpoint, the last decides. On a layout loader it applies to
@@ -285,7 +287,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// </summary>
     /// <param name="builder">The endpoint or group the convention is put on.</param>
     /// <param name="keys">The names the page reads from the query string, decoded, as a loader or component reads them.</param>
-    /// <exception cref="ArgumentException"><paramref name="keys"/> is <c>null</c> or holds a <c>null</c> or empty key.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="keys"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="keys"/> holds a <c>null</c> or empty key.</exception>
     public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
         where TBuilder : IEndpointConventionBuilder
     {
