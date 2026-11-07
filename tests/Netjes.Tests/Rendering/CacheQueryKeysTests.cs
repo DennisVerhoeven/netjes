@@ -69,4 +69,15 @@ public class CacheQueryKeysTests
         Assert.True(CachePaths.ReadsOnlyDeclaredKeys(query, keys));
         Assert.Equal("sort by", Assert.Single(QueryHelpers.ParseQuery(query).Keys));
     }
+
+    /// <summary>The parser turns <c>+</c> into a space before it decodes percent-escapes, so an escaped plus stays a plus.</summary>
+    [Fact]
+    public void ReadsOnlyDeclaredKeys_ReadsAnEscapedPlusAsAPlus_AsTheParserDoes()
+    {
+        const string query = "?sort%2Bby=name";
+
+        Assert.Equal("sort+by", Assert.Single(QueryHelpers.ParseQuery(query).Keys));
+        Assert.True(CachePaths.ReadsOnlyDeclaredKeys(query, new HashSet<string>(["sort+by"], StringComparer.OrdinalIgnoreCase)));
+        Assert.False(CachePaths.ReadsOnlyDeclaredKeys(query, new HashSet<string>(["sort by"], StringComparer.OrdinalIgnoreCase)));
+    }
 }
