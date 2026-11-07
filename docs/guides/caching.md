@@ -64,7 +64,7 @@ Each entry is keyed on:
 - whether it is a document or a client payload, and for a payload, which of the page's layouts the client already holds (it then leaves their props out).
 - the client build. During a rolling deploy, instances on the old and the new build do not serve each other's entries.
 
-The cache's size limit counts response bodies, not keys, and every host and query string makes a new entry. In production, pin `AllowedHosts` to your host names and size the cache:
+The cache's size limit counts response bodies, not keys, and every host and query string makes a new entry, unless the page's `CacheQueryKeys` leaves the query string out ([below](#query-strings-a-page-does-not-read)). In production, pin `AllowedHosts` to your host names and size the cache:
 
 ```csharp
 builder.Services.AddOutputCache(options => options.SizeLimit = 200 * 1024 * 1024); // bytes; ASP.NET Core's default is 100 MB
@@ -144,7 +144,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 |---|---|---|
 | `Cache-Control` | `no-store, private`, unless the page sets its own or the output cache stores the response | The handler's own; none when the handler sets none |
 | The path in an entry's key | As sent | Compared without regard to case: all spellings share one entry |
-| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
+| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys, empty segments or segments without a name out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
 | `RevalidatePath` | Evicts the page | Does not evict it: evict by tag |
 | The Development environment | Rendered on each request, never stored | Output-cached as anywhere |
 

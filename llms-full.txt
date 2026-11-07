@@ -2763,7 +2763,7 @@ Each entry is keyed on:
 - whether it is a document or a client payload, and for a payload, which of the page's layouts the client already holds (it then leaves their props out).
 - the client build. During a rolling deploy, instances on the old and the new build do not serve each other's entries.
 
-The cache's size limit counts response bodies, not keys, and every host and query string makes a new entry. In production, pin `AllowedHosts` to your host names and size the cache:
+The cache's size limit counts response bodies, not keys, and every host and query string makes a new entry, unless the page's `CacheQueryKeys` leaves the query string out ([below](#query-strings-a-page-does-not-read)). In production, pin `AllowedHosts` to your host names and size the cache:
 
 ```csharp
 builder.Services.AddOutputCache(options => options.SizeLimit = 200 * 1024 * 1024); // bytes; ASP.NET Core's default is 100 MB
@@ -2843,7 +2843,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 |---|---|---|
 | `Cache-Control` | `no-store, private`, unless the page sets its own or the output cache stores the response | The handler's own; none when the handler sets none |
 | The path in an entry's key | As sent | Compared without regard to case: all spellings share one entry |
-| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
+| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys, empty segments or segments without a name out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
 | `RevalidatePath` | Evicts the page | Does not evict it: evict by tag |
 | The Development environment | Rendered on each request, never stored | Output-cached as anywhere |
 
@@ -7624,7 +7624,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 - **Apps without Node in production.** An option to render every page in the browser, from the client-rendered document Netjes already serves while no Node process is ready, so an app runs on .NET alone. Loaders, actions, typed props and client navigation keep working. What goes is what server rendering gives: HTML for crawlers and link previews, the metadata in that HTML, forms that work before the JavaScript loads, and caching of documents (a client-rendered document goes out `no-store`; data payloads can still be cached). It revisits [ADR 0001](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0001-react-renders-in-node-sidecars.md), which chose server rendering, so it starts with a new decision record.
 - **Instant loading.** On a client navigation, show the target's `loading.tsx` at once inside the layouts it shares with the current page, then stream in the layout loaders' props and the page as they are ready, instead of waiting for the whole payload.
-- **Caching depth.** Stale-while-revalidate for cached pages, cache profiles, tags added by a loader at render time, revalidation by route pattern or layout, and a cached shell that is filled for an anonymous visitor, for pages with a part that differs per visitor.
+- **Caching depth.** Stale-while-revalidate for cached pages, cache profiles, tags added by a loader at render time, revalidation by route pattern or layout, a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and a cached shell that is filled for an anonymous visitor, for pages with a part that differs per visitor.
 - **Metadata and images.** The metadata file conventions in `app/` (`icon`, `apple-icon`, `opengraph-image`, `twitter-image`, `manifest`), generated Open Graph images, richer sitemaps and `robots.txt`, `metadataBase` and `viewport`, and more of `<Image>`: `fill`, blur placeholders and static imports.
 - **Client navigation in static exports.** Write each page's payload next to its HTML, so exported sites navigate without full page loads, files written to match `TrailingSlash` (and a `TrailingSlash.Always`), and images resized at export time.
 - **Bundle size.** Smaller first-load JavaScript: generated schemas split per route and free of side effects, so bundlers can drop what a page does not use, and `dynamic()` chunks preloaded from the build manifest.
