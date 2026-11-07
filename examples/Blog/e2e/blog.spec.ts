@@ -494,7 +494,7 @@ test.describe('output caching', () => {
 
   test("a post's documents render on every request under the nonce CSP, while its client payloads come from the output cache", async ({ request }, testInfo) => {
     test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
-    // No query string: the post names no query keys, so a request with one is never stored, whatever else it carries.
+    // No query string: the post's `.CacheQueryKeys()` lists no key, so a request with any query string is never stored.
     const url = '/blog/file-based-routing';
 
     // A stored document would hand every visitor the same nonce, so a document that carries one is rendered each time.
