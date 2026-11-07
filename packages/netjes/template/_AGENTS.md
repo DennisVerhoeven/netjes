@@ -82,7 +82,7 @@ npm test && npm run typecheck && dotnet build && dotnet test tests/__NAME__.Test
 npm test && npm run typecheck && dotnet build && npx netjes generate --check
 ```
 
-No C# test project was at `tests/__NAME__.Tests/` when this file was written. If the app has C# tests elsewhere, run them too; [testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions) says how to add a project there. After adding one, run `npx netjes agents --force`, so that this file lists it, and keep your own additions with `git diff`.
+No C# test project was at `tests/__NAME__.Tests/` when this file was written. If the app has C# tests elsewhere, run them too; [testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions) says how to add a project there. After adding one, run `npx netjes agents --force`, which writes this file again with it, and `CLAUDE.md` and `.claude/skills/netjes/` too; keep your own additions to them with `git diff`.
 <!--netjes:end-->
 
 Then `npm run routes` should print no warnings, and the page should work in `npm run dev`, including with JavaScript turned off for forms.
