@@ -501,7 +501,7 @@ export const COMMANDS = {
       name: {
         type: 'string',
         value: '<Name>',
-        description: "The app's name in AGENTS.md",
+        description: "The app's name in AGENTS.md, and the <Name> of the test project tests/<Name>.Tests it looks for",
         default: 'the name of its .csproj, else the folder name',
       },
       force: { type: 'boolean', description: 'Replace the files that exist', default: 'off: keep them' },
