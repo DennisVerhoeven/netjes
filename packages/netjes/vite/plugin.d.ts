@@ -19,8 +19,8 @@ export type NetjesPluginOptions = {
    * The built-in TanStack Query client, seeded from C# with `PageResult.WithQuery`. Default true. `false` removes it
    * (and TanStack Query from the bundle); an object configures it. Options are written into the bundle as literals,
    * so plain values (numbers including Infinity, strings, booleans, objects, arrays) work and functions are rejected.
-   * In tests, `createTestApp()` from `netjes/testing` starts from the same `defaultOptions`, except `retryDelay` and
-   * the queries' `gcTime`.
+   * In tests, unless `test` is false, `createTestApp()` from `netjes/testing` starts from the same `defaultOptions`,
+   * except `retryDelay` and the queries' `gcTime`.
    */
   query?: boolean | { defaultOptions?: DefaultOptions };
   /**
