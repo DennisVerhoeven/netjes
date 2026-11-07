@@ -10,7 +10,7 @@ The extension methods belong to these static classes, which app code never names
 |---|---|---|
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
-| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage` |
+| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `CacheQueryKeys` |
 | `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
@@ -341,7 +341,16 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. To keep query strings the page does not read out of the cache, add [`CacheQueryKeys`](#cachequerykeys). Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
+
+### CacheQueryKeys
+
+```csharp
+public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+    where TBuilder : IEndpointConventionBuilder
+```
+
+Names the query keys an output-cached page reads, so that other query strings add no entries. A request is cached as usual, keyed on its query string as sent, when it has no query string or when every segment of its query string has a name in `keys`, decoded as `Request.Query` decodes it and compared without regard to case. Any other request, with another key, an empty segment (`?page=2&`) or a segment without a name (`?=1`), is rendered for itself: it is neither served from the output cache nor stored in it, it goes out `Cache-Control: no-store, private` unless the page sets its own, and its payload keeps the URL as sent. With no keys, every query string is treated so. It applies to a page under any output caching and to an endpoint `CachePage` is put on, in either order of the calls. It does not turn caching on, and on an endpoint the page rules do not apply to it does nothing and does not throw, since a route group can mix pages and APIs: use `SetVaryByQuery` there. Of two calls on one endpoint, the last decides, and on a layout loader it applies to each page below the layout unless the page makes its own call. A `null` array throws `ArgumentNullException`, and a `null` or empty key `ArgumentException`. See [query strings a page does not read](../guides/caching.md#query-strings-a-page-does-not-read).
 
 ### IPageCache
 

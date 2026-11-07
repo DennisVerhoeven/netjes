@@ -51,7 +51,8 @@ Outside the Development environment, the output cache stores a page's response w
 - the request is a `GET` or `HEAD` without a signed-in user or an `Authorization` header,
 - the status is 200 and the response sets no cookie,
 - the document carries no CSP nonce (a stored nonce would be every visitor's; Netjes logs a warning once per page, see [security](security.md#content-security-policy)),
-- and the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback.
+- the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback,
+- and its query string is not one the page's `CacheQueryKeys` leaves out ([below](#query-strings-a-page-does-not-read)).
 
 A render that is not stored is one visitor's page, and gets the default `no-store, private`, as does every output-cached page in the Development environment. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
 
@@ -68,6 +69,46 @@ The cache's size limit counts response bodies, not keys, and every host and quer
 ```csharp
 builder.Services.AddOutputCache(options => options.SizeLimit = 200 * 1024 * 1024); // bytes; ASP.NET Core's default is 100 MB
 ```
+
+#### Query strings a page does not read
+
+Each query string is an entry of its own, so a link tagged `?utm_source=feed` stores another copy of the page, and so does a made-up `?a=1` or `?&&`. A page can name the query keys it reads with `.CacheQueryKeys(...)`. Requests with anything else in their query string then stay out of the output cache:
+
+```csharp
+app.MapPageLoader("/blog", (int? page, PostStore posts) => Page.Props(posts.List(page ?? 1)))
+    .CachePage(TimeSpan.FromMinutes(5))
+    .CacheQueryKeys("page");
+
+app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => Page.Props(posts.Find(slug)))
+    .CachePage(TimeSpan.FromMinutes(5))
+    .CacheQueryKeys(); // reads no query key, so only the URL without a query string is cached
+```
+
+A request is cached when it has no query string, or when every segment of its query string, the parts between `&`, has a name in the list. Names are read as `Request.Query` reads them, decoded (`+` as a space, then percent-escapes), and compared without regard to case. With `.CacheQueryKeys("page")`:
+
+| Request | What happens |
+|---|---|
+| `/blog`, `/blog?page=2`, `/blog?page=2&page=3` | Cached, each an entry of its own |
+| `/blog?PAGE=2`, `/blog?p%61ge=2` | Cached, each an entry of its own, apart from `?page=2`: the key is still the query string as sent |
+| `/blog?utm_source=feed`, `/blog?page=2&utm_source=feed` | Not cached: another key |
+| `/blog?`, `/blog?&`, `/blog?page=2&`, `/blog?&page=2`, `/blog?page=2&&page=3` | Not cached: an empty segment, which `Request.Query` leaves out but which makes another query string |
+| `/blog?=2` | Not cached: a segment without a name |
+
+A request that is not cached:
+
+- runs the loaders and renders the page for itself. No stored entry answers it, the entry for `/blog` included, nothing is stored for it, and it does not wait for another request's render.
+- goes out `Cache-Control: no-store, private`. A `Cache-Control` the page sets itself is kept, as on any page the output cache does not store.
+- keeps its query string. The payload's URL is the URL as sent, so the address bar still shows `?utm_source=feed` and the page's scripts can read it. Nothing is redirected or removed.
+- keeps its antiforgery token under output caching other than `CachePage`, like any response the output cache will not store. Under `CachePage` it has none, as always.
+- logs no cookie warning when it reads a cookie, since no other visitor gets that render.
+
+Three things to weigh:
+
+- A page with many visits through tagged links renders once for each of those visits, where it rendered once per tagged URL before. Data that is slow to load is cached in the service that loads it.
+- A key in the list still stores an entry for each value and each repetition (`?page=1`, `?page=2`, `?page=1&page=1`), bounded by `SizeLimit`.
+- A key the page reads and the list leaves out, as a loader parameter or through `useSearchParams()`, still reaches the page, but those requests are not cached, and nothing warns about it.
+
+It takes effect wherever the page rules apply: on a page under any output caching, conventions on `MapPages()` included, and on an endpoint `CachePage` is put on, such as a minimal API returning `Page.Render`. A JSON endpoint under `CachePage` follows the same rule for its entries, and gets no `Cache-Control` from Netjes. It does not turn caching on: a page that nothing output-caches is unchanged, and in the Development environment no page is stored anyway. On an endpoint the page rules do not apply to, it does nothing and does not throw, since a route group can mix pages and APIs; such an endpoint narrows its key with `SetVaryByQuery` ([Keys and the query string](#keys-and-the-query-string)). Of two calls on one endpoint, the last decides, and on a layout loader it applies to each page below the layout unless the page makes its own call. ([ADR 0047](../decisions/0047-cached-pages-name-the-query-keys-they-read.md) explains why it works this way.)
 
 ### What a stored page leaves out
 
@@ -90,7 +131,7 @@ The keys and rules above hold however a page is output-cached, not only with `Ca
 
 The differences: under those, a response the output cache will not store keeps its antiforgery token, while `CachePage` pages never carry one. And an endpoint that is no page but renders one (a minimal API returning `Page.Render` or `Page.Redirect`) gets these keys only from `CachePage`. Under other output caching its pages are not stored, and Netjes logs a warning once per endpoint.
 
-A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow the key, since the query string as sent is part of it already. ([ADR 0016](../decisions/0016-page-cache-rules-under-any-output-caching.md) explains why the rules apply under every policy.)
+A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow the key, since the query string as sent is part of it already. To keep other query strings from adding entries, name the keys the page reads with [`CacheQueryKeys`](#query-strings-a-page-does-not-read), which keeps those requests out of the cache rather than serving them a stored entry. ([ADR 0016](../decisions/0016-page-cache-rules-under-any-output-caching.md) explains why the rules apply under every policy.)
 
 `CachePage` and `.CacheOutput(...)` on one endpoint do not combine. Of the output-cache policies on an endpoint, ASP.NET Core applies the last, so a `.CacheOutput(...)` after `CachePage` replaces the policy `CachePage` set: the later policy decides how long the page is kept and how its entries are tagged, and revalidating one of `CachePage`'s tags no longer evicts the page (`RevalidatePath` still does). The rest of `CachePage` stays: the page carries no antiforgery token, and its `CachedPageMetadata` still holds the duration and tags `CachePage` was given, not those that apply.
 
@@ -102,7 +143,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 |---|---|---|
 | `Cache-Control` | `no-store, private`, unless the page sets its own or the output cache stores the response | The handler's own; none when the handler sets none |
 | The path in an entry's key | As sent | Compared without regard to case: all spellings share one entry |
-| The query string in the key | The whole query string, as sent | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
+| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
 | `RevalidatePath` | Evicts the page | Does not evict it: evict by tag |
 | The Development environment | Rendered on each request, never stored | Output-cached as anywhere |
 
@@ -140,7 +181,7 @@ Every query key varies the entry. `?page=1`, `?page=2` and `?page=1&utm_source=f
 - `p.SetVaryByQuery([])` keeps one entry whatever the query string says. The call has no form without arguments, so an empty array stands for no keys.
 - `p.SetVaryByQuery("page")` varies the entry on the keys it lists and ignores the others, so `?page=1` and `?page=1&utm_source=feed` share one.
 
-That is safe for an endpoint whose answer does not depend on the keys it leaves out and whose body does not repeat the URL. A page's payload repeats its URL, which is why a page's key cannot be narrowed this way ([Under any output caching](#under-any-output-caching)).
+That is safe for an endpoint whose answer does not depend on the keys it leaves out and whose body does not repeat the URL. A page's payload repeats its URL, which is why a page's key cannot be narrowed this way ([Under any output caching](#under-any-output-caching)); a page names the keys it reads with [`CacheQueryKeys`](#query-strings-a-page-does-not-read) instead. On an endpoint that is no page, `CacheQueryKeys` does nothing unless `CachePage` is put on the endpoint too.
 
 ### What is stored, and how to evict it
 

@@ -2717,7 +2717,8 @@ Outside the Development environment, the output cache stores a page's response w
 - the request is a `GET` or `HEAD` without a signed-in user or an `Authorization` header,
 - the status is 200 and the response sets no cookie,
 - the document carries no CSP nonce (a stored nonce would be every visitor's; Netjes logs a warning once per page, see [security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#content-security-policy)),
-- and the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback.
+- the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback,
+- and its query string is not one the page's `CacheQueryKeys` leaves out ([below](#query-strings-a-page-does-not-read)).
 
 A render that is not stored is one visitor's page, and gets the default `no-store, private`, as does every output-cached page in the Development environment. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
 
@@ -2734,6 +2735,46 @@ The cache's size limit counts response bodies, not keys, and every host and quer
 ```csharp
 builder.Services.AddOutputCache(options => options.SizeLimit = 200 * 1024 * 1024); // bytes; ASP.NET Core's default is 100 MB
 ```
+
+#### Query strings a page does not read
+
+Each query string is an entry of its own, so a link tagged `?utm_source=feed` stores another copy of the page, and so does a made-up `?a=1` or `?&&`. A page can name the query keys it reads with `.CacheQueryKeys(...)`. Requests with anything else in their query string then stay out of the output cache:
+
+```csharp
+app.MapPageLoader("/blog", (int? page, PostStore posts) => Page.Props(posts.List(page ?? 1)))
+    .CachePage(TimeSpan.FromMinutes(5))
+    .CacheQueryKeys("page");
+
+app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => Page.Props(posts.Find(slug)))
+    .CachePage(TimeSpan.FromMinutes(5))
+    .CacheQueryKeys(); // reads no query key, so only the URL without a query string is cached
+```
+
+A request is cached when it has no query string, or when every segment of its query string, the parts between `&`, has a name in the list. Names are read as `Request.Query` reads them, decoded (`+` as a space, then percent-escapes), and compared without regard to case. With `.CacheQueryKeys("page")`:
+
+| Request | What happens |
+|---|---|
+| `/blog`, `/blog?page=2`, `/blog?page=2&page=3` | Cached, each an entry of its own |
+| `/blog?PAGE=2`, `/blog?p%61ge=2` | Cached, each an entry of its own, apart from `?page=2`: the key is still the query string as sent |
+| `/blog?utm_source=feed`, `/blog?page=2&utm_source=feed` | Not cached: another key |
+| `/blog?`, `/blog?&`, `/blog?page=2&`, `/blog?&page=2`, `/blog?page=2&&page=3` | Not cached: an empty segment, which `Request.Query` leaves out but which makes another query string |
+| `/blog?=2` | Not cached: a segment without a name |
+
+A request that is not cached:
+
+- runs the loaders and renders the page for itself. No stored entry answers it, the entry for `/blog` included, nothing is stored for it, and it does not wait for another request's render.
+- goes out `Cache-Control: no-store, private`. A `Cache-Control` the page sets itself is kept, as on any page the output cache does not store.
+- keeps its query string. The payload's URL is the URL as sent, so the address bar still shows `?utm_source=feed` and the page's scripts can read it. Nothing is redirected or removed.
+- keeps its antiforgery token under output caching other than `CachePage`, like any response the output cache will not store. Under `CachePage` it has none, as always.
+- logs no cookie warning when it reads a cookie, since no other visitor gets that render.
+
+Three things to weigh:
+
+- A page with many visits through tagged links renders once for each of those visits, where it rendered once per tagged URL before. Data that is slow to load is cached in the service that loads it.
+- A key in the list still stores an entry for each value and each repetition (`?page=1`, `?page=2`, `?page=1&page=1`), bounded by `SizeLimit`.
+- A key the page reads and the list leaves out, as a loader parameter or through `useSearchParams()`, still reaches the page, but those requests are not cached, and nothing warns about it.
+
+It takes effect wherever the page rules apply: on a page under any output caching, conventions on `MapPages()` included, and on an endpoint `CachePage` is put on, such as a minimal API returning `Page.Render`. A JSON endpoint under `CachePage` follows the same rule for its entries, and gets no `Cache-Control` from Netjes. It does not turn caching on: a page that nothing output-caches is unchanged, and in the Development environment no page is stored anyway. On an endpoint the page rules do not apply to, it does nothing and does not throw, since a route group can mix pages and APIs; such an endpoint narrows its key with `SetVaryByQuery` ([Keys and the query string](#keys-and-the-query-string)). Of two calls on one endpoint, the last decides, and on a layout loader it applies to each page below the layout unless the page makes its own call. ([ADR 0047](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0047-cached-pages-name-the-query-keys-they-read.md) explains why it works this way.)
 
 ### What a stored page leaves out
 
@@ -2756,7 +2797,7 @@ The keys and rules above hold however a page is output-cached, not only with `Ca
 
 The differences: under those, a response the output cache will not store keeps its antiforgery token, while `CachePage` pages never carry one. And an endpoint that is no page but renders one (a minimal API returning `Page.Render` or `Page.Redirect`) gets these keys only from `CachePage`. Under other output caching its pages are not stored, and Netjes logs a warning once per endpoint.
 
-A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow the key, since the query string as sent is part of it already. ([ADR 0016](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0016-page-cache-rules-under-any-output-caching.md) explains why the rules apply under every policy.)
+A policy's own keys still add to these: `SetVaryByQuery("page")` cannot narrow the key, since the query string as sent is part of it already. To keep other query strings from adding entries, name the keys the page reads with [`CacheQueryKeys`](#query-strings-a-page-does-not-read), which keeps those requests out of the cache rather than serving them a stored entry. ([ADR 0016](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0016-page-cache-rules-under-any-output-caching.md) explains why the rules apply under every policy.)
 
 `CachePage` and `.CacheOutput(...)` on one endpoint do not combine. Of the output-cache policies on an endpoint, ASP.NET Core applies the last, so a `.CacheOutput(...)` after `CachePage` replaces the policy `CachePage` set: the later policy decides how long the page is kept and how its entries are tagged, and revalidating one of `CachePage`'s tags no longer evicts the page (`RevalidatePath` still does). The rest of `CachePage` stays: the page carries no antiforgery token, and its `CachedPageMetadata` still holds the duration and tags `CachePage` was given, not those that apply.
 
@@ -2768,7 +2809,7 @@ The sections above are about pages. This section is about the minimal API endpoi
 |---|---|---|
 | `Cache-Control` | `no-store, private`, unless the page sets its own or the output cache stores the response | The handler's own; none when the handler sets none |
 | The path in an entry's key | As sent | Compared without regard to case: all spellings share one entry |
-| The query string in the key | The whole query string, as sent | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
+| The query string in the key | The whole query string, as sent; `CacheQueryKeys` keeps requests with other keys out of the cache | Every key varies the entry, unless the policy narrows it with `SetVaryByQuery` |
 | `RevalidatePath` | Evicts the page | Does not evict it: evict by tag |
 | The Development environment | Rendered on each request, never stored | Output-cached as anywhere |
 
@@ -2806,7 +2847,7 @@ Every query key varies the entry. `?page=1`, `?page=2` and `?page=1&utm_source=f
 - `p.SetVaryByQuery([])` keeps one entry whatever the query string says. The call has no form without arguments, so an empty array stands for no keys.
 - `p.SetVaryByQuery("page")` varies the entry on the keys it lists and ignores the others, so `?page=1` and `?page=1&utm_source=feed` share one.
 
-That is safe for an endpoint whose answer does not depend on the keys it leaves out and whose body does not repeat the URL. A page's payload repeats its URL, which is why a page's key cannot be narrowed this way ([Under any output caching](#under-any-output-caching)).
+That is safe for an endpoint whose answer does not depend on the keys it leaves out and whose body does not repeat the URL. A page's payload repeats its URL, which is why a page's key cannot be narrowed this way ([Under any output caching](#under-any-output-caching)); a page names the keys it reads with [`CacheQueryKeys`](#query-strings-a-page-does-not-read) instead. On an endpoint that is no page, `CacheQueryKeys` does nothing unless `CachePage` is put on the endpoint too.
 
 ### What is stored, and how to evict it
 
@@ -5413,7 +5454,7 @@ The extension methods belong to these static classes, which app code never names
 |---|---|---|
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
-| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage` |
+| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `CacheQueryKeys` |
 | `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
@@ -5744,7 +5785,16 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment)). See [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. To keep query strings the page does not read out of the cache, add [`CacheQueryKeys`](#cachequerykeys). Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment)). See [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md).
+
+### CacheQueryKeys
+
+```csharp
+public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+    where TBuilder : IEndpointConventionBuilder
+```
+
+Names the query keys an output-cached page reads, so that other query strings add no entries. A request is cached as usual, keyed on its query string as sent, when it has no query string or when every segment of its query string has a name in `keys`, decoded as `Request.Query` decodes it and compared without regard to case. Any other request, with another key, an empty segment (`?page=2&`) or a segment without a name (`?=1`), is rendered for itself: it is neither served from the output cache nor stored in it, it goes out `Cache-Control: no-store, private` unless the page sets its own, and its payload keeps the URL as sent. With no keys, every query string is treated so. It applies to a page under any output caching and to an endpoint `CachePage` is put on, in either order of the calls. It does not turn caching on, and on an endpoint the page rules do not apply to it does nothing and does not throw, since a route group can mix pages and APIs: use `SetVaryByQuery` there. Of two calls on one endpoint, the last decides, and on a layout loader it applies to each page below the layout unless the page makes its own call. A `null` array throws `ArgumentNullException`, and a `null` or empty key `ArgumentException`. See [query strings a page does not read](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#query-strings-a-page-does-not-read).
 
 ### IPageCache
 
@@ -7080,6 +7130,7 @@ app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...)
 
 - A stored page is served to every visitor, shared props included. Cache only pages that are the same for everyone: their loaders and shared props must not depend on cookies or other per-visitor state (Netjes warns once per page when a cached render reads `Request.Cookies`). Signed-in users and requests with an `Authorization` header bypass the cache.
 - Evict from an action with `ServerAction.Ok().Revalidate("posts")` or `.RevalidatePath("/blog/hello")`, and from anywhere else (a webhook, a background job) with `IPageCache.RevalidateTagAsync(tag)` / `RevalidatePathAsync(path)`.
+- Each query string as sent is an entry of its own, so `?utm_source=...` and a made-up `?&&` each store another copy of the page, and `SetVaryByQuery` cannot narrow that. `.CacheQueryKeys("page")` names the keys a page reads, and `.CacheQueryKeys()` says it reads none: a request with another key, an empty segment (`?page=2&`) or a segment without a name renders each time, is never stored and goes out `no-store, private` unless the page sets its own `Cache-Control`, with its URL kept as sent. Do not leave out a key that a loader or `useSearchParams()` reads: those requests still work but are not cached, and nothing warns. Weigh it on a page with many visits through tagged links, which then renders for each of them. It does nothing on an endpoint that is neither a page nor under `CachePage`, so it can stay on a group that mixes pages and APIs.
 - Cached pages carry no antiforgery token: forms on them fetch one first, so they need JavaScript.
 - A Content-Security-Policy is off unless the app sets one. A document with a CSP nonce is never stored, so cached pages under a policy need a hash-based one (`ContentSecurityPolicy` without `{nonce}`), and under such a policy a page must not stream. Build it from `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts, never from a pasted hash, which a Netjes upgrade can make stale: `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. Keep `'self'` for the built app's module scripts, and leave out `'strict-dynamic'`, which needs a nonce. In the Development environment the module scripts come from the Vite dev server, so add its origin there, and only there, from a variable:
 
@@ -7351,6 +7402,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0044 – `beforeInteractive` scripts run before the page's code](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0044-before-interactive-scripts-run-before-the-pages-code.md): inline code runs where it stands, before what follows it is painted, and external scripts run in order once the shell is parsed, before the page's modules run and the page hydrates.
 - [0045 – Typed URLs for the app's endpoints](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0045-typed-urls-for-the-apps-endpoints.md): the generated `endpointUrl()` builds the URL of the app's endpoints that are not pages or actions, by a key written as in `api`, its method and route (a JSON endpoint one for each method but `HEAD`, any other one for `GET` if it answers `GET`), with the route values and query values its handler binds typed in TypeScript as binding accepts them, and without the base path, which `useHref` adds.
 - [0046 – The export writes the GET endpoints marked IncludeInExport](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md): `netjes export` writes the answer of each endpoint marked `.IncludeInExport()` as a file at its URL, `MapSitemap` and `MapRobotsTxt` among them, and the exported sitemap lists the pages the export writes.
+- [0047 – Cached pages name the query keys they read](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0047-cached-pages-name-the-query-keys-they-read.md): `.CacheQueryKeys(...)` keeps a request in the output cache only when every segment of its raw query string names a listed key; any other request is rendered for itself and goes out `no-store, private`, and stored entries stay keyed on the query string as sent.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -7364,6 +7416,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ### Added
 
+- `.CacheQueryKeys(...)`, a convention that names the query keys an output-cached page reads, so that other query strings add no entries to the output cache ([query strings a page does not read](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#query-strings-a-page-does-not-read), [ADR 0047](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0047-cached-pages-name-the-query-keys-they-read.md)). A request is cached as before, keyed on its query string as sent, when it has no query string or when every segment of its query string has a name in the list, decoded as `Request.Query` decodes it and compared without regard to case. Any other request, with another key (`?utm_source=feed`), an empty segment (`?page=2&`, `?&`) or a segment without a name (`?=1`), is rendered for itself: it is neither served from the output cache nor stored in it, it goes out `Cache-Control: no-store, private` unless the page sets its own, and its payload keeps the URL as sent. `.CacheQueryKeys()` with no keys treats every query string so. Without the convention nothing changes, so no app has to do anything. A page that adds it should weigh three things: it renders for each visit through a tagged link, a key in the list still stores an entry per value and repetition, bounded by `SizeLimit`, and a key the list leaves out still reaches its loader but those requests are not cached, with no warning. On an endpoint that is neither a page nor under `CachePage` it does nothing and does not throw: use `SetVaryByQuery` there.
 - `<Link>`, `<Form>`, `<SubmitButton>` and `<Image>` take a `ref` to the element they render. `LinkProps`, `FormProps`, `SubmitButtonProps` and `ImageProps` now start from React's `ComponentPropsWithRef` instead of the `*HTMLAttributes` types, which left the ref out, so `<Link ref={ref}>` is no longer a type error. The ref already reached the element at runtime, and only the types refused it; an app that worked around the type error, for example with `document.getElementById(id)`, can pass the ref instead. The four types also include `key` now; React handles it, as for any element, and never passes it to the component.
 - Once the client router runs in a document, `<html>` carries `data-netjes-hydrated=""`: the sign that the client router runs in the document, which end-to-end tests wait for before they click, with `await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '')` ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration), [ADR 0025](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0025-a-mark-on-html-says-the-client-router-runs.md)). Content inside a Suspense boundary can hydrate after it. It appears after the router has registered as the page's action client, on hydrated pages and on pages rendered in the browser when no sidecar was ready, and the server never renders it. A test helper that waited for the router's key in `history.state` should wait for the attribute instead: the browser keeps that state when it loads the document again, so after a reload the key is there before any of the page's scripts has run. The name is reserved, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser now sees one more.
 - Testing Library works with Vitest's fake timers. Under `vi.useFakeTimers()`, `waitFor`, `findBy…` and user-event never returned, because Testing Library moves fake timers on only through Jest's `jest` global. Netjes's setup file now defines that global while Vitest's timers are fake, and leaves it undefined with real timers ([ADR 0027](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md)). `waitFor` and `findBy…` move the fake clock on as they wait, and their timeout counts fake time; create user-event's user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. While timers are fake, `typeof jest` is `'object'`, so a library that looks for Jest finds it then, and a test on `vi.useFakeTimers({ shouldAdvanceTime: true })` takes Testing Library's path for fake timers. A `jest` global the app's own setup file defines, or a test assigns, is kept.
