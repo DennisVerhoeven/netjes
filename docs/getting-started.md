@@ -111,7 +111,7 @@ npm run dev
 
 Two edits to try:
 
-- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement.
+- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement. `components/Greeting.test.tsx` finds the button by its text: change it there too, or `npm test` fails.
 - In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it. `tests/MyApp.Tests/HomePageTests.cs` and `e2e/home.spec.ts` check that message: change it there too, or those tests fail.
 
 Hot reload applies changes inside methods. Code that runs once at startup, such as `Program.cs` and the `Map...` calls, needs a restart: press Ctrl+R in the terminal that runs `npm run dev`. Ctrl+C stops it. The app listens on another port with `ASPNETCORE_URLS=http://localhost:3000 npm run dev`. The Vite dev server has a port of its own, 5173: when another app's Vite dev server has it, `npm run dev` says so, and `Netjes__ViteDevPort=5174 npm run dev` moves it.
@@ -535,7 +535,7 @@ To add Netjes to an ASP.NET Core project you already have:
    }
    ```
 
-   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output; add any other folder that holds TypeScript of its own to its `exclude`:
+   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output. Add to its `exclude` any other folder whose TypeScript is not the app's browser code, such as a project with a tsconfig of its own; Node-side TypeScript outside `scripts/` also goes in the `include` of `tsconfig.node.json`:
 
    ```json
    {
