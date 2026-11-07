@@ -47,6 +47,8 @@ describe('netjes new', () => {
       'tests/MyShop.Tests/MyShop.Tests.csproj',
       'tests/MyShop.Tests/AppFactory.cs',
       'tests/MyShop.Tests/HomePageTests.cs',
+      'e2e/home.spec.ts',
+      'playwright.config.ts',
       'vite.config.ts',
       'tsconfig.json',
       'tsconfig.app.json',

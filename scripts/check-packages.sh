@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # Packs the NuGet and npm packages into a local feed, scaffolds an app with `netjes new --packages` that restores
 # from that feed only, then runs its Vitest and C# tests, type-checks it (also under create-vite's React-TS flags),
-# builds and runs it in Production. Run from the repository root; the scaffold goes in a temporary folder, outside this
-# repository's global.json, whose test runner the app's test project does not use.
+# builds and runs it in Production, and runs its Playwright suite. Run from the repository root; the scaffold goes in a
+# temporary folder, outside this repository's global.json, whose test runner the app's test project does not use.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 port="${CHECK_PACKAGES_PORT:-5399}"
-trap 'fuser -k "$port/tcp" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+# The app's Playwright suite moves its servers with these; by default they stay clear of the examples' ports.
+e2e_dev_port="${E2E_DEV_PORT:-5396}"
+e2e_prod_port="${E2E_PROD_PORT:-5397}"
+e2e_vite_port="${E2E_VITE_PORT:-5398}"
+trap 'fuser -k "$port/tcp" "$e2e_dev_port/tcp" "$e2e_prod_port/tcp" "$e2e_vite_port/tcp" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 feed="$work/feed"
 # Its own NuGet cache: a package rebuilt under the same version must not be served from an earlier run.
 export NUGET_PACKAGES="$work/nuget-packages"
@@ -210,4 +214,9 @@ status=$(curl -s -o "$work/greet" -w '%{http_code}' -b "$work/cookies" -H "X-Net
 [[ "$status" == 422 ]] && grep -q "Tell us your name." "$work/greet" || { echo "home.greet without a name: $status $(cat "$work/greet")"; cat "$work/app.log"; exit 1; }
 status=$(curl -s -o "$work/greet" -w '%{http_code}' -b "$work/cookies" --data-urlencode "$field=$value" --data-urlencode "__netjes_return=/" "$greet")
 [[ "$status" == 422 ]] && grep -q "Tell us your name." "$work/greet" || { echo "home.greet without a name or JavaScript: $status"; cat "$work/app.log"; exit 1; }
+
+echo "== end-to-end"
+npx playwright install --with-deps chromium
+CI=1 E2E_DEV_PORT="$e2e_dev_port" E2E_PROD_PORT="$e2e_prod_port" E2E_VITE_PORT="$e2e_vite_port" npm run test:e2e --silent
+
 echo "ok: Netjes $version packages build, test, publish and serve a new app"

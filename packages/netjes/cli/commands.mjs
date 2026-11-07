@@ -241,6 +241,7 @@ function layout(name) {
     ['Program.cs', `the ASP.NET Core app (${name}.csproj)`],
     ['generated/netjes.ts', 'types and zod schemas from C#, rewritten by netjes generate; never edit it'],
     [`tests/${name}.Tests/`, `C# tests of loaders and actions, run by dotnet test tests/${name}.Tests`],
+    ['e2e/', 'Playwright tests against a development and a production server, run by npm run test:e2e'],
     ['Dockerfile', 'and the docker-compose files: Docker for development and production'],
   ];
   const width = Math.max(...rows.map(([entry]) => (entry ?? '').length)) + 2;
@@ -250,7 +251,7 @@ function layout(name) {
 /** @type {Record<string, Command>} */
 export const COMMANDS = {
   new: {
-    summary: 'Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod and Vitest',
+    summary: 'Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright',
     args: '<dir>',
     arguments: { '<dir>': { description: 'The folder to create the app in; it must not exist yet, or be empty' } },
     options: {

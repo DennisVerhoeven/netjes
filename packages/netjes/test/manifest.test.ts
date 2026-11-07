@@ -74,6 +74,8 @@ describe('the npm manifest', () => {
           'template/tsconfig.json',
           'template/tsconfig.app.json',
           'template/tsconfig.node.json',
+          'template/playwright.config.ts',
+          'template/e2e/home.spec.ts',
         ]),
       );
     });

@@ -210,7 +210,7 @@ describe('netjes new output', () => {
     expect(text).toMatch(/^Created MyShop in my-shop/);
     // Each path it points out exists.
     const listed = [...text.matchAll(/^ {2}(\S+)\s{2,}/gm)].map((match) => match[1] as string);
-    expect(listed).toEqual(expect.arrayContaining(['app/', 'Features/', 'components/', 'generated/netjes.ts', 'Program.cs']));
+    expect(listed).toEqual(expect.arrayContaining(['app/', 'Features/', 'components/', 'generated/netjes.ts', 'Program.cs', 'tests/MyShop.Tests/', 'e2e/']));
     for (const entry of listed) expect(existsSync(path.join(temp, 'my-shop', entry)), entry).toBe(true);
     expect(text).toMatch(/Next:\n {2}cd my-shop\n {2}npm run dev .*http:\/\/localhost:5080/);
     expect(text).not.toContain('npm install');
@@ -313,6 +313,25 @@ describe('netjes new tests', () => {
     expect(manifest.devDependencies['@types/node']).toBe('^22.20.5');
   });
 
+  it('gives the app a Playwright suite against a development and a production server', async () => {
+    const app = await newShop();
+
+    const config = await readFile(path.join(app, 'playwright.config.ts'), 'utf8');
+    expect(config).toContain("testDir: './e2e'");
+    expect(config).toContain("name: 'development'");
+    expect(config).toContain("name: 'production'");
+    expect(config).toContain("ASPNETCORE_ENVIRONMENT: 'Development'");
+    expect(config).toContain("ASPNETCORE_ENVIRONMENT: 'Production'");
+    expect(config).toContain('/healthz');
+    // So that several runs can share a machine.
+    for (const port of ['E2E_DEV_PORT', 'E2E_PROD_PORT', 'E2E_VITE_PORT']) expect(config, port).toContain(port);
+    const spec = await readFile(path.join(app, 'e2e', 'home.spec.ts'), 'utf8');
+    expect(spec).toContain('javaScriptEnabled: false');
+    const manifest = JSON.parse(await readFile(path.join(app, 'package.json'), 'utf8'));
+    expect(manifest.scripts['test:e2e']).toBe('dotnet build && playwright test');
+    expect(manifest.devDependencies['@playwright/test']).toBe('^1.64.1');
+  });
+
   it("keeps the app's C# tests out of its build and its image", async () => {
     const app = await newShop();
 
@@ -322,13 +341,6 @@ describe('netjes new tests', () => {
     expect((await readFile(path.join(app, '.dockerignore'), 'utf8')).split('\n')).toEqual(expect.arrayContaining(['tests', 'e2e']));
   });
 
-  it('points out the tests among the things it created', async () => {
-    const { io, out } = recordingIo(temp);
-
-    expect(await run(['new', 'my-shop', '--skip-install'], io)).toBe(0);
-
-    expect(out()).toMatch(/^ {2}tests\/MyShop\.Tests\/ +\S/m);
-  });
 });
 
 describe('netjes new without a folder', () => {
