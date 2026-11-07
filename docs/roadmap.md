@@ -4,7 +4,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 ## Now
 
-- **Early releases (0.0.x).** The packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. What each release changed is in the [changelog](../CHANGELOG.md).
+- **The releases after 0.0.3.** More 0.0.x releases of the packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. They take up the items under Next, among them what 0.0.3 left open: a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and exported files written to match `TrailingSlash`, with a `TrailingSlash.Always`. What each release changed is in the [changelog](../CHANGELOG.md).
 
 ## Next
 
