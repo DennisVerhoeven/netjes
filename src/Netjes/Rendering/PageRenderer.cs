@@ -34,6 +34,11 @@ internal sealed class PageRenderer(
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedNonceCaching = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedUnkeyedCaching = new(StringComparer.Ordinal);
+    // The Content-Security-Policies documents went out under, by their text without nonces (CspChecks.WithoutNonces).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _checkedPolicies = new(StringComparer.Ordinal);
+    private int _checkedPolicyCount;
+    // An app can write another policy for each request; the rest are not checked.
+    private const int MaxCheckedPolicies = 100;
 
     private static readonly IReadOnlyDictionary<string, object?> NoParams = new Dictionary<string, object?>();
     private static readonly IReadOnlyDictionary<string, object?> NoProps = new Dictionary<string, object?>();
@@ -233,10 +238,14 @@ internal sealed class PageRenderer(
 
     private enum Boundary { NotFound, Error, Forbidden, Unauthorized }
 
+    /// <summary>
+    /// An exception's message and stack with error details, else the status's reason phrase, marked as withheld when it
+    /// stands in for an exception's message. A status alone (a 403 from a loader) has only its reason phrase to show.
+    /// </summary>
     private ErrorProps ErrorPropsFor(int status, Exception? exception) =>
         context.IncludeErrorDetails && exception is not null
             ? new ErrorProps(status, exception.Message, exception is SsrRenderException ssrError ? ssrError.JsStack : exception.ToString())
-            : new ErrorProps(status, ReasonPhrases.GetReasonPhrase(status), null);
+            : new ErrorProps(status, ReasonPhrases.GetReasonPhrase(status), null, Withheld: exception is not null);
 
     private PageRoute? RouteOf(HttpContext http) =>
         http.GetEndpoint()?.Metadata.GetMetadata<PageEndpointMetadata>()?.Pattern is { } pattern ? routes.Current.Find(pattern) : null;
@@ -316,9 +325,33 @@ internal sealed class PageRenderer(
         await RenderAsync(http, route?.Pattern, special?.File, kind, root.Segments, props, status, parameters);
     }
 
-    public async Task RedirectAsync(HttpContext http, string location, bool permanent)
+    public Task RedirectAsync(HttpContext http, string location, bool permanent) =>
+        RedirectToAsync(http, UnderBasePath(http, location), permanent);
+
+    /// <summary>
+    /// Ends a page request whose visitor left (its loader, the render or a deferred value stopped on
+    /// <c>RequestAborted</c>) without an error, and keeps what it sent out of the output cache. The output cache has
+    /// identical requests wait for the render in progress and hands them its result, a failure included: an error here
+    /// would fail every one of them, and a stored copy would be cut off where the visitor left. With neither, each
+    /// renders the page for itself.
+    /// </summary>
+    internal void EndAborted(HttpContext http, OperationCanceledException exception)
     {
-        location = UnderBasePath(http, location);
+        if (http.Features.Get<IOutputCacheFeature>() is { } outputCache)
+        {
+            outputCache.Context.AllowCacheStorage = false;
+        }
+
+        logger.LogDebug(exception, "The request for {Path} was aborted before its page was sent", http.Request.Path);
+    }
+
+    /// <summary>
+    /// <see cref="RedirectAsync"/> to a location that is complete as it is, its base path included: one built from the
+    /// request target, whose base path may be spelled in a way <see cref="UnderBasePath(HttpContext, string)"/> does not
+    /// recognise (<c>/b%61se</c> for <c>/base</c>).
+    /// </summary>
+    internal async Task RedirectToAsync(HttpContext http, string location, bool permanent)
+    {
         http.Response.Headers.Append(HeaderNames.Vary, new StringValues([NetjesHeaders.Data, NetjesHeaders.Segments]));
         if (http.RequestServices.GetService<IDraftMode>()?.IsEnabled ?? false)
         {
@@ -381,10 +414,13 @@ internal sealed class PageRenderer(
 
         KeepUnkeyedPagesOutOfTheOutputCache(http, status);
 
+        // Before AntiforgeryFor (below): antiforgery adds X-Frame-Options: SAMEORIGIN when it stores a new cookie and
+        // finds none, which would give a visitor's first document another framing header than the rest.
         var frameAncestors = isData ? null : SecurityHeaders(http, context, draftMode);
         // With AddNetjesLocalization, the request culture (from the [lang] segment) is the locale and the page's lang.
         var locale = http.RequestServices.GetService<LocalizationMarker>() is null ? null : System.Globalization.CultureInfo.CurrentUICulture.Name;
         IReadOnlyList<string> modules = [.. segments.SelectMany(s => s.Modules()), .. page is null ? Array.Empty<string>() : [page]];
+        var documentAssets = isData ? null : UnderBasePath(http, assets.Resolve(modules));
         var errorPage = routes.Current.Error;
         var payload = new PagePayload(
             Route: route,
@@ -409,15 +445,15 @@ internal sealed class PageRenderer(
             DraftMode: draftMode,
             BasePath: http.Request.PathBase.HasValue ? http.Request.PathBase.Value : null,
             Locale: locale,
-            Document: isData
+            Document: documentAssets is null
                 ? null
                 : new DocumentPayload(
                     locale ?? context.Options.Lang,
-                    UnderBasePath(http, assets.Resolve(modules)),
+                    documentAssets,
                     errorPage is null ? null : new SpecialPagePayload(errorPage.File, [.. errorPage.Segments.Select(s => SegmentPayload.From(s))]),
                     ImagesFor(http, context.Options.Images),
                     PublicConfig.From(configuration, jsonOptions.Value.SerializerOptions.PropertyNamingPolicy),
-                    ContentSecurityPolicyFor(http, frameAncestors),
+                    ContentSecurityPolicyFor(http, frameAncestors, documentAssets.Scripts),
                     context.Options.CollectWebVitals ? UnderBasePath(http, WebVitalsEndpoint.Path) : null,
                     clientRender));
         // After the document part, which keeps a page with a CSP nonce out of the output cache. A static export has no
@@ -487,14 +523,15 @@ internal sealed class PageRenderer(
         // with the deferred content hidden after them for an inline script to reveal, so it showed only with JavaScript.
         var waitForAll = !context.Options.StreamDocuments || context.Command is { Name: "export" } || IsCrawler(http);
         var renderId = collector.Values.Count > 0 ? Convert.ToHexString(RandomNumberGenerator.GetBytes(12)) : null;
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+        // Both deadlines run on the app's clock (TimeProvider), as the request's other times do.
         var limit = context.Options.StreamTimeout;
-        stop.CancelAfter(DeferredDeadline(limit));
+        using var stopAt = new CancellationTokenSource(DeferredDeadline(limit), time);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, stopAt.Token);
         // Deferred values go to the sidecar as they complete; it may need them before the shell (waitForAll). They are
         // sent until the document is done or the sidecar's own deadline passes: the failures for values that ran out of
         // time come after `stop`, and a sidecar that stops answering (a crash) must not hold the request open.
-        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-        delivery.CancelAfter(limit);
+        using var deliveryEnds = new CancellationTokenSource(limit, time);
+        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, deliveryEnds.Token);
         // The render is asked for first, so it has a sidecar process before any value is delivered (the sidecar keeps
         // values that arrive before the render reads them).
         var rendering = ssr.RenderStreamAsync(HtmlSafeJson.Escape(json), new SsrStreamOptions(waitForAll, renderId), http.RequestAborted);
@@ -582,6 +619,12 @@ internal sealed class PageRenderer(
         await http.Response.Body.FlushAsync(http.RequestAborted);
     }
 
+    /// <summary>
+    /// The error sent for a deferred value whose message is withheld (no error details): empty, so the client can tell
+    /// it from Netjes's own messages and put a stand-in marked as withheld in its place.
+    /// </summary>
+    private const string WithheldError = "";
+
     /// <summary>One NDJSON line: <c>{"id":"d0","value":...}</c>, the value already JSON, or <c>{"id":"d0","error":"..."}</c>.</summary>
     private static string DeferredLine(string id, string? valueJson, string? error) =>
         error is null
@@ -624,7 +667,7 @@ internal sealed class PageRenderer(
                         // A value that cannot be written (a cycle, a System.Type, a getter on a disposed DbContext, one
                         // that throws OperationCanceledException: serializing takes no token) fails its own boundary only.
                         logger.LogWarning(ex, "Deferred value {Id} for {Path} could not be serialized: {Message}", id, http.Request.Path, ex.Message);
-                        await deliver(id, null, context.IncludeErrorDetails ? ex.Message : "Something went wrong");
+                        await deliver(id, null, context.IncludeErrorDetails ? ex.Message : WithheldError);
                         continue;
                     }
 
@@ -632,9 +675,16 @@ internal sealed class PageRenderer(
                     continue;
                 }
 
+                if (done.IsCanceled)
+                {
+                    logger.LogWarning("Deferred value {Id} for {Path} was cancelled", id, http.Request.Path);
+                    await deliver(id, null, "The value was cancelled");
+                    continue;
+                }
+
                 var error = done.Exception?.GetBaseException();
                 logger.LogWarning(error, "Deferred value {Id} for {Path} failed: {Message}", id, http.Request.Path, error?.Message);
-                await deliver(id, null, context.IncludeErrorDetails && error is not null ? error.Message : "Something went wrong");
+                await deliver(id, null, context.IncludeErrorDetails && error is not null ? error.Message : WithheldError);
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested && !http.RequestAborted.IsCancellationRequested)
@@ -680,11 +730,13 @@ internal sealed class PageRenderer(
         streamTimeout - TimeSpan.FromTicks(Math.Min(TimeSpan.TicksPerSecond, streamTimeout.Ticks / 10));
 
     /// <summary>
-    /// nosniff, a referrer policy and same-origin framing on documents, each unless the app set it (framing: unless it
-    /// sent X-Frame-Options or a policy with <c>frame-ancestors</c>, its own header or, when it sent none,
-    /// <see cref="NetjesOptions.ContentSecurityPolicy"/>). Returns the <c>frame-ancestors</c> sources for
-    /// Netjes's own Content-Security-Policy, null for none. Runs before the payload is built: antiforgery adds its own
-    /// X-Frame-Options when it stores a cookie, unless one is already there.
+    /// nosniff, a referrer policy and framing headers on documents, each unless the app set it. Unless the app sent
+    /// X-Frame-Options, framing follows the <c>frame-ancestors</c> in the policies that go out (the app's own header
+    /// or, when it sent none, <see cref="NetjesOptions.ContentSecurityPolicy"/>): the X-Frame-Options they imply, and
+    /// no <c>frame-ancestors</c> of Netjes's own. Without any, it is same-origin: X-Frame-Options SAMEORIGIN, and the
+    /// sources this returns for Netjes's own Content-Security-Policy (null for none). Runs before the payload is built,
+    /// and so before <c>AntiforgeryFor</c>: antiforgery adds its own X-Frame-Options when it stores a cookie, unless
+    /// one is already there.
     /// </summary>
     internal static string? SecurityHeaders(HttpContext http, NetjesContext context, bool draftMode)
     {
@@ -696,13 +748,21 @@ internal sealed class PageRenderer(
         var headers = http.Response.Headers;
         headers.TryAdd(HeaderNames.XContentTypeOptions, "nosniff");
         headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+        if (headers.ContainsKey(HeaderNames.XFrameOptions))
+        {
+            // The app chose who may frame its pages. Netjes adds nothing that says otherwise: browsers obey
+            // frame-ancestors over X-Frame-Options, so a 'self' would undo an app's DENY. Antiforgery's SAMEORIGIN, from
+            // app code that stored a token before the render, is kept the same way.
+            return null;
+        }
+
         // The option's policy goes out only when the app sent none (ContentSecurityPolicyFor), so only then does it count.
         var ownPolicy = headers.ContainsKey(HeaderNames.ContentSecurityPolicy);
-        if (headers.ContainsKey(HeaderNames.XFrameOptions)
-            || (ownPolicy ? headers.ContentSecurityPolicy.Any(HasFrameAncestors) : HasFrameAncestors(context.Options.ContentSecurityPolicy)))
+        if (XFrameOptionsFor(ownPolicy ? headers.ContentSecurityPolicy : context.Options.ContentSecurityPolicy) is { } implied)
         {
-            // The app chose who may frame its pages (a partner site, say, or no one). Netjes adds nothing that says
-            // otherwise: browsers obey frame-ancestors over X-Frame-Options, so a 'self' would undo an app's DENY.
+            // The app chose who may frame its pages (no one, say, or a partner site too). Browsers that know only
+            // X-Frame-Options get the closest it can say, and antiforgery, which comes later, adds none of its own.
+            headers.XFrameOptions = implied;
             return null;
         }
 
@@ -725,11 +785,48 @@ internal sealed class PageRenderer(
     }
 
     /// <summary>
+    /// The X-Frame-Options that the <c>frame-ancestors</c> of these policies imply, null when none has the directive.
+    /// Browsers enforce every policy, so the strictest decides. A list that could let the app's own pages frame it
+    /// (<c>'self'</c>, <c>*</c> or a scheme source such as <c>https:</c>) gets SAMEORIGIN, the closest X-Frame-Options
+    /// comes, since it cannot name other sites; any other list (<c>'none'</c>, an empty one, or other sites only) gets
+    /// DENY. A host source never counts, even one naming the app's own origin: behind a proxy, the request's host is
+    /// not always the one the browser sees.
+    /// </summary>
+    private static string? XFrameOptionsFor(StringValues policies)
+    {
+        string? implied = null;
+        foreach (var policy in CspDirectives.Policies(policies))
+        {
+            if (CspDirectives.Sources(policy, "frame-ancestors") is not { } sources)
+            {
+                continue;
+            }
+
+            if (!sources.Any(MayMatchTheAppsOwnPages))
+            {
+                return "DENY";
+            }
+
+            implied = "SAMEORIGIN";
+        }
+
+        return implied;
+    }
+
+    private static bool MayMatchTheAppsOwnPages(string source) =>
+        source == "*"
+        || source.Equals("'self'", StringComparison.OrdinalIgnoreCase)
+        // The scheme sources an http(s) page can match, as CspChecks counts them; data:, blob: and the rest match none.
+        || source.Equals("http:", StringComparison.OrdinalIgnoreCase)
+        || source.Equals("https:", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The nonce for this document: Netjes's own policy gets one (and its header) when it has a <c>{nonce}</c> for it,
     /// and so does any app that asked for <c>GetCspNonce()</c> to write its own policy. Either way the document is kept
-    /// out of the output cache. A policy without <c>{nonce}</c> (hash-based, as cached pages need) gets none.
+    /// out of the output cache. A policy without <c>{nonce}</c> (hash-based, as cached pages need) gets none. The
+    /// policy that goes out, as written, is checked against what the document needs (<see cref="WarnAboutThePolicy"/>).
     /// </summary>
-    private string? ContentSecurityPolicyFor(HttpContext http, string? frameAncestors)
+    private string? ContentSecurityPolicyFor(HttpContext http, string? frameAncestors, IReadOnlyList<string> scripts)
     {
         var policy = context.Options.ContentSecurityPolicy;
         var nonce = policy?.Contains("{nonce}", StringComparison.Ordinal) == true ? http.GetCspNonce() : http.PeekCspNonce();
@@ -744,7 +841,39 @@ internal sealed class PageRenderer(
             KeepNonceOutOfTheOutputCache(http);
         }
 
+        WarnAboutThePolicy(http, scripts, nonce);
         return nonce;
+    }
+
+    /// <summary>
+    /// Warns about what the Content-Security-Policy on this document refuses of what it needs (<see cref="CspChecks"/>):
+    /// the app's own header, or else the option's, against the document's scripts and <paramref name="nonce"/>. Netjes
+    /// sends it as written, in Development too, and warns once per policy. A nonce changes with every document, so
+    /// policies are told apart by their text with the document's nonce, and any other, each written as one value
+    /// (<see cref="CspChecks.WithoutNonces"/>), and once there have been <see cref="MaxCheckedPolicies"/> of them, a new
+    /// one is not checked. Not for a command: the static export writes files, which go out under the static host's
+    /// policy.
+    /// </summary>
+    private void WarnAboutThePolicy(HttpContext http, IReadOnlyList<string> scripts, string? nonce)
+    {
+        var policies = http.Response.Headers.ContentSecurityPolicy;
+        if (context.Command is not null || StringValues.IsNullOrEmpty(policies))
+        {
+            return;
+        }
+
+        var key = CspChecks.WithoutNonces(policies.ToString(), nonce);
+        if (_checkedPolicies.ContainsKey(key) || Volatile.Read(ref _checkedPolicyCount) >= MaxCheckedPolicies || !_checkedPolicies.TryAdd(key, true))
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref _checkedPolicyCount);
+        var document = new CspDocument(scripts, http.Request.Scheme, http.Request.Host.Value ?? "", nonce, assets.DevServerOrigin);
+        foreach (var finding in CspChecks.Check(policies, document))
+        {
+            CspChecks.Warn(logger, finding);
+        }
     }
 
     /// <summary>The policy with a <c>frame-ancestors</c> directive added, unless it has one of its own.</summary>
@@ -759,9 +888,8 @@ internal sealed class PageRenderer(
         return rest.Length == 0 ? $"frame-ancestors {sources}" : $"{rest}; frame-ancestors {sources}";
     }
 
-    private static bool HasFrameAncestors(string? policy) =>
-        policy is not null && policy.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Any(d => d.Split([' ', '\t'], 2)[0].Equals("frame-ancestors", StringComparison.OrdinalIgnoreCase));
+    private static bool HasFrameAncestors(string policy) =>
+        CspDirectives.Policies(policy).Any(p => CspDirectives.Sources(p, "frame-ancestors") is not null);
 
     /// <summary>
     /// A stored copy would hand every visitor the same nonce, which anyone can read and reuse: the nonce stops
@@ -791,12 +919,24 @@ internal sealed class PageRenderer(
     /// as a minimal API returning <c>Page.Render</c>, cached by <c>CacheOutput</c> or a base policy) could be served
     /// for a document request when it is a payload, or the other way round. It is rendered each time instead, and the
     /// app hears about it once per endpoint: <c>CachePage</c> keys such an endpoint by the page rules. Only about a 200,
-    /// the one status ASP.NET Core's default policy stores: a not-found page was never going to be kept.
+    /// the one status ASP.NET Core's default policy stores: a not-found page was never going to be kept. A query string
+    /// outside the page's <c>CacheQueryKeys</c> has no key of the page rules either, as the page asked, so it is rendered
+    /// each time without a warning.
     /// </summary>
     private void KeepUnkeyedPagesOutOfTheOutputCache(HttpContext http, int status)
     {
-        if (http.Features.Get<IOutputCacheFeature>() is not { Context: { EnableOutputCaching: true, AllowCacheStorage: true } } outputCache
-            || PageCachePolicy.Applied(http))
+        if (http.Features.Get<IOutputCacheFeature>() is not { Context: { EnableOutputCaching: true, AllowCacheStorage: true } } outputCache)
+        {
+            return;
+        }
+
+        if (CachePaths.LeavesQueryUncached(http))
+        {
+            outputCache.Context.AllowCacheStorage = false;
+            return;
+        }
+
+        if (PageCachePolicy.Applied(http))
         {
             return;
         }
@@ -832,12 +972,15 @@ internal sealed class PageRenderer(
     /// not, so after signing out Back would show the signed-out user's page. A visitor's page is no exception: its
     /// document stays when the client router signs the visitor in, and then shows their pages (ADR 0014). Pages that
     /// chose their own header keep theirs, and so do responses the output cache stores. A render of an output-cached
-    /// page that is not stored (a signed-in user, an Authorization header, a nonce) is one visitor's page, so it gets
-    /// the default too.
+    /// page that is not stored (a signed-in user, an Authorization header, a nonce, a query string outside its
+    /// <c>CacheQueryKeys</c>) is one visitor's page, so it gets
+    /// the default too, and so does an output-cached page in the Development environment, which renders for every
+    /// request and is never stored (ADR 0023): a browser that kept it would show it from before an edit on Back.
     /// </summary>
     private static void DefaultCacheControl(HttpContext http, int status)
     {
-        if (http.Response.Headers.ContainsKey(HeaderNames.CacheControl) || IsStoredByOutputCache(http, status))
+        if (http.Response.Headers.ContainsKey(HeaderNames.CacheControl)
+            || (IsStoredByOutputCache(http, status) && !PageCachePolicy.RendersEachTimeInDevelopment(http)))
         {
             return;
         }

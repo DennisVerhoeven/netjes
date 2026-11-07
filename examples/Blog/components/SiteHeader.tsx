@@ -1,5 +1,5 @@
 import { Link, useSharedProps } from 'netjes';
-import { Href, sharedProps } from '../generated/netjes.ts';
+import { sharedProps } from '../generated/netjes.ts';
 
 export function SiteHeader() {
   const shared = useSharedProps(sharedProps);
@@ -13,8 +13,8 @@ export function SiteHeader() {
           {shared.navigation.map((item) => (
             <li key={item.href}>
               <Link
-                // Navigation comes from C# as plain strings; checked against the app's routes, not cast.
-                href={Href.parse(item.href)}
+                // An Href in C#: the shared props schema has checked it against the app's routes already.
+                href={item.href}
                 className="text-muted no-underline hover:text-ink aria-[current=page]:text-ink aria-[current=page]:shadow-[inset_0_-2px_0_var(--color-accent)]"
               >
                 {item.label}

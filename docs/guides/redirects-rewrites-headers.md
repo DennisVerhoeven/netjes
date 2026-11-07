@@ -17,6 +17,8 @@ app.UseNetjes();
 
 For redirects that depend on data (a renamed slug), return `Page.Redirect(...)` from the page's loader instead. It works for document requests and client navigations alike: the client router follows it without a full page load. See [security](security.md#redirects) for the URLs it accepts, and `Page.LocalRedirect` for URLs that come from the request.
 
+Netjes sends one redirect of its own: another case of a page's literal segments (`/About` to `/about`) and, with `TrailingSlash.Never`, a trailing slash, which is what Next.js's `trailingSlash` setting decides ([One URL per page](routing.md#one-url-per-page)). It runs at the end of `UseNetjes()`, after routing, on the URL the client sent, so it never redirects a request the rewriter changed. A canonical rule of the app's own, such as one that sends `www.example.com` to `example.com`, goes in the rewriter ahead of its rewrites, where it sees the URL as it was sent.
+
 ## Rewrites
 
 Internal rewrites, where the URL stays and another page answers (Next.js's `rewrites()`), are the rewriter too:
@@ -24,6 +26,8 @@ Internal rewrites, where the URL stays and another page answers (Next.js's `rewr
 ```csharp
 app.UseRewriter(new RewriteOptions().AddRewrite("^docs/latest/(.*)", "docs/v2/$1", skipRemainingRules: true));
 ```
+
+The page answers at the URL the client sent, and Netjes does not redirect it to its file's spelling: under `TrailingSlash.Never`, `/docs/latest/intro/` is answered as it is, while `/docs/v2/intro/` goes to `/docs/v2/intro`.
 
 Rewrites to another host (an external `destination` in Next.js) are a reverse proxy, such as [YARP](https://microsoft.github.io/reverse-proxy/) (MIT), mapped next to the pages:
 
@@ -35,7 +39,7 @@ app.MapReverseProxy(); // e.g. /api/legacy/{**rest} → https://legacy.example.c
 
 ## Headers
 
-Netjes already sends `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `X-Frame-Options: SAMEORIGIN` with every document (see [security headers](security.md#security-headers)), leaving out any the app has set itself. An app that sends its own `X-Frame-Options`, as below, or a policy with `frame-ancestors`, decides about framing alone: Netjes then adds neither framing header.
+Netjes already sends `X-Content-Type-Options: nosniff` with every response that passes through `UseNetjes()`, so an app needs no middleware of its own for it, and `Referrer-Policy: strict-origin-when-cross-origin` and `X-Frame-Options: SAMEORIGIN` with every document (see [security headers](security.md#security-headers)). It leaves out any of them that the app has set itself. An app that sends its own `X-Frame-Options`, as below, decides about framing alone: Netjes then adds neither framing header. With `frame-ancestors` in the app's policy, documents get the `X-Frame-Options` it implies, `DENY` or `SAMEORIGIN`, instead of the default `SAMEORIGIN`.
 
 Set headers for all pages with a small middleware, or for some pages with an endpoint filter, where Next.js has `headers()`:
 
@@ -54,7 +58,7 @@ app.MapPages().AddEndpointFilter(async (context, next) =>
 });
 ```
 
-For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream. [Security](security.md#content-security-policy) explains both, and [static export](static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
+For a Content-Security-Policy, use `NetjesOptions.ContentSecurityPolicy` rather than a header of your own, so the nonce Netjes puts on its scripts matches the header, or call `HttpContext.GetCspNonce()` when you write the policy yourself. A policy with `{nonce}` keeps pages out of the output cache; a hash-based one lets them be cached, but its pages must not stream, and its `script-src` lists `NetjesContentSecurityPolicy.ScriptHashes`, the hashes of Netjes's inline scripts. [Security](security.md#content-security-policy) explains both, and [static export](static-export.md#deferred-values-and-suspense) what a static host's policy does to exported pages. NetEscapades.AspNetCore.SecurityHeaders (MIT) covers the other headers declaratively.
 
 ## Base path
 

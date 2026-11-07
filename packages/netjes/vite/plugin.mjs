@@ -15,6 +15,8 @@ const SERVER_ENTRY = normalizePath(fileURLToPath(new URL('../dist/server-entry.j
 const SIDECAR = fileURLToPath(new URL('../sidecar/server.mjs', import.meta.url));
 const QUERY_MODULE = normalizePath(fileURLToPath(new URL('../dist/query.js', import.meta.url)));
 const TEST_SETUP = normalizePath(fileURLToPath(new URL('../dist/testing-setup.js', import.meta.url)));
+// What the test harness needs from Vitest: the setup file every app's tests get, after the app's own. Not exported.
+const TEST_VITEST = normalizePath(fileURLToPath(new URL('../dist/testing-vitest.js', import.meta.url)));
 
 const PAGES_ID = 'virtual:netjes/pages';
 const RESOLVED_PAGES_ID = `\0${PAGES_ID}`;
@@ -72,18 +74,27 @@ function canResolve(root, name) {
 
 /**
  * Vitest settings for component tests, unless the app set them itself: a DOM (when jsdom is installed), Testing
- * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders.
+ * Library cleanup (when it is installed), and no Playwright specs (e2e/), build output or .NET bin/obj folders. Two
+ * exceptions, which Vite merges into what the app set: Netjes's own setup file goes into every app's setupFiles,
+ * after the app's own, and provide['netjes:query'] holds the app's query defaultOptions, which that file hands to
+ * createTestApp. Only that key is returned, so the app's own provide keys are not merged twice. Vitest 5 builds the
+ * test options of an inline test project that shares the root's Vite server from the root's options as written, before
+ * this hook runs, so such a project gets none of these; with sharedViteServer: false it resolves the config, and this
+ * hook, for each project.
  * @param {Record<string, unknown> | undefined} test
  * @param {string} root
+ * @param {{ defaultOptions?: import('@tanstack/react-query').DefaultOptions } | null} query
  */
-function testDefaults(test = {}, root) {
+function testDefaults(test = {}, root, query) {
   /** @type {Record<string, unknown>} */
   const defaults = {};
   if (test.environment === undefined && canResolve(root, 'jsdom')) defaults.environment = 'jsdom';
   if (test.exclude === undefined) {
     defaults.exclude = ['**/node_modules/**', '**/dist/**', '**/bin/**', '**/obj/**', '**/e2e/**', '**/.git/**'];
   }
-  if (test.setupFiles === undefined && canResolve(root, '@testing-library/react')) defaults.setupFiles = [TEST_SETUP];
+  const cleanup = test.setupFiles === undefined && canResolve(root, '@testing-library/react');
+  defaults.setupFiles = cleanup ? [TEST_SETUP, TEST_VITEST] : [TEST_VITEST];
+  if (query) defaults.provide = { 'netjes:query': query.defaultOptions ?? {} };
   return defaults;
 }
 
@@ -174,7 +185,7 @@ export default function netjes(options = {}) {
       const userTest = /** @type {{ test?: Record<string, unknown> }} */ (/** @type {unknown} */ (config)).test;
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
-      const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root) } : {};
+      const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
       const base = env.command === 'build' && basePath ? { base: `${basePath}/` } : {};
       return {
@@ -278,7 +289,8 @@ export default function netjes(options = {}) {
       }
       if (id !== RESOLVED_PAGES_ID) return undefined;
       const glob = JSON.stringify([appFiles]);
-      return `export const pages = import.meta.glob(${glob});\n`;
+      // The folder the keys start with: renderDocument (netjes/testing) builds routes and segment ids from it.
+      return `export const pages = import.meta.glob(${glob});\nexport const appDir = ${JSON.stringify(appDir)};\n`;
     },
     async writeBundle() {
       if (!isSsrBuild) return;

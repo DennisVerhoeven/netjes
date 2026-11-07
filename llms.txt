@@ -14,18 +14,18 @@ Netjes ships as the npm package `netjes` (the Vite plugin, the client router, th
 
 ## Guides
 
-- [Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md): The `app/` file conventions, dynamic and catch-all segments, parallel and intercepting routes, the client router and its hooks, base paths, locales and route warnings
-- [Data loading](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md): Page and layout loaders, shared props, public configuration, the generated types and schemas, and TanStack Query seeded from C#
+- [Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md): The `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, focus and announcements after a navigation, base paths, locales, endpoints next to pages and route warnings
+- [Data loading](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md): Page and layout loaders, shared props, public configuration, the generated types and schemas, typed URLs for the app's endpoints, and TanStack Query seeded from C#
 - [Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md): Server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads
 - [Rendering and streaming](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md): The Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages
-- [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md): The default `Cache-Control`, output-cached pages, what keys an entry, revalidation, draft mode and CDNs
-- [Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md): Titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`
+- [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md): The default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry and the query keys a page reads, endpoints that are not pages, revalidation, draft mode and CDNs
 - [Images](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/images.md): `<Image>`, the image endpoint and its limits, and image processing with SkiaSharp
-- [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md): `netjes export`, static parameters, what cannot be exported, and Content-Security-Policy for exported pages
-- [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md): The default headers, Content-Security-Policy, antiforgery and origin checks, body limits, redirects and the other defaults
-- [Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md): Publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies
-- [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md): Component and page tests with Vitest and `netjes/testing`, C# tests of loaders and actions, Playwright, and the checks for CI
+- [Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md): Titles and head tags from page files and from C#, the sitemap, `robots.txt` and `<Script>`
+- [Static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md): `netjes export`, static parameters, what cannot be exported, the sitemap, `robots.txt` and other endpoints as files (`.IncludeInExport()`), and Content-Security-Policy for exported pages
 - [Redirects, rewrites and headers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/redirects-rewrites-headers.md): What Next.js configures in `next.config.js`, done with ASP.NET Core
+- [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md): The default headers, Content-Security-Policy in production and in Development and the warnings Netjes logs for a policy, zod without compiled parsers in the browser, antiforgery and origin checks, body limits, redirects and the other defaults
+- [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md): Component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, a page's whole document with `renderDocument`, C# tests of loaders and actions and the test project a new app has, Playwright, a new app's suite and waiting for hydration, and the checks for CI
+- [Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md): Publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies
 - [Coding agents](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md): `llms.txt`, the `AGENTS.md` and skill that new apps get, and `netjes agents` for existing ones
 
 ## Reference
@@ -57,6 +57,8 @@ Netjes ships as the npm package `netjes` (the Vite plugin, the client router, th
 - [Design decisions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/README.md): The index of the decision records: why Netjes is built the way it is
 - [Changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md): What each release contains
 - [Roadmap](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/roadmap.md): What is planned, and what is left out by design
+- [Contributing to Netjes](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CONTRIBUTING.md): How to propose and make a change (not in llms-full.txt)
+- [Security policy](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/SECURITY.md): How to report a vulnerability, and the security model
 - [Benchmarks](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/benchmarks.md): How Netjes is benchmarked, and the results (not in llms-full.txt)
 - [Blog example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/Blog/README.md): A blog with a docs section, a guestbook, a JSON API, streaming, images and a static export (not in llms-full.txt)
 - [TaskBoard example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/README.md): A multi-tenant project tracker on Postgres, with authentication and a production Docker Compose stack (not in llms-full.txt)

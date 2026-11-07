@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -25,12 +26,16 @@ public class DraftModeTests
         });
     }
 
+    /// <summary>
+    /// Turns draft mode on and returns the cookie, which the tests send by hand: outside Development it is
+    /// <c>SameSite=None; Secure</c>, which a browser would not send over plain HTTP.
+    /// </summary>
     private static async Task<string> EnableAsync(TestApp app)
     {
         var response = await app.Client.GetAsync("/api/draft/on", Ct);
         var cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("__netjes_draft=", StringComparison.Ordinal));
         Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("samesite=lax", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(app.App.Environment.IsDevelopment() ? "samesite=lax" : "samesite=none", cookie, StringComparison.OrdinalIgnoreCase);
         return cookie.Split(';')[0];
     }
 
@@ -47,8 +52,13 @@ public class DraftModeTests
         return JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
     }
 
+    /// <summary>The post page and the draft endpoints, in the Development environment unless <paramref name="outputCache"/>.</summary>
+    /// <param name="outputCache">
+    /// Output caching, in the Testing environment with Netjes in development mode: in the Development environment, pages
+    /// are not output-cached.
+    /// </param>
     private static Task<TestApp> StartAsync(
-        Action<WebApplication>? map = null, Action<IServiceCollection>? services = null, Action<WebApplication>? configureApp = null) =>
+        Action<WebApplication>? map = null, Action<IServiceCollection>? services = null, bool outputCache = false) =>
         TestApp.StartAsync(
             ["app/post/page.tsx"],
             map: a =>
@@ -63,8 +73,17 @@ public class DraftModeTests
                     a.MapPageLoader("/post", (IDraftMode draft) => Page.Props(new { Draft = draft.IsEnabled }));
                 }
             },
-            services: services,
-            configureApp: configureApp);
+            services: s =>
+            {
+                services?.Invoke(s);
+                if (outputCache)
+                {
+                    s.AddOutputCache();
+                }
+            },
+            configureApp: outputCache ? a => a.UseOutputCache() : null,
+            environment: outputCache ? "Testing" : "Development",
+            mode: NetjesMode.Development);
 
     [Fact]
     public async Task ByDefault_LoadersSeePublishedContent()
@@ -152,8 +171,7 @@ public class DraftModeTests
             map: a => a
                 .MapPageLoader("/post", (IDraftMode draft) => Page.Props(new { Draft = draft.IsEnabled, Load = Interlocked.Increment(ref loads) }))
                 .CachePage(TimeSpan.FromMinutes(5)),
-            services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            outputCache: true);
         var cookie = await EnableAsync(app);
 
         var published = await GetDataAsync(app, "/post", cookie: null);
@@ -178,8 +196,7 @@ public class DraftModeTests
                 .CacheOutput(policy => policy.Expire(TimeSpan.FromMinutes(5)))
                 // As for a returning visitor who already has the antiforgery cookie: no Set-Cookie, so cacheable.
                 .WithMetadata(new Netjes.Routing.OmitAntiforgeryTokenMetadata()),
-            services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            outputCache: true);
         var cookie = await EnableAsync(app);
 
         JsonNode published, draft;
@@ -237,7 +254,10 @@ public class DraftModeTests
 
                 CdnCacheHeaders.AfterNetjes(a, source, casing);
             },
-            beforeNetjes: CdnCacheHeaders.BeforeNetjes(source, casing));
+            beforeNetjes: CdnCacheHeaders.BeforeNetjes(source, casing),
+            // With and without output caching alike: in the Development environment, pages are not output-cached.
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var cookie = await EnableAsync(app);
 
         var published = await app.Client.GetAsync("/post", Ct);
@@ -319,7 +339,10 @@ public class DraftModeTests
 
                 CdnCacheHeaders.AfterNetjes(a, source, casing);
             },
-            beforeNetjes: CdnCacheHeaders.BeforeNetjes(source, casing));
+            beforeNetjes: CdnCacheHeaders.BeforeNetjes(source, casing),
+            // With and without output caching alike: in the Development environment, pages are not output-cached.
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var cookie = await EnableAsync(app);
 
         foreach (var data in new[] { false, true })

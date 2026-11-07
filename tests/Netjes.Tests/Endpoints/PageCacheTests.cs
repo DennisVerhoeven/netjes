@@ -1,5 +1,8 @@
+using System.Net;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
@@ -34,7 +37,9 @@ public class PageCacheTests
                 });
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         await app.GetDataAsync("/posts/1");
         await app.GetDataAsync("/posts/2");
 
@@ -59,7 +64,9 @@ public class PageCacheTests
             map: a => a.MapPageLoader("/s/[code]", (string code) => Page.Props(new { Value = codes.GetValueOrDefault(code) }))
                 .CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDataJsonAsync("/s/Ab");
         var second = await app.GetDataJsonAsync("/s/aB");
@@ -79,13 +86,27 @@ public class PageCacheTests
         return System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
     }
 
-    private static Task<TestApp> StartWithCookieSharedPropsAsync() =>
+    /// <summary>
+    /// A cached page whose shared props read a cookie. In the Testing environment, with Netjes in development mode
+    /// (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the Development environment.
+    /// </summary>
+    private static Task<TestApp> StartWithCookieSharedPropsAsync(bool development = false, string[]? queryKeys = null) =>
         TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
             configure: o => o.SharedProps = http => ValueTask.FromResult<object?>(new { Theme = http.Request.Cookies["theme"] }),
-            map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5)),
+            map: a =>
+            {
+                var page = a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5));
+                if (queryKeys is not null)
+                {
+                    page.CacheQueryKeys(queryKeys);
+                }
+            },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>
     /// CachePage keeps storing: a render that reads a cookie is stored and served to everyone (the warning says so),
@@ -124,7 +145,9 @@ public class PageCacheTests
             {
                 a.UseOutputCache();
                 a.UseAuthentication();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await app.GetDataAsync("/");
         await app.GetDataAsync("/");
@@ -141,7 +164,9 @@ public class PageCacheTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         await DataWithCookieAsync(app, "/", "theme=dark; __netjes_draft=forged");
         var second = await DataWithCookieAsync(app, "/", "theme=light");
@@ -170,7 +195,9 @@ public class PageCacheTests
                     Interlocked.Increment(ref reads);
                 });
                 a.UseOutputCache();
-            });
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         for (var i = 0; i < 3; i++)
         {
@@ -196,11 +223,315 @@ public class PageCacheTests
         Assert.DoesNotContain("coming", warning.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The warning says a render was stored for every visitor. A render for a query key the page does not name is stored
+    /// nowhere, so that one visitor's value reaches nobody else; a render for a key it names still warns.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ARenderForAnotherKeyThatReadsACookie_DoesNotWarn()
+    {
+        await using var app = await StartWithCookieSharedPropsAsync(queryKeys: ["page"]);
+
+        await DataWithCookieAsync(app, "/posts/1?x=1", "theme=dark");
+
+        Assert.DoesNotContain(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+
+        await DataWithCookieAsync(app, "/posts/1?page=1", "theme=dark");
+
+        Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Shared props run after the renderer has refused storage, but a loader runs before it, while storage is still
+    /// allowed. So what keeps a loader's read quiet is that a render for a key the page does not name has no watch on its cookies.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ALoaderThatReadsACookieForAnotherKey_DoesNotWarn()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/[id]/page.tsx"],
+            map: a => a.MapPageLoader("/posts/[id]", (HttpContext http, string id) => Page.Props(new { Id = id, Theme = http.Request.Cookies["theme"] }))
+                .CachePage(TimeSpan.FromMinutes(5))
+                .CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var other = await DataWithCookieAsync(app, "/posts/1?x=1", "theme=dark");
+
+        Assert.Equal("dark", (string?)other["props"]!["theme"]);
+        Assert.DoesNotContain(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+
+        await DataWithCookieAsync(app, "/posts/1?page=1", "theme=dark");
+
+        Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+    }
+
+    private sealed class NoConventions : IEndpointConventionBuilder
+    {
+        public void Add(Action<EndpointBuilder> convention)
+        {
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void CacheQueryKeys_WithAnEmptyOrNullKey_Throws(string? key)
+    {
+        var thrown = Assert.Throws<ArgumentException>(() => new NoConventions().CacheQueryKeys("page", key!));
+
+        Assert.Equal("keys", thrown.ParamName);
+    }
+
+    [Fact]
+    public void CacheQueryKeys_WithANullArray_Throws()
+    {
+        var thrown = Assert.Throws<ArgumentNullException>(() => new NoConventions().CacheQueryKeys(null!));
+
+        Assert.Equal("keys", thrown.ParamName);
+    }
+
+    /// <summary>
+    /// Groups mix pages and APIs, so the convention does not refuse an endpoint outside the page rules: one that is no page
+    /// and not under CachePage keeps ASP.NET Core's rules, where every query key varies the entry and <c>SetVaryByQuery</c> narrows it.
+    /// </summary>
+    [Fact]
+    public async Task CacheQueryKeys_OnAnEndpointThatIsNoPage_ChangesNothing()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/count", () => Interlocked.Increment(ref calls)).CacheOutput().CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var other = await app.Client.GetStringAsync("/api/count?x=1", Ct);
+        var otherAgain = await app.Client.GetAsync("/api/count?x=1", Ct);
+        var anotherValue = await app.Client.GetStringAsync("/api/count?x=2", Ct);
+        var emptySegment = await app.Client.GetStringAsync("/api/count?&", Ct);
+        var bare = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal("1", other);
+        Assert.Equal("1", await otherAgain.Content.ReadAsStringAsync(Ct));
+        Assert.True(otherAgain.Headers.Age.HasValue);
+        Assert.Null(otherAgain.Headers.CacheControl);
+        Assert.Equal("2", anotherValue);
+        // The parser reads both as no query at all, and ASP.NET Core's key is made from what it read: one entry.
+        Assert.Equal(("3", "3"), (emptySegment, bare));
+    }
+
     [Fact]
     public async Task WithoutOutputCaching_RevalidationIsANoOp()
     {
         await using var app = await TestApp.StartAsync(["app/page.tsx"]);
 
         await app.App.Services.GetRequiredService<IPageCache>().RevalidateTagAsync("anything", Ct);
+    }
+
+    /// <summary>
+    /// In the Development environment no page is stored, which would puzzle anyone who watches a cached page render
+    /// for every request there: the app says why, once.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_AnOutputCachedPage_LogsOnceThatPagesAreNotCachedThere()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/about/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+                a.MapPageLoader("/about", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+            },
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        foreach (var url in new[] { "/", "/about", "/", "/about" })
+        {
+            await app.GetDataAsync(url);
+        }
+
+        var told = Assert.Single(app.Logs, l => l.Category == "Netjes.Rendering.PageCachePolicy");
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Information, told.Level);
+        Assert.Contains("Development", told.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Output caching that caches no page is no cause to say so: no page was going to be stored.</summary>
+    [Fact]
+    public async Task InDevelopment_WithOutputCachingButNoCachedPage_LogsNothing()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/time", () => "now").CacheOutput(),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        await app.GetDocumentAsync("/");
+        await app.GetDataAsync("/");
+        await app.Client.GetStringAsync("/api/time", Ct);
+
+        Assert.DoesNotContain(app.Logs, l => l.Category == "Netjes.Rendering.PageCachePolicy");
+    }
+
+    /// <summary>
+    /// Only pages render for every request in the Development environment: other endpoints, unless <c>CachePage</c>
+    /// marks them, are output-cached as anywhere.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_EndpointsThatAreNotPages_AreStillOutputCached()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/count", () => Interlocked.Increment(ref calls)).CacheOutput(),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var first = await app.Client.GetStringAsync("/api/count", Ct);
+        var second = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal(("1", "1"), (first, second));
+        Assert.Equal(1, calls);
+    }
+
+    /// <summary>
+    /// An endpoint that is no page but that <c>CachePage</c> marks, such as a JSON endpoint in a group it is put on, is
+    /// under the page rules, so in the Development environment it runs for every request as pages do.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_AnEndpointThatIsNoPage_UnderCachePage_RunsForEveryRequest()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup("/api").CachePage(TimeSpan.FromMinutes(5)).MapGet("/count", () => Interlocked.Increment(ref calls)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var first = await app.Client.GetStringAsync("/api/count", Ct);
+        var second = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal(("1", "2"), (first, second));
+        Assert.Equal(2, calls);
+    }
+
+    /// <summary>
+    /// Nothing is stored in the Development environment, so the cookie a render read reaches no other visitor there,
+    /// but it would elsewhere: the warning says both.
+    /// </summary>
+    [Fact]
+    public async Task InDevelopment_ARenderThatReadsACookie_WarnsThatOutsideDevelopmentItIsStored()
+    {
+        await using var app = await StartWithCookieSharedPropsAsync(development: true);
+
+        await DataWithCookieAsync(app, "/posts/1", "theme=dark");
+        await DataWithCookieAsync(app, "/posts/1", "theme=light");
+
+        var warning = Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+        Assert.Contains("outside Development", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("stored", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("every visitor", warning.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The output cache has an identical request wait for the render in progress and hands it that render's result, a
+    /// failure included. A visitor who leaves, while the loader runs or the page streams a deferred value, ends only
+    /// their own request: the page is not stored, and the request that waited renders it for itself.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AVisitorWhoLeaves_DoesNotFailTheRequestWaitingOnTheirRender(bool inTheLoader)
+    {
+        var loads = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arrivals = new Arrivals();
+        // The first visitor's work never ends: it is cancelled when they leave, as work that takes RequestAborted is.
+        // The next request's ends at once.
+        Delegate loader = inTheLoader
+            ? async (string id, HttpContext http) =>
+            {
+                if (Interlocked.Increment(ref loads) == 1)
+                {
+                    started.TrySetResult();
+                    await UntilCancelledAsync(http.RequestAborted);
+                }
+
+                return Page.Props(new { Id = id, Related = Page.Defer(Task.FromResult(2)) });
+            }
+            : (string id, HttpContext http) =>
+            {
+                var first = Interlocked.Increment(ref loads) == 1;
+                started.TrySetResult();
+                return Page.Props(new { Id = id, Related = Page.Defer(first ? UntilCancelledAsync(http.RequestAborted) : Task.FromResult(2)) });
+            };
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/[id]/page.tsx"],
+            map: a => a.MapPageLoader("/posts/[id]", loader).CachePage(TimeSpan.FromMinutes(5)),
+            services: s => s.AddOutputCache(o => o.AddBasePolicy(arrivals)),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        using var leaving = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var firstRequest = new HttpRequestMessage(HttpMethod.Get, "/posts/1");
+        firstRequest.Headers.Add(NetjesHeaders.Data, "1");
+        var first = app.Client.SendAsync(firstRequest, HttpCompletionOption.ResponseHeadersRead, leaving.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        var second = app.GetDataAsync("/posts/1");
+        await arrivals.Second.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        // Past the policies, the second request goes on to wait for the first render. Nothing says when it is there,
+        // so this gives it the time; were it not there yet, it would render for itself, and the test pass regardless.
+        await Task.Delay(200, Ct);
+        await leaving.CancelAsync();
+        try
+        {
+            (await first).Dispose();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        var response = await second.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var lines = (await response.Content.ReadAsStringAsync(Ct)).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, (int?)JsonNode.Parse(lines[1])!["value"]);
+        Assert.Equal(2, loads);
+    }
+
+    private static async Task<int> UntilCancelledAsync(CancellationToken cancellation)
+    {
+        await Task.Delay(Timeout.Infinite, cancellation);
+        return 1;
+    }
+
+    /// <summary>Tells when a second request reaches the output cache's policies.</summary>
+    private sealed class Arrivals : IOutputCachePolicy
+    {
+        private int _count;
+
+        public TaskCompletionSource Second { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
+        {
+            if (Interlocked.Increment(ref _count) == 2)
+            {
+                Second.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask ServeFromCacheAsync(OutputCacheContext context, CancellationToken cancellation) => ValueTask.CompletedTask;
+
+        public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation) => ValueTask.CompletedTask;
     }
 }

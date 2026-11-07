@@ -81,6 +81,7 @@ public class CacheControlTests
         Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
     }
 
+    /// <summary>Outside the Development environment, a page the output cache stores goes out without <c>Cache-Control</c>.</summary>
     [Fact]
     public async Task CachedPages_AreLeftToOutputCaching()
     {
@@ -88,7 +89,9 @@ public class CacheControlTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var response = await app.GetDataAsync("/");
 
@@ -105,6 +108,7 @@ public class CacheControlTests
     [InlineData("nonce")]
     [InlineData("not found")]
     [InlineData("cookie")]
+    [InlineData("another query key")]
     public async Task CachedPages_RenderedButNotStored_AreKeptOutOfEveryCache(string reason)
     {
         await using var app = await TestApp.StartAsync(
@@ -118,7 +122,7 @@ public class CacheControlTests
                 }
 
                 return reason == "not found" ? Page.NotFound() : Page.Props();
-            }).CachePage(TimeSpan.FromMinutes(1)),
+            }).CachePage(TimeSpan.FromMinutes(1)).CacheQueryKeys("page"),
             services: s => s.AddOutputCache(),
             configureApp: a =>
             {
@@ -133,8 +137,10 @@ public class CacheControlTests
                 }
 
                 a.UseOutputCache();
-            });
-        var request = new HttpRequestMessage(HttpMethod.Get, "/");
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var request = new HttpRequestMessage(HttpMethod.Get, reason == "another query key" ? "/?x=1" : "/");
         if (reason == "authorization header")
         {
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "token");
@@ -145,6 +151,38 @@ public class CacheControlTests
         Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
     }
 
+    /// <summary>
+    /// CacheQueryKeys changes only whether the output cache keeps a response: a declared key's response is stored and
+    /// left to output caching, and a page that sets its own header keeps it for any other key too.
+    /// </summary>
+    [Theory]
+    [InlineData("/?page=1", null)]
+    [InlineData("/", null)]
+    [InlineData("/?x=1", "public, max-age=60")]
+    [InlineData("/?page=1", "public, max-age=60")]
+    public async Task CachedPages_WithCacheQueryKeys_KeepTheHeaderTheyWouldHaveHad(string url, string? set)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", (HttpContext http) =>
+            {
+                if (set is not null)
+                {
+                    http.Response.Headers.CacheControl = set;
+                }
+
+                return Page.Props();
+            }).CachePage(TimeSpan.FromMinutes(1)).CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var response = await app.Client.GetAsync(url, Ct);
+
+        Assert.Equal(set, response.Headers.CacheControl?.ToString());
+    }
+
     [Fact]
     public async Task CachedPages_StoredDocuments_AreLeftToOutputCaching()
     {
@@ -152,7 +190,9 @@ public class CacheControlTests
             ["app/page.tsx"],
             map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
         var first = await app.GetDocumentAsync("/");
         var stored = await app.GetDocumentAsync("/");
@@ -172,6 +212,46 @@ public class CacheControlTests
                 http.Response.Headers[HeaderNames.CacheControl] = "public, max-age=60";
                 return Page.Props();
             }));
+
+        var response = await ReturningVisitAsync(app, "/", data: true);
+
+        Assert.Equal("public, max-age=60", response.Headers.CacheControl?.ToString());
+    }
+
+    /// <summary>
+    /// In the Development environment an output-cached page renders for every request and is not stored, so the browser
+    /// does not keep it either: Back after an edit would show the page from before it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InDevelopment_AnOutputCachedPage_GoesOutNoStore(bool data)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props()).CachePage(TimeSpan.FromMinutes(1)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
+
+        var response = await ReturningVisitAsync(app, "/", data);
+
+        Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task InDevelopment_AnOutputCachedPageThatSetsItsOwnHeader_KeepsIt()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", (HttpContext http) =>
+            {
+                http.Response.Headers[HeaderNames.CacheControl] = "public, max-age=60";
+                return Page.Props();
+            }).CachePage(TimeSpan.FromMinutes(1)),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            developmentOutputCache: true);
 
         var response = await ReturningVisitAsync(app, "/", data: true);
 

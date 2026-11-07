@@ -22,6 +22,8 @@ public interface ISsrRenderer
     /// <summary>
     /// Delivers a deferred value (its JSON, or an error message) to the render with that id. Called as soon as
     /// <see cref="RenderStreamAsync"/> has been called, before it returns: a complete document needs its values first.
+    /// An empty <paramref name="error"/> is a failure whose message is withheld (error details are off, or the
+    /// exception's message is empty): pass it on as it is, so that the browser rejects the value with its own stand-in.
     /// </summary>
     Task ResolveAsync(string renderId, string id, string? valueJson, string? error, CancellationToken cancellationToken) =>
         Task.CompletedTask;

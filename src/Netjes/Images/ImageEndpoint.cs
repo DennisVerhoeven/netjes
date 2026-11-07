@@ -12,13 +12,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
+using Netjes.Routing;
 
 namespace Netjes.Images;
 
 /// <summary>
-/// <c>GET /_netjes/image?url=&amp;w=&amp;q=</c>: the <c>&lt;Image&gt;</c> component's optimizer, like Next.js's
-/// <c>/_next/image</c>. Serves files from <c>public/</c> (the client build in production) or allow-listed remote
-/// hosts, at configured widths only, through the registered <see cref="IImageProcessor"/>.
+/// <c>GET</c> and <c>HEAD /_netjes/image?url=&amp;w=&amp;q=</c>: the <c>&lt;Image&gt;</c> component's optimizer, like
+/// Next.js's <c>/_next/image</c>. Serves files from <c>public/</c> (the client build in production) or allow-listed
+/// remote hosts, at configured widths only, through the registered <see cref="IImageProcessor"/>.
 /// </summary>
 internal static class ImageEndpoint
 {
@@ -30,9 +31,11 @@ internal static class ImageEndpoint
     {
         var options = endpoints.ServiceProvider.GetRequiredService<NetjesContext>().Options.Images;
         endpoints
-            .MapGet(options.Path, HandleAsync)
+            // HEAD too, which link checkers and crawlers send: with GET alone, a HEAD would get the not-found page. It
+            // processes the image as a GET does, and the output cache keys it by the method, so it has entries of its own.
+            .MapMethods(options.Path, [HttpMethods.Get, HttpMethods.Head], HandleAsync)
             .WithDisplayName("Netjes image optimizer")
-            .WithMetadata(SameForEveryone.Instance)
+            .WithMetadata(SameForEveryone.Instance, NetjesEndpointMetadata.Instance)
             .ExcludeFromDescription()
             // Keyed by what changes the output: the canonical query (anything else is a 400), the image as fetched and the
             // negotiated format. The raw Accept header has endless spellings of the same preference, and the Host header

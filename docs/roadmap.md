@@ -4,15 +4,15 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 ## Now
 
-- **The 0.0.1 release.** The packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template.
+- **Early releases (0.0.x).** The packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. What each release changed is in the [changelog](../CHANGELOG.md).
 
 ## Next
 
 - **Apps without Node in production.** An option to render every page in the browser, from the client-rendered document Netjes already serves while no Node process is ready, so an app runs on .NET alone. Loaders, actions, typed props and client navigation keep working. What goes is what server rendering gives: HTML for crawlers and link previews, the metadata in that HTML, forms that work before the JavaScript loads, and caching of documents (a client-rendered document goes out `no-store`; data payloads can still be cached). It revisits [ADR 0001](decisions/0001-react-renders-in-node-sidecars.md), which chose server rendering, so it starts with a new decision record.
 - **Instant loading.** On a client navigation, show the target's `loading.tsx` at once inside the layouts it shares with the current page, then stream in the layout loaders' props and the page as they are ready, instead of waiting for the whole payload.
-- **Caching depth.** Stale-while-revalidate for cached pages, cache profiles, tags added by a loader at render time, revalidation by route pattern or layout, and a cached shell that is filled for an anonymous visitor, for pages with a part that differs per visitor.
+- **Caching depth.** Stale-while-revalidate for cached pages, cache profiles, tags added by a loader at render time, revalidation by route pattern or layout, a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and a cached shell that is filled for an anonymous visitor, for pages with a part that differs per visitor.
 - **Metadata and images.** The metadata file conventions in `app/` (`icon`, `apple-icon`, `opengraph-image`, `twitter-image`, `manifest`), generated Open Graph images, richer sitemaps and `robots.txt`, `metadataBase` and `viewport`, and more of `<Image>`: `fill`, blur placeholders and static imports.
-- **Client navigation in static exports.** Write each page's payload next to its HTML, so exported sites navigate without full page loads, with a trailing-slash option, the sitemap and `robots.txt` in the export, and images resized at export time.
+- **Client navigation in static exports.** Write each page's payload next to its HTML, so exported sites navigate without full page loads, files written to match `TrailingSlash` (and a `TrailingSlash.Always`), and images resized at export time.
 - **Bundle size.** Smaller first-load JavaScript: generated schemas split per route and free of side effects, so bundlers can drop what a page does not use, and `dynamic()` chunks preloaded from the build manifest.
 - **Error handling.** An id for each server error, logged with the exception and shown to the user, a way to retry the failed segment from `error.tsx`, and a global error boundary in the browser.
 - **Internationalisation.** Redirects from paths without a locale, `hreflang` alternates from the supported cultures, and optional domains per locale.
@@ -22,11 +22,13 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 - Partial prerendering: a cached HTML shell, resumed by React with the parts that differ per request.
 - valibot as an alternative to zod in the generated file.
+- Endpoints with route values in the export: an overload of `.IncludeInExport()` that lists them, as `.StaticParams(...)` does for pages.
 - Navigations that keep what an unmatched parallel-route slot showed, as Next.js does after a soft navigation.
+- Back and Forward that give the focus back to the element that had it when the user left the entry, found again in the page that renders anew ([ADR 0033](decisions/0033-client-navigations-announce-the-page-and-start-the-focus-over.md)).
 - A `__Host-` antiforgery cookie by default. It is an opt-in today for apps served only over HTTPS: as a default it would break plain-HTTP development and `UsePathBase`.
-- `<Link>` treating `/x` and `/x/` as the same page for `aria-current`.
 - AVIF output for `<Image>`, from a second image processor.
 - Typegen edge cases: item nullability for collection subclasses (`class Tags : List<string?>`), `UnknownDerivedTypeHandling.FallBackToBaseType` in discriminated unions, and read semantics (defaulted properties optional, computed ones left out) for JSON endpoint request schemas, as server action inputs have.
+- Agent files that follow the installed version. `netjes new` and `netjes agents` copy the `netjes` skill and `AGENTS.md` into an app with links to the docs on `main`, which can describe a newer version than the app has. Linking the installed version's tag instead needs a way to bring those copies up to date when the app upgrades Netjes; today that is a step by hand ([Coding agents](guides/coding-agents.md#after-upgrading-netjes)).
 
 ## Not planned
 

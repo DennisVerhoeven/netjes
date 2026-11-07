@@ -57,6 +57,7 @@ internal sealed class PagesEndpointDataSource(IRouteTableProvider routes, PageLo
             };
             builder.Metadata.Add(ReadMethods);
             builder.Metadata.Add(new PageEndpointMetadata(route.Pattern));
+            builder.Metadata.Add(new PageRouteMetadata(route.Pattern, isLoader: false));
             layouts.ApplyConventions(route, builder);
             _conventions.ForEach(convention => convention(builder));
             _finallyConventions.ForEach(convention => convention(builder));

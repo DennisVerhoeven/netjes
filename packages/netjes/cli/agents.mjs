@@ -4,7 +4,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fillNames, projectNames, readTemplate, skillFiles } from './scaffold.mjs';
+import { fillNames, keepSections, projectNames, readTemplate, skillFiles } from './scaffold.mjs';
 
 /**
  * The app's names: from `--name`, else its one project file (whose name is its root namespace), else its directory,
@@ -27,6 +27,20 @@ async function namesOf(io, dir, name) {
 }
 
 /**
+ * Whether the app's package.json has that script; one that is missing or not valid JSON has none.
+ * @param {string} dir
+ * @param {string} name
+ */
+async function hasScript(dir, name) {
+  try {
+    const manifest = /** @type {{ scripts?: Record<string, unknown> }} */ (JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')));
+    return typeof manifest.scripts?.[name] === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {import('./main.mjs').CliIo} io
  * @param {string} dir
  * @param {{ name?: string; force: boolean }} options
@@ -38,8 +52,17 @@ export async function agents(io, dir, options) {
     return 1;
   }
   const names = await namesOf(io, dir, options.name);
+  // AGENTS.md sends an agent only to the test suites this app has where `netjes new` puts them, and to the script
+  // it names.
+  const has = {
+    tests: existsSync(path.join(dir, 'tests', `${names.dotnet}.Tests`, `${names.dotnet}.Tests.csproj`)),
+    e2e:
+      existsSync(path.join(dir, 'playwright.config.ts')) &&
+      statSync(path.join(dir, 'e2e'), { throwIfNoEntry: false })?.isDirectory() === true &&
+      (await hasScript(dir, 'test:e2e')),
+  };
   const files = [
-    { path: 'AGENTS.md', text: fillNames(await readTemplate('_AGENTS.md'), names) },
+    { path: 'AGENTS.md', text: fillNames(keepSections(await readTemplate('_AGENTS.md'), has), names) },
     { path: 'CLAUDE.md', text: await readTemplate('_CLAUDE.md') },
     ...(await skillFiles()),
   ];

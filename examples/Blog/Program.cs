@@ -19,10 +19,14 @@ builder.Services.AddNetjes(options =>
     // Only scripts Netjes rendered (and what they load) may run.
     options.ContentSecurityPolicy = "script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'self'";
 
-    // Available in every page and layout through useSharedProps(sharedProps); typed in generated/netjes.ts.
+    // Available in every page and layout through useSharedProps(sharedProps); typed in generated/netjes.ts, where
+    // each Href is the Href schema, so the links reach <Link> checked against the app's pages.
     options.UseSharedProps(_ => ValueTask.FromResult(new SiteProps(
         "Netjes Blog",
-        [new("/blog", "Blog"), new("/docs/introduction", "Docs"), new("/guestbook", "Guestbook"), new("/about", "About")])));
+        [
+            new(new Href("/blog"), "Blog"), new(new Href("/docs/introduction"), "Docs"), new(new Href("/guestbook"), "Guestbook"),
+            new(new Href("/about"), "About"),
+        ])));
 });
 // <Image> resizes and serves WebP through SkiaSharp; without this it serves originals.
 builder.Services.AddNetjesSkiaImages();
@@ -61,6 +65,8 @@ if (app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>
 app.UseNetjes();
 app.UseRateLimiter();
 app.UseAntiforgery();
+// For the posts' .CachePage, in every environment: in Development, Netjes renders every page for each request instead
+// and stores none, so an edit shows on the next request.
 app.UseOutputCache();
 
 app.MapHealthChecks("/healthz");
@@ -69,7 +75,8 @@ app.MapPostLikesApi();
 app.MapDocsPages();
 app.MapGuestbookPage();
 app.MapStreamingDemo();
-// sitemap.xml from the route table (docs through their StaticParams), and robots.txt pointing at it.
+// sitemap.xml from the route table (docs through their StaticParams), and robots.txt pointing at it. netjes export
+// writes both files from this URL, so set SiteUrl for an export that goes online.
 var siteUrl = new Uri(app.Configuration["SiteUrl"] ?? "http://localhost:5080");
 app.MapSitemap(siteUrl);
 app.MapRobotsTxt(siteUrl);

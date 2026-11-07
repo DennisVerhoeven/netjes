@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { useHref } from 'netjes';
 import { useOptimistic, useTransition } from 'react';
-import { LikesResponse, serverActions } from '../generated/netjes.ts';
+import { LikesResponse, endpointUrl, serverActions } from '../generated/netjes.ts';
 
 /** Query keys. The post loader and the like action set `likes/<slug>` from C#, so keep the two in sync. */
 export const likeKeys = {
@@ -11,19 +12,21 @@ export const likeKeys = {
 /** The C# server action app.MapAction("posts.like", ...), typed from its signature by the generator. */
 const likePost = serverActions['posts.like'];
 
-async function fetchLikes(slug: string): Promise<LikesResponse> {
-  const response = await fetch(`/api/posts/${encodeURIComponent(slug)}/likes`);
+async function fetchLikes(url: string): Promise<LikesResponse> {
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Likes request failed with ${response.status}`);
   return LikesResponse.parse(await response.json());
 }
 
 /**
- * The count is server-rendered from the query the C# loader seeds, and refetched once the page is interactive (the
- * page is cached for 30 seconds). Liking calls a server action; the count goes up at once (useOptimistic) and the
- * action's result replaces it.
+ * The count is server-rendered from the query the C# loader seeds, and refetched once the page is interactive: outside
+ * Development, the payload of a client navigation to the post can come from the output cache, up to 30 seconds old.
+ * Liking calls a server action; the count goes up at once (useOptimistic) and the action's result replaces it.
  */
 export function LikeButton({ slug }: { slug: string }) {
-  const likes = useQuery({ queryKey: likeKeys.detail(slug), queryFn: () => fetchLikes(slug), staleTime: 0 });
+  // The C# endpoint likes.MapGet("/", ...) in PostLikesApi.cs, typed by the generator, under the app's base path.
+  const url = useHref(endpointUrl('GET /api/posts/{slug}/likes/', { slug }));
+  const likes = useQuery({ queryKey: likeKeys.detail(slug), queryFn: () => fetchLikes(url), staleTime: 0 });
   const [pending, startTransition] = useTransition();
   const [count, addLike] = useOptimistic(likes.data?.likes, (current) => (current ?? 0) + 1);
 

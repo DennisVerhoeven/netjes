@@ -2,7 +2,7 @@
 
 This page lists the public API of the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages: every public type and extension method, grouped by what it is for, each with its signature and what it does. It is a reference for app developers; the guides show how the pieces fit together. Options are listed separately, in the [options reference](options.md).
 
-Extension methods live in the namespaces of what they extend, which a web project imports already: `Microsoft.AspNetCore.Builder` (`UseNetjes`, `MapPages`, `MapPageLoader`, ...), `Microsoft.Extensions.DependencyInjection` (`AddNetjes`, ...), `Microsoft.Extensions.Hosting` and `Microsoft.AspNetCore.Http`; the sitemap's are in `Netjes`. The types are in `Netjes`, which the package's build targets import into projects with implicit usings, and in `Netjes.Images`, `Netjes.Images.SkiaSharp`, `Netjes.Rendering` and `Netjes.Routing`.
+Extension methods live in the namespaces of what they extend, which a web project imports already: `Microsoft.AspNetCore.Builder` (`UseNetjes`, `MapPages`, `MapPageLoader`, ...), `Microsoft.Extensions.DependencyInjection` (`AddNetjes`, ...), `Microsoft.Extensions.Hosting` and `Microsoft.AspNetCore.Http`; the sitemap's are in `Netjes`. The types are in `Netjes`, which the package's build targets import into the project that references the package, when implicit usings are on, and in `Netjes.Images`, `Netjes.Images.SkiaSharp`, `Netjes.Rendering` and `Netjes.Routing`. A test project that references the app's project gets the types but not the targets, so it adds `<Using Include="Netjes" />` itself, as a new app's test project does.
 
 The extension methods belong to these static classes, which app code never names:
 
@@ -10,8 +10,8 @@ The extension methods belong to these static classes, which app code never names
 |---|---|---|
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
-| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage` |
-| `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport` |
+| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `CacheQueryKeys` |
+| `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
 | `NetjesHostExtensions` | `Microsoft.Extensions.Hosting` | `GetNetjesCommand` |
@@ -35,7 +35,7 @@ Registers Netjes: options bound from the `Netjes` configuration section and then
 public static IApplicationBuilder UseNetjes(this IApplicationBuilder app)
 ```
 
-Adds static files (`public/` in development; the client build in production, with `immutable` caching for the hashed files in `/assets` and Vite's `.vite/` folder never served), routing, and the middleware that renders the nearest `error.tsx` for exceptions and empty error responses of pages. It also stamps every client payload with the server's clock (`X-Netjes-Now`). Call it before authentication and before `UseOutputCache()`. A server action that fails without JavaScript renders its form's page by running the pipeline again from here, so middleware registered before `UseNetjes()` does not run for that render. In production it reads the client build's manifest, and throws when it is missing, saying what to run: an app that does not catch it logs that in one line and exits with code 1. It also stops an app with Next.js pages router files in a `pages/` folder, naming the `app/` file to move each one to, and the API routes in `pages/api/` to map as minimal API endpoints ([Routing](../guides/routing.md#what-is-not-there)).
+Adds static files (`public/` in development; the client build in production, with `immutable` caching for the hashed files in `/assets` and Vite's `.vite/` folder never served), routing, and the middleware that renders the nearest `error.tsx` for exceptions and empty error responses of pages. It also stamps every client payload with the server's clock (`X-Netjes-Now`), and adds `X-Content-Type-Options: nosniff` to every response that passes through it, unless the response has that header when it starts or `Netjes:SecurityHeaders:Enabled` is false ([security](../guides/security.md#security-headers)). Last, after routing, it answers a `GET` or `HEAD` for a page in another case of the literal segments its file names with a 308 to the file's spelling (a client navigation gets a redirect payload), as `RedirectLiteralCase` (on by default) asks, and does the same for the `/robots.txt` and `/sitemap.xml` that `MapRobotsTxt` and `MapSitemap` serve. When `TrailingSlash` is `Never`, it answers one with a trailing slash in the same way, whether or not `RedirectLiteralCase` is on ([One URL per page](../guides/routing.md#one-url-per-page)). Call it before authentication and before `UseOutputCache()`, which then never stores a spelling these settings redirect: another case of a literal segment, and under `Never` a trailing slash. A server action that fails without JavaScript renders its form's page by running the pipeline again from here, so middleware registered before `UseNetjes()` does not run for that render. In production it reads the client build's manifest, and throws when it is missing, saying what to run: an app that does not catch it logs that in one line and exits with code 1. It also stops an app with Next.js pages router files in a `pages/` folder, naming the `app/` file to move each one to, and the API routes in `pages/api/` to map as minimal API endpoints ([Routing](../guides/routing.md#what-is-not-there)).
 
 ### MapPages
 
@@ -43,7 +43,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`), the antiforgery token endpoint (`/_netjes/antiforgery`), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
 
 ### AddNetjes (health checks)
 
@@ -51,7 +51,7 @@ Maps every page file that has no `MapPageLoader`, a lowest-priority fallback tha
 public static IHealthChecksBuilder AddNetjes(this IHealthChecksBuilder builder)
 ```
 
-Adds a health check named `netjes` for the Node processes: Healthy when all are ready, Degraded while some restart, Unhealthy when none is ready. See [deployment](../guides/deployment.md#health-checks).
+Adds a health check named `netjes` for the Node processes: Healthy when all are ready, Degraded while some restart, Unhealthy when none is ready. A process counts as restarting from the moment it is taken out: when it exits, and in production also when it stops answering. See [deployment](../guides/deployment.md#health-checks).
 
 ### GetNetjesCommand
 
@@ -59,7 +59,7 @@ Adds a health check named `netjes` for the Node processes: Healthy when all are 
 public static string? GetNetjesCommand(this IHost host)
 ```
 
-The `netjes` CLI command this run of the app is for (`generate`, `routes` or `export`), or `null` for an ordinary run. `generate` and `routes` answer no requests, so startup work they do not need can be skipped: `if (app.GetNetjesCommand() is null) await SeedAsync(app.Services);`. `export` renders every page, so it needs what the pages need.
+The `netjes` CLI command this run of the app is for (`generate`, `routes` or `export`), or `null` for an ordinary run. `generate` and `routes` answer no requests, so startup work they do not need can be skipped: `if (app.GetNetjesCommand() is null) await SeedAsync(app.Services);`. `export` requests every page and each endpoint marked `.IncludeInExport()`, so it needs what they need.
 
 ## Pages and loaders
 
@@ -186,6 +186,36 @@ public sealed class Deferred<T>;
 
 The type of a `Page.Defer` prop. Declare props with it (`Deferred<IReadOnlyList<Comment>> Comments`); the generated TypeScript types it as a `deferred()` schema. It serializes as a placeholder, and only inside page and layout props.
 
+### Href
+
+```csharp
+[JsonConverter(typeof(HrefJsonConverter))]
+public sealed class Href : IEquatable<Href>
+{
+    public Href(string url);
+    public string Value { get; }
+    public static bool TryCreate(string? url, out Href? href);
+    public bool Equals(Href? other);
+    public override string ToString();
+    public static bool operator ==(Href? left, Href? right);
+    public static bool operator !=(Href? left, Href? right);
+    public static implicit operator string?(Href? href);
+}
+
+public sealed class HrefJsonConverter : JsonConverter<Href>;
+```
+
+A link in props, to one of the app's pages or to another site: a root-relative URL without the base path (`/blog/hello`, `/docs/guides/caching#keys`), a query or a fragment of the page on screen (`?page=2`, `#top`), or an `http:`, `https:`, `mailto:` or `tel:` URL. The generated TypeScript types a property of this type as the `Href` schema, which checks it against the app's pages where the props are parsed, so a component passes it to `<Link>` without `Href.parse` or a cast ([Links from C#](../guides/data-loading.md#links-from-c)). `Href?`, lists, dictionaries and `Deferred<Href>` are generated as `Href.nullable()`, `z.array(Href)`, `z.record(z.string(), Href)` and `deferred(Href)`.
+
+- `new Href(url)` throws `ArgumentException` for a URL that starts with none of `/`, `?`, `#`, `http:`, `https:`, `mailto:` and `tel:` (the schemes in any case); starts with `//` or `/\`, which browsers read as another host; holds an ASCII control character, such as a tab or a newline, which browsers drop (`/\t/evil.example` goes to `evil.example`); or starts or ends with a space. It throws `ArgumentNullException` for `null`. `TryCreate` checks the same and returns `false`, with `href` set to `null`, where the constructor would throw.
+- C# checks the shape of the URL, not whether it is a page: `/llms.txt` and a URL that already has the base path are valid here. Where the props are parsed, on the server and in the browser, a root-relative `Href` that no page serves fails the parse with `Invalid props: …` (`Invalid layout props: …` or `Invalid shared props: …` for those), which goes to the nearest error boundary. A server render answers that with status 500 only when the component that parses is outside every Suspense boundary; under one, such as a `loading.tsx`, the document goes out with the loader's status and that boundary's fallback, and the error page shows once the parse fails in the browser. Make an `Href` only of a URL the code knows to be a page; a link to an endpoint or a file stays a `string`.
+- It has no base path: the client router adds the app's, as it does for every root-relative link. `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so pass them `pathBase: PathString.Empty` for a URL that goes into an `Href`.
+- JSON holds it as a plain string, in props and in any other JSON written with the app's options: the type names its converter, `HrefJsonConverter`, which is public so that a System.Text.Json source-generated context (`JsonSerializerContext`) in the app can create it too. Reading a string without that shape, or a number, an object or an array, throws `JsonException` (`null` reads as `null`), so a minimal API answers a JSON request body that holds one with 400.
+- Minimal APIs bind no query value, route value or header to it: it has no conversion from `string`, no `TryParse` and no `BindAsync`. The constructor's parameter, `url`, matches no property, so `[AsParameters]` refuses the type as well, and a loader parameter of type `Href`, with or without `[AsParameters]`, stops the app at startup. Form binding builds one from a field named after the constructor's parameter (`next.url` for a property `Next`), checked for its shape only, so any `https:` URL fills it, and never from the field of the property's own name (`next`), which leaves an `init` property `null` and fails a positional record's post with 400. Keep `Href` out of `[FromForm]` inputs and take a `string`. A URL from the request, such as a `returnUrl`, stays a `string`: check it with `Page.IsLocalUrl` and redirect with `Page.LocalRedirect`.
+- Two values are equal when their URLs are the same, character by character. `Value` and `ToString()` return the URL, and an `Href` converts to `string` wherever one is expected.
+
+The name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `Href` gets CS0104 for it. Qualify one of the two, or give one an alias (`using SiteHref = MyCms.Href;`).
+
 ## Metadata, sitemap and robots
 
 ### PageMetadata
@@ -238,10 +268,11 @@ public static TBuilder ExcludeFromSitemap<TBuilder>(this TBuilder builder) where
 
 In the `Netjes` namespace (`SitemapEndpointRouteBuilderExtensions`), like Next.js's `app/sitemap.ts` and `app/robots.ts`.
 
-- `MapSitemap` serves `/sitemap.xml`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
-- `MapRobotsTxt` serves `/robots.txt`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
+- `MapSitemap` serves `/sitemap.xml`, for `GET` and `HEAD`: every page without route parameters, and dynamic pages through their `.StaticParams(...)`, as absolute URLs under `siteUrl` and the base path. Pages that require authorization (their own, or the fallback policy's unless they are `.AllowAnonymous()`) or call `.ExcludeFromSitemap()` are left out. The list of pages is built at most once per `cacheFor` (default an hour) and the response is sent with that `max-age`. Base paths are percent-encoded in the URLs. The XML is stored for the first eight base paths requested in each `cacheFor`; others, which a client can cause through `X-Forwarded-Prefix`, are built from the stored list on each request. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), it answers 404 without building anything.
+- `MapRobotsTxt` serves `/robots.txt`, for `GET` and `HEAD`: `User-agent: *`, a `Disallow` line for each path in `disallow` (or `Allow: /` without any), and a `Sitemap:` line with the sitemap's absolute URL, under `siteUrl` and the base path like `MapSitemap`'s.
+- `netjes export` writes both files, since both carry `IncludeInExport`, unless the call is `.ExcludeFromExport()`. In the export, the sitemap lists the pages the export writes, in its order, without those marked `.ExcludeFromSitemap()`, so a page marked `.ExcludeFromExport()` is not listed. Both use the `siteUrl` passed in the environment the export runs in, Production unless `ASPNETCORE_ENVIRONMENT` says otherwise, and the export logs a warning when it is a loopback address such as `http://localhost:5080` ([static export](../guides/static-export.md#sitemap-and-robotstxt)).
 
-Both endpoints allow anonymous access.
+Both endpoints allow anonymous access, and answer a `HEAD` with the status and headers of a `GET`, without the body. Each answers one spelling of its path, as a page does: another case (`/Sitemap.xml`), or a trailing slash under `TrailingSlash.Never`, gets a 308 to `/sitemap.xml` or `/robots.txt`, as `RedirectLiteralCase` and `TrailingSlash` ask ([One URL per page](../guides/routing.md#one-url-per-page)).
 
 ## Server actions
 
@@ -295,8 +326,8 @@ public sealed class ServerActionResult : IResult
 
 | Method | What it does |
 |---|---|
-| `Revalidate(tags)` | Evicts output-cached pages with these tags, then the client loads its page again. |
-| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. |
+| `Revalidate(tags)` | Evicts every output-cache entry with these tags, then the client loads its page again: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))` ([endpoints that are not pages](../guides/caching.md#endpoints-that-are-not-pages)). |
+| `RevalidatePath(paths)` | Evicts the output-cached pages at these paths (any query string, case and trailing slash aside), then the client loads its page again. It evicts pages only, never the entry of an endpoint that is not a page. |
 | `Refresh()` | The client loads its current page again (every loader runs) once the action completes. |
 | `Invalidate(queryKeys)` | Invalidates these TanStack Query keys, and those they prefix, on the client, so they are fetched again. |
 | `WithQuery(queryKey, data)` | Sets a TanStack Query entry on the client, such as the updated record, without a fetch. Throws for an empty key. |
@@ -310,7 +341,16 @@ public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan durat
     where TBuilder : IEndpointConventionBuilder
 ```
 
-Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). See [caching](../guides/caching.md).
+Output-caches the page for `duration`, tagged with `tags`, on ASP.NET Core output caching (`AddOutputCache()` and `UseOutputCache()`, after `UseNetjes()` and authentication), like incremental static regeneration. Entries are keyed by the page rules: the path and query as sent, document or payload, the layouts the client holds, the build. To keep query strings the page does not read out of the cache, add [`CacheQueryKeys`](#cachequerykeys). Pages under it never carry an antiforgery token. It also keys an endpoint that is no page but renders one (`Page.Render`). Each endpoint it is put on carries `duration` and `tags` as [`CachedPageMetadata`](#endpoint-metadata). It keeps its own copy of `tags`, so changing the array after the call changes neither the metadata nor the tags the entries get. In the Development environment nothing is stored: each request renders the page, which goes out `no-store, private` unless it sets its own `Cache-Control` ([caching](../guides/caching.md#in-the-development-environment)). See [caching](../guides/caching.md).
+
+### CacheQueryKeys
+
+```csharp
+public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+    where TBuilder : IEndpointConventionBuilder
+```
+
+Names the query keys an output-cached page reads, so that other query strings add no entries. A request is cached as usual, keyed on its query string as sent, when it has no query string or when every segment of its query string has a name in `keys`, decoded as `Request.Query` decodes it and compared without regard to case. Any other request, with another key, an empty segment (`?`, `?page=2&`) or a segment without a name (`?=1`), is rendered for itself: it is neither served from the output cache nor stored in it, the page rendered for it goes out `Cache-Control: no-store, private` unless the page sets its own (or a visitor's first page sets the antiforgery cookie, under output caching other than `CachePage`, and gets ASP.NET Core's `no-cache, no-store`), and its payload keeps the URL as sent. A loader's redirect is not stored either, and carries no `Cache-Control`, as on any page. With no keys, every query string is treated so. It applies to a page under any output caching and to an endpoint `CachePage` is put on, in either order of the calls. It does not turn caching on, and on an endpoint the page rules do not apply to, it does nothing and does not throw, since a route group can mix pages and APIs: use `SetVaryByQuery` there. Of two calls on one endpoint, the last decides. On a layout loader it applies to each page below the layout, unless a later call replaces it there: the page's own, or, for a page without a loader, one on `MapPages()`. A `null` array throws `ArgumentNullException`, and a `null` or empty key `ArgumentException`. See [query strings a page does not read](../guides/caching.md#query-strings-a-page-does-not-read).
 
 ### IPageCache
 
@@ -322,7 +362,7 @@ public interface IPageCache
 }
 ```
 
-Evicts output-cached pages from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidatePathAsync` evicts the document and the payloads of the path. Without output caching both do nothing. Inject it.
+Evicts output-cache entries from anywhere (a webhook, a background job), like `revalidateTag` and `revalidatePath` outside actions. `RevalidateTagAsync` evicts every entry with the tag: pages tagged with `CachePage`, and endpoints of the app tagged with `.CacheOutput(p => p.Tag(...))`. `RevalidatePathAsync` evicts the document and the payloads of the page at the path, and never the entry of an endpoint that is not a page. Without output caching both do nothing. Inject it.
 
 ### IDraftMode
 
@@ -345,10 +385,12 @@ public static TBuilder StaticParams<TBuilder>(this TBuilder builder, Func<IServi
 public static RouteHandlerBuilder StaticParams<TService>(this RouteHandlerBuilder builder, Func<TService, IEnumerable<object>> parameters)
     where TService : notnull;
 public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder;
+public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder;
 ```
 
 - `StaticParams` lists the route values a dynamic page is exported for, like `generateStaticParams`: one object per page (`new { slug = "hello" }`), with arrays for catch-all parameters. The second overload resolves `TService` for you. `MapSitemap` uses the same list.
-- `ExcludeFromExport` leaves the page out of `netjes export`.
+- `ExcludeFromExport` leaves the page out of `netjes export`. On an endpoint marked `IncludeInExport`, such as `MapSitemap` or `MapRobotsTxt`, it leaves that endpoint's file out.
+- `IncludeInExport` makes `netjes export` write an endpoint that is no page as a file at its URL: it requests it with a `GET` without a query string after the pages, and writes the body of its 200 byte for byte, without its headers, like a Next.js route handler with `dynamic = 'force-static'`. The endpoint must answer `GET`, have no route parameters, end in a file extension (`/llms.txt`, `/feeds/news.xml` under a route group) and allow anonymous requests, and no file of the client build may have its path; otherwise the export fails before it writes anything. The same goes for a path segment that cannot be a file name, a path another output file has or needs as a directory, and a Windows device name. Any status other than 200 fails the export, and an endpoint that reads the query string is warned about. `ExcludeFromExport` wins over it. `MapSitemap` and `MapRobotsTxt` carry it ([other endpoints as files](../guides/static-export.md#other-endpoints-as-files-includeinexport)).
 
 See [static export](../guides/static-export.md).
 
@@ -362,7 +404,7 @@ public static IEndpointConventionBuilder MapLocaleRedirect(this IEndpointRouteBu
 
 - `AddNetjesLocalization` turns on locale routing: request localization driven only by the `[lang]` route value, with parent-culture fallback off. With it, the payload carries the locale, `<html lang>` follows it, and `useLocale()` returns it.
 - `UseNetjesLocalization`, after `UseNetjes()`, sets the request culture from the route value. An unsupported locale gets the not-found page (in the default culture) on a page, and a bare 404 on any other endpoint with the parameter; a supported one in another case is replaced by its configured name.
-- `MapLocaleRedirect` maps `GET /` to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default.
+- `MapLocaleRedirect` maps `/`, for `GET` and `HEAD`, to a redirect to the browser's best supported locale by `Accept-Language` (an `nl-BE` browser goes to `/nl`), else the default. Keep the pages under `app/[lang]/`: an `app/page.tsx` next to it ties with it for `/`, so ASP.NET Core answers 500 there, and Netjes reports it as a route warning ([An endpoint that ties with a page](../guides/routing.md#an-endpoint-that-ties-with-a-page)).
 
 `NetjesLocalizationOptions` has `SupportedCultures` (default `["en"]`, the first is the default) and `RouteParameter` (default `lang`). See [redirects, rewrites and headers](../guides/redirects-rewrites-headers.md#internationalized-routing).
 
@@ -376,9 +418,34 @@ public static string GetCspNonce(this HttpContext http)
 
 This request's Content-Security-Policy nonce, created on first use. Netjes puts it on every script and stylesheet it renders, and `useNonce()` returns it, so a policy you write yourself can allow exactly those. A document with a nonce is never stored in the output cache. With `NetjesOptions.ContentSecurityPolicy` containing `{nonce}`, Netjes calls it for you. See [security](../guides/security.md#content-security-policy).
 
+### NetjesContentSecurityPolicy
+
+```csharp
+public static class NetjesContentSecurityPolicy
+{
+    public static string ScriptHashes { get; }
+}
+```
+
+`ScriptHashes` holds the `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: one `'sha256-…'` per script, in its quotes and separated by spaces, as in `$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'"`. A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. React's script for form actions that are functions is left out too, since its text follows the React version. It is a property, not a constant, because the compiler copies a constant's value into the assemblies that use it: an assembly compiled against one version of Netjes would keep that version's hashes when it runs with another. The npm package exports the same value as [`CSP_SCRIPT_HASHES`](react-api.md#csp_script_hashes). See [security](../guides/security.md#hash-based).
+
 ## Options
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](options.md).
+
+### TrailingSlash
+
+```csharp
+public enum TrailingSlash
+{
+    Ignore = 0,
+    Never = 1,
+}
+```
+
+`TrailingSlash` is the type of `NetjesOptions.TrailingSlash`, in the `Netjes` namespace: `Ignore` (0, the default) answers a page's URL with and without a trailing slash, and `Never` (1) answers one with a slash with a 308 to the URL without it. Next to it, `NetjesOptions.RedirectLiteralCase` (a `bool`, true by default) redirects another case of a page's literal segments to its file's spelling ([options](options.md#routing), [One URL per page](../guides/routing.md#one-url-per-page)).
+
+Like `Href`, the name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `TrailingSlash` gets CS0104 for it. Qualify one of the two, or give one an alias.
 
 ## Telemetry and headers
 
@@ -477,7 +544,7 @@ public interface ISsrRenderer
 public sealed record SsrStreamOptions(bool WaitForAll, string? RenderId = null);
 ```
 
-What renders a page payload (HTML-safe JSON) to an HTML document; by default the sidecar pool. Register your own to replace server rendering, as tests do to run the app without Node (see [testing](../guides/testing.md#the-app-over-http)): the sidecar then does not start. `RenderStreamAsync` streams the shell first and each Suspense boundary as it resolves, and throws before it returns if the shell fails; `WaitForAll` asks for the complete document (crawlers, export), and `RenderId` is set when the payload has deferred values, which `ResolveAsync` delivers.
+What renders a page payload (HTML-safe JSON) to an HTML document; by default the sidecar pool. Register your own to replace server rendering, as tests do to run the app without Node (see [testing](../guides/testing.md#the-app-over-http)): the sidecar then does not start. `RenderStreamAsync` streams the shell first and each Suspense boundary as it resolves, and throws before it returns if the shell fails; `WaitForAll` asks for the complete document (crawlers, export), and `RenderId` is set when the payload has deferred values, which `ResolveAsync` delivers. An empty `error` in `ResolveAsync` is a failure whose message is withheld: pass it on as it is, so that the browser rejects the value with its own stand-in, marked `withheld`.
 
 ### SsrRenderException
 
@@ -489,6 +556,55 @@ public sealed class SsrRenderException(string message, string? jsStack, Exceptio
 ```
 
 Server rendering failed in the Node sidecar, or the sidecar could not be reached or took too long. `JsStack` holds the JavaScript stack when there is one; error pages show it in development.
+
+## Endpoint metadata
+
+```csharp
+namespace Netjes.Routing;
+
+public sealed class PageRouteMetadata
+{
+    public string Pattern { get; }
+    public bool IsLoader { get; }
+}
+
+public sealed class CachedPageMetadata
+{
+    public TimeSpan Duration { get; }
+    public IReadOnlyList<string> Tags { get; }
+}
+```
+
+What app code and tests read from the endpoints to find the app's pages and their loaders, as `netjes routes` does, and the settings `CachePage` was given. The report's output caching (`cached` in `--json`) does not come from `CachedPageMetadata`: it is true under any output-cache policy on the endpoint, while `CachedPageMetadata` is there only under `CachePage` ([the route table](../guides/routing.md#the-route-table)). Netjes puts both on the endpoints, and their constructors are internal.
+
+- `PageRouteMetadata` is on every endpoint that serves a page: the `GET` and `HEAD` endpoint of a page file or of `MapPageLoader`, and the `POST` endpoint of `MapPageAction`. `Pattern` is the page's URL as its file names it (`/blog/[slug]`), without the prefix of a route group the endpoint is mapped in, which the endpoint's own route pattern includes. `IsLoader` is true on the endpoint `MapPageLoader` maps, and false on a page file's own endpoint (a page without a loader) and on a page action's. No other endpoint carries it: not the not-found fallback, a server action, a minimal API that returns `Page.Render`, or the endpoints Netjes maps, such as `/_netjes/image`, and `/sitemap.xml` from `MapSitemap`.
+- `CachedPageMetadata` is on every endpoint `CachePage` is put on (a page loader, each file page under `MapPages().CachePage(...)`, a minimal API that returns `Page.Render`, the endpoints of a route group), with the `duration` and the `tags` it was given, in the order given. An endpoint output-cached without `CachePage` (`CacheOutput`, `[OutputCache]`, a base policy) carries none. A `CacheOutput(...)` after `CachePage` on the same endpoint replaces the policy `CachePage` set, and the metadata still holds what `CachePage` was given ([caching](../guides/caching.md#under-any-output-caching)).
+
+Read them from `Endpoint.Metadata` once the app has started, in a test through the [factory](../guides/testing.md#the-app-over-http) and in the app through an injected `EndpointDataSource`:
+
+```csharp
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Netjes.Routing;
+
+public sealed class CachedPageTests(AppFactory app) : IClassFixture<AppFactory>
+{
+    [Fact]
+    public void EveryCachedPage_HasATagToRevalidateItBy()
+    {
+        foreach (var endpoint in app.Services.GetRequiredService<EndpointDataSource>().Endpoints)
+        {
+            if (endpoint.Metadata.GetMetadata<PageRouteMetadata>() is { } page
+                && endpoint.Metadata.GetMetadata<CachedPageMetadata>() is { } cached)
+            {
+                Assert.True(cached.Tags.Count > 0, $"{page.Pattern} is cached for {cached.Duration} without a tag.");
+            }
+        }
+    }
+}
+```
+
+A page with a page action has two endpoints with the same `Pattern`, its `GET` one and the action's `POST` one, so a walk that counts pages takes the endpoints whose `IHttpMethodMetadata` lists `GET`. The endpoints' display names, such as `Page /blog/[slug]`, are not part of the API.
 
 ## Route errors
 
@@ -506,4 +622,4 @@ Netjes throws these when the files in `app/` break the file conventions. The mes
 
 `MapPages` reads the routes as the app starts, from `app/` in development and from the client build's manifest in production, so either exception stops the app there, and a test that starts the app can catch it by type. When a file changes while the development server runs, Netjes logs the error instead and keeps the previous routes.
 
-The route table that Netjes builds from `app/` is not part of the API. A tool that needs the routes runs `netjes routes --json` ([the netjes command](cli.md#netjes-routes)).
+The route table that Netjes builds from `app/` is not part of the API. A tool that needs the routes runs `netjes routes --json` ([the netjes command](cli.md#netjes-routes)); app code and tests read the pages from their endpoints ([endpoint metadata](#endpoint-metadata)).

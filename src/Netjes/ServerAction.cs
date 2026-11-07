@@ -75,7 +75,10 @@ public sealed partial class ServerActionResult : IResult
     internal string? Location { get; init; }
     internal int Status { get; init; }
 
-    /// <summary>Evicts output-cached pages with these tags (<c>.CachePage(duration, tags)</c>) and refreshes the client's page.</summary>
+    /// <summary>
+    /// Evicts every output-cache entry with these tags, pages (<c>.CachePage(duration, tags)</c>) and endpoints of the app
+    /// (<c>.CacheOutput(p =&gt; p.Tag(tag))</c>) alike, and refreshes the client's page.
+    /// </summary>
     public ServerActionResult Revalidate(params string[] tags)
     {
         _tags.AddRange(tags);
@@ -83,7 +86,10 @@ public sealed partial class ServerActionResult : IResult
         return this;
     }
 
-    /// <summary>Evicts the output-cached pages at these paths and refreshes the client's page.</summary>
+    /// <summary>
+    /// Evicts the output-cached pages at these paths, never the entry of an endpoint that is not a page (evict that by
+    /// a tag), and refreshes the client's page.
+    /// </summary>
     public ServerActionResult RevalidatePath(params string[] paths)
     {
         _paths.AddRange(paths);

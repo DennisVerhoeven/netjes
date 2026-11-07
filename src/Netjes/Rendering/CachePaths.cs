@@ -1,19 +1,24 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Netjes.Routing;
 
 namespace Netjes.Rendering;
 
 /// <summary>
 /// Output-cache policy for pages: tags each entry with its path (for <c>RevalidatePath</c>), keys it on the path and
-/// query string as sent, never serves or stores a page rendered in place of a failed form post, and warns once per page when a render
+/// query string as sent, never serves or stores a page rendered in place of a failed form post or for a query string
+/// outside the page's <c>CacheQueryKeys</c>, and warns once per page when a render
 /// it stores read <c>Request.Cookies</c>. It works wherever it runs among the request's policies: it only adds to the
 /// key in <see cref="CacheRequestAsync"/> (a policy after it, such as ASP.NET Core's default one, sets the lookup and
 /// storage flags again), and refuses storage once the response is known.
 /// </summary>
-internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolicy
+internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment environment) : IOutputCachePolicy
 {
+    private const string UnreadQueryKey = "Netjes.UnreadQuery";
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedCookies = new(StringComparer.Ordinal);
 
     public static string TagFor(string path) => "netjes-path:" + Normalize(path);
@@ -25,6 +30,40 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
         return trimmed.ToLowerInvariant();
     }
 
+    /// <summary>
+    /// The page's <c>CacheQueryKeys</c> leave this request's query string out, so the output cache neither answers it nor
+    /// stores what it renders.
+    /// </summary>
+    public static bool LeavesQueryUncached(HttpContext http) => http.Items.ContainsKey(UnreadQueryKey);
+
+    /// <summary>
+    /// Whether every segment of the raw query string (<paramref name="query"/>, empty or starting with <c>?</c>) has a name
+    /// in <paramref name="keys"/>. The raw text decides, not <see cref="HttpRequest.Query"/>: the parser drops empty
+    /// segments, but <c>?page=2&amp;</c> and <c>?page=2&amp;&amp;</c> are other query strings, each an entry of its own under
+    /// the page rules, so anyone could fill the cache with them. A name is decoded as the parser decodes it, <c>+</c> as a
+    /// space and then percent-escapes. An entry stays keyed on the query string as sent, so a name read differently from the
+    /// parser could only store a page for its own URL or lose a hit, never serve one query string's page for another.
+    /// </summary>
+    internal static bool ReadsOnlyDeclaredKeys(string query, IReadOnlySet<string> keys)
+    {
+        if (query.Length == 0)
+        {
+            return true;
+        }
+
+        foreach (var segment in query[1..].Split('&'))
+        {
+            var valueStart = segment.IndexOf('=');
+            var name = valueStart < 0 ? segment : segment[..valueStart];
+            if (name.Length == 0 || !keys.Contains(Uri.UnescapeDataString(name.Replace('+', ' '))))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
     {
         if (IsFailedFormPost(context))
@@ -33,16 +72,31 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
             // key leaves out the path and query values, so it is never the stored page's; a value of its own for each
             // post also keeps visitors whose posts fail at once from waiting for each other (the output cache holds
             // back the requests for a key while one of them renders).
-            context.CacheVaryByRules.VaryByValues["netjes-action-state"] = Guid.NewGuid().ToString("N");
+            CacheBypass.Apply(context, CacheBypass.FailedFormPost);
             return ValueTask.CompletedTask;
         }
 
-        context.Tags.Add(TagFor(context.HttpContext.Request.Path));
+        var http = context.HttpContext;
+        var request = http.Request;
+        if (http.GetEndpoint()?.Metadata.GetMetadata<CacheQueryKeysMetadata>() is { } queryKeys
+            && !ReadsOnlyDeclaredKeys(request.QueryString.Value ?? "", queryKeys.Keys))
+        {
+            // A query string the page does not read: a stored copy would answer this one URL, and every made-up query
+            // string would store another. The key value of its own finds no stored entry and lets no request wait for
+            // another's render. A policy after this one allows storage again, so the flag refuses it later: in the
+            // renderer before it builds the payload, which then keeps its antiforgery token under a policy other than
+            // CachePage, and in ServeResponseAsync for a response no renderer wrote. Nothing is stored, so the tag, the
+            // keys of the page rules and the watch on cookies are left out.
+            CacheBypass.Apply(context, CacheBypass.UnreadQuery);
+            http.Items[UnreadQueryKey] = true;
+            return ValueTask.CompletedTask;
+        }
+
+        context.Tags.Add(TagFor(request.Path));
         // The default key upper-cases the path (unless UseCaseSensitivePaths), but route values reach loaders as sent,
         // and a loader may compare them exactly: /s/Ab and /s/aB can be different pages. It also upper-cases query
         // names and sorts repeated values, and a policy may key on some names only, but the payload repeats the URL as
         // sent (the client shows it in the address bar), so another query string must not be served it.
-        var request = context.HttpContext.Request;
         context.CacheVaryByRules.VaryByValues["netjes-path"] = request.PathBase.Value + request.Path.Value;
         context.CacheVaryByRules.VaryByValues["netjes-query"] = request.QueryString.Value ?? "";
         WatchCookies(context);
@@ -56,7 +110,8 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
     /// <summary>
     /// The entry is shared by every visitor, so a render that reads a cookie (shared props, a loader, authentication
     /// placed after the output cache) is stored and served to everyone anyway, and the app hears about it once per page. Only reads through
-    /// <c>Request.Cookies</c> are seen, not the raw <c>Cookie</c> header.
+    /// <c>Request.Cookies</c> are seen, not the raw <c>Cookie</c> header. In the Development environment nothing is
+    /// stored, and the warning says what happens outside it, where the same render is.
     /// </summary>
     private void WatchCookies(OutputCacheContext context)
     {
@@ -76,15 +131,30 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
 
             var http = context.HttpContext;
             var page = http.GetEndpoint()?.DisplayName ?? http.Request.Path.Value ?? "";
-            if (_warnedCookies.TryAdd(page, true))
+            if (!_warnedCookies.TryAdd(page, true))
             {
-                logger.LogWarning(
-                    "{Page} is output-cached, and rendering it read {Cookie}. The render was stored and will be served " +
-                    "to every visitor, so one visitor's value reaches all of them. SharedProps and the loaders of cached " +
-                    "pages must not depend on cookies: read per-visitor values on the client or do not cache the page. " +
-                    "See the CachePage docs.",
-                    page, name is null ? "all the request cookies" : $"the request cookie '{name}'");
+                return;
             }
+
+            var cookie = name is null ? "all the request cookies" : $"the request cookie '{name}'";
+            if (environment.IsDevelopment())
+            {
+                // Pages are not stored there (PageCachePolicy), but the same render would be anywhere else.
+                logger.LogWarning(
+                    "{Page} is output-cached, and rendering it read {Cookie}. Nothing is stored in Development; " +
+                    "outside Development the render is stored and served to every visitor, so one visitor's value " +
+                    "reaches all of them. SharedProps and the loaders of cached pages must not depend on cookies: " +
+                    "read per-visitor values on the client or do not cache the page. See the CachePage docs.",
+                    page, cookie);
+                return;
+            }
+
+            logger.LogWarning(
+                "{Page} is output-cached, and rendering it read {Cookie}. The render was stored and will be served " +
+                "to every visitor, so one visitor's value reaches all of them. SharedProps and the loaders of cached " +
+                "pages must not depend on cookies: read per-visitor values on the client or do not cache the page. " +
+                "See the CachePage docs.",
+                page, cookie);
         }));
     }
 
@@ -92,7 +162,7 @@ internal sealed class CachePaths(ILogger<CachePaths> logger) : IOutputCachePolic
 
     public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        if (IsFailedFormPost(context))
+        if (IsFailedFormPost(context) || LeavesQueryUncached(context.HttpContext))
         {
             context.AllowCacheStorage = false;
         }

@@ -185,6 +185,101 @@ describe('check-links.mjs', () => {
     );
   });
 
+  it('refuses a link to a folder that holds a README.md, and names the README to link', async () => {
+    await tracked({
+      'README.md': '# Netjes\n',
+      'examples/Blog/README.md': '# Blog\n',
+      'examples/TaskBoard/README.md': '# TaskBoard\n\n## Run it\n',
+      'docs/x/data.json': '{}',
+      'docs/a.md': [
+        '# A',
+        '',
+        '[Blog](../examples/Blog), [TaskBoard](../examples/TaskBoard/#run-it), [the root](..),',
+        `[on GitHub](${BLOB}examples/Blog), [the folder view](${TREE}examples/Blog), [no README](x/).`,
+        '',
+      ].join('\n'),
+    });
+
+    const { code, err } = await run();
+
+    assert.equal(code, 1);
+    assert.equal(
+      err,
+      [
+        'docs/a.md:3: ../examples/Blog (a folder: link ../examples/Blog/README.md)',
+        'docs/a.md:3: ../examples/TaskBoard/#run-it (a folder: link ../examples/TaskBoard/README.md#run-it)',
+        'docs/a.md:3: .. (a folder: link ../README.md)',
+        `docs/a.md:4: ${BLOB}examples/Blog (a folder: link ${BLOB}examples/Blog/README.md)`,
+        '4 broken links in 4 Markdown files',
+        '',
+      ].join('\n'),
+    );
+
+    // The links it names resolve.
+    await tracked({
+      'docs/a.md': [
+        '# A',
+        '',
+        '[Blog](../examples/Blog/README.md), [TaskBoard](../examples/TaskBoard/README.md#run-it), [the root](../README.md),',
+        `[on GitHub](${BLOB}examples/Blog/README.md), [the folder view](${TREE}examples/Blog), [no README](x/).`,
+        '',
+      ].join('\n'),
+    });
+    assert.deepEqual(await run(), { code: 0, out: 'All 6 links in 4 Markdown files resolve\n', err: '' });
+  });
+
+  it('names the README in the spelling the folder link had, with its query and fragment', async () => {
+    await tracked({
+      'README.md': '# Netjes\n',
+      'docs/README.md': '# Docs\n',
+      'docs/a b/README.md': '# A folder with a space\n',
+      'examples/Blog/README.md': '# Blog\n',
+      'docs/a.md': [
+        '# A',
+        '',
+        '[query](../examples/Blog?plain=1#top), [root-relative](/examples/Blog/), [encoded](a%20b/), [here](./),',
+        `[the repository](${BLOB}), [angle brackets](<../examples/Blog/>), [elsewhere](https://example.com/examples/Blog).`,
+        '',
+        `Bare: ${BLOB}examples/Blog.`,
+        '',
+        '[blog]: ../examples/Blog "The Blog"',
+        '',
+      ].join('\n'),
+    });
+
+    const { code, err } = await run();
+
+    assert.equal(code, 1);
+    assert.equal(
+      err,
+      [
+        'docs/a.md:3: ../examples/Blog?plain=1#top (a folder: link ../examples/Blog/README.md?plain=1#top)',
+        'docs/a.md:3: /examples/Blog/ (a folder: link /examples/Blog/README.md)',
+        'docs/a.md:3: a%20b/ (a folder: link a%20b/README.md)',
+        'docs/a.md:3: ./ (a folder: link ./README.md)',
+        `docs/a.md:4: ${BLOB} (a folder: link ${BLOB}README.md)`,
+        'docs/a.md:4: ../examples/Blog/ (a folder: link ../examples/Blog/README.md)',
+        `docs/a.md:6: ${BLOB}examples/Blog (a folder: link ${BLOB}examples/Blog/README.md)`,
+        'docs/a.md:8: ../examples/Blog (a folder: link ../examples/Blog/README.md)',
+        '8 broken links in 5 Markdown files',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('leaves a folder alone when git does not track its README, and the folders of other sites', async () => {
+    await tracked(
+      {
+        'docs/notes/README.md': '# Not committed yet\n',
+        'docs/notes/data.json': '{}',
+        'docs/a.md': '# A\n\n[notes](notes/), [elsewhere](https://example.com/examples/Blog/), [fork](https://github.com/other/netjes/blob/main/examples/Blog).\n',
+      },
+      { untracked: ['docs/notes/README.md'] },
+    );
+
+    assert.deepEqual(await run(), { code: 0, out: 'All 1 link in 1 Markdown file resolve\n', err: '' });
+  });
+
   it('checks reference definitions, and ignores links in code', async () => {
     await tracked({
       'README.md': [

@@ -30,10 +30,34 @@ public sealed class NetjesOptions
     /// <summary>Default: <see cref="NetjesMode.Development"/> in the Development environment, otherwise <see cref="NetjesMode.Production"/>.</summary>
     public NetjesMode? Mode { get; set; }
 
+    /// <summary>
+    /// Answer a page's URL in another case of the literal segments its file names (<c>/About</c> for
+    /// <c>app/about/page.tsx</c>) with a 308 to the file's spelling (<c>/about</c>), and a client navigation with a redirect
+    /// payload; so do the <c>/robots.txt</c> and <c>/sitemap.xml</c> that <c>MapRobotsTxt</c> and <c>MapSitemap</c> serve,
+    /// in another case of their literal segments. Route values, the query string and the base path go along
+    /// as sent, and so does a trailing slash unless <see cref="TrailingSlash"/> is <see cref="Netjes.TrailingSlash.Never"/>.
+    /// Only a <c>GET</c> or <c>HEAD</c> for the URL the client sent is redirected, never a request a rewrite or a
+    /// re-execution changed, nor one on a server that does not pass on the request target as sent, such as TestServer.
+    /// Default true; false answers every case, as ASP.NET Core routing matches literals.
+    /// </summary>
+    public bool RedirectLiteralCase { get; set; } = true;
+
+    /// <summary>
+    /// Whether a page's URL may end in a slash. <see cref="Netjes.TrailingSlash.Ignore"/>, the default, answers
+    /// <c>/about</c> and <c>/about/</c> alike, as ASP.NET Core routing does. <see cref="Netjes.TrailingSlash.Never"/>
+    /// answers a <c>GET</c> or <c>HEAD</c> for <c>/about/</c> with a 308 to <c>/about</c>, for the same kinds of requests
+    /// as <see cref="RedirectLiteralCase"/>, whether that is on or off.
+    /// </summary>
+    public TrailingSlash TrailingSlash { get; set; } = TrailingSlash.Ignore;
+
     /// <summary>The Node.js executable that runs the sidecar processes.</summary>
     public string NodeExecutable { get; set; } = "node";
 
-    /// <summary>Overrides the sidecar script location. Default: the netjes package in development, the copy in dist/server in production.</summary>
+    /// <summary>
+    /// Overrides the sidecar script location. Default: the netjes package in development, the copy in dist/server in
+    /// production. A script of your own must answer <c>GET /health</c>, with any status and without reading a request
+    /// body: in production a process that answers no health ping is restarted (see <see cref="RenderTimeout"/>).
+    /// </summary>
     public string? SidecarScript { get; set; }
 
     /// <summary>The port of the Vite dev server in development.</summary>
@@ -45,7 +69,12 @@ public sealed class NetjesOptions
     /// </summary>
     public int SidecarProcesses { get; set; } = 1;
 
-    /// <summary>How long the sidecar may take to render the shell (everything outside unresolved Suspense boundaries).</summary>
+    /// <summary>
+    /// How long the sidecar may take to render the shell (everything outside unresolved Suspense boundaries). In
+    /// production also how long a health ping waits for its answer, and never less than five seconds: a Node process
+    /// that has answered no render for five seconds is pinged, and killed and restarted when the ping gets no answer
+    /// within that wait.
+    /// </summary>
     public TimeSpan RenderTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>How long a streamed document may take in total, Suspense boundaries included.</summary>
@@ -117,7 +146,11 @@ public sealed class NetjesOptions
     /// <summary>The <c>lang</c> attribute of the rendered <c>&lt;html&gt;</c> element.</summary>
     public string Lang { get; set; } = "en";
 
-    /// <summary>Include exception messages and stacks in error pages. Default: only in the Development environment.</summary>
+    /// <summary>
+    /// Send exception messages and stacks to the browser: on error pages, and in failed server action calls and deferred
+    /// values. Without them the browser gets a stand-in marked <c>withheld</c>, except for a 4xx from a server action call
+    /// made by the client, whose message is always sent. Default: only in the Development environment.
+    /// </summary>
     public bool? IncludeErrorDetails { get; set; }
 
     /// <summary>
@@ -126,8 +159,14 @@ public sealed class NetjesOptions
     /// documents (unless the app already did) and puts the nonce on the scripts and styles it renders. A page with a
     /// nonce is never stored in the output cache (a cached nonce would be reused across visitors); Netjes warns once
     /// when that turns off a page's <c>CachePage</c>. A policy without <c>{nonce}</c> (hash-based, which output-cached
-    /// pages need) gets no nonce, so its pages can be stored; no hash covers the scripts that stream <c>Page.Defer</c>
-    /// values or reveal Suspense boundaries, though, so pages under one must not stream.
+    /// pages need) gets no nonce, so its pages can be stored. Such a policy must list
+    /// <see cref="NetjesContentSecurityPolicy.ScriptHashes"/> in its <c>script-src</c> to allow Netjes's inline scripts,
+    /// as in <c>$"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}"</c>; Netjes does not add them. No hash
+    /// covers the scripts that stream <c>Page.Defer</c> values or reveal Suspense boundaries, though, so pages under one
+    /// must not stream. The policy goes out as written in every environment, so in Development it also has to allow the
+    /// Vite dev server's scripts, its HMR socket, the styles inlined there, and the images and fonts it serves. When the
+    /// policy on a document, this one or the app's own, refuses what the document needs, Netjes logs a warning once per
+    /// policy.
     /// </summary>
     public string? ContentSecurityPolicy { get; set; }
 
@@ -143,13 +182,17 @@ public sealed class NetjesOptions
     /// <summary>The <c>&lt;Image&gt;</c> endpoint: allowed widths, remote hosts, caching.</summary>
     public NetjesImageOptions Images { get; set; } = new();
 
-    /// <summary>nosniff, a referrer policy and same-origin framing on documents; on by default.</summary>
+    /// <summary>
+    /// nosniff on every response that passes through <c>UseNetjes</c>, and a referrer policy and framing headers on
+    /// documents; on by default.
+    /// </summary>
     public NetjesSecurityHeaderOptions SecurityHeaders { get; set; } = new();
 
 
     /// <summary>
     /// The generated TypeScript (zod schemas for page props, shared props, endpoints and forms; typed routes), relative
-    /// to <see cref="Root"/>. Rewritten on startup in Development when it changed, and by <c>netjes generate</c>. Null turns it off.
+    /// to <see cref="Root"/>. Rewritten on startup when it changed and <see cref="Mode"/> is
+    /// <see cref="NetjesMode.Development"/>, in any environment, and by <c>netjes generate</c>. Null turns it off.
     /// </summary>
     public string? TypesFile { get; set; } = "generated/netjes.ts";
 

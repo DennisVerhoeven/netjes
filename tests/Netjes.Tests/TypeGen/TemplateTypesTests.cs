@@ -8,6 +8,7 @@ namespace Netjes.Tests.TypeGen;
 /// <summary>
 /// The `netjes new` template ships its generated/netjes.ts, so a new app typechecks before its first build. This mirrors
 /// the template's C# (packages/netjes/template) and checks the shipped file is what the generator writes for it.
+/// Set UPDATE_GOLDEN=1 to rewrite the shipped file after an intended change to the generator.
 /// </summary>
 public class TemplateTypesTests
 {
@@ -41,8 +42,13 @@ public class TemplateTypesTests
             configure: o => o.UseSharedProps(_ => ValueTask.FromResult(new SiteProps("App"))));
 
         var expected = app.App.Services.GetRequiredService<Netjes.TypeGen.TypeScriptGenerator>().Generate();
-        var shipped = await File.ReadAllTextAsync(
-            Path.Combine(RepoRoot(), "packages", "netjes", "template", "generated", "netjes.ts"), TestContext.Current.CancellationToken);
+        var path = Path.Combine(RepoRoot(), "packages", "netjes", "template", "generated", "netjes.ts");
+        if (Environment.GetEnvironmentVariable("UPDATE_GOLDEN") == "1")
+        {
+            await File.WriteAllTextAsync(path, expected, TestContext.Current.CancellationToken);
+        }
+
+        var shipped = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, shipped.ReplaceLineEndings("\n"));
     }

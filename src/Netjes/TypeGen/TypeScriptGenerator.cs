@@ -11,7 +11,7 @@ namespace Netjes.TypeGen;
 
 /// <summary>
 /// Writes the app's generated TypeScript: zod schemas for page props, shared props, JSON endpoints and page action
-/// forms (from the endpoints' metadata), plus typed routes from the page files.
+/// forms (from the endpoints' metadata), typed URLs of the app's endpoints, plus typed routes from the page files.
 /// </summary>
 internal sealed class TypeScriptGenerator(
     EndpointDataSource endpoints,
@@ -30,9 +30,9 @@ internal sealed class TypeScriptGenerator(
     {
         // Declared.
         "pages", "sharedProps", "api", "forms", "layouts", "serverActions", "actionInputs", "actionResults", "route", "routePatterns", "isHref",
-        "RouteParams", "RoutePattern", "Route", "Href",
+        "RouteParams", "RoutePattern", "Route", "Href", "EndpointParams", "EndpointKey", "endpointTemplates", "endpointUrl",
         // Imported.
-        "buildHref", "isRouteHref", "serverAction", "SearchParamsInput", "deferred", "z",
+        "buildEndpointUrl", "buildHref", "isRouteHref", "serverAction", "SearchParamsInput", "deferred", "z",
         // Globals.
         "Record", "FormData", "Number",
     };
@@ -79,15 +79,20 @@ internal sealed class TypeScriptGenerator(
         var output = new StringBuilder(Header);
         var declarations = schemas.Declarations();
         output.Append(actions.Count > 0
-            ? "import { buildHref, isRouteHref, serverAction, type SearchParamsInput } from 'netjes';\n"
-            : "import { buildHref, isRouteHref, type SearchParamsInput } from 'netjes';\n");
+            ? "import { buildEndpointUrl, buildHref, isRouteHref, serverAction, type SearchParamsInput } from 'netjes';\n"
+            : "import { buildEndpointUrl, buildHref, isRouteHref, type SearchParamsInput } from 'netjes';\n");
         if (schemas.UsesDeferred)
         {
             output.Append("import { deferred } from 'netjes/zod';\n");
         }
 
         output.Append("import { z } from 'zod';\n\n");
-        output.Append(declarations);
+        // Before the declarations: a schema with an Href property reads Href as the module loads.
+        AppendHref(output, table);
+        if (declarations.Length > 0)
+        {
+            output.Append('\n').Append(declarations);
+        }
 
         output.Append("\n/** Props of each page by URL pattern, as its C# loader returns them: `definePage(pages['/blog/[slug]'], Page)`. */\n");
         AppendMap(output, "pages", pages.Select(p => (p.Pattern, p.Type switch
@@ -104,6 +109,7 @@ internal sealed class TypeScriptGenerator(
         AppendMap(output, "api", api.Select(a => (a.Key, Slots(
             ("request", a.Request is null ? null : schemas.Reference(a.Request)),
             ("response", a.Response is null ? null : schemas.Reference(a.Response))))));
+        EndpointUrls.Append(output, EndpointUrls.Entries(all, IsInTheApiMap));
 
         output.Append("\n/** Form fields of page actions (`MapPageAction`), by page pattern. */\n");
         AppendMap(output, "forms", forms.Select(f => (f.Pattern, schemas.Reference(f.Type))));
@@ -208,16 +214,7 @@ internal sealed class TypeScriptGenerator(
         var entries = new List<(string Key, Type? Request, Type? Response)>();
         foreach (var endpoint in all.Where(e => e.Metadata.GetMetadata<PageEndpointMetadata>() is null))
         {
-            var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
-            var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
-            var response = produces
-                .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
-                .Select(p => p.Type)
-                .FirstOrDefault();
-            var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
-            var isJsonEndpoint = response is not null || request is not null
-                || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)));
-            if (!isJsonEndpoint)
+            if (JsonContract(endpoint) is not var (request, response))
             {
                 continue;
             }
@@ -230,6 +227,29 @@ internal sealed class TypeScriptGenerator(
         }
 
         return [.. entries.DistinctBy(e => e.Key).OrderBy(e => e.Key, StringComparer.Ordinal)];
+    }
+
+    /// <summary>Whether the endpoint has keys in the <c>api</c> map: a JSON endpoint that is no page.</summary>
+    public static bool IsInTheApiMap(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<PageEndpointMetadata>() is null && JsonContract(endpoint) is not null;
+
+    /// <summary>
+    /// The JSON body an endpoint accepts and the JSON it answers with, or null for an endpoint that is no JSON endpoint:
+    /// it declares neither, and no bodiless 2xx (<c>TypedResults.NoContent()</c>) either.
+    /// </summary>
+    private static (Type? Request, Type? Response)? JsonContract(RouteEndpoint endpoint)
+    {
+        var produces = endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>();
+        var accepts = endpoint.Metadata.GetMetadata<IAcceptsMetadata>();
+        var response = produces
+            .Where(p => p.StatusCode is >= 200 and < 300 && p.Type is not null && p.Type != typeof(void) && IsJson(p.ContentTypes))
+            .Select(p => p.Type)
+            .FirstOrDefault();
+        var request = accepts?.RequestType is { } body && IsJson(accepts.ContentTypes) ? body : null;
+        return response is not null || request is not null
+            || produces.Any(p => p.StatusCode is >= 200 and < 300 && (p.Type is null || p.Type == typeof(void)))
+            ? (request, response)
+            : null;
     }
 
     private static List<(string Pattern, Type Type)> FormEntries(List<RouteEndpoint> all) =>
@@ -267,6 +287,30 @@ internal sealed class TypeScriptGenerator(
         output.Append("} as const;\n");
     }
 
+    /// <summary>The <c>Href</c> schema, which checks a URL against the pages, and what it calls.</summary>
+    private static void AppendHref(StringBuilder output, RouteTable table)
+    {
+        output.Append("/** Every page's URL pattern. */\n");
+        output.Append("export const routePatterns = [")
+            .Append(string.Join(", ", table.Pages.Select(p => JsonSerializer.Serialize(p.Pattern))))
+            .Append("] as const;\n\n");
+        output.Append(
+            """
+            /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
+            export function isHref(value: string): value is Href {
+              return isRouteHref(value, routePatterns);
+            }
+
+            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. The schemas below use it for each C# `Netjes.Href`. */
+            export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
+    /// The route types and <c>route()</c>, last: <c>isHref</c> and the <c>Href</c> schema name the <c>Href</c> type
+    /// before its declaration, as TypeScript allows for a type.
+    /// </summary>
     private static void AppendRoutes(StringBuilder output, RouteTable table)
     {
         output.Append("\n/** Every page's URL pattern and the parameters `route()` needs for it. */\n");
@@ -303,28 +347,18 @@ internal sealed class TypeScriptGenerator(
             " | `http://${string}` | `https://${string}` | `mailto:${string}` | `tel:${string}`;\n\n");
         output.Append(
             """
-            /** The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. */
+            /**
+             * The URL of a page, with its parameters encoded: `route('/blog/[slug]', { slug })`. The third argument is the
+             * query, and `{ hash }` in the fourth adds a fragment: `route('/docs/[...path]', { path }, undefined, { hash: 'keys' })`.
+             */
             export function route<P extends RoutePattern>(
               pattern: P,
-              ...args: {} extends RouteParams[P] ? [params?: RouteParams[P], search?: SearchParamsInput] : [params: RouteParams[P], search?: SearchParamsInput]
+              ...args: {} extends RouteParams[P]
+                ? [params?: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
+                : [params: RouteParams[P], search?: SearchParamsInput, options?: { hash?: string | undefined }]
             ): Href {
-              return buildHref(pattern, args[0] ?? {}, args[1]) as Href;
+              return buildHref(pattern, args[0] ?? {}, args[1], args[2]) as Href;
             }
-
-            """.ReplaceLineEndings("\n"));
-        output.Append("/** Every page's URL pattern. */\n");
-        output.Append("export const routePatterns = [")
-            .Append(string.Join(", ", table.Pages.Select(p => JsonSerializer.Serialize(p.Pattern))))
-            .Append("] as const;\n\n");
-        output.Append(
-            """
-            /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
-            export function isHref(value: string): value is Href {
-              return isRouteHref(value, routePatterns);
-            }
-
-            /** Checks such a URL at the boundary: `<Link href={Href.parse(item.href)}>`. */
-            export const Href = z.custom<Href>((value) => typeof value === 'string' && isHref(value), 'Not a URL this app serves');
 
             declare module 'netjes' {
               interface Register {

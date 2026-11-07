@@ -1,5 +1,6 @@
 // Deferred loader values (Page.Defer in C#): placeholders in the payload that become promises the page reads with
 // React's use() inside a Suspense boundary.
+import { withheldError } from './errors.ts';
 import type { PagePayload, SegmentRef } from './payload.ts';
 
 /** A promise that records its outcome the way React's `use()` reads it, so a settled one renders without suspending. */
@@ -94,8 +95,9 @@ export function deferredRegistry() {
     resolve(id: string, value: unknown) {
       entry(id).resolve(value);
     },
+    /** Fails a value with the server's message; an empty one is a message the server withheld (no error details). */
     reject(id: string, message: string) {
-      entry(id).reject(new Error(message));
+      entry(id).reject(message === '' ? withheldError() : new Error(message));
     },
     /** Rejects every value still pending, e.g. when the stream that was to deliver them ended. */
     rejectPending(message: (id: string) => string) {
@@ -114,6 +116,17 @@ export function deferredRegistry() {
  */
 export const DEFERRED_BOOTSTRAP =
   "self.__netjes_d=self.__netjes_d||function(i,v,e){self.__netjes_v[i]=[v,e]};Object.prototype.hasOwnProperty.call(self,'__netjes_v')||(self.__netjes_v={})";
+
+/**
+ * The `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: each
+ * `'sha256-…'` in its quotes, separated by spaces, as in `` `script-src 'self' ${CSP_SCRIPT_HASHES}` ``. A fixed script
+ * has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer`
+ * values, and a Netjes version that changes it or adds another changes the value. The scripts that deliver those
+ * values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them.
+ * React's script for form actions that are functions is left out too, since its text follows the React version. The
+ * same value as `NetjesContentSecurityPolicy.ScriptHashes` in C#.
+ */
+export const CSP_SCRIPT_HASHES: string = "'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='";
 
 const UNSAFE = /[<>&\u2028\u2029]/g;
 

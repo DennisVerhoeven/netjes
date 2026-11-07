@@ -1,7 +1,10 @@
+using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Netjes.Tests.Endpoints;
@@ -502,6 +505,239 @@ public class RouteDiagnosticsTests
         Assert.Empty(warnings);
     }
 
+    [Fact]
+    public async Task AnEndpointThatTiesWithAPage_IsWarnedNamingBothAndWithOrder()
+    {
+        // Both have order 0 and the same route precedence: a literal, then a catch-all with a constraint.
+        await using var app = await TestApp.StartAsync(
+            ["app/docs/[...path]/page.tsx"],
+            map: a => a.MapGet("/docs/{**path:regex(\\.md$)}", (string path) => path),
+            kestrel: true);
+
+        var warning = Assert.Single(Warnings(app));
+        Assert.Contains("GET /docs/{**path:regex(\\.md$)} and the page app/docs/[...path]/page.tsx both match URLs like /docs/[...path]", warning);
+        Assert.Contains("with 500", warning);
+        Assert.Contains(".WithOrder(-1)", warning);
+        // A URL both match fails, and the page still gets the URLs the endpoint's constraint leaves to it.
+        Assert.Equal(HttpStatusCode.InternalServerError, (await app.GetDocumentAsync("/docs/a.md")).StatusCode);
+        Assert.Equal("app/docs/[...path]/page.tsx", (string?)(await app.GetDataJsonAsync("/docs/a"))["page"]);
+    }
+
+    /// <summary>An app with an endpoint next to its pages, and a request for a URL that both match.</summary>
+    /// <param name="Pages">Conventions on <c>MapPages()</c>, which reach every page without a loader.</param>
+    public sealed record EndpointNextToPages(
+        string[] Files,
+        Action<WebApplication> Map,
+        Func<HttpRequestMessage> Request,
+        Action<IServiceCollection>? Services = null,
+        Action<WebApplication>? ConfigureApp = null,
+        Action<IEndpointConventionBuilder>? Pages = null);
+
+    private static Task<TestApp> StartAsync(EndpointNextToPages app) =>
+        TestApp.StartAsync(app.Files, map: app.Map, services: app.Services, configureApp: app.ConfigureApp, pages: app.Pages);
+
+    private static Func<HttpRequestMessage> Request(string method, string url, Func<HttpContent>? content = null) =>
+        () => new HttpRequestMessage(new HttpMethod(method), url) { Content = content?.Invoke() };
+
+    private static HttpContent Form() => new FormUrlEncodedContent([new("text", "hi")]);
+
+    private static HttpContent Multipart() => new MultipartFormDataContent { { new ByteArrayContent([1]), "file", "a.txt" } };
+
+    public sealed record JsonInput(string? Text);
+
+    /// <summary>
+    /// A pattern as MVC builds for a controller action whose attribute route is <c>{controller}/{action}</c>: each
+    /// parameter has a required value, matched as a literal, and the order is 0. Conventional routes have an order above 0.
+    /// </summary>
+    private static RoutePattern HomeAction(string action) =>
+        RoutePatternFactory.Parse("/{controller}/{action}", defaults: null, parameterPolicies: null, requiredValues: new { controller = "Home", action });
+
+    public static TheoryData<string, EndpointNextToPages, string> EndpointsThatTie => new()
+    {
+        {
+            "a literal", new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about"), Request("GET", "/about")),
+            "GET /about and the page app/about/page.tsx both match URLs like /about"
+        },
+        {
+            "a literal in another case", new(["app/about/page.tsx"], a => a.MapGet("/About", () => "about"), Request("GET", "/about")),
+            "GET /About and the page app/about/page.tsx both match URLs like /about"
+        },
+        {
+            "another parameter name", new(["app/blog/[slug]/page.tsx"], a => a.MapGet("/blog/{id}", (string id) => id), Request("GET", "/blog/x")),
+            "GET /blog/{id} and the page app/blog/[slug]/page.tsx both match URLs like /blog/[slug]"
+        },
+        {
+            "another constraint on a catch-all", new(["app/[...slug]/page.tsx"], a => a.MapGet("/{**path:nonfile}", (string path) => path), Request("GET", "/x")),
+            "GET /{**path:nonfile} and the page app/[...slug]/page.tsx both match URLs like /[...slug]"
+        },
+        {
+            "HEAD only", new(["app/x/page.tsx"], a => a.MapMethods("/x", [HttpMethods.Head], () => Results.Ok()), Request("HEAD", "/x")),
+            "HEAD /x and the page app/x/page.tsx both match URLs like /x"
+        },
+        {
+            "in a route group",
+            new(["app/docs/[...path]/page.tsx"], a => a.MapGroup("/docs").MapGet("/{**path:regex(\\.md$)}", (string path) => path), Request("GET", "/docs/a.md")),
+            "GET /docs/{**path:regex(\\.md$)} and the page app/docs/[...path]/page.tsx both match URLs like /docs/[...path]"
+        },
+        {
+            "next to a page loader in a route group",
+            new(["app/projects/page.tsx"], a =>
+            {
+                a.MapGroup("/{tenant}").MapPageLoader("/projects", (string tenant) => Props(tenant));
+                a.MapGet("/{org}/projects", (string org) => org);
+            }, Request("GET", "/acme/projects")),
+            "GET /{org}/projects and the page app/projects/page.tsx both match URLs like /{tenant}/projects"
+        },
+        {
+            "the locale redirect",
+            new(["app/page.tsx"], a => a.MapLocaleRedirect(), Request("GET", "/"),
+                Services: s => s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]), ConfigureApp: a => a.UseNetjesLocalization()),
+            // Whatever methods the redirect names besides GET.
+            " / and the page app/page.tsx both match URLs like /"
+        },
+        {
+            "the hosts of the pages",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("www.example"), Request("GET", "http://www.example/about"),
+                Pages: p => p.RequireHost("www.example")),
+            "GET /about and the page app/about/page.tsx both match URLs like /about"
+        },
+        {
+            "a host of the pages among others",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("example", "www.example"), Request("GET", "http://www.example/about"),
+                Pages: p => p.RequireHost("www.example")),
+            "GET /about and the page app/about/page.tsx both match URLs like /about"
+        },
+        {
+            "a required value for each parameter",
+            new(["app/home/about/page.tsx"], a => a.Map(HomeAction("About"), () => "home").WithMetadata(new HttpMethodMetadata([HttpMethods.Get])),
+                Request("GET", "/home/about")),
+            "GET /{controller}/{action} and the page app/home/about/page.tsx both match URLs like /home/about"
+        },
+        {
+            "a page action without form input",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", () => Page.Redirect("/"));
+                a.MapPost("/contact", () => "ok");
+            }, Request("POST", "/contact")),
+            "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
+        },
+        {
+            "a page action with the same form input",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
+                a.MapPost("/contact", ([FromForm] string? text) => text);
+            }, Request("POST", "/contact", Form)),
+            "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
+        },
+        {
+            "a page action that accepts the same content type among others",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
+                a.MapPost("/contact", (IFormFile file) => file.FileName);
+            }, Request("POST", "/contact", Multipart)),
+            "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
+        },
+        {
+            // A form post reaches only the page action and a JSON post only the endpoint, but a post without a body has no
+            // content type, and the matcher keeps both for it: no endpoint for the URL takes every content type.
+            "JSON input where the page action takes a form, for a post without a body",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
+                a.MapPost("/contact", (JsonInput input) => input.Text);
+            }, Request("POST", "/contact")),
+            "POST /contact and the action of app/contact/page.tsx both match URLs like /contact"
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(EndpointsThatTie))]
+    public async Task EndpointsThatTieWithAPage_AreWarned(string name, EndpointNextToPages setup, string message)
+    {
+        await using var app = await StartAsync(setup);
+
+        var response = await app.Client.SendAsync(setup.Request(), TestContext.Current.CancellationToken);
+        var warnings = Warnings(app);
+
+        // ASP.NET Core cannot choose between them (AmbiguousMatchException), and the warning names both.
+        Assert.True(response.StatusCode == HttpStatusCode.InternalServerError, $"{name}: {(int)response.StatusCode}");
+        Assert.True(warnings.Count == 1 && warnings[0].Contains(message, StringComparison.Ordinal), $"{name}: {string.Join(" | ", warnings)}");
+    }
+
+    public static TheoryData<string, EndpointNextToPages> EndpointsThatDoNotTie => new()
+    {
+        {
+            "an earlier order",
+            new(["app/docs/[...path]/page.tsx"], a => a.MapGet("/docs/{**path:regex(\\.md$)}", (string path) => path).WithOrder(-1), Request("GET", "/docs/a.md"))
+        },
+        { "a literal", new(["app/docs/[...path]/page.tsx"], a => a.MapGet("/docs/search.json", () => "[]"), Request("GET", "/docs/search.json")) },
+        { "another literal", new(["app/about/page.tsx"], a => a.MapGet("/contact", () => "contact"), Request("GET", "/contact")) },
+        { "a catch-all without a constraint", new(["app/docs/[...path]/page.tsx"], a => a.MapGet("/docs/{**path}", (string? path) => path), Request("GET", "/docs/a")) },
+        { "another method", new(["app/about/page.tsx"], a => a.MapPost("/about", () => "about"), Request("POST", "/about")) },
+        { "every method", new(["app/about/page.tsx"], a => a.Map("/about", () => "about"), Request("GET", "/about")) },
+        { "an endpoint for links only", new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").WithMetadata(new SuppressMatchingMetadata()), Request("GET", "/about")) },
+        {
+            "a host the pages do not require",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("www.example"), Request("GET", "http://www.example/about"))
+        },
+        {
+            "no host where the pages require one",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about"), Request("GET", "http://www.example/about"), Pages: p => p.RequireHost("www.example"))
+        },
+        {
+            "other hosts than the pages",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("api.example"), Request("GET", "http://www.example/about"),
+                Pages: p => p.RequireHost("www.example"))
+        },
+        {
+            // The host policy keeps the two apart, though it matches a request's host in any case, and picks one of them.
+            "a host of the pages in another case",
+            new(["app/about/page.tsx"], a => a.MapGet("/about", () => "about").RequireHost("WWW.Example"), Request("GET", "http://www.example/about"),
+                Pages: p => p.RequireHost("www.example"))
+        },
+        {
+            "no form input where the page action has one",
+            new(["app/contact/page.tsx"], a =>
+            {
+                a.MapPageAction("/contact", ([FromForm] string? text) => Page.Redirect("/"));
+                a.MapPost("/contact", () => "ok");
+            }, Request("POST", "/contact", Form))
+        },
+        {
+            "other required values",
+            new(["app/home/about/page.tsx"], a => a.Map(HomeAction("Index"), () => "home").WithMetadata(new HttpMethodMetadata([HttpMethods.Get])),
+                Request("GET", "/home/about"))
+        },
+        { "no page", new(["app/page.tsx"], a => a.MapGet("/api/search", () => "[]"), Request("GET", "/api/search")) },
+        { "a fallback", new(["app/page.tsx"], a => a.MapFallback(() => "fallback"), Request("GET", "/x")) },
+        {
+            "the sitemap, robots.txt, a server action and the image endpoint",
+            new(["app/page.tsx"], a =>
+            {
+                a.MapSitemap(new Uri("https://example.com"));
+                a.MapRobotsTxt(new Uri("https://example.com"));
+                a.MapAction("posts.create", () => ServerAction.Ok());
+            }, Request("GET", "/"))
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(EndpointsThatDoNotTie))]
+    public async Task EndpointsThatDoNotTieWithAPage_AreNotWarned(string name, EndpointNextToPages setup)
+    {
+        await using var app = await StartAsync(setup);
+
+        var response = await app.Client.SendAsync(setup.Request(), TestContext.Current.CancellationToken);
+        var warnings = Warnings(app);
+
+        // One of them answers, whatever it answers.
+        Assert.True(response.StatusCode != HttpStatusCode.InternalServerError, $"{name}: 500");
+        Assert.True(warnings.Count == 0, $"{name}: {string.Join(" | ", warnings)}");
+    }
+
     public sealed record PinInput(string? Text, bool Pinned);
 
     public sealed record TagsInput(string? Name, string[] Tags, bool? Public);
@@ -584,6 +820,27 @@ public class RouteDiagnosticsTests
         Assert.Equal(["app/[id]/page.tsx", "app/[...rest]/page.tsx"], warnings[1]!["files"]!.AsArray().Select(f => (string?)f));
         Assert.Contains("'id'", (string?)warnings[0]!["message"]);
         Assert.Contains("app/[id]/page.tsx wins over app/[...rest]/page.tsx", (string?)warnings[1]!["message"]);
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ReportsAnEndpointThatTiesWithAPage()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            ["app/docs/[...path]/page.tsx"],
+            map: a => a.MapGet("/docs/{**path:regex(\\.md$)}", (string path) => path),
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new Netjes.TypeGen.CommandExit(_ => { })));
+
+        var report = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        var warnings = report["warnings"]!.AsArray();
+
+        Assert.Empty(Warnings(app));
+        var warning = Assert.Single(warnings)!;
+        Assert.Equal("ambiguous-endpoint", (string?)warning["kind"]);
+        Assert.Equal(["app/docs/[...path]/page.tsx"], warning["files"]!.AsArray().Select(f => (string?)f));
+        Assert.Contains(".WithOrder(-1)", (string?)warning["message"]);
     }
 
     [Fact]

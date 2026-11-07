@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, FormHTMLAttributes, SubmitEvent } from 'react';
+import type { ComponentPropsWithRef, SubmitEvent } from 'react';
 import { RETURN_FIELD, actionMetaOf } from './actions.tsx';
 import { encodeForm } from './form-data.ts';
 import type { Href } from './href.ts';
@@ -7,8 +7,8 @@ import { useBasePath, useInternalRouter, usePagePayload, withBasePath } from './
 /** A React form action, e.g. the `formAction` from `useAction(serverAction('name'))`. */
 export type FormAction = (formData: FormData) => void | Promise<void>;
 
-/** The props of `<Form>`: a form's own, with client navigation and server action support. */
-export type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> & {
+/** The props of `<Form>`: a form's own and its ref, with client navigation and server action support. */
+export type FormProps = Omit<ComponentPropsWithRef<'form'>, 'method' | 'action'> & {
   method?: 'get' | 'post';
   /**
    * Where to submit. Default: the current URL, which is where `MapPageAction` handlers for this page listen. Or a
@@ -74,6 +74,9 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
   }
 
   function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
+    // Read before the app's own onSubmit, which runs as the form is submitted: where it moves the focus, the router
+    // leaves it, as after a link's onClick.
+    const focusedAtStart = document.activeElement;
     onSubmit?.(event);
     if (event.defaultPrevented || reloadDocument) return;
     const form = event.currentTarget;
@@ -88,7 +91,7 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
     const data = formDataOf(form, submitter);
     const submitMethod = (submitter?.getAttribute('formmethod') ?? method).toLowerCase();
     if (submitMethod === 'post') {
-      void router.submit(url, encodeForm(data, form.enctype === 'multipart/form-data'));
+      void router.submit(url, encodeForm(data, form.enctype === 'multipart/form-data'), { focusedAtStart });
       return;
     }
     const query = new URLSearchParams();
@@ -97,7 +100,7 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
     url.hash = '';
     // Built from the form's own action, which is not one of the app's typed routes.
     const href = url.href as Href;
-    void (replace ? router.replace(href) : router.push(href));
+    void (replace ? router.replace(href, { focusedAtStart }) : router.push(href, { focusedAtStart }));
   }
 
   return (
@@ -108,8 +111,8 @@ export function Form({ method = 'get', action, replace = false, reloadDocument =
   );
 }
 
-/** The props of `<SubmitButton>`: a button's own, except `type`. */
-export type SubmitButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'>;
+/** The props of `<SubmitButton>`: a button's own and its ref, except `type`. */
+export type SubmitButtonProps = Omit<ComponentPropsWithRef<'button'>, 'type'>;
 
 /**
  * A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and

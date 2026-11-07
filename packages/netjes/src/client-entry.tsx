@@ -1,4 +1,6 @@
-// Must come first: installs the React Fast Refresh runtime before any component module runs (empty in builds).
+// Must come first, ahead of anything that could make a zod schema: turns zod's compiled parsers off (ADR 0036).
+import './zod-jitless.ts';
+// Must come before any component module: installs the React Fast Refresh runtime before one runs (empty in builds).
 import '@vitejs/plugin-react/preamble';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { pages } from 'virtual:netjes/pages';
@@ -7,6 +9,7 @@ import { type RouteModules, createModuleLoader } from './modules.ts';
 import { DATA_ELEMENT_ID, SHELL_END_ID, parseInitialPayload } from './payload.ts';
 import { Root } from './root.tsx';
 import { withClockOffset } from './router.tsx';
+import { BEFORE_INTERACTIVE_MARKER, adoptServerScripts } from './script.tsx';
 
 /**
  * The payload is the body's first element, so it is normally parsed by the time this async script runs. If the
@@ -112,6 +115,18 @@ async function firstPageModules(): Promise<RouteModules | null> {
   }
 }
 
+/**
+ * A `<Script strategy="beforeInteractive">` in the server's document puts a marker in the head, which is complete by
+ * the time the payload is read. Such a page waits for the end of the shell, where the parser has run the inline ones,
+ * then runs the external ones in order and waits for them, before the page's modules run and hydrate (ADR 0044). A
+ * page without one loads its modules while the rest of the shell arrives (ADR 0022).
+ */
+const beforeInteractive = document.head.querySelector(`meta[name="${BEFORE_INTERACTIVE_MARKER}"]`) !== null;
+if (beforeInteractive) {
+  await shellParsed();
+  await adoptServerScripts(payload.document.nonce);
+}
+
 const modules = await firstPageModules();
 if (modules) {
   const root = <Root payload={payload} modules={modules} loader={loader} dataJson={dataJson} />;
@@ -120,7 +135,10 @@ if (modules) {
     // the scripts and stylesheets already in it and replaces the rest.
     createRoot(document).render(root);
   } else {
-    await shellParsed();
+    if (!beforeInteractive) {
+      await shellParsed();
+      await adoptServerScripts(payload.document.nonce);
+    }
     hydrateRoot(document, root);
   }
 }

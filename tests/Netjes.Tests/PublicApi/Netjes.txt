@@ -5,6 +5,7 @@ public static class Microsoft.AspNetCore.Builder.NetjesApplicationBuilderExtensi
   public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjes(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
 public static class Microsoft.AspNetCore.Builder.NetjesEndpointRouteBuilderExtensions
   public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string name, Delegate action)
   public static Netjes.Routing.LayoutLoaderBuilder MapLayoutLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string segment, Delegate loader)
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate action)
@@ -15,6 +16,7 @@ public static class Microsoft.AspNetCore.Builder.NetjesLocalizationApplicationBu
   public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjesLocalization(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
 public static class Microsoft.AspNetCore.Builder.StaticExportEndpointConventionBuilderExtensions
   public static TBuilder ExcludeFromExport<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static TBuilder IncludeInExport<TBuilder>(this TBuilder builder) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder StaticParams<TService>(this Microsoft.AspNetCore.Builder.RouteHandlerBuilder builder, Func<TService, System.Collections.Generic.IEnumerable<object>> parameters) where TService : notnull
   public static TBuilder StaticParams<TBuilder>(this TBuilder builder, Func<IServiceProvider, System.Collections.Generic.IEnumerable<object>> parameters) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
 
@@ -35,6 +37,21 @@ public static class Microsoft.Extensions.Hosting.NetjesHostExtensions
 
 namespace Netjes
 public sealed class Netjes.Deferred<T>
+public sealed class Netjes.Href : IEquatable<Netjes.Href>
+  public Href(string url)
+  public string Value { get; }
+  public bool Equals(Netjes.Href? other)
+  public override bool Equals(object? obj)
+  public override int GetHashCode()
+  public override string ToString()
+  public static bool TryCreate(string? url, out Netjes.Href? href)
+  public static bool operator ==(Netjes.Href? left, Netjes.Href? right)
+  public static implicit operator string?(Netjes.Href? href)
+  public static bool operator !=(Netjes.Href? left, Netjes.Href? right)
+public sealed class Netjes.HrefJsonConverter : System.Text.Json.Serialization.JsonConverter<Netjes.Href>
+  public HrefJsonConverter()
+  public override Netjes.Href Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+  public override void Write(System.Text.Json.Utf8JsonWriter writer, Netjes.Href value, System.Text.Json.JsonSerializerOptions options)
 public interface Netjes.IDraftMode
   bool IsEnabled { get; }
   void Disable()
@@ -42,6 +59,8 @@ public interface Netjes.IDraftMode
 public interface Netjes.IPageCache
   System.Threading.Tasks.ValueTask RevalidatePathAsync(string path, System.Threading.CancellationToken cancellationToken = default)
   System.Threading.Tasks.ValueTask RevalidateTagAsync(string tag, System.Threading.CancellationToken cancellationToken = default)
+public static class Netjes.NetjesContentSecurityPolicy
+  public static string ScriptHashes { get; }
 public static class Netjes.NetjesHeaders
   public const string Antiforgery = "X-Netjes-Antiforgery"
   public const string Cookies = "X-Netjes-Cookies"
@@ -89,6 +108,7 @@ public sealed class Netjes.NetjesOptions
   public string NodeExecutable { get; set; }
   public System.Collections.Generic.IReadOnlyList<string> PrivateFormFields { get; set; }
   public string PublicDirectory { get; set; }
+  public bool RedirectLiteralCase { get; set; }
   public TimeSpan RenderTimeout { get; set; }
   public string? Root { get; set; }
   public Netjes.NetjesSecurityHeaderOptions SecurityHeaders { get; set; }
@@ -100,6 +120,7 @@ public sealed class Netjes.NetjesOptions
   public TimeSpan StartupTimeout { get; set; }
   public bool StreamDocuments { get; set; }
   public TimeSpan StreamTimeout { get; set; }
+  public Netjes.TrailingSlash TrailingSlash { get; set; }
   public string? TypesFile { get; set; }
   public int ViteDevPort { get; set; }
   public Netjes.NetjesOptions UseSharedProps<T>(Func<Microsoft.AspNetCore.Http.HttpContext, System.Threading.Tasks.ValueTask<T>> factory)
@@ -206,6 +227,9 @@ public static class Netjes.SitemapEndpointRouteBuilderExtensions
 public sealed class Netjes.SsrRenderException : Exception
   public SsrRenderException(string message, string? jsStack, Exception? inner = null)
   public string? JsStack { get; }
+public enum Netjes.TrailingSlash
+  Ignore = 0
+  Never = 1
 
 namespace Netjes.Images
 public interface Netjes.Images.IImageProcessor
@@ -242,10 +266,16 @@ public sealed record Netjes.Rendering.SsrStreamOptions : IEquatable<Netjes.Rende
   public bool WaitForAll { get; init; }
 
 namespace Netjes.Routing
+public sealed class Netjes.Routing.CachedPageMetadata
+  public TimeSpan Duration { get; }
+  public System.Collections.Generic.IReadOnlyList<string> Tags { get; }
 public sealed class Netjes.Routing.InvalidPageFileException : Exception
   public InvalidPageFileException(string message)
 public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public void Add(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> convention)
   public void Finally(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> finallyConvention)
+public sealed class Netjes.Routing.PageRouteMetadata
+  public bool IsLoader { get; }
+  public string Pattern { get; }
 public sealed class Netjes.Routing.RouteConflictException : Exception
   public RouteConflictException(string message)

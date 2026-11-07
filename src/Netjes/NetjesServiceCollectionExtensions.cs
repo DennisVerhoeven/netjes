@@ -57,6 +57,7 @@ public static class NetjesServiceCollectionExtensions
         services.TryAddSingleton<TypeGenRegistry>();
         services.TryAddSingleton<TypeScriptGenerator>();
         services.TryAddSingleton<CommandExit>();
+        services.TryAddSingleton<ExportPlan>();
         services.TryAddSingleton<PendingStartupFailure>();
         services.TryAddSingleton(ExportClient.ForServer);
         services.TryAddSingleton<RouteDiagnostics>();

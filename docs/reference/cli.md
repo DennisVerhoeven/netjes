@@ -12,17 +12,17 @@ netjes --version
 
 | Command | What it does |
 |---|---|
-| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod and Vitest |
+| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright |
 | [`dev`](#netjes-dev) | Run the app in Development: `dotnet watch` with C# hot reload, Vite HMR for pages |
 | [`build`](#netjes-build) | Generate the types, then build the client and server bundles into `dist/` |
 | [`start`](#netjes-start) | Run the app in Production, from a build or a published app |
 | [`generate`](#netjes-generate) | Write `generated/netjes.ts` from the C# types |
 | [`routes`](#netjes-routes) | Print the route table and its warnings, as the app sees them |
-| [`export [dir]`](#netjes-export) | Build, then write every page as static HTML into a folder |
+| [`export [dir]`](#netjes-export) | Build, then write every page, and each endpoint marked `IncludeInExport`, into a folder as static files |
 | [`info`](#netjes-info) | Check the tools and the project setup |
 | [`agents [dir]`](#netjes-agents) | Add `AGENTS.md`, `CLAUDE.md` and the Netjes skill for coding agents to an existing app |
 
-`netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
+`netjes`, `netjes help` and `netjes --help` list the commands and the options every command takes, and end with a link to this page at the release tag of the installed version (`https://github.com/DennisVerhoeven/netjes/blob/v<version>/docs/reference/cli.md`), which describes that version's commands and options. `netjes help <command>`, `netjes <command> --help` and `netjes <command> -h` print a command's usage, its options with their defaults, and examples.
 
 ## Options and arguments
 
@@ -51,7 +51,7 @@ netjes generate: unknown option '--chek'; did you mean '--check'?
 netjes new <dir> [--name <Name>] [--packages] [--skip-install]
 ```
 
-Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next.
+Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next. Besides the pages and the C# side, the app has a C# test project, `tests/<Name>.Tests` ([the test project](../guides/testing.md#the-test-project)), and a Playwright suite, `e2e/` with `playwright.config.ts` ([the suite of a new app](../guides/testing.md#the-suite-of-a-new-app)). `npm install` brings Playwright's package and no browser; `npx playwright install chromium` fetches that once.
 
 | Argument or option | What it does | Default |
 |---|---|---|
@@ -70,7 +70,7 @@ Names. The project gets three names: a .NET name (the `.csproj`, the root namesp
 - `--name` with anything other than letters and digits, or starting with a digit (`--name my-shop`; it suggests `--name MyShop`);
 - a folder name with no ASCII letters or digits, unless `--name` is given;
 - a C# keyword as `--name`, such as `class` or `event` (a keyword cannot name a namespace);
-- the name of a type the app's code uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder` and `FromFormAttribute`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` is refused for the same reason, as it gives `Page`;
+- the name of a type the app's code or its test project uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder`, `FromFormAttribute`, `IWebHostBuilder`, `NetjesOptions`, `ISsrRenderer`, `Task`, `CancellationToken`, `NetjesHeaders`, `JsonNode`, `TestContext`, `Assert`, `FormUrlEncodedContent` and `HttpStatusCode`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` or `task` is refused for the same reason, as it gives `Page` or `Task`;
 - an npm name that is one of the app's own dependencies, such as `react`, `vite` or `netjes` (npm refuses to install a package into one of the same name).
 
 How the app references Netjes. From the published package, the `.csproj` gets `<PackageReference Include="Netjes" Version="[x.y.z]" />` and `package.json` gets `"netjes": "x.y.z"`, both the exact version of the netjes that ran `new`: the C# and npm halves speak one protocol. Run from a Netjes checkout (contributors), it references that checkout instead (a `ProjectReference` and a `file:` dependency), unless `--packages` is given. Such an app imports the package's compiled modules from the checkout's `packages/netjes/dist/`, so build them first, with `npm ci && npm run build` at the checkout's root, and again after changing `packages/netjes`.
@@ -143,7 +143,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 netjes generate [--check]
 ```
 
-Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references and typed routes. The app also rewrites it when it starts in Development; commit it.
+Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it.
 
 | Option | What it does | Default |
 |---|---|---|
@@ -176,7 +176,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 }
 ```
 
-`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does.
+`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does. A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings): `query-binding` for a loader parameter that reads the query string instead of a route value, `overlap` for two pages that match the same URLs, `ambiguous-endpoint` for an endpoint that ties with a page or a page action, and `form-input` for a form input that refuses a post without a checkbox. `files` lists the page and layout files the warning is about, and is empty for a server action's form input.
 
 ## netjes export
 
@@ -184,12 +184,23 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 netjes export [dir] [--no-build]
 ```
 
-Builds the app (as `netjes build` does), then runs it once in Production and writes every page as static HTML into `dir`, with `404.html` and the client assets. [Static export](../guides/static-export.md) has the rules: which pages can be exported, `.StaticParams(...)` for dynamic ones, and where the output may go.
+Builds the app (as `netjes build` does), then runs it once in Production and writes every page as static HTML into `dir`, with `404.html`, the client assets, and a file for each endpoint marked `.IncludeInExport()`, such as `sitemap.xml` and `robots.txt` from `MapSitemap` and `MapRobotsTxt`. [Static export](../guides/static-export.md) has the rules: which pages and endpoints can be exported, `.StaticParams(...)` for dynamic pages, and where the output may go.
+
+The export logs a warning, in the category `Netjes.Export.QueryString`, for each page loader of a page it writes, each layout loader above one, and each endpoint marked `.IncludeInExport()` that reads the query string, which the export never sends. The file is still written and the exit code does not change. A loader or an endpoint that requires a query value still fails the export, and its warning says so ([loaders that read the query string](../guides/static-export.md#loaders-that-read-the-query-string)). It also logs a warning, in `Netjes.Export.StaticExportService`, when `MapSitemap` or `MapRobotsTxt` has a loopback `siteUrl` ([sitemap and robots.txt](../guides/static-export.md#sitemap-and-robotstxt)).
 
 | Argument or option | What it does | Default |
 |---|---|---|
-| `[dir]` | The folder to write the site to, inside the app. | `out` |
+| `[dir]` | The folder to write the site to, inside the app. A relative path is resolved against the folder `netjes` runs in, or `--cwd`. | `out` |
 | `--no-build` | Export the build already in `dist/`. | off: build first |
+
+Before it builds, netjes checks that `dir` is inside the folder it runs in. A folder outside it, such as `..`, `../site` or a path elsewhere on the disk, or that folder itself, ends the command with one line on stderr and exit code 1, and nothing is built:
+
+```console
+$ netjes export ../site
+netjes export: the output folder /home/me/site must be inside the app (/home/me/my-shop), such as 'out'; nothing was built
+```
+
+On macOS and Windows that check ignores letter case, as .NET does. On macOS and Linux, netjes takes the folder it runs in by its real path, with any symlink resolved, since that is the folder the app finds itself in, and resolves a relative `dir` against it. After the build, the app checks the folder again, with the rest of the rules, against `Netjes:Root`. With `--no-build`, netjes still resolves a relative `dir` that way, but does not check the folder, and the app alone decides: an app whose `Netjes:Root` is above the project folder can export to a folder inside it, such as `../site`, and a folder the app refuses costs a compile and a start before the export stops.
 
 ## netjes info
 
@@ -223,7 +234,7 @@ netjes 0.0.2 in /home/me/my-shop
 | Vite config | there is no `vite.config.*`, or it does not use `netjes()` | |
 | `package.json` | it is missing, is not valid JSON, or has no `build` script | |
 | `app/` | it is missing; or `pages/` still has pages router files (named with their `app/` files) or API routes in `pages/api/` | it has no `page.tsx` |
-| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer (a hint only: `netjes generate --check` is exact) |
+| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer, the root `tests/` folder left out (a hint only: `netjes generate --check` is exact) |
 
 ## netjes agents
 
@@ -231,12 +242,12 @@ netjes 0.0.2 in /home/me/my-shop
 netjes agents [dir] [--name <Name>] [--force]
 ```
 
-Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](../guides/coding-agents.md) has more.
+Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. `AGENTS.md` lists the C# test command only when `tests/<Name>.Tests/<Name>.Tests.csproj` exists, with `<Name>` the name it gives the app, and `npm run test:e2e` only when `playwright.config.ts`, an `e2e/` folder and a `test:e2e` script exist. It looks when it writes `AGENTS.md`: after adding a suite, run `npx netjes agents --force`, and keep your own additions with `git diff`. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](../guides/coding-agents.md) has more.
 
 | Argument or option | What it does | Default |
 |---|---|---|
 | `[dir]` | The app folder. | the current folder |
-| `--name <Name>` | The app's name in `AGENTS.md`. | the name of its `.csproj`, else the folder name |
+| `--name <Name>` | The app's name in `AGENTS.md`, and the `<Name>` of the test project it looks for. | the name of its `.csproj`, else the folder name |
 | `--force` | Replace the files that exist. | off: keep them |
 
 ## Exit codes
@@ -244,7 +255,7 @@ Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | A usage error; a check that failed before anything ran (no `.csproj`, packages not installed, the port is in use, a name or folder that `netjes new` refuses); or a failed check (`netjes info` found a `✗`, `netjes generate --check` found the types out of date). |
+| 1 | A usage error; a check that failed before anything ran (no `.csproj`, packages not installed, the port is in use, a name or folder that `netjes new` refuses, an output folder outside the app, which `netjes export` refuses before it builds); or a failed check (`netjes info` found a `✗`, `netjes generate --check` found the types out of date). |
 | 127 | `dotnet` or `npm` is not installed, or not on `PATH`. netjes says what to install. |
 | 130 | Ctrl+C at the `netjes new` prompt. |
 | other | The exit code of the process netjes ran (`dotnet`, `npm` or `vite`), passed on unchanged; 128 + n when signal n ended it (130 for SIGINT, 143 for SIGTERM). |
@@ -277,9 +288,13 @@ Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (
 ```bash
 npm ci
 npx netjes generate --check                # the committed types match the C# code
+npm run typecheck
 npm test
+dotnet test tests/MyApp.Tests -c Release   # name the project: a plain dotnet test at the app's root runs no tests
 dotnet publish -c Release -o bin/publish   # runs npm run build, and ships dist/ with the app
 ```
+
+[Testing](../guides/testing.md#in-ci) adds the Playwright suite to these steps.
 
 To build the client in a step of its own (`npx netjes build`), pass `-p:NetjesSkipClientBuild=true` to `dotnet publish`, as the template's `Dockerfile` does, so that it is not built twice.
 

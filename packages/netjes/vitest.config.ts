@@ -15,5 +15,13 @@ export default defineConfig({
     include: ['test/**/*.test.{ts,tsx}'],
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
+    // As netjes({ query }) would provide them to an app's tests; a test file that imports src/testing-vitest.ts, the
+    // plugin's setup file, hands them to createTestApp.
+    provide: {
+      'netjes:query': {
+        queries: { staleTime: Number.POSITIVE_INFINITY, retry: 1, retryDelay: 1000, gcTime: 5000 },
+        mutations: { retry: 1, retryDelay: 1000 },
+      },
+    },
   },
 });

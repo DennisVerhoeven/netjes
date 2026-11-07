@@ -1,4 +1,4 @@
-import { type ImgHTMLAttributes, createContext, useContext } from 'react';
+import { type ComponentPropsWithRef, createContext, useContext } from 'react';
 import { preload } from 'react-dom';
 
 /**
@@ -17,8 +17,8 @@ const ImageConfigContext = createContext<ImageConfig>(DEFAULT_CONFIG);
 
 export const ImageConfigProvider = ImageConfigContext.Provider;
 
-/** The props of `<Image>`: an `<img>`'s own, with a required size and `alt`, and the optimizer's options. */
-export type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
+/** The props of `<Image>`: an `<img>`'s own and its ref, with a required size and `alt`, and the optimizer's options. */
+export type ImageProps = Omit<ComponentPropsWithRef<'img'>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
   /** A path in `public/` (`/img/hero.png`) or a URL on a host in Netjes:Images:RemoteHosts. */
   src: string;
   /** Required, as for any image; `""` for decorative ones. */

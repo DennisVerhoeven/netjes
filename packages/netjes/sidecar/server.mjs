@@ -4,8 +4,10 @@
 //   production:  renders with the prebuilt dist/server/server-entry.js.
 // Protocol: POST /render with the HTML-safe page payload JSON as body -> 200 text/html, streamed from the moment the
 // shell is ready (or once everything is, with X-Netjes-Wait-All: 1), or 500 {"error":{message,stack}} in plain text
-// (no terminal colours) if the shell fails. Every request must carry the X-Netjes-Token the parent passed in
-// NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
+// (no terminal colours) if the shell fails. GET /health -> 200 at once, without a body read. In production the parent
+// pings a process that has answered no render for a while; any answer will do, and a process that sends nothing back
+// within the render timeout (at least 5 s) is killed and restarted. Every request must carry the X-Netjes-Token the
+// parent passed in NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
 // NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Exits when stdin
 // closes.
 // Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. When the Vite dev server does not start,
@@ -127,7 +129,10 @@ if (mode === 'development') {
 
 /**
  * Inlines the CSS imported by the page and its segment files, so the server-rendered page is styled before the client
- * script runs. Vite's client adopts these <style data-vite-dev-id> tags and keeps them updated through HMR.
+ * script runs. Vite's client adopts these <style data-vite-dev-id> tags and keeps them updated through HMR: each CSS
+ * module sets its tag's text to its own as it loads, before hydration. The files are found in the SSR environment,
+ * which rendered the page, and their text comes from the client environment's build, which that module carries
+ * (clientCss): React then hydrates the text the server rendered.
  * @param {import('vite').ViteDevServer} server
  * @param {string} data
  */
@@ -149,8 +154,7 @@ async function withDevStyles(server, data) {
     if (!node?.id || seen.has(node.id)) return;
     seen.add(node.id);
     if (node.file && CSS_FILE.test(node.file) && !node.id.includes('?')) {
-      const css = await server.ssrLoadModule(`${node.url}?inline`);
-      styles.set(node.file, String(css.default));
+      styles.set(node.file, await clientCss(server, node));
       return;
     }
     for (const imported of node.importedModules) await collect(imported);
@@ -163,6 +167,66 @@ async function withDevStyles(server, data) {
   if (styles.size === 0) return data;
   payload.document.devStyles = [...styles].map(([id, css]) => ({ id, css }));
   return JSON.stringify(payload).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/** How a CSS module in the client environment declares the text it sets: this, then the text as a JSON string. */
+const CLIENT_CSS_LINE = 'const __vite__css = ';
+/** Whether a module without that line, or without a JSON string on it, has been reported: once per process. */
+let clientCssMissing = false;
+
+/**
+ * A CSS file's text as Vite's client sets it in the page: the string that the file's module in the client environment
+ * declares and passes to updateStyle. The browser imports that module and gets it from the same cache, until an edit
+ * invalidates it; a module that does not accept its own updates, and that no browser has loaded yet, is built again
+ * for the browser (below). The SSR environment's `?inline` build is a second build of the file, which a plugin with
+ * state of its own in each environment, as Tailwind CSS has, can make differently. A module without that line, or with
+ * something other than a JSON string after it, from a Vite or a plugin that writes it otherwise, gets the `?inline`
+ * build all the same, and a warning.
+ * @param {import('vite').ViteDevServer} server
+ * @param {import('vite').EnvironmentModuleNode} node
+ */
+async function clientCss(server, node) {
+  const client = server.environments.client;
+  const built = await client.transformRequest(node.url);
+  const module = await client.moduleGraph.getModuleByUrl(node.url);
+  if (module && module.importers.size === 0 && module.isSelfAccepting === false) {
+    // Nothing in the client environment imports the module, so no browser has loaded a page with it, and the module
+    // does not accept its own updates, as a CSS Modules file's does not. Vite would take an edit to the file for one
+    // that no page can apply, and reload every open page, where without this read the module would not be there and
+    // the edit would reach no browser. So that it still reaches none, the module counts as not yet analyzed, where Vite
+    // stops an update, and its build is dropped: Vite builds it again for the browser that loads the page, and learns
+    // from that build how the module takes updates.
+    client.moduleGraph.invalidateModule(module);
+    module.isSelfAccepting = undefined;
+  }
+  // By lines, not with a regular expression: JSON.stringify leaves U+2028 and U+2029 in a string, and `.` stops at both.
+  const line = built?.code.split('\n').find((text) => text.startsWith(CLIENT_CSS_LINE));
+  const css = line === undefined ? undefined : jsonString(line.slice(CLIENT_CSS_LINE.length));
+  if (css !== undefined) return css;
+  if (!clientCssMissing) {
+    clientCssMissing = true;
+    const unread = line === undefined ? 'has no line that starts with' : 'has no JSON string after';
+    console.warn(
+      `netjes: Vite's client module for ${node.url} ${unread} "${CLIENT_CSS_LINE}", so development pages inline the ` +
+        "SSR build of their CSS: it can differ from the browser's build, which Vite's client puts in its place once " +
+        "the page's scripts run. Logged once, for the first such file.",
+    );
+  }
+  const inline = await server.ssrLoadModule(`${node.url}?inline`);
+  return String(inline.default);
+}
+
+/**
+ * @param {string} json
+ * @returns {string | undefined} The string `json` holds, or undefined when it holds no string.
+ */
+function jsonString(json) {
+  try {
+    const value = JSON.parse(json);
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -240,7 +304,10 @@ const server = http.createServer(async (req, res) => {
       const { renderId, id, value, error } = JSON.parse(await readBody(req));
       if (typeof renderId !== 'string' || typeof id !== 'string') throw new Error('renderId and id are required');
       const pending = pendingValue(renderId, id);
-      if (typeof error === 'string') pending.reject(new Error(error));
+      // An empty error is a failure whose message .NET withheld (error details are off): the render gets a stand-in
+      // marked as one, as the browser does (src/errors.ts), and hands the browser an empty error again.
+      if (error === '') pending.reject(Object.assign(new Error('Something went wrong'), { withheld: true }));
+      else if (typeof error === 'string') pending.reject(new Error(error));
       else pending.resolve(value);
       res.writeHead(204).end();
     } catch (error) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHref, isRouteHref } from '../src/href.ts';
+import { buildEndpointUrl, buildHref, isRouteHref } from '../src/href.ts';
 
 describe('isRouteHref', () => {
   const patterns = ['/', '/about', '/blog/[slug]', '/docs/[...path]', '/shop/[[...filters]]'];
@@ -20,6 +20,37 @@ describe('isRouteHref', () => {
     for (const href of ['/nope', '/blog', '/blog/a/b', '/docs', 'about', 'javascript:alert(1)', '', '//about', '/\\about']) {
       expect(isRouteHref(href, patterns), href).toBe(false);
     }
+  });
+
+  it('rejects URLs with control characters or edge spaces, which browsers strip or read as another host', () => {
+    // Browsers drop tabs and newlines anywhere in a URL, so `/\t/evil.example` is `//evil.example`, which a root
+    // catch-all or two dynamic segments would match as a path.
+    const everyPath = ['/[a]/[b]', '/[...slug]'];
+    const refused = [
+      '/\t/evil.example',
+      '/\n/evil.example',
+      '/\r/evil.example',
+      '/a\u0000b',
+      '/a\u001Fb',
+      '/a\u007Fb',
+      '/docs ',
+      ' /docs',
+      '\u001F/docs',
+      'https://example.com/\r\n',
+      '#top\t',
+      '#top\u001F',
+      '?q=\n',
+    ];
+
+    expect(refused.filter((href) => isRouteHref(href, everyPath))).toEqual([]);
+    expect(isRouteHref('/a b', everyPath)).toBe(true);
+  });
+
+  it('refuses a root-relative URL that no page serves, which a C# Href may hold', () => {
+    // A C# Href checks only the shape: a file next to the pages, or a path that already has the base path, has it too.
+    expect(isRouteHref('/llms.txt', ['/', '/docs/[...path]'])).toBe(false);
+    expect(isRouteHref('/docs/blog/x', ['/blog/[slug]'])).toBe(false);
+    expect(isRouteHref('/blog/x', ['/blog/[slug]'])).toBe(true);
   });
 });
 
@@ -50,8 +81,153 @@ describe('buildHref', () => {
     expect(buildHref('/blog', {}, {})).toBe('/blog');
   });
 
+  it('appends an encoded fragment', () => {
+    expect(buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })).toBe('/docs/guides/caching#keys');
+    expect(buildHref('/blog', {}, { tag: 'a' }, { hash: 'top' })).toBe('/blog?tag=a#top');
+    expect(buildHref('/', {}, undefined, { hash: 'start' })).toBe('/#start');
+    expect(buildHref('/blog', {}, undefined, { hash: 'a b' })).toBe('/blog#a%20b');
+    // After the path and the query, each encoded on its own: a space is %20 in a path and a fragment, + in a query.
+    expect(buildHref('/blog/[slug]', { slug: 'a b' }, { q: 'x y' }, { hash: 'c d' })).toBe('/blog/a%20b?q=x+y#c%20d');
+  });
+
+  it('drops one leading # from the hash', () => {
+    expect(buildHref('/blog', {}, undefined, { hash: '#top' })).toBe('/blog#top');
+    expect(buildHref('/blog', {}, { tag: 'a' }, { hash: '#top' })).toBe('/blog?tag=a#top');
+    expect(buildHref('/blog', {}, undefined, { hash: '##top' })).toBe('/blog#%23top');
+  });
+
+  it('encodes every character that could end or change the fragment', () => {
+    expect(buildHref('/blog', {}, undefined, { hash: 'a/b?c:d&e=f#g' })).toBe('/blog#a%2Fb%3Fc%3Ad%26e%3Df%23g');
+    expect(buildHref('/blog', {}, undefined, { hash: 'line\nbreak' })).toBe('/blog#line%0Abreak');
+    expect(buildHref('/blog', {}, undefined, { hash: 'über-uns' })).toBe('/blog#%C3%BCber-uns');
+    // Whatever the hash holds stays in the fragment of this path; it never starts another URL.
+    expect(buildHref('/blog', {}, undefined, { hash: '//evil.example/x' })).toBe('/blog#%2F%2Fevil.example%2Fx');
+  });
+
+  it('adds no fragment for an empty or missing hash', () => {
+    for (const options of [undefined, {}, { hash: undefined }, { hash: '' }, { hash: '#' }]) {
+      expect(buildHref('/blog', {}, undefined, options), JSON.stringify(options)).toBe('/blog');
+      expect(buildHref('/blog', {}, { tag: 'a' }, options), JSON.stringify(options)).toBe('/blog?tag=a');
+    }
+    expect(buildHref('/blog', {})).toBe('/blog');
+  });
+
   it('throws for a missing parameter or an empty catch-all', () => {
     expect(() => buildHref('/blog/[slug]', {})).toThrow("netjes: route '/blog/[slug]' needs the parameter 'slug'");
     expect(() => buildHref('/docs/[...path]', { path: [] })).toThrow("needs the parameter 'path'");
+  });
+
+  it('throws for a value that would make a dot segment or an empty one, which would change the path or the host', () => {
+    // A browser resolves `/blog/..` to `/`, and reads `//evil.example` as another site.
+    expect(() => buildHref('/blog/[slug]', { slug: '..' })).toThrow(
+      "netjes: route '/blog/[slug]' cannot take '..' for the parameter 'slug': a '.', '..' or empty segment would change the URL's path",
+    );
+    expect(() => buildHref('/blog/[slug]', { slug: '.' })).toThrow("cannot take '.' for the parameter 'slug'");
+    expect(() => buildHref('/[...slug]', { slug: ['', 'evil.example'] })).toThrow("cannot take '' for the parameter 'slug'");
+    expect(() => buildHref('/docs/[...path]', { path: ['a', '..', 'b'] })).toThrow("cannot take '..' for the parameter 'path'");
+    expect(() => buildHref('/docs/[...path]', { path: ['a', ''] })).toThrow("cannot take '' for the parameter 'path'");
+    expect(() => buildHref('/shop/[[...filters]]', { filters: ['.'] })).toThrow("cannot take '.' for the parameter 'filters'");
+    expect(() => buildHref('/shop/[[...filters]]', { filters: [''] })).toThrow("cannot take '' for the parameter 'filters'");
+  });
+
+  it('takes values with dots and slashes that stay in their segment', () => {
+    expect(buildHref('/blog/[slug]', { slug: '../x' })).toBe('/blog/..%2Fx');
+    expect(buildHref('/blog/[slug]', { slug: '...' })).toBe('/blog/...');
+    expect(buildHref('/blog/[slug]', { slug: '%2e%2e' })).toBe('/blog/%252e%252e');
+    expect(buildHref('/docs/[...path]', { path: ['.a', 'b..'] })).toBe('/docs/.a/b..');
+  });
+});
+
+describe('buildEndpointUrl', () => {
+  it('fills route values, encoding each, and sends the other values as the query string', () => {
+    expect(buildEndpointUrl('/api/items/{id}', { id: 'a b/c', v: 2, tag: ['x', 'y'] })).toBe('/api/items/a%20b%2Fc?v=2&tag=x&tag=y');
+    expect(buildEndpointUrl('/api/items/{id}', { id: 7, draft: undefined, sort: null, flag: false })).toBe('/api/items/7?flag=false');
+    expect(buildEndpointUrl('/api/posts/{slug}/likes', { slug: 'hello' })).toBe('/api/posts/hello/likes');
+  });
+
+  it('keeps the slashes of {**name}, encodes those of {*name}, fills complex segments and middle defaults, and drops a missing optional value', () => {
+    expect(buildEndpointUrl('/docs/{**path}', { path: 'guides/a b' })).toBe('/docs/guides/a%20b');
+    expect(buildEndpointUrl('/one/{*path}', { path: 'guides/a b' })).toBe('/one/guides%2Fa%20b');
+    expect(buildEndpointUrl('/openapi/{documentName}.json', { documentName: 'v1' })).toBe('/openapi/v1.json');
+    expect(buildEndpointUrl('/opt/{id?}', {})).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: null })).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: '' })).toBe('/opt');
+    expect(buildEndpointUrl('/opt/{id?}', { id: 3 })).toBe('/opt/3');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: 'a' })).toBe('/files/a');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: 'a', ext: 'md' })).toBe('/files/a.md');
+    expect(buildEndpointUrl('/a/{page=1}/z', {})).toBe('/a/1/z');
+    expect(buildEndpointUrl('/a/{page=1}/z', { page: 4 })).toBe('/a/4/z');
+    expect(buildEndpointUrl('/list/{page=1}', {})).toBe('/list');
+    expect(buildEndpointUrl('/list/{page=1}/{size=10}', { size: 20 })).toBe('/list/1/20');
+    expect(buildEndpointUrl('/{**path}', {})).toBe('/');
+    expect(buildEndpointUrl('/', {})).toBe('/');
+  });
+
+  it('throws for a missing or empty required route value, naming the endpoint', () => {
+    expect(() => buildEndpointUrl('/api/items/{id}', {}, undefined, 'GET /api/items/{id:int}')).toThrow(
+      "netjes: endpoint 'GET /api/items/{id:int}' needs the route value 'id'",
+    );
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: '' }, undefined, 'GET /api/items/{id:int}')).toThrow("needs the route value 'id'");
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: null })).toThrow("netjes: endpoint '/api/items/{id}' needs the route value 'id'");
+    expect(() => buildEndpointUrl('/files/{name}.{ext?}', { ext: 'md' })).toThrow("needs the route value 'name'");
+  });
+
+  it('throws for an optional value left out before a segment that stays, whose place the next value would take', () => {
+    // Routing does not match `/a/b`, and reads the `2` of `/two/2` as `x`. LinkGenerator gives no URL for these either.
+    expect(() => buildEndpointUrl('/a/{x?}/b', {}, undefined, 'GET /a/{x?}/b')).toThrow("netjes: endpoint 'GET /a/{x?}/b' needs the route value 'x'");
+    expect(() => buildEndpointUrl('/two/{x?}/{y?}', { y: 2 })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/rest/{x?}/{**rest}', { rest: 'a/b' })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/mid/{x?}/{y=1}/c', {})).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/end/{x?}/{y=1}', { y: 2 })).toThrow("needs the route value 'x'");
+    expect(() => buildEndpointUrl('/cy/{x?}/{name}.{ext?}', { name: 'a' })).toThrow("needs the route value 'x'");
+  });
+
+  it('leaves out what can go at the end, and part of a segment wherever it is', () => {
+    expect(buildEndpointUrl('/two/{x?}/{y?}', {})).toBe('/two');
+    expect(buildEndpointUrl('/two/{x?}/{y?}', { x: 1 })).toBe('/two/1');
+    expect(buildEndpointUrl('/end/{x?}/{y=1}', {})).toBe('/end');
+    expect(buildEndpointUrl('/dflt/{x=1}/{y?}', { y: 2 })).toBe('/dflt/1/2');
+    expect(buildEndpointUrl('/cx/{name}.{ext?}/z', { name: 'a' })).toBe('/cx/a/z');
+  });
+
+  it('appends the open search values after the typed ones', () => {
+    expect(buildEndpointUrl('/api/search', { q: 'a b', page: 2 }, { sort: ['x', 'y'], q: 'c' })).toBe('/api/search?q=a+b&page=2&sort=x&sort=y&q=c');
+    expect(buildEndpointUrl('/api/search', {}, { q: undefined, page: null })).toBe('/api/search');
+  });
+
+  it('writes an empty query value, which leaves out only a route value', () => {
+    expect(buildEndpointUrl('/api/search', { q: '' })).toBe('/api/search?q=');
+    expect(buildEndpointUrl('/api/search', {}, { q: '' })).toBe('/api/search?q=');
+  });
+
+  it('throws for a value that would make a dot segment or an empty one, which would change the path or the host', () => {
+    // A browser resolves `/api/posts/../likes` to `/api/likes`, and reads `//evil.example` as another site.
+    expect(() => buildEndpointUrl('/api/posts/{slug}/likes', { slug: '..' }, undefined, 'POST /api/posts/{slug}/likes')).toThrow(
+      "netjes: endpoint 'POST /api/posts/{slug}/likes' cannot take '..' for the route value 'slug': a '.', '..' or empty segment would change the URL's path",
+    );
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: '.' })).toThrow("netjes: endpoint '/api/items/{id}' cannot take '.' for the route value 'id'");
+    expect(() => buildEndpointUrl('/one/{*path}', { path: '..' })).toThrow("cannot take '..' for the route value 'path'");
+    expect(() => buildEndpointUrl('/files/{name}.{ext?}', { name: '.' })).toThrow("cannot take '.' for the route value 'name'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: '../../admin/users' })).toThrow(
+      "cannot take '../../admin/users' for the route value 'path'",
+    );
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: 'a/./b' })).toThrow("cannot take 'a/./b' for the route value 'path'");
+    expect(() => buildEndpointUrl('/{**path}', { path: '/evil.example' })).toThrow("cannot take '/evil.example' for the route value 'path'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: 'a//b' })).toThrow("cannot take 'a//b' for the route value 'path'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: '/' })).toThrow("cannot take '/' for the route value 'path'");
+  });
+
+  it('takes values with dots and slashes that stay in their segments', () => {
+    expect(buildEndpointUrl('/api/items/{id}', { id: '../x' })).toBe('/api/items/..%2Fx');
+    expect(buildEndpointUrl('/api/items/{id}', { id: '...' })).toBe('/api/items/...');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: '.', ext: 'md' })).toBe('/files/..md');
+    expect(buildEndpointUrl('/one/{*path}', { path: '../../x' })).toBe('/one/..%2F..%2Fx');
+    expect(buildEndpointUrl('/api/files/{**path}', { path: 'a/.b/c..' })).toBe('/api/files/a/.b/c..');
+    expect(buildEndpointUrl('/api/files/{**path}', { path: 'a/' })).toBe('/api/files/a/');
+  });
+
+  it('writes the literal parts of a template as they are, with what the generator encoded in them', () => {
+    expect(buildEndpointUrl('/a%7Bb%7D/{id}', { id: 'c' })).toBe('/a%7Bb%7D/c');
+    expect(buildEndpointUrl('/100%25/c%23/a%5Cb/{id}', { id: 'c' })).toBe('/100%25/c%23/a%5Cb/c');
   });
 });

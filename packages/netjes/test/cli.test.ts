@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,7 @@ describe('netjes new', () => {
       'app/about/page.tsx',
       'app/not-found.tsx',
       'app/error.tsx',
+      'app/document.test.ts',
       'components/Greeting.tsx',
       'components/Greeting.test.tsx',
       'components/HelloForm.tsx',
@@ -43,8 +44,15 @@ describe('netjes new', () => {
       'styles/global.css',
       'public/favicon.svg',
       'generated/netjes.ts',
+      'tests/MyShop.Tests/MyShop.Tests.csproj',
+      'tests/MyShop.Tests/AppFactory.cs',
+      'tests/MyShop.Tests/HomePageTests.cs',
+      'e2e/home.spec.ts',
+      'playwright.config.ts',
       'vite.config.ts',
       'tsconfig.json',
+      'tsconfig.app.json',
+      'tsconfig.node.json',
       'package.json',
       'Dockerfile',
       'docker-compose.yml',
@@ -57,8 +65,7 @@ describe('netjes new', () => {
       expect(existsSync(path.join(app, file)), file).toBe(true);
     }
     expect(existsSync(path.join(app, 'pages'))).toBe(false);
-    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).include).toContain('app');
-    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).include).not.toContain('pages');
+    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).files).toEqual([]);
     expect(await readFile(path.join(app, 'Program.cs'), 'utf8')).toContain('using MyShop;');
     expect(JSON.parse(await readFile(path.join(app, 'package.json'), 'utf8')).name).toBe('my-shop');
     expect(await readFile(path.join(app, 'Dockerfile'), 'utf8')).toContain('MyShop.dll');
@@ -152,11 +159,27 @@ describe('netjes new', () => {
     expect(await run(['new', 'taken', '--skip-install'], io)).toBe(1);
     expect(err()).toContain('is not empty');
   });
+
+  it('names a folder whose name starts with two dots by its relative path', async () => {
+    const { io, out } = recordingIo(temp);
+
+    expect(await run(['new', '..shop', '--skip-install'], io)).toBe(0);
+
+    expect(out()).toContain('Created Shop in ..shop (');
+    expect(out()).toContain('\n  cd ..shop\n');
+  });
 });
 
 describe('netjes agents', () => {
   const shipped = path.join(repoRoot, 'packages', 'netjes', 'skills', 'netjes');
   const skill = (dir: string) => path.join(dir, '.claude', 'skills', 'netjes');
+  /** The Playwright suite as `netjes new` lays it out: the config, the specs in e2e/ and the script that runs them. */
+  const playwrightSuite = async (dir: string, scripts: Record<string, string> = { 'test:e2e': 'dotnet build && playwright test' }) => {
+    await writeFile(path.join(dir, 'playwright.config.ts'), 'export default {};\n');
+    await mkdir(path.join(dir, 'e2e'), { recursive: true });
+    await writeFile(path.join(dir, 'e2e', 'home.spec.ts'), '');
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ scripts }));
+  };
 
   it('adds AGENTS.md, CLAUDE.md and the Netjes skill to an existing app, named after its project file', async () => {
     await writeFile(path.join(temp, 'Shop.Web.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
@@ -176,6 +199,112 @@ describe('netjes agents', () => {
     expect(out()).toContain('  wrote AGENTS.md\n');
     expect(out()).toContain('  wrote .claude/skills/netjes/SKILL.md\n');
     expect(out()).not.toContain('kept');
+  });
+
+  it('leaves the C# test and Playwright commands out for an app that has neither', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).not.toContain('dotnet test');
+    expect(agents).not.toContain('| `tests/Shop');
+    expect(agents).not.toContain('test:e2e');
+    expect(agents).not.toContain('`e2e/`');
+    expect(agents).not.toContain('playwright');
+    expect(agents).not.toContain('<!--');
+    expect(agents).toContain('npm test && npm run typecheck && dotnet build && npx netjes generate --check');
+    // It says where to read how to add a test project, in place of the command.
+    expect(agents).toContain('docs/guides/testing.md#c-tests-of-loaders-and-actions');
+  });
+
+  it('lists them for an app that has tests/<Name>.Tests, and playwright.config.ts with e2e/ and a test:e2e script', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.Tests', 'Shop.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await playwrightSuite(temp);
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('| `tests/Shop.Tests/` |');
+    expect(agents).toContain('npm test && npm run typecheck && dotnet build && dotnet test tests/Shop.Tests && npx netjes generate --check');
+    expect(agents).toContain('| `e2e/` |');
+    expect(agents).toContain('npm run test:e2e');
+    expect(agents).not.toContain('<!--');
+  });
+
+  it('says what it did not look at as what netjes new writes, since an app may have its own suites there', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.Tests', 'Shop.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await playwrightSuite(temp);
+    const { io } = recordingIo(temp);
+
+    expect(await run(['agents'], io)).toBe(0);
+
+    const lines = (await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).split('\n');
+    const row = (folder: string) => lines.find((line) => line.startsWith(`| \`${folder}\` |`)) ?? '';
+    // The files, the test framework, the project's excludes and the two servers are those of a new app.
+    expect(row('tests/Shop.Tests/')).toMatch(/In the project `netjes new` writes, on xUnit v3, `AppFactory\.cs`/);
+    expect(row('tests/Shop.Tests/')).toMatch(/which `netjes new` leaves out of the app's build \(`DefaultItemExcludes`/);
+    expect(row('e2e/')).toMatch(/The `playwright\.config\.ts` that `netjes new` writes runs them against the app twice/);
+    const command = (start: string) => lines.find((line) => line.startsWith(start)) ?? '';
+    expect(command('dotnet test tests/Shop.Tests')).not.toContain('no Node');
+    expect(command('npm run test:e2e')).not.toContain('a development and a production server');
+  });
+
+  it('leaves npm run test:e2e out without the script, or without e2e/', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await playwrightSuite(temp, { e2e: 'playwright test' });
+
+    expect(await run(['agents'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+
+    await writeFile(path.join(temp, 'package.json'), '{ "scripts": ');
+    expect(await run(['agents', '--force'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+
+    await playwrightSuite(temp);
+    await rm(path.join(temp, 'e2e'), { recursive: true });
+    expect(await run(['agents', '--force'], recordingIo(temp).io)).toBe(0);
+    expect(await readFile(path.join(temp, 'AGENTS.md'), 'utf8')).not.toContain('test:e2e');
+  });
+
+  it('names the folder it looked in for an app whose test project has another name', async () => {
+    await writeFile(path.join(temp, 'Shop.csproj'), '<Project Sdk="Microsoft.NET.Sdk.Web" />\n');
+    await mkdir(path.join(temp, 'tests', 'Shop.UnitTests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Shop.UnitTests', 'Shop.UnitTests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    expect(await run(['agents'], recordingIo(temp).io)).toBe(0);
+
+    const agents = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(agents).not.toMatch(/has no C# test project/);
+    expect(agents).toContain('No C# test project was at `tests/Shop.Tests/` when this file was written');
+  });
+
+  it('looks at the two separately, and for the test project under the name it gives the app', async () => {
+    await playwrightSuite(temp);
+    await mkdir(path.join(temp, 'tests', 'Corner.Tests'), { recursive: true });
+    await writeFile(path.join(temp, 'tests', 'Corner.Tests', 'Corner.Tests.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    const other = recordingIo(temp);
+
+    expect(await run(['agents', '--name', 'Shop'], other.io)).toBe(0);
+
+    const playwrightOnly = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(playwrightOnly).toContain('npm run test:e2e');
+    expect(playwrightOnly).not.toContain('dotnet test');
+
+    await rm(path.join(temp, 'playwright.config.ts'));
+    const named = recordingIo(temp);
+
+    expect(await run(['agents', '--name', 'Corner', '--force'], named.io)).toBe(0);
+
+    const testsOnly = await readFile(path.join(temp, 'AGENTS.md'), 'utf8');
+    expect(testsOnly).toContain('dotnet test tests/Corner.Tests');
+    expect(testsOnly).not.toContain('test:e2e');
   });
 
   it('writes into the directory it is given, like export', async () => {
@@ -380,6 +509,9 @@ describe('inherited NETJES_ variables', () => {
 
 describe('commands that run the app', () => {
   beforeEach(async () => {
+    // By its real path, as process.cwd() reports a real run's folder on macOS and Linux, and as the app sees its own:
+    // on macOS the temporary folder is under a symlink (/var is /private/var).
+    temp = await realpath(temp);
     await fakeApp(temp);
   });
 
@@ -560,6 +692,102 @@ describe('commands that run the app', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.env.NETJES_OUTPUT).toBe(path.join(temp, 'site'));
   });
+
+  // ../shop-site starts with the app's own path, …/shop, without being inside it.
+  it.each(['../elsewhere', '..', '.', '../shop-site', path.join(tmpdir(), 'netjes-elsewhere')])(
+    'export refuses %s, a folder outside the app, before it builds or starts anything',
+    async (dir) => {
+      const app = path.join(temp, 'shop');
+      await fakeApp(app);
+      const { io, calls, err } = recordingIo(app);
+
+      expect(await run(['export', dir], io)).toBe(1);
+
+      expect(calls).toEqual([]);
+      expect(err()).toBe(
+        `netjes export: the output folder ${path.resolve(app, dir)} must be inside the app (${app}), such as 'out'; nothing was built\n`,
+      );
+    },
+  );
+
+  it('export --no-build leaves the folder to the app, which knows Netjes:Root', async () => {
+    // Netjes:Root can put the app in a folder above this one, and ../site inside it.
+    const { io, calls } = recordingIo(temp);
+
+    expect(await run(['export', '../site', '--no-build'], io)).toBe(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.env.NETJES_OUTPUT).toBe(path.resolve(temp, '../site'));
+  });
+
+  it('export takes a folder inside the app whose name starts with two dots', async () => {
+    const { io, calls } = recordingIo(temp);
+
+    expect(await run(['export', '..site'], io)).toBe(0);
+
+    expect(calls).toHaveLength(4);
+    expect(calls[3]?.env.NETJES_OUTPUT).toBe(path.join(temp, '..site'));
+  });
+
+  it.runIf(process.platform === 'darwin' || process.platform === 'win32')(
+    "export takes the app's folder typed in another case on macOS and Windows, as the app does",
+    async () => {
+      // .NET compares paths there by upper-casing each letter, so NETJES-CLI-… is netjes-cli-…, and so is netjeſ-cli-…:
+      // a long s (ſ) upper-cases to S.
+      const longS = path.join(path.dirname(temp), path.basename(temp).replace('netjes', 'netjeſ'));
+      for (const app of [temp.toUpperCase(), longS]) {
+        const { io, calls } = recordingIo(temp);
+
+        expect(await run(['export', path.join(app, 'site')], io), app).toBe(0);
+
+        expect(calls).toHaveLength(4);
+        expect(calls[3]?.env.NETJES_OUTPUT).toBe(path.join(app, 'site'));
+      }
+    },
+  );
+
+  // On macOS and Linux the app's folder is its working directory as getcwd() reports it: the real path, the symlink
+  // resolved. The app compares paths as text, so for it …/shop-link/out is outside …/shop.
+  it.skipIf(process.platform === 'win32')(
+    'export through a --cwd that is a symlink takes the folder inside the real path, where the app runs',
+    async () => {
+      const app = path.join(temp, 'shop');
+      await fakeApp(app);
+      await symlink(app, path.join(temp, 'shop-link'));
+      const rows: [string[], string][] = [
+        [['--cwd', 'shop-link'], path.join(app, 'out')],
+        [['--cwd', 'shop-link', 'site'], path.join(app, 'site')],
+        [['--cwd', 'shop-link', path.join(app, 'site')], path.join(app, 'site')],
+        [['--cwd', 'shop-link', '--no-build'], path.join(app, 'out')],
+      ];
+      for (const [args, output] of rows) {
+        const { io, calls } = recordingIo(temp);
+
+        expect(await run(['export', ...args], io), args.join(' ')).toBe(0);
+
+        expect(calls, args.join(' ')).toHaveLength(args.includes('--no-build') ? 1 : 4);
+        expect(calls.at(-1)?.env.NETJES_OUTPUT, args.join(' ')).toBe(output);
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'export through a --cwd that is a symlink refuses a folder named through the link, as the app would, before it builds',
+    async () => {
+      const app = path.join(temp, 'shop');
+      await fakeApp(app);
+      const link = path.join(temp, 'shop-link');
+      await symlink(app, link);
+      const { io, calls, err } = recordingIo(temp);
+
+      expect(await run(['export', '--cwd', 'shop-link', path.join(link, 'site')], io)).toBe(1);
+
+      expect(calls).toEqual([]);
+      expect(err()).toBe(
+        `netjes export: the output folder ${path.join(link, 'site')} must be inside the app (${app}), such as 'out'; nothing was built\n`,
+      );
+    },
+  );
 
   it('runs in the directory given with --cwd', async () => {
     await fakeApp(path.join(temp, 'sub'));

@@ -26,9 +26,13 @@ function matches(pattern: readonly string[], path: readonly string[]): boolean {
 
 /**
  * Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or another
- * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data.
+ * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data. A URL with an ASCII
+ * control character, or with a space at either end, is none of these.
  */
 export function isRouteHref(value: string, patterns: readonly string[]): boolean {
+  // Browsers drop tabs and newlines anywhere in a URL, and control characters and spaces at either end: `/\t/host`
+  // would be `//host`. A C# Href refuses the same.
+  if (/[\u0000-\u001F\u007F]/.test(value) || value.startsWith(' ') || value.endsWith(' ')) return false;
   if (/^(https?:|mailto:|tel:)/i.test(value) || value.startsWith('?') || value.startsWith('#')) return true;
   // "//host" and "/\host" are other hosts as far as browsers are concerned.
   if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return false;
@@ -37,12 +41,37 @@ export function isRouteHref(value: string, patterns: readonly string[]): boolean
 }
 
 /**
- * Builds the URL for a route pattern written in file-name syntax (`/blog/[slug]`, `/docs/[...path]`,
- * `/shop/[[...filters]]`), encoding every segment value. The generated `route()` helper calls this with typed params.
+ * A segment that would change the URL's path when a browser or `fetch` resolves it: `.` and `..` are dot segments,
+ * which move up the path, and an empty one doubles a slash, which right after the leading one names another host.
  */
-export function buildHref(pattern: string, params: Record<string, unknown>, search?: SearchParamsInput): string {
+function changesThePath(segment: string): boolean {
+  return segment === '' || segment === '.' || segment === '..';
+}
+
+const changesThePathMessage = "a '.', '..' or empty segment would change the URL's path";
+
+/**
+ * Builds the URL for a route pattern written in file-name syntax (`/blog/[slug]`, `/docs/[...path]`,
+ * `/shop/[[...filters]]`), encoding every segment value. A value, or a catch-all entry, that is `.`, `..` or empty
+ * throws, since it would change the path the URL names. `options.hash` adds a fragment after the query: the id of an
+ * element in the page, with one leading `#` dropped and the rest encoded; with nothing left, no fragment is added. The
+ * generated `route()` helper calls this with typed params.
+ */
+export function buildHref(
+  pattern: string,
+  params: Record<string, unknown>,
+  search?: SearchParamsInput,
+  options?: { hash?: string | undefined },
+): string {
   const missing = (name: string): never => {
     throw new Error(`netjes: route '${pattern}' needs the parameter '${name}'`);
+  };
+  const encode = (name: string, value: unknown): string => {
+    const text = String(value);
+    if (changesThePath(text)) {
+      throw new Error(`netjes: route '${pattern}' cannot take '${text}' for the parameter '${name}': ${changesThePathMessage}`);
+    }
+    return encodeURIComponent(text);
   };
   const segments = pattern
     .split('/')
@@ -51,29 +80,115 @@ export function buildHref(pattern: string, params: Record<string, unknown>, sear
       const optional = /^\[\[\.\.\.(\w+)\]\]$/.exec(segment)?.[1];
       if (optional) {
         const values = params[optional];
-        return Array.isArray(values) ? values.map((v) => encodeURIComponent(String(v))) : [];
+        return Array.isArray(values) ? values.map((v) => encode(optional, v)) : [];
       }
       const catchAll = /^\[\.\.\.(\w+)\]$/.exec(segment)?.[1];
       if (catchAll) {
         const values = params[catchAll];
         if (!Array.isArray(values) || values.length === 0) return missing(catchAll);
-        return values.map((v) => encodeURIComponent(String(v)));
+        return values.map((v) => encode(catchAll, v));
       }
       const single = /^\[(\w+)\]$/.exec(segment)?.[1];
       if (single) {
         const value = params[single];
         if (value === undefined || value === null || value === '') return missing(single);
-        return [encodeURIComponent(String(value))];
+        return [encode(single, value)];
       }
       return [segment];
     });
 
   const query = new URLSearchParams();
+  appendSearch(query, search);
+  const queryString = query.toString();
+  const fragment = (options?.hash ?? '').replace(/^#/, '');
+  return `/${segments.join('/')}${queryString ? `?${queryString}` : ''}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`;
+}
+
+/** Appends each value of `search`, a list repeating its key; `null` and `undefined` leave the key out. */
+function appendSearch(query: URLSearchParams, search: Readonly<Record<string, unknown>> | undefined): void {
   for (const [key, value] of Object.entries(search ?? {})) {
-    for (const item of Array.isArray(value) ? value : [value]) {
+    for (const item of Array.isArray(value) ? (value as readonly unknown[]) : [value]) {
       if (item !== undefined && item !== null) query.append(key, String(item));
     }
   }
+}
+
+/** A missing route value: `undefined`, `null` or `''`. */
+function absent(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
+/**
+ * Builds the URL of one of the app's endpoints from its route template, as the generated file writes it: the
+ * literals as they are (with `%`, `{`, `}`, `#` and `\` encoded), `{name}`, `{name?}`, `{name=default}` (the default
+ * encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded; a `{**name}` value keeps its
+ * slashes, and a `{*name}` value has them encoded. A value that would make a segment `.` or `..`, or a `{**name}` value
+ * with such a piece or with an empty one before its end (`/x`, `a//b`), throws `netjes: endpoint '<endpoint>' cannot
+ * take '<value>' for the route value '<name>'`, since it would change the path the URL names. A missing, `null` or
+ * empty optional value drops its segment, or its
+ * part of a segment with the `.` before it (`{name}.{ext?}`); a missing value with a default is filled in, unless it
+ * is a whole segment at the end, which is dropped; a missing, `null` or empty required value, or an optional one whose
+ * segment is followed by one that stays, throws `netjes: endpoint '<endpoint>' needs the route value '<name>'`. The
+ * values the template does not name are the query string, followed by `search`. The result is root-relative and has no base path: pass it through
+ * `useHref` for a `fetch` or an `<a href>`. The generated `endpointUrl()` calls this with typed values.
+ */
+export function buildEndpointUrl(
+  template: string,
+  values: Readonly<Record<string, unknown>>,
+  search?: SearchParamsInput,
+  endpoint?: string,
+): string {
+  const needs = (name: string) => new Error(`netjes: endpoint '${endpoint ?? template}' needs the route value '${name}'`);
+  const cannotTake = (name: string, value: unknown) =>
+    new Error(`netjes: endpoint '${endpoint ?? template}' cannot take '${String(value)}' for the route value '${name}': ${changesThePathMessage}`);
+  const named = new Set<string>();
+  // Each segment's text, and the name of the value it is missing, when the segment can go for want of it.
+  const segments: { text: string; missing: string | undefined }[] = [];
+  for (const segment of template.split('/').filter(Boolean)) {
+    let text = '';
+    let missing: string | undefined;
+    // The value that made the segment's text, which must not leave it a dot segment.
+    let filled: string | undefined;
+    for (const part of segment.split(/(\{[^}]*\})/).filter(Boolean)) {
+      const parameter = /^\{(\*\*?)?([^=?]+?)(\?|=([^]*))?\}$/.exec(part);
+      if (!parameter) {
+        text += part;
+        continue;
+      }
+
+      const [, star, name = '', marker, fallback] = parameter;
+      named.add(name);
+      const value = values[name];
+      if (!absent(value) && star === '**') {
+        // Each piece is a segment of its own; an empty last one is a trailing slash.
+        const pieces = String(value).split('/');
+        if (pieces.some((piece, i) => (piece === '' ? i < pieces.length - 1 : changesThePath(piece)))) throw cannotTake(name, value);
+        text += pieces.map((piece) => encodeURIComponent(piece)).join('/');
+      } else if (!absent(value)) {
+        text += encodeURIComponent(String(value));
+        filled = name;
+      } else if (fallback !== undefined) {
+        text += fallback;
+        if (part === segment) missing = name;
+      } else if (marker === '?' || star) {
+        // An optional value after a literal `.` takes the dot with it.
+        if (text.endsWith('.')) text = text.slice(0, -1);
+        if (!text) missing = name;
+      } else {
+        throw needs(name);
+      }
+    }
+    if (filled && changesThePath(text)) throw cannotTake(filled, values[filled]);
+    if (text || missing) segments.push({ text, missing });
+  }
+  while (segments.at(-1)?.missing) segments.pop();
+  // A segment left out before one that stays: routing would not match, or would read the next value as this one.
+  const leftOut = segments.find((segment) => !segment.text)?.missing;
+  if (leftOut) throw needs(leftOut);
+
+  const query = new URLSearchParams();
+  appendSearch(query, Object.fromEntries(Object.entries(values).filter(([key]) => !named.has(key))));
+  appendSearch(query, search);
   const queryString = query.toString();
-  return `/${segments.join('/')}${queryString ? `?${queryString}` : ''}`;
+  return `/${segments.map((s) => s.text).join('/')}${queryString ? `?${queryString}` : ''}`;
 }

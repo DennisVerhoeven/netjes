@@ -28,6 +28,8 @@ Created MyApp in my-app (using the Netjes 0.0.2 packages)
   Features/            the C# side, one folder per feature: loaders and server actions
   Program.cs           the ASP.NET Core app (MyApp.csproj)
   generated/netjes.ts  types and zod schemas from C#, rewritten by netjes generate; never edit it
+  tests/MyApp.Tests/   C# tests of loaders and actions, run by dotnet test tests/MyApp.Tests
+  e2e/                 Playwright tests against a development and a production server, run by npm run test:e2e
   Dockerfile           and the docker-compose files: Docker for development and production
 
 Next:
@@ -42,19 +44,23 @@ The folder name gives the .NET project name and root namespace (`my-app` becomes
 ```text
 my-app/
   app/
-    layout.tsx               the root layout: the header, the navigation, the title template and the favicon
+    layout.tsx               the root layout: a skip link, the header, the navigation, the title template and the favicon
     page.tsx                 /, with props from a C# loader
     about/page.tsx           /about, a page without a loader
     not-found.tsx            unknown URLs, and Page.NotFound() from a loader
     error.tsx                errors below the root layout
+    document.test.ts         a test of the home page's whole document, rendered with renderDocument
   components/                Greeting.tsx and HelloForm.tsx, each with a *.test.tsx next to it
   Features/Home/HomePage.cs  the home page's loader and the home.greet server action
   Program.cs                 services and the request pipeline
   SiteProps.cs               the shared props every page and layout gets
-  generated/netjes.ts        zod schemas, typed actions and routes, generated from the C# types
+  generated/netjes.ts        zod schemas, typed actions, routes and endpoint URLs, generated from the C# types
   styles/global.css          Tailwind CSS, imported by app/layout.tsx
   public/favicon.svg         the favicon, the Netjes mark until you put your own there
-  MyApp.csproj, package.json, vite.config.ts, tsconfig.json
+  tests/MyApp.Tests/         the C# tests: AppFactory.cs runs the app in memory, HomePageTests.cs tests the home page
+  e2e/home.spec.ts           Playwright tests of the home page, with and without JavaScript; playwright.config.ts runs them
+  MyApp.csproj, package.json, vite.config.ts
+  tsconfig.json, tsconfig.app.json, tsconfig.node.json   the type check: the app's code, and the files that run in Node
   appsettings.json, appsettings.Development.json
   Properties/launchSettings.json   the launch profile for dotnet run and IDEs
   Dockerfile, docker-compose.yml, docker-compose.override.yml, docker-compose.prod.yml
@@ -105,8 +111,8 @@ npm run dev
 
 Two edits to try:
 
-- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement.
-- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it.
+- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement. `components/Greeting.test.tsx` finds the button by its text: change it there too, or `npm test` fails.
+- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it. `tests/MyApp.Tests/HomePageTests.cs` and `e2e/home.spec.ts` check that message: change it there too, or those tests fail.
 
 Hot reload applies changes inside methods. Code that runs once at startup, such as `Program.cs` and the `Map...` calls, needs a restart: press Ctrl+R in the terminal that runs `npm run dev`. Ctrl+C stops it. The app listens on another port with `ASPNETCORE_URLS=http://localhost:3000 npm run dev`. The Vite dev server has a port of its own, 5173: when another app's Vite dev server has it, `npm run dev` says so, and `Netjes__ViteDevPort=5174 npm run dev` moves it.
 
@@ -451,12 +457,15 @@ it('shows the error from C# next to the field, and keeps what was typed', async 
 Run the checks the template's `AGENTS.md` lists before you call a change done:
 
 ```bash
-npm test                      # Vitest
-npm run typecheck             # strict TypeScript, against the generated types
-dotnet build                  # C#, with warnings as errors
-npx netjes generate --check   # fails when generated/netjes.ts is out of date
-npm run routes                # the route table, and warnings about likely mistakes
+npm test                         # Vitest
+npm run typecheck                # strict TypeScript, against the generated types
+dotnet build                     # C#, with warnings as errors
+dotnet test tests/MyApp.Tests    # the C# tests, in memory: no Node and no client build
+npx netjes generate --check      # fails when generated/netjes.ts is out of date
+npm run routes                   # the route table, and warnings about likely mistakes
 ```
+
+For a change to a page or a form, also run `npm run test:e2e`, which runs the Playwright tests in `e2e/` against a development and a production server. Install the browser once first, with `npx playwright install chromium`.
 
 `netjes generate --check` belongs in CI: it runs the app once without serving anything or starting Node, and fails when the committed file no longer matches the C# types. [Testing](guides/testing.md) covers page tests, C# tests of loaders and actions against the real app, and Playwright.
 
@@ -491,7 +500,9 @@ docker compose up                                                     # developm
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d # production, on port 8080
 ```
 
-Development bind-mounts the source, so edits reload as they do outside Docker, and binds ports 8080 and 5173 to localhost only. The production image builds the client in one stage and publishes the app in another, then runs on the ASP.NET Core runtime image with a Node binary next to it, as a non-root user. The production Compose file makes the filesystem read-only, drops capabilities, limits CPU and memory, restarts the container, checks `/healthz`, and keeps ASP.NET Core's Data Protection keys, which sign antiforgery tokens, in a named volume. ASP.NET Core logs a warning that those keys are not encrypted at rest; configure one of its `ProtectKeysWith...` options to encrypt them.
+Both publish the app on port 8080 of the host. To use another port, set `APP_PORT` in the shell or in a `.env` file next to the Compose files, as in `APP_PORT=8090 docker compose up`.
+
+Development bind-mounts the source, so edits reload as they do outside Docker, and binds the app's port and Vite's 5173 to localhost only. The production image builds the client in one stage and publishes the app in another, then runs it on the ASP.NET Core runtime image with a Node binary next to it, as a non-root user, under tini, a small init: it passes the signal of `docker stop` on to the app, and makes a crash end the container ([deployment](guides/deployment.md#a-crash-in-a-container)). The production Compose file makes the filesystem read-only, drops capabilities, limits CPU and memory, restarts the container, checks `/healthz`, and keeps ASP.NET Core's Data Protection keys, which sign antiforgery tokens, in a named volume. ASP.NET Core logs a warning that those keys are not encrypted at rest; configure one of its `ProtectKeysWith...` options to encrypt them.
 
 The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `package-lock.json` that `npm install` wrote. [Deployment](guides/deployment.md) covers configuration, health checks, telemetry, proxies and running several instances.
 
@@ -499,12 +510,12 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`.
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) says):
 
    ```bash
    npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
-   npm install -D vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite \
+   npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
 3. Add a `vite.config.ts`:
@@ -515,7 +526,16 @@ To add Netjes to an ASP.NET Core project you already have:
 
    export default defineConfig({ plugins: [netjes()] });
    ```
-4. Add a `tsconfig.json`, the one `netjes new` writes. It type-checks `app`, `components`, `generated` and `vite.config.ts`:
+4. Add a `tsconfig.json`, the one `netjes new` writes, and the two configs it points to:
+
+   ```json
+   {
+     "files": [],
+     "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+   }
+   ```
+
+   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output. Add to its `exclude` any other folder whose TypeScript is not the app's browser code, such as a project with a tsconfig of its own; Node-side TypeScript outside `scripts/` also goes in the `include` of `tsconfig.node.json`:
 
    ```json
    {
@@ -535,20 +555,36 @@ To add Netjes to an ASP.NET Core project you already have:
        "skipLibCheck": true,
        "noEmit": true
      },
-     "include": ["app", "components", "generated", "vite.config.ts"]
+     "include": ["**/*.ts", "**/*.tsx"],
+     "exclude": ["node_modules", "dist", "**/bin", "**/obj", "publish", "out", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"]
    }
    ```
+
+   `tsconfig.node.json` type-checks the files that run in Node, `vite.config.ts`, `playwright.config.ts`, `e2e/` and `scripts/`, with Node's types. It keeps the DOM's types, which the callbacks a Playwright test runs in the page use:
+
+   ```json
+   {
+     "extends": "./tsconfig.app.json",
+     "compilerOptions": {
+       "types": ["node"]
+     },
+     "include": ["vite.config.ts", "playwright.config.ts", "e2e", "scripts"],
+     "exclude": ["node_modules"]
+   }
+   ```
+
+   Type-check with the `typecheck` script from step 2. `tsconfig.json` lists no files, so `tsc -p tsconfig.json --noEmit` and a bare `tsc --noEmit` check nothing and exit 0: change a script or a CI step that runs either of them to `npm run typecheck`.
 
    `netjes` ships JavaScript with declaration files, so your `tsc` checks your own code alone, also under stricter options you add, such as `exactOptionalPropertyTypes` or `noPropertyAccessFromIndexSignature` (see [TypeScript setup](reference/vite-plugin.md#typescript-setup)).
 5. Put pages in `app/`, with an `app/layout.tsx` that imports a stylesheet containing `@import "tailwindcss";`.
 6. In `Program.cs`, call `builder.Services.AddNetjes()`, then `app.UseNetjes()`, `app.UseAntiforgery()` (after authentication) and `app.MapPages()`.
-7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it each time it starts in Development. Commit it.
+7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it when it starts in development mode and the C# types changed. Commit it.
 8. Start the dev server with `npm run dev` (the `netjes dev` script from step 2), or `npx netjes dev`. It runs the app with `dotnet watch` and Vite hot reloading, on `http://localhost:5080` unless `ASPNETCORE_URLS` says otherwise.
 
-`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off.
+`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off. [The test project](guides/testing.md#the-test-project) says how to add the C# test project a new app has, and [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) its Playwright suite.
 
 ## Next
 
 - [Coming from Next.js](coming-from-nextjs.md), if you know the App Router.
 - The [guides](README.md#guides), one per topic.
-- The [Blog](../examples/Blog) and [TaskBoard](../examples/TaskBoard) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.
+- The [Blog](../examples/Blog/README.md) and [TaskBoard](../examples/TaskBoard/README.md) examples, for a docs section, a guestbook, authentication, Postgres and streaming in working apps.

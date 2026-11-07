@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
-import { markWindow, watchForErrors } from './helpers.ts';
+import { markWindow, watchForErrors, watchForViolations } from './helpers.ts';
 
 /**
  * The Blog as `netjes export` writes it, served from the files as a static host would: the export runs once, on the
@@ -16,8 +16,11 @@ const output = path.join(app, 'test-results', 'export');
 const SITE = 'http://export.netjes.test';
 const REPORT = 'Report ready: 42 items, from a deliberately slow C# task.';
 
-/** What the CLI's `netjes export --no-build` runs, on the Debug build the other servers use. */
-async function exportBlog() {
+/** What the export logged, its standard output and error as they came. */
+let exportLog = '';
+
+/** What the CLI's `netjes export --no-build` runs, on the Debug build the other servers use; returns what it logged. */
+async function exportBlog(): Promise<string> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ASPNETCORE_ENVIRONMENT: 'Production',
@@ -25,6 +28,8 @@ async function exportBlog() {
     ASPNETCORE_URLS: `http://127.0.0.1:${process.env.E2E_EXPORT_PORT ?? '0'}`,
     NETJES_COMMAND: 'export',
     NETJES_OUTPUT: output,
+    // The static host's URL, for the links in sitemap.xml and robots.txt (Program.cs falls back to localhost).
+    SiteUrl: SITE,
   };
   delete env.NETJES_CHECK;
   const child = spawn('dotnet', ['run', '--no-build', '--no-launch-profile'], { cwd: app, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -40,6 +45,7 @@ async function exportBlog() {
     child.on('exit', resolve);
   });
   if (code !== 0) throw new Error(`The export exited with ${code}:\n${log}`);
+  return log;
 }
 
 /**
@@ -64,7 +70,7 @@ function inlineScriptHashes(file: string): string[] {
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  await exportBlog();
+  exportLog = await exportBlog();
 });
 
 test.describe('without JavaScript', () => {
@@ -97,6 +103,8 @@ test('an exported page hydrates its deferred content under a policy that lists i
   // can allow it by its hash. Without it the value never arrives, and the click below, which renders the Suspense
   // boundary again, would bring the fallback back for good.
   const hashes = inlineScriptHashes(path.join(output, 'streaming', 'index.html'));
+  // The policy has no 'unsafe-eval'. A violation the page's code catches logs nothing to the console.
+  const violations = await watchForViolations(page);
   await serveExport(page, { 'Content-Security-Policy': `script-src 'self' ${hashes.join(' ')}` });
   await page.goto(`${SITE}/streaming`);
   await markWindow(page);
@@ -106,6 +114,7 @@ test('an exported page hydrates its deferred content under a policy that lists i
   await expect(page.getByRole('button', { name: 'clicks 1' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText(REPORT);
   await expect(page.getByText('Preparing the slow report…')).toHaveCount(0);
+  expect(violations).toEqual([]);
 });
 
 test('an exported page with deferred content hydrates', async ({ page }) => {
@@ -120,4 +129,29 @@ test('an exported page with deferred content hydrates', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'clicks 1' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText(REPORT);
   expect(errors).toEqual([]);
+});
+
+test('the export warns that /blog reads tag from the query string', () => {
+  // The export requests /blog without a query string, so its file lists every post, and a static host serves it for
+  // every tag link. The Blog keeps the filter as its example of a loader that reads the query string (PostPages.cs).
+  expect(exportLog.split('Netjes.Export.QueryString').length - 1).toBe(1);
+  expect(exportLog).toContain("app/blog/page.tsx reads 'tag'");
+});
+
+test('the export writes sitemap.xml with the exported pages, and robots.txt', () => {
+  const sitemap = readFileSync(path.join(output, 'sitemap.xml'), 'utf8');
+  const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((match) => match[1] ?? '');
+
+  expect(locs).toContain(`${SITE}/`);
+  expect(locs.filter((loc) => loc.startsWith(`${SITE}/blog/`)).length).toBeGreaterThan(0);
+  expect(locs.filter((loc) => loc.startsWith(`${SITE}/docs/`)).length).toBeGreaterThan(0);
+  // The guestbook needs a server for its form, so the export leaves it out (GuestbookPage.cs), and the sitemap too.
+  expect(locs).not.toContain(`${SITE}/guestbook`);
+  // Every URL it lists is a page the export wrote.
+  for (const loc of locs) {
+    const segments = decodeURIComponent(new URL(loc).pathname).split('/').filter(Boolean);
+    expect(existsSync(path.join(output, ...segments, 'index.html')), loc).toBe(true);
+  }
+  expect(readFileSync(path.join(output, 'robots.txt'), 'utf8')).toContain(`\nSitemap: ${SITE}/sitemap.xml\n`);
+  expect(exportLog).not.toContain('loopback');
 });

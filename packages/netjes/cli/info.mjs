@@ -24,8 +24,10 @@ export const MIN_DOTNET = 10;
 export const DOTNET_DOWNLOAD = 'https://dotnet.microsoft.com/download';
 /** The npm packages a Netjes app runs on. */
 const PACKAGES = ['netjes', 'vite', 'react', 'react-dom'];
-/** Folders that hold no C# source of the app's own. */
+/** Folders that hold no C# source of the app's own, at any depth. */
 const SKIPPED = new Set(['bin', 'obj', 'node_modules', 'dist', 'out']);
+/** The folder at the app's root that holds its test project, which the app's project leaves out, so its code generates no types. */
+const TEST_PROJECTS = 'tests';
 /** Files written within this long of each other, as a checkout or `netjes new` does, count as written together. */
 const SAME_TIME_MS = 2000;
 /** The Next.js pages router's special files, at the root of pages/, by the App Router file that takes their place. */
@@ -280,12 +282,15 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
 async function newestSource(cwd) {
   /** @type {{ file: string; mtimeMs: number } | null} */
   let newest = null;
+  // The build leaves out `Tests/` too where the file system ignores case, as it then finds `tests/` there.
+  const isTestProjects = (/** @type {string} */ file) =>
+    file.toLowerCase() === TEST_PROJECTS && (file === TEST_PROJECTS || existsSync(path.join(cwd, TEST_PROJECTS)));
   /** @param {string} relative */
   async function walk(relative) {
     for (const entry of await readdir(path.join(cwd, relative), { withFileTypes: true })) {
       const file = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (!SKIPPED.has(entry.name) && !entry.name.startsWith('.')) await walk(file);
+        if (!SKIPPED.has(entry.name) && !entry.name.startsWith('.') && !isTestProjects(file)) await walk(file);
       } else if (entry.name.endsWith('.cs')) {
         const { mtimeMs } = await stat(path.join(cwd, file));
         if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };

@@ -1,0 +1,140 @@
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Netjes.Tests.Endpoints;
+
+namespace Netjes.Tests;
+
+/// <summary>Href holds a link a loader sends to the browser; C# checks its shape, the props parse checks its page.</summary>
+public class HrefTests
+{
+    public sealed record Links(Href Next, Href? Previous);
+
+    public sealed record NextProps(Href Next);
+
+    [Fact]
+    public void Constructor_RefusesUrlsThatAreNotTheAppsOrAListedScheme()
+    {
+        // Browsers drop tabs and newlines anywhere in a URL, so "/\t/evil.example" is "//evil.example", another host.
+        string[] refused =
+        [
+            "", "docs", "./docs", "../docs", "//evil.example", "/\\evil.example", "/\t/evil.example", "/\n/x", "/\r/x", "\t/x",
+            " /x", "/x ", "/a\u0000b", "/a\u007Fb", "#top\u001F", "https://example.com/\r\n", "javascript:alert(1)",
+            "JaVaScRiPt:alert(1)", "data:text/html,x", "ftp://x", "https//example.com",
+        ];
+        string[] accepted =
+        [
+            "/", "/docs/guides/caching#keys", "/search?q=a", "?page=2", "#top", "https://example.com/a", "HTTP://EXAMPLE.COM/",
+            "Https://example.com", "mailto:team@example.com", "tel:+31201234567", "/a b",
+        ];
+
+        Assert.All(refused, value => Assert.Throws<ArgumentException>("url", () => new Href(value)));
+        Assert.All(accepted, value => Assert.Equal(value, new Href(value).Value));
+        Assert.Throws<ArgumentNullException>("url", () => new Href(null!));
+    }
+
+    [Fact]
+    public void TryCreate_ChecksTheShape_NotThePages()
+    {
+        // No C# check knows the app's pages: an endpoint's file, or a path that already has the base path, has the shape.
+        Assert.True(Href.TryCreate("/llms.txt", out var file));
+        Assert.Equal("/llms.txt", file.Value);
+        Assert.True(Href.TryCreate("/docs/blog/x", out var prefixed));
+        Assert.Equal("/docs/blog/x", prefixed.Value);
+
+        Assert.False(Href.TryCreate("javascript:x", out var script));
+        Assert.Null(script);
+        Assert.False(Href.TryCreate(null, out var none));
+        Assert.Null(none);
+    }
+
+    [Fact]
+    public void Equality_ComparesTheUrlCharacterByCharacter_AndAnHrefIsItsUrlAsAString()
+    {
+        Href first = new("/blog?tag=react");
+        Href same = new("/blog?tag=react");
+        Href otherCase = new("/Blog?tag=react");
+        Href? none = null;
+
+        Assert.True(first == same);
+        Assert.False(first != same);
+        Assert.False(first == otherCase);
+        Assert.True(first != otherCase);
+        Assert.False(first == none);
+        Assert.True(none != first);
+        Assert.True(first.Equals((object)same));
+        Assert.False(first.Equals((object)"/blog?tag=react"));
+        Assert.Equal(first.GetHashCode(), same.GetHashCode());
+        Assert.Single(new HashSet<Href> { first, same });
+
+        string text = first;
+        string? noText = none;
+        Assert.Equal("/blog?tag=react", text);
+        Assert.Null(noText);
+        Assert.Equal("/blog?tag=react", first.ToString());
+        Assert.Equal("/blog?tag=react", $"{first}");
+    }
+
+    [Fact]
+    public void Json_WritesAPlainString_AndRefusesAnInvalidOneOnRead()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        Assert.Equal("""{"next":"/a","previous":null}""", JsonSerializer.Serialize(new Links(new Href("/a"), null), web));
+        Assert.Equal(new Links(new Href("/b"), new Href("#top")), JsonSerializer.Deserialize<Links>("""{"next":"/b","previous":"#top"}""", web));
+        // What a request body sends is checked as the constructor checks it, and an object is no link.
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Links>("""{"next":"javascript:alert(1)"}""", web));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Links>("""{"next":"/\t/evil.example"}""", web));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Links>("""{"next":{"value":"/a"}}""", web));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Links>("""{"next":1}""", web));
+    }
+
+    [Fact]
+    public void Json_ThroughASourceGeneratedContext_UsesTheConverter_WhichAnAppCanReach()
+    {
+        // The context an app generates creates the converter the type names. One it cannot reach (an internal one) gets
+        // only warnings, SYSLIB1220 and SYSLIB1030, and the context then leaves the property out of what it writes, or
+        // throws NotSupportedException without a resolver behind it. This assembly sees Netjes's internals, an app does not.
+        var converter = typeof(Href).GetCustomAttribute<JsonConverterAttribute>()?.ConverterType;
+
+        Assert.NotNull(converter);
+        Assert.True(converter.IsPublic, $"{converter.Name} is not public");
+        Assert.NotNull(converter.GetConstructor(Type.EmptyTypes));
+        Assert.Equal("""{"next":"/a","previous":null}""", JsonSerializer.Serialize(new Links(new Href("/a"), null), HrefJsonContext.Default.Links));
+        Assert.Equal(new Links(new Href("/b"), null), JsonSerializer.Deserialize("""{"next":"/b"}""", HrefJsonContext.Default.Links));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize("""{"next":"javascript:alert(1)"}""", HrefJsonContext.Default.Links));
+    }
+
+    [Fact]
+    public async Task PageProps_WriteAnHrefAsAPlainString()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/a/page.tsx"], map: a => a.MapPageLoader("/", () => Page.Props(new NextProps(new Href("/a")))));
+
+        await app.GetDocumentAsync("/");
+
+        Assert.Equal("\"/a\"", app.Renderer.LastPayload["props"]!["next"]!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task ALoader_BindsNoHrefFromTheRequest()
+    {
+        // A URL from the request would look checked as an Href while it can be any https URL. A plain parameter is read
+        // from the body, which loaders do not read; [AsParameters], which that error suggests, would build one from the
+        // query through the constructor, whose parameter matches no property, so minimal APIs refuse it.
+        var inferred = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"], map: a => a.MapPageLoader("/", (Href next) => Page.Props(new NextProps(next)))));
+        var asParameters = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"], map: a => a.MapPageLoader("/", ([AsParameters] Href next) => Page.Props(new NextProps(next)))));
+
+        Assert.Contains("parameter 'next' of type Href", inferred.Message);
+        Assert.Contains("type 'Href'", asParameters.Message);
+    }
+}
+
+/// <summary>A source-generated context, as an app may have for the JSON of its own endpoints.</summary>
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(HrefTests.Links))]
+internal sealed partial class HrefJsonContext : JsonSerializerContext;

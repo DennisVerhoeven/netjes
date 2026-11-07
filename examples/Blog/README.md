@@ -1,6 +1,6 @@
 # Blog
 
-A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard) is the larger example, with authentication and a database.
+A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard/README.md) is the larger example, with authentication and a database.
 
 ## Run it
 
@@ -39,13 +39,14 @@ The development container binds its ports to localhost only, and `appsettings.De
 |---|---|
 | The home page: the latest posts, and a hero `<Image>` resized by SkiaSharp | `Features/Posts/PostPages.cs`, `app/page.tsx`, `public/hero.png` |
 | The post index: a `?tag=` filter that reaches the C# loader, and a title from C# (`.WithMetadata`) | `Features/Posts/PostPages.cs`, `app/blog/page.tsx` |
-| A post: `.CachePage` for 30 seconds, likes seeded into TanStack Query (`.WithQuery`), related posts streamed with `Page.Defer` and read with `deferred()`, and `.StaticParams` for the export. The output cache keeps only the payloads of client navigations here: the Blog's Content-Security-Policy uses nonces, so each document renders on every request, and the app logs a warning that says so ([what is stored](../../docs/guides/caching.md#what-is-stored)) | `Features/Posts/PostPages.cs`, `app/blog/[slug]/page.tsx`, `components/RelatedPosts.tsx` |
-| Likes: a JSON API read through TanStack Query, and the `posts.like` server action, whose result goes into the query cache, with `useOptimistic` | `Features/Posts/PostLikesApi.cs`, `components/LikeButton.tsx` |
+| A post: `.CachePage` for 30 seconds, likes seeded into TanStack Query (`.WithQuery`), related posts streamed with `Page.Defer` and read with `deferred()`, and `.StaticParams` for the export. In the Development environment every page renders for each request; outside it, the output cache keeps the payloads of client navigations here, and only those: the Blog's Content-Security-Policy uses nonces, so each document renders on every request, and the app logs a warning that says so ([what is stored](../../docs/guides/caching.md#what-is-stored)). `.CacheQueryKeys()` says the post reads nothing from the query string, so a request with one, such as `?utm_source=...`, renders each time and is not stored either ([query strings a page does not read](../../docs/guides/caching.md#query-strings-a-page-does-not-read)) | `Features/Posts/PostPages.cs`, `app/blog/[slug]/page.tsx`, `components/RelatedPosts.tsx` |
+| Likes: a JSON API read through TanStack Query, its URL from `endpointUrl()`, under the base path with `useHref`, and the `posts.like` server action, whose result goes into the query cache, with `useOptimistic` | `Features/Posts/PostLikesApi.cs`, `components/LikeButton.tsx` |
 | The docs: a layout loader for the table of contents, which runs once per visit to the section; a catch-all route; `loading`, `error` and `not-found` files inside the docs layout; a title template of its own | `Features/Docs/DocsPages.cs`, `app/docs/` |
 | The guestbook: a page action (`MapPageAction`) with validation, which works without JavaScript, a rate limit, and `.ExcludeFromExport()` | `Features/Guestbook/`, `app/guestbook/page.tsx` |
 | Streaming: a page that is interactive before its slow part arrives | `Features/Streaming/StreamingDemo.cs`, `app/streaming/page.tsx` |
-| Shared props: the site name and the navigation, typed as `sharedProps` | `Program.cs`, `SiteProps.cs`, `components/SiteHeader.tsx` |
+| Shared props: the site name and the navigation, typed as `sharedProps`, whose links are `Href` in C#, checked against the pages where the props are parsed | `Program.cs`, `SiteProps.cs`, `components/SiteHeader.tsx` |
 | A nonce-based Content-Security-Policy, web vitals reported to .NET metrics, the sitemap and `robots.txt`, output caching and a health check | `Program.cs`, `app/layout.tsx` |
+| A `beforeInteractive` script in the root layout, which puts the class `js` on `<html>` before the first paint, under the nonce policy; `app/document.test.ts` lists its hash for a policy without a nonce | `app/layout.tsx`, `app/document.test.ts` |
 | A base path (`PathBase=/base`, like Next.js's `basePath`) and forwarded headers from known proxies only | `Program.cs` |
 | Not-found and error pages | `app/not-found.tsx`, `app/error.tsx` |
 
@@ -56,13 +57,15 @@ The guestbook keeps the newest 200 entries in memory. Signing is anonymous, so i
 ## Tests
 
 ```bash
-npm test                                     # Vitest: components and the guestbook page, with createTestApp
+npm test                                     # Vitest: components, the post index and the guestbook page with createTestApp, the about page's document with renderDocument
 npm run typecheck                            # TypeScript against the generated types
 npx netjes generate --check                  # fails when generated/netjes.ts is out of date
 dotnet test --project ../../tests/Blog.Tests # the guestbook store's cap and the rate limit
 npm run test:e2e                             # Playwright, below
 npm run export                               # netjes export, into out/
 ```
+
+`npm run export` logs four warnings, by design. The `/blog` loader reads `tag` from the query string, which the export never sends, so the exported `/blog` lists every post whatever the tag ([loaders that read the query string](../../docs/guides/static-export.md#loaders-that-read-the-query-string)). `sitemap.xml` and `robots.txt` are written with the `http://localhost:5080` fallback, so their links point at localhost: `SiteUrl=https://www.example.com npm run export` gives them the site's URL and removes those two warnings ([sitemap and robots.txt](../../docs/guides/static-export.md#sitemap-and-robotstxt)). And `/blog/[slug]` is output-cached under a nonce-based policy, so it is rendered each time, as the table above says.
 
 `npm run test:e2e` builds the app and runs Playwright against five servers it starts:
 

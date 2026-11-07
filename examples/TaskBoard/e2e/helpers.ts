@@ -13,9 +13,12 @@ export function watchForErrors(page: Page): string[] {
   return errors;
 }
 
-/** Marks the window once the client router owns it; the mark survives client navigations, not full page loads. */
+/**
+ * Marks the window once the client router owns the document, which Netjes shows with `data-netjes-hydrated` on
+ * `<html>`; the window's mark survives client navigations, not full page loads.
+ */
 export async function markWindow(page: Page) {
-  await page.waitForFunction(() => typeof window.history.state === 'object' && window.history.state !== null && '__netjes' in window.history.state);
+  await page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' });
   await page.evaluate(() => {
     (window as unknown as Record<string, unknown>).__mark = true;
   });

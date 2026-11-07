@@ -32,9 +32,18 @@ public class PageOutputCacheKeyTests
 
     private static readonly string[] Files = ["app/layout.tsx", "app/[team]/layout.tsx", "app/[team]/page.tsx"];
 
-    /// <summary>The team page under <paramref name="policy"/>, below a layout with a loader.</summary>
+    /// <summary>
+    /// The team page under <paramref name="policy"/>, below a layout with a loader. In the Testing environment, with
+    /// Netjes in development mode (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the
+    /// Development environment.
+    /// </summary>
     private static Task<TestApp> StartAsync(
-        Policy policy, Func<int> load, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null) =>
+        Policy policy,
+        Func<int> load,
+        Action<IServiceCollection>? services = null,
+        Action<WebApplication>? map = null,
+        bool development = false,
+        string[]? queryKeys = null) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -44,17 +53,24 @@ public class PageOutputCacheKeyTests
                 var page = policy == Policy.Attribute
                     ? a.MapPageLoader("/[team]", [OutputCache(Duration = 300)] () => Page.Props(new { Load = load() }))
                     : a.MapPageLoader("/[team]", () => Page.Props(new { Load = load() }));
-                CacheUnder(policy, page);
+                CacheUnder(policy, page, queryKeys);
             },
             services: s =>
             {
                 AddOutputCache(s, policy);
                 services?.Invoke(s);
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
-    /// <summary>Caches <paramref name="page"/> under <paramref name="policy"/>; an <c>[OutputCache]</c> attribute is the loader's own.</summary>
-    private static void CacheUnder(Policy policy, RouteHandlerBuilder page) =>
+    /// <summary>
+    /// Caches <paramref name="page"/> under <paramref name="policy"/>; an <c>[OutputCache]</c> attribute is the loader's
+    /// own. <paramref name="queryKeys"/>, when given, go to <c>CacheQueryKeys</c>.
+    /// </summary>
+    private static void CacheUnder(Policy policy, RouteHandlerBuilder page, string[]? queryKeys = null)
+    {
         _ = policy switch
         {
             Policy.CachePage => page.CachePage(TimeSpan.FromMinutes(5)),
@@ -63,13 +79,24 @@ public class PageOutputCacheKeyTests
             Policy.PolicyBuilder => page.CacheOutput(p => p.Expire(TimeSpan.FromMinutes(5))),
             _ => page,
         };
+        if (queryKeys is not null)
+        {
+            page.CacheQueryKeys(queryKeys);
+        }
+    }
 
     /// <summary>
     /// The team page with <paramref name="loader"/> under <paramref name="policy"/>. For <see cref="Policy.Attribute"/>,
-    /// the endpoint gets the metadata an <c>[OutputCache]</c> attribute on the loader gives it.
+    /// the endpoint gets the metadata an <c>[OutputCache]</c> attribute on the loader gives it. Its environment is
+    /// <see cref="StartAsync"/>'s.
     /// </summary>
     private static Task<TestApp> StartWithLoaderAsync(
-        Policy policy, Delegate loader, Action<IServiceCollection>? services = null, Action<WebApplication>? map = null) =>
+        Policy policy,
+        Delegate loader,
+        Action<IServiceCollection>? services = null,
+        Action<WebApplication>? map = null,
+        bool development = false,
+        string[]? queryKeys = null) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -77,14 +104,17 @@ public class PageOutputCacheKeyTests
                 map?.Invoke(a);
                 a.MapLayoutLoader("/[team]", (string team) => Page.Props(new { Team = team }));
                 var page = a.MapPageLoader("/[team]", loader);
-                CacheUnder(policy, policy == Policy.Attribute ? page.WithMetadata(new OutputCacheAttribute { Duration = 300 }) : page);
+                CacheUnder(policy, policy == Policy.Attribute ? page.WithMetadata(new OutputCacheAttribute { Duration = 300 }) : page, queryKeys);
             },
             services: s =>
             {
                 AddOutputCache(s, policy);
                 services?.Invoke(s);
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     private static void AddOutputCache(IServiceCollection services, Policy policy) =>
         services.AddOutputCache(o =>
@@ -368,20 +398,29 @@ public class PageOutputCacheKeyTests
         await using var app = await StartAsync(
             policy,
             () => 0,
-            map: a => a.MapAction("sign", ([Microsoft.AspNetCore.Mvc.FromForm] string? name) => ServerAction.Invalid("name", "required")));
+            map: a => a.MapAction("sign", ([Microsoft.AspNetCore.Mvc.FromForm] string? name) => ServerAction.Invalid("name", "required")),
+            queryKeys: ["page"]);
         var visitor = await Visitor.ReturningAsync(app);
 
         var authorized = await visitor.DataAsync("/core", ("Authorization", "Bearer someone"));
         await visitor.PostFormAsync("sign", ("name", ""), ("__netjes_return", "/core"));
         var failedPost = app.Renderer.LastPayload;
+        var anotherQueryKey = await visitor.DataAsync("/core?x=1");
+        var declaredQueryKey = await visitor.DataAsync("/core?page=1");
 
         Assert.NotNull((string?)authorized["antiforgery"]!["requestToken"]);
         Assert.NotNull(failedPost["actionState"]);
         Assert.NotNull((string?)failedPost["antiforgery"]!["requestToken"]);
+        Assert.NotNull((string?)anotherQueryKey["antiforgery"]!["requestToken"]);
+        // The cache may store this one.
+        Assert.Null(declaredQueryKey["antiforgery"]);
     }
 
-    /// <summary>A minimal API that renders a page: an endpoint the page rules key only under CachePage.</summary>
-    private static Task<TestApp> StartElsewhereAsync(Policy policy, Func<int> load) =>
+    /// <summary>
+    /// A minimal API that renders a page: an endpoint the page rules key only under CachePage. Its environment is
+    /// <see cref="StartAsync"/>'s.
+    /// </summary>
+    private static Task<TestApp> StartElsewhereAsync(Policy policy, Func<int> load, bool development = false) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -404,7 +443,10 @@ public class PageOutputCacheKeyTests
                     o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(5)));
                 }
             }),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: development ? "Development" : "Testing",
+            mode: NetjesMode.Development,
+            developmentOutputCache: development);
 
     /// <summary>
     /// Nothing would keep such an endpoint's documents and payloads apart, so under output caching other than
@@ -467,7 +509,9 @@ public class PageOutputCacheKeyTests
                 a.MapPageLoader("/[team]", () => Page.Props(new { Load = Interlocked.Increment(ref loads) })).CachePage(TimeSpan.FromMinutes(5));
             },
             services: s => s.AddOutputCache(o => o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(5)))),
-            beforeNetjes: a => a.UseOutputCache());
+            beforeNetjes: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var visitor = await Visitor.ReturningAsync(app);
 
         await visitor.DataAsync("/core");
@@ -602,7 +646,9 @@ public class PageOutputCacheKeyTests
             map: a => a.MapPageLoader("/[team]", (string? page) => Page.Props(new { Page = page }))
                 .CacheOutput(p => p.SetVaryByQuery("page")),
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var first = await (await Visitor.ReturningAsync(app)).DataAsync("/core?page=2&email=first%40example.com");
 
         var second = await (await Visitor.ReturningAsync(app)).DataAsync("/core?page=2&email=second%40example.com");
@@ -610,6 +656,464 @@ public class PageOutputCacheKeyTests
         Assert.Equal("/core?page=2&email=first%40example.com", (string?)first["url"]);
         Assert.Equal("/core?page=2&email=second%40example.com", (string?)second["url"]);
         Assert.Equal("2", (string?)second["props"]!["page"]);
+    }
+
+    /// <summary>The team page under <paramref name="policy"/> and <c>CacheQueryKeys</c>, on a store that counts its writes.</summary>
+    private static Task<TestApp> StartCountingAsync(Policy policy, CountingStore store, Func<int> load, params string[] queryKeys) =>
+        StartAsync(policy, load, services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)), queryKeys: queryKeys);
+
+    private static async Task<List<string?>> UrlsOfPayloadsAsync(Visitor visitor, params string[] urls)
+    {
+        var served = new List<string?>();
+        foreach (var url in urls)
+        {
+            served.Add((string?)(await visitor.DataAsync(url))["url"]);
+        }
+
+        return served;
+    }
+
+    /// <summary>
+    /// A page that names the keys it reads does not spend the cache on any other query string: one with another key, or
+    /// with an empty segment, which the query parser drops but which makes another raw query string, is rendered for its
+    /// request and stored nowhere. The payload's URL stays as sent, since the client shows it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_AQueryWithAnotherKeyOrAnEmptySegment_IsRenderedEachTimeAndNeverStored(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartCountingAsync(policy, store, () => Interlocked.Increment(ref loads));
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+        string[] urls = ["/core?x=1", "/core?x=1", "/core?x=2", "/core?&", "/core?&", "/core?&&"];
+
+        var served = await UrlsOfPayloadsAsync(visitor, urls);
+
+        Assert.Equal(urls, served);
+        Assert.Equal(6, loads);
+        Assert.Equal(0, store.Writes - before);
+
+        // Without a query string the page is stored as usual.
+        await visitor.DataAsync("/core");
+        await visitor.DataAsync("/core");
+
+        Assert.Equal(7, loads);
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>
+    /// With a declared key, each query string as sent is an entry of its own, as without the convention; a request that
+    /// adds another key or an empty segment to it is rendered, and no entry answers it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_AQueryWithOnlyThoseKeys_IsStoredAsSent(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartCountingAsync(policy, store, () => Interlocked.Increment(ref loads), "page");
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+        string[] urls =
+        [
+            "/core?page=2", "/core?page=2", "/core?PAGE=2",
+            "/core?page=2&utm_source=x", "/core?page=2&utm_source=x", "/core?page=2&", "/core?&page=2",
+        ];
+
+        var served = await UrlsOfPayloadsAsync(visitor, urls);
+
+        Assert.Equal(urls, served);
+        Assert.Equal(6, loads);
+        Assert.Equal(2, store.Writes - before);
+    }
+
+    /// <summary>
+    /// Spellings the query parser reads as the declared key are stored, each under its own spelling, so none is served
+    /// another's URL. Names that only look like the key in their raw text are other keys, also when an encoded separator
+    /// makes them look like the key and a value. (A space, since <see cref="Uri"/> decodes an escaped letter before it sends it.)
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_AnEncodedName_IsReadAsTheParserReadsIt(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartCountingAsync(policy, store, () => Interlocked.Increment(ref loads), "sort by");
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+        string[] urls =
+        [
+            "/core?sort+by=2", "/core?sort%20by=2", "/core?sort%20by=2",
+            "/core?sort+by%3D2", "/core?sort+by%3D2", "/core?sort+by%26x=2", "/core?sortby=2",
+        ];
+
+        var served = await UrlsOfPayloadsAsync(visitor, urls);
+
+        Assert.Equal(urls, served);
+        Assert.Equal(6, loads);
+        Assert.Equal(2, store.Writes - before);
+    }
+
+    /// <summary>The rule is the request's, whichever form it asks for: documents and <c>HEAD</c> requests too, and a stored entry answers none of them.</summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_DocumentsAndHeadRequestsForAnotherKey_AreNeverStored(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartCountingAsync(policy, store, () => Interlocked.Increment(ref loads), "page");
+        var visitor = await Visitor.ReturningAsync(app);
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+        Assert.Equal(1, loads);
+        var before = store.Writes;
+
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core?x=1"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core?x=1"));
+        var head = await visitor.SendAsync(HttpMethod.Head, "/core?x=1");
+        var headAgain = await visitor.SendAsync(HttpMethod.Head, "/core?x=1");
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, headAgain.StatusCode);
+        Assert.Equal(5, loads);
+        Assert.Equal(0, store.Writes - before);
+    }
+
+    /// <summary>Nothing is stored for such a request, so nothing is worth waiting for: the output cache's lock never holds one back.</summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_RequestsWithAnotherKey_DoNotWaitForEachOther(Policy policy)
+    {
+        var together = new Rendezvous(2);
+        await using var app = await StartWithLoaderAsync(
+            policy, async () => Page.Props(new { Together = await together.ArriveAsync() }), queryKeys: ["page"]);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payloads = await Task.WhenAll(visitor.DataAsync("/core?x=1"), visitor.DataAsync("/core?x=1"));
+
+        Assert.All(payloads, payload => Assert.True((bool?)payload["props"]!["together"]));
+    }
+
+    /// <summary>
+    /// A client navigation's redirect is a 200 payload, which the output cache would store. For another key it is
+    /// refused before it is written; for a declared key it is stored as any page is.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task UnderAnyPolicy_WithCacheQueryKeys_ALoaderRedirectForAnotherKey_IsNotStored(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartWithLoaderAsync(
+            policy,
+            PageResult<NoProps> (string team) =>
+            {
+                Interlocked.Increment(ref loads);
+                return Page.Redirect("/core");
+            },
+            services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)),
+            queryKeys: ["page"]);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var redirect = await visitor.DataAsync("/moved?x=1");
+        var redirectAgain = await visitor.DataAsync("/moved?x=1");
+
+        Assert.Equal("redirect", (string?)redirect["kind"]);
+        Assert.Equal("redirect", (string?)redirectAgain["kind"]);
+        Assert.Equal(2, loads);
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/moved?page=1");
+        await visitor.DataAsync("/moved?page=1");
+
+        Assert.Equal(3, loads);
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>CachePage leaves the token out of every render, stored or not, and CacheQueryKeys does not change that.</summary>
+    [Fact]
+    public async Task UnderCachePage_WithCacheQueryKeys_ARenderForAnotherKey_CarriesNoAntiforgeryToken()
+    {
+        await using var app = await StartAsync(Policy.CachePage, () => 0, queryKeys: ["page"]);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payload = await visitor.DataAsync("/core?x=1");
+
+        Assert.Null(payload["antiforgery"]);
+    }
+
+    /// <summary>A minimal API that renders a page is under the page rules through CachePage, and so under CacheQueryKeys.</summary>
+    [Fact]
+    public async Task APageRenderedByAnEndpointThatIsNoPage_UnderCachePage_WithCacheQueryKeys_IsStoredOnlyForThoseKeys()
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await TestApp.StartAsync(
+            Files,
+            map: a =>
+            {
+                a.MapLayoutLoader("/[team]", (string team) => Page.Props(new { Team = team }));
+                a.MapGet("/elsewhere/{team}", () => Page.Render("/[team]", new { Load = Interlocked.Increment(ref loads) }))
+                    .CachePage(TimeSpan.FromMinutes(5))
+                    .CacheQueryKeys("page");
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var other = await visitor.SendAsync(HttpMethod.Get, "/elsewhere/core?x=1", (NetjesHeaders.Data, "1"));
+        var otherAgain = await visitor.SendAsync(HttpMethod.Get, "/elsewhere/core?x=1", (NetjesHeaders.Data, "1"));
+
+        Assert.Equal("/elsewhere/core?x=1", (string?)(await JsonAsync(otherAgain))["url"]);
+        Assert.Equal("no-store, private", other.Headers.CacheControl?.ToString());
+        Assert.Equal(2, loads);
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/elsewhere/core?page=1");
+        await visitor.DataAsync("/elsewhere/core?page=1");
+
+        Assert.Equal(3, loads);
+        Assert.Equal(1, store.Writes - before);
+        Assert.DoesNotContain(app.Logs, l => l.Message.Contains("is not stored", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A JSON endpoint in a group CachePage is put on is under the page rules too, though no renderer runs to refuse its
+    /// storage: the policy does when the response is known. Netjes still adds no <c>Cache-Control</c> to its answer.
+    /// </summary>
+    [Fact]
+    public async Task AnEndpointUnderCachePage_WithCacheQueryKeys_IsStoredOnlyForThoseKeys_WithoutACacheControlFromNetjes()
+    {
+        var store = new CountingStore(SharedStore());
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                var group = a.MapGroup("/api").CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("page");
+                group.MapGet("/count", () => Interlocked.Increment(ref calls));
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var before = store.Writes;
+
+        var other = await app.Client.GetAsync("/api/count?x=1", Ct);
+        var otherAgain = await app.Client.GetAsync("/api/count?x=1", Ct);
+
+        Assert.Equal("2", await otherAgain.Content.ReadAsStringAsync(Ct));
+        Assert.Null(other.Headers.CacheControl);
+        Assert.Equal(0, store.Writes - before);
+
+        var declared = await app.Client.GetAsync("/api/count?page=1", Ct);
+        var declaredAgain = await app.Client.GetAsync("/api/count?page=1", Ct);
+
+        Assert.Equal("3", await declared.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("3", await declaredAgain.Content.ReadAsStringAsync(Ct));
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>Conventions on <c>MapPages()</c> name the keys of the pages without a loader too.</summary>
+    [Fact]
+    public async Task OnMapPages_WithCacheQueryKeys_PagesWithoutALoader_AreStoredOnlyForThoseKeys()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/about/page.tsx"],
+            pages: pages => pages.CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys(),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var document = await visitor.DocumentAsync("/about?x=1");
+        await AssertDocumentAsync(await visitor.DocumentAsync("/about?x=1"));
+
+        await AssertDocumentAsync(document);
+        Assert.Equal("no-store, private", document.Headers.CacheControl?.ToString());
+        Assert.Equal(2, app.Renderer.Payloads.Count);
+
+        await AssertDocumentAsync(await visitor.DocumentAsync("/about"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/about"));
+
+        Assert.Equal(3, app.Renderer.Payloads.Count);
+    }
+
+    /// <summary>Of two calls on one builder, the last decides.</summary>
+    [Fact]
+    public async Task CacheQueryKeys_CalledTwice_TheLastCallWins()
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await TestApp.StartAsync(
+            Files,
+            map: a => a.MapPageLoader("/[team]", () => Page.Props(new { Load = Interlocked.Increment(ref loads) }))
+                .CachePage(TimeSpan.FromMinutes(5))
+                .CacheQueryKeys("first")
+                .CacheQueryKeys("second"),
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/core?first=1");
+        Assert.Equal(0, store.Writes - before);
+        await visitor.DataAsync("/core?second=1");
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>A layout loader's conventions reach the pages below it, and a page's own run after them.</summary>
+    [Fact]
+    public async Task CacheQueryKeys_OnALayoutLoader_AppliesBelowIt_UnlessThePageMakesItsOwnCall()
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/docs/layout.tsx", "app/docs/inherits/page.tsx", "app/docs/own/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/docs", () => Page.Props()).CacheQueryKeys("layout");
+                a.MapPageLoader("/docs/inherits", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+                a.MapPageLoader("/docs/own", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("own");
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/docs/inherits?x=1");
+        await visitor.DataAsync("/docs/own?layout=1");
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/docs/inherits?layout=1");
+        await visitor.DataAsync("/docs/own?own=1");
+        Assert.Equal(2, store.Writes - before);
+    }
+
+    /// <summary>
+    /// A page without a loader has no call of its own. Its layout loader's list holds for it until a call on
+    /// <c>MapPages()</c>, whose conventions run after the layouts', replaces that list.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "layout", "other")]
+    [InlineData("all", "all", "layout")]
+    public async Task CacheQueryKeys_OnALayoutLoader_AppliesToAPageWithoutALoader_UnlessMapPagesMakesACall(string? onMapPages, string stored, string notStored)
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/docs/layout.tsx", "app/docs/a/page.tsx"],
+            map: a => a.MapLayoutLoader("/docs", () => Page.Props()).CacheQueryKeys("layout"),
+            pages: pages =>
+            {
+                pages.CachePage(TimeSpan.FromMinutes(5));
+                if (onMapPages is not null)
+                {
+                    pages.CacheQueryKeys(onMapPages);
+                }
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync($"/docs/a?{notStored}=1");
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync($"/docs/a?{stored}=1");
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>
+    /// The list says which requests may be stored; the loader still decides how they are answered. Two values do not bind
+    /// to an <c>int?</c>, so that request is a 400, which is not stored. A string takes them, and each repetition is an entry.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ARepeatedKey_IsStoredOnlyWhereTheLoaderCanBindIt()
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/numbers/page.tsx", "app/words/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/numbers", (int? page) => Page.Props(new { Page = page })).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("page");
+                a.MapPageLoader("/words", (string? page) => Page.Props(new { Page = page })).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("page");
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var notBound = await visitor.SendAsync(HttpMethod.Get, "/numbers?page=2&page=3", (NetjesHeaders.Data, "1"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, notBound.StatusCode);
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/numbers?page=2");
+        Assert.Equal(1, store.Writes - before);
+
+        var bound = await visitor.DataAsync("/words?page=2&page=3");
+        await visitor.DataAsync("/words?page=2&page=2");
+
+        Assert.Equal("2,3", (string?)bound["props"]!["page"]);
+        Assert.Equal(3, store.Writes - before);
+    }
+
+    /// <summary>Output caching decides whether a page is cached at all: without it the convention changes nothing.</summary>
+    [Fact]
+    public async Task CacheQueryKeys_OnAPageThatIsNotCached_ChangesNothing()
+    {
+        await using var app = await TestApp.StartAsync(
+            Files,
+            map: a => a.MapPageLoader("/[team]", () => Page.Props()).CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var other = await visitor.DataAsync("/core?x=1");
+        var declared = await visitor.DataAsync("/core?page=1");
+
+        Assert.NotNull((string?)other["antiforgery"]!["requestToken"]);
+        Assert.NotNull((string?)declared["antiforgery"]!["requestToken"]);
+        Assert.DoesNotContain(app.Logs, l => l.Message.Contains("is not stored", StringComparison.Ordinal));
     }
 
     /// <summary>Conventions on <c>MapPages()</c> cache the pages without a loader, keyed by the same rules.</summary>
@@ -628,7 +1132,9 @@ public class PageOutputCacheKeyTests
                 _ => pages.CacheOutput(p => p.Expire(TimeSpan.FromMinutes(5))),
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var visitor = await Visitor.ReturningAsync(app);
 
         var payload = await visitor.DataAsync("/about");
@@ -793,5 +1299,144 @@ public class PageOutputCacheKeyTests
         Assert.All(failed, response => Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode));
         Assert.Equal(2, app.Renderer.Payloads.Count);
         Assert.All(app.Renderer.Payloads, payload => Assert.True((bool?)JsonNode.Parse(payload)!["props"]!["together"]));
+    }
+
+    /// <summary>
+    /// In the Development environment code is live (Vite serves the sources, the sidecar imports them again, hot reload
+    /// swaps loaders) while the client build in the key stays the same: a stored page would outlive every edit, and its
+    /// markup would no longer match the modules the browser loads. So every request renders, and nothing is stored.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_APageIsRenderedForEveryRequest(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartAsync(
+            policy,
+            () => Interlocked.Increment(ref loads),
+            services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)),
+            development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/core");
+        await visitor.DataAsync("/core");
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+
+        Assert.Equal(4, loads);
+        Assert.Equal(0, store.Writes - before);
+    }
+
+    /// <summary>A redirect a loader returns for a client navigation is not stored there either.</summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_ARedirectALoaderReturns_IsNotStored(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartWithLoaderAsync(
+            policy,
+            PageResult<NoProps> (string team) =>
+            {
+                Interlocked.Increment(ref loads);
+                return Page.Redirect("/core");
+            },
+            services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)),
+            development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var redirect = await visitor.DataAsync("/moved");
+        var redirectAgain = await visitor.DataAsync("/moved");
+
+        Assert.Equal("redirect", (string?)redirect["kind"]);
+        Assert.Equal("redirect", (string?)redirectAgain["kind"]);
+        Assert.Equal(2, loads);
+        Assert.Equal(0, store.Writes - before);
+    }
+
+    /// <summary>CachePage keys an endpoint that is no page by the page rules, and so it renders for every request there too.</summary>
+    [Fact]
+    public async Task InDevelopment_APageRenderedByAnEndpointThatIsNoPage_UnderCachePage_IsRenderedForEveryRequest()
+    {
+        var loads = 0;
+        await using var app = await StartElsewhereAsync(Policy.CachePage, () => Interlocked.Increment(ref loads), development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payload = await visitor.DataAsync("/elsewhere/core");
+        var payloadAgain = await visitor.DataAsync("/elsewhere/core");
+
+        Assert.Equal(1, (int?)payload["props"]!["load"]);
+        Assert.Equal(2, (int?)payloadAgain["props"]!["load"]);
+    }
+
+    /// <summary>
+    /// Nothing is stored, so nothing is worth waiting for: requests for a page in the Development environment have keys
+    /// of their own, and the output cache's lock never holds one back while another renders.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task InDevelopment_UnderAnyPolicy_RequestsForAPageDoNotWaitForEachOther(Policy policy)
+    {
+        var together = new Rendezvous(2);
+        await using var app = await StartWithLoaderAsync(
+            policy, async () => Page.Props(new { Together = await together.ArriveAsync() }), development: true);
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payloads = await Task.WhenAll(visitor.DataAsync("/core"), visitor.DataAsync("/core"));
+
+        Assert.All(payloads, payload => Assert.True((bool?)payload["props"]!["together"]));
+    }
+
+    /// <summary>
+    /// The environment decides, not Netjes's mode: a host in another environment with routes from <c>app/</c> on disk, as
+    /// an app's WebApplicationFactory tests run, stores pages as production does.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Policies))]
+    public async Task OutsideDevelopment_InNetjesDevelopmentMode_PagesAreStillCached(Policy policy)
+    {
+        var store = new CountingStore(SharedStore());
+        var loads = 0;
+        await using var app = await StartAsync(
+            policy, () => Interlocked.Increment(ref loads), services: s => s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store)));
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/core");
+        await visitor.DataAsync("/core");
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+        await AssertDocumentAsync(await visitor.DocumentAsync("/core"));
+
+        Assert.Equal(NetjesMode.Development, app.App.Services.GetRequiredService<NetjesContext>().Mode);
+        Assert.Equal(2, loads);
+        Assert.Equal(2, store.Writes - before);
+    }
+
+    /// <summary>
+    /// Nothing is stored in the Development environment, but a page the output cache could store leaves its antiforgery
+    /// token out as it does in production: a form there that needs JavaScript to post needs it in Development too.
+    /// </summary>
+    [Theory]
+    [InlineData(Policy.CacheOutput)]
+    [InlineData(Policy.NamedPolicy)]
+    [InlineData(Policy.PolicyBuilder)]
+    [InlineData(Policy.Attribute)]
+    [InlineData(Policy.BasePolicy)]
+    public async Task InDevelopment_UnderAPolicyOtherThanCachePage_APageTheCacheMayStore_CarriesNoAntiforgeryToken(Policy policy)
+    {
+        await using var app = await StartAsync(policy, () => 0, development: true);
+        // The document embeds its payload, as the real renderer does.
+        app.Renderer.OnRender = json => $"<!DOCTYPE html><html><body><script type=\"application/json\">{json}</script></body></html>";
+        var visitor = await Visitor.ReturningAsync(app);
+
+        var payload = await visitor.DataAsync("/core");
+        var document = await (await visitor.DocumentAsync("/core")).Content.ReadAsStringAsync(Ct);
+
+        Assert.Null(payload["antiforgery"]);
+        Assert.StartsWith("<!DOCTYPE html>", document, StringComparison.Ordinal);
+        Assert.DoesNotContain("requestToken", document, StringComparison.Ordinal);
     }
 }

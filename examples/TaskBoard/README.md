@@ -2,7 +2,7 @@
 
 A small multi-tenant project tracker (think Linear-lite) built on Netjes's app router: React pages, ASP.NET Core and Postgres behind them. It is the example to read when you want to see how a real app is put together: authentication, tenancy, forms that work without JavaScript, live data, streaming.
 
-The [Blog](../Blog) is the smaller example; the [Netjes docs](../../docs/README.md) explain each feature it uses.
+The [Blog](../Blog/README.md) is the smaller example; the [Netjes docs](../../docs/README.md) explain each feature it uses.
 
 ## Run it
 
@@ -45,14 +45,14 @@ Migrations never run on app start in production. The `migrate` service runs `dot
 | Titles: `export const metadata` with a template in the root layout, `.WithMetadata` from C# | `app/layout.tsx`, every loader |
 | Loading and error states inside their layouts | `app/(app)/projects/[id]/loading.tsx`, `app/(app)/error.tsx`, `app/error.tsx` |
 | Data: EF Core, snake_case names, `IEntityTypeConfiguration` per entity, the `InitialSchema` migration | `Data/` |
-| Types from C#: page and layout props (`pages[...]`, `layouts[...]`), shared props, the stats API (`api[...]`), server actions (`serverActions[...]`) and typed routes (`route()`, `<Link href>`), all generated from the C# records | `generated/netjes.ts`, `Program.cs` (`UseSharedProps`, the enum converter) |
+| Types from C#: page and layout props (`pages[...]`, `layouts[...]`), shared props, the stats API (`api[...]`) and its URL (`endpointUrl()`), server actions (`serverActions[...]`) and typed routes (`route()`, `<Link href>`), all generated from the C# records | `generated/netjes.ts`, `Program.cs` (`UseSharedProps`, the enum converter), `lib/project.ts` |
 
 ## Things worth knowing
 
 - **Page loaders run before layout loaders.** The project layout refuses non-members, but each page loader under it checks access too (`db.AccessAsync`), so no data is even read for them. Server actions are separate endpoints: each one checks membership itself.
 - **Form inputs are records with `init` properties.** ASP.NET Core's form binding refuses a positional record with 400 when any constructor field is missing from the post, while `init` properties keep their defaults and let `[Required]` answer with a field error.
 - **`Page.Defer` work gets its own `DbContext`.** It runs while the request's context keeps serving the layout loaders, and a `DbContext` must not be used concurrently. `AddDbContextFactory` registers both the factory and the per-request context.
-- **One set of types.** The pages use the zod schemas Netjes generates from the C# records; nothing is written twice. Enums are C# enums (`TaskState`, `TaskPriority`, `MemberRole`) written as camelCase strings by one `JsonStringEnumConverter`, so they arrive as `z.enum([...])`. Only client input, such as the board's search-param filters, has hand-written schemas. The app rewrites `generated/netjes.ts` when it starts in Development; CI runs `npx netjes generate --check`, which needs no database: `Program.cs` skips the development migration and seed when `app.GetNetjesCommand()` names a command.
+- **One set of types.** The pages use the zod schemas Netjes generates from the C# records; nothing is written twice. Enums are C# enums (`TaskState`, `TaskPriority`, `MemberRole`) written as camelCase strings by one `JsonStringEnumConverter`, so they arrive as `z.enum([...])`. Only client input, such as the board's search-param filters, has hand-written schemas. The app rewrites `generated/netjes.ts` when it starts in development mode; CI runs `npx netjes generate --check`, which needs no database: `Program.cs` skips the development migration and seed when `app.GetNetjesCommand()` names a command.
 - **Task numbers** come from `Project.NextTaskNumber`, bumped by one atomic `UPDATE ... RETURNING` in the same transaction as the task insert: people adding a task at once queue on the project row and get consecutive numbers.
 
 ## Security
@@ -108,7 +108,7 @@ Some suites check what production depends on rather than one feature:
 - `TenantIsolationTests` lists every loader and action of the app, and tries each one that takes a project or a task with another user's project, task and members ids: documents, client navigations (also with the owner's layout keys), HEAD, action calls and forms without JavaScript all get 401, 403 or 404, none of the project's data, and no change in the database. Its header says which other classes cover the sign-in, sign-up and projects loaders and actions, which take no project.
 - `UserChangeTests` (and `e2e/user-change.spec.ts` in a real tab) signs out and in as someone else while the layouts stay mounted: the first user's layout keys reuse nothing. The spec also signs in from the landing page's form, which stays on the page and shows the user at once.
 - `OutputCacheInstancesTests` runs two instances on one output-cache store and key ring, with a cached page (TaskBoard caches none): entries are shared, revalidation evicts for both, signed-in visitors are never served or stored, and a payload that reuses a layout is shared only with the same `SegmentKeySecret`, so neither instance serves one under a key the visitor never sent.
-- `SidecarCrashTests` runs the built app in a process of its own (`npm run build` first), kills its sidecar while a page streams, and expects the response cut and the next render whole. It listens on a free port, or on `TASKBOARD_TEST_PORT`.
+- `SidecarCrashTests` runs the built app in a process of its own (`npm run build` first). It kills its sidecar while a page streams, and expects the response cut and the next render whole. It also stops the sidecar (`kill -STOP`), and expects `/healthz` to report Unhealthy until Netjes has killed and restarted it, then a whole render from the new process. It listens on a free port, or on `TASKBOARD_TEST_PORT`.
 - `e2e/navigation.spec.ts` overtakes a slow navigation with a newer click or the back button.
 - `e2e/no-js.spec.ts` posts every form of the app without JavaScript, in development and production: signing up, signing in from a page that needs it and landing back on it, starting a project, signing out (and Back after it), the board (adding a task and moving it), editing a task and commenting, and adding a member. Each post is answered with a redirect, or with the page again showing the errors and what was typed. The project pages render inside a loading boundary and the board is larger than React's 12.8 kB streaming chunk, so these tests also show that a boundary that is ready with the shell is written in place.
 

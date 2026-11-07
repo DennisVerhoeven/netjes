@@ -5,7 +5,7 @@ Netjes gives coding agents (Claude Code, Codex, Cursor, Copilot and the like) th
 ## The docs as text
 
 - [llms.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms.txt) is an index of the docs in the [llms.txt](https://llmstxt.org) format: a summary, then a link and a line for each document, the `netjes` skill below included, so an agent can read it in an app that does not have it.
-- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks and the example apps' READMEs, which an agent building an app does not need.
+- [llms-full.txt](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/llms-full.txt) has those documents in one file, for agents that take a whole file as context. It leaves out the ones `llms.txt` marks as not in it: the architecture page, the benchmarks, the example apps' READMEs and the contributing guide, which an agent building an app does not need.
 
 Both follow the `main` branch, so they can describe a newer version than the one an app uses. The installed version's sources and types are in the app's `node_modules/netjes/`.
 
@@ -15,7 +15,7 @@ Both follow the `main` branch, so they can describe a newer version than the one
 
 | File | For |
 |---|---|
-| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing. |
+| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `tests/<App>.Tests/`, `e2e/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing, the C# tests among them, and the Playwright tests for a change to a page or a form. |
 | `CLAUDE.md` | Claude Code, which reads `CLAUDE.md`: one line, `@AGENTS.md`, which imports the guide. |
 | `.claude/skills/netjes/` | The `netjes` skill ([SKILL.md](../../packages/netjes/skills/netjes/SKILL.md)) and references for routing, data and actions, caching and streaming, testing and deployment. Claude Code loads skills from `.claude/skills/`; `AGENTS.md` points other agents at the folder. |
 
@@ -31,6 +31,8 @@ npx netjes agents            # or: npx netjes agents path/to/app
 
 It writes the same three, with the project file's name as the title of `AGENTS.md` (`--name` sets another; without a single `.csproj` it takes the directory's name and warns on stderr that it did, so run it in the right folder or pass `--name`). It never replaces a file that exists: it prints the directory, then each file it wrote or kept, and if a `CLAUDE.md` of your own does not import `AGENTS.md`, it says to add the line `@AGENTS.md`. `--force` replaces them all.
 
+`AGENTS.md` lists a test suite only when the app has one where `netjes new` puts it, so that it does not send an agent to a command the app lacks. It names `tests/<App>.Tests/` and `dotnet test tests/<App>.Tests` when `tests/<App>.Tests/<App>.Tests.csproj` exists, with `<App>` the project file's name, or the .NET name `--name` gives (`--name my-shop` looks for `tests/MyShop.Tests/MyShop.Tests.csproj`), and otherwise says that it found no test project there and where to read how to add one. It names `e2e/` and `npm run test:e2e` when `playwright.config.ts`, an `e2e/` folder and a `test:e2e` script in `package.json` all exist. It looks at those paths and that script only, so where it names the files in a suite, such as `AppFactory.cs`, or the Playwright config's two servers, it says what `netjes new` writes. A suite in another place or under another script is not listed; add a line for it to `AGENTS.md`. It looks when it writes the file, so after adding a suite, compare with `npx netjes agents --force`, as under [After upgrading Netjes](#after-upgrading-netjes). The skill is the same in every app, and words those checks for any app.
+
 ## After upgrading Netjes
 
 The skill and `AGENTS.md` describe the version that wrote them. The skill belongs to Netjes, so replace it with the installed version's:
@@ -43,4 +45,4 @@ That keeps `AGENTS.md` and `CLAUDE.md`, which belong to the app. To compare your
 
 ## Working on Netjes itself
 
-The repository has its own [AGENTS.md](../../AGENTS.md) (which `CLAUDE.md` imports), for people and agents changing Netjes, and the skills [netjes-contributing](../../.claude/skills/netjes-contributing/SKILL.md) (making a change, from branch to merge) and [netjes-verification](../../.claude/skills/netjes-verification/SKILL.md) (proving it works) in `.claude/skills/`. `llms.txt` and `llms-full.txt` are generated from the docs by `scripts/llms.mjs`: run `npm run docs:llms` after changing a document, and `npm run docs:check` fails while they are out of date or while a link in the docs points at nothing. In a git checkout they are built only from the documents git tracks, so `git add` a new one first.
+The repository has its own [AGENTS.md](../../AGENTS.md) (which `CLAUDE.md` imports), for people and agents changing Netjes, and the skills [netjes-contributing](../../.claude/skills/netjes-contributing/SKILL.md) (making a change, from branch to merge) and [netjes-verification](../../.claude/skills/netjes-verification/SKILL.md) (proving it works) in `.claude/skills/`. `llms.txt` and `llms-full.txt` are generated from the docs by `scripts/llms.mjs`: run `npm run docs:llms` after changing a document, and `npm run docs:check` fails while they are out of date, while a link in the docs points at nothing, or while one points at a folder that holds a `README.md` instead of at that file. In a git checkout they are built only from the documents git tracks, so `git add` a new one first.

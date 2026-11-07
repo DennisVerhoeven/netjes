@@ -9,13 +9,15 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { actionRequest, expectActionClient, fetchAction, setActionClient } from './actions.tsx';
 import { deferredRegistry, revivePayload } from './deferred.ts';
 import type { EncodedForm } from './form-data.ts';
 import type { Href } from './href.ts';
-import { MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
+import { type ErrorPageProps, MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
+import { moveFocusAfterNavigation } from './navigation-focus.ts';
 import {
   type ActionResponse,
   type AntiforgeryToken,
@@ -31,7 +33,8 @@ import {
   parseAntiforgery,
   parseNavigationPayload,
 } from './payload.ts';
-import { ErrorBoundary, LayoutDepthContext, RouteTree } from './route-tree.tsx';
+import { RouteAnnouncer } from './route-announcer.tsx';
+import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
 import { type StandardSchemaV1, parseLenient, parseWith } from './schema.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
@@ -44,11 +47,19 @@ export type NavigationState =
 
 /** The client router that `useRouter()` returns. */
 export type Router = {
+  /**
+   * Navigates, adding a history entry. The promise resolves once the router has handed the page to React, which can be
+   * before React shows it, or once the navigation has ended another way.
+   */
   push(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  /** Navigates, replacing the history entry. The promise resolves as `push`'s does. */
   replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
-  /** Fetches the page payload and modules ahead of a navigation. Links do this on hover and focus. */
+  /** Fetches the page payload and modules ahead of a navigation. Links do this on hover, focus and touch. */
   prefetch(href: Href): void;
-  /** Re-runs the current page's loader and re-renders with the new props. */
+  /**
+   * Runs every loader of the page on screen again, layout loaders included, and renders the page with the new props, in
+   * the same history entry and without scrolling. The promise resolves as `push`'s does.
+   */
   refresh(): Promise<void>;
   back(): void;
   forward(): void;
@@ -59,8 +70,17 @@ export type SubmitBody = EncodedForm;
 /** Called with every server action response, e.g. by the query shell to apply query updates. */
 export type ActionListener = (response: ActionResponse) => void;
 
-export type InternalRouter = Router & {
-  submit(action: URL, body: SubmitBody): Promise<void>;
+/**
+ * What `<Link>` and `<Form>` also pass: what had the focus before the app's own `onClick` or `onSubmit` ran. Those run
+ * as the navigation starts, so where they move the focus, such as back to the button of a menu that closes, is where
+ * the navigation put it.
+ */
+type FocusAtStart = { focusedAtStart?: Element | null };
+
+export type InternalRouter = Omit<Router, 'push' | 'replace'> & {
+  push(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  replace(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  submit(action: URL, body: SubmitBody, options?: FocusAtStart): Promise<void>;
   onActionResponse(listener: ActionListener): () => void;
   /**
    * Called as soon as a server action call or form post says it set or deleted a cookie (signed someone in or out),
@@ -89,6 +109,13 @@ type PageRequest = { method: 'GET' } | ({ method: 'POST' } & SubmitBody);
 function isLoaded(result: LoadResult): result is Loaded {
   return 'payload' in result;
 }
+
+/**
+ * What remounts the page and its templates when it changes: the page's path, or for an intercepted page the key of the
+ * page under it, which stays on screen. Two views with one key show the same page.
+ */
+const pageKeyOf = (loaded: Loaded) => loaded.pageKey ?? loaded.url.pathname;
+
 type ScrollIntent = { kind: 'none' } | { kind: 'top' } | { kind: 'hash'; hash: string } | { kind: 'restore'; x: number; y: number };
 type HistoryMode = 'push' | 'replace' | 'none' | 'auto';
 
@@ -97,6 +124,13 @@ const ANTIFORGERY_URL = '/_netjes/antiforgery';
 const NONE: ScrollIntent = { kind: 'none' };
 const TOP: ScrollIntent = { kind: 'top' };
 const STATE_KEY = '__netjes';
+/**
+ * On `<html>` while the client router runs in the document, and the public sign that it does: end-to-end tests wait
+ * for it before they click. (The history entry's key is no such sign: the entry keeps it when the browser loads the
+ * document again.) The effect that sets it must stay after the one that registers the router as the action client,
+ * so that once it shows, the router has keyed the entry, listens for back and forward, and runs server action calls.
+ */
+const HYDRATED_ATTRIBUTE = 'data-netjes-hydrated';
 const PREFETCH_TTL_MS = 30_000;
 const MAX_REDIRECTS = 10;
 const MAX_REMEMBERED_ENTRIES = 50;
@@ -281,7 +315,8 @@ type NavigatorDeps = {
   showDocument(html: string, url: string): void;
   download(file: Blob, name: string): void;
   setPending(state: NavigationState): void;
-  commit(loaded: Loaded, scroll: ScrollIntent): void;
+  /** `focusedAtStart`: what had the focus when the navigation started, which decides where the focus goes after it. */
+  commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null): void;
 };
 
 type GoOptions = {
@@ -294,6 +329,8 @@ type GoOptions = {
   reuseSegments: boolean;
   /** Refreshing an intercepted page: load this page under it again too, and show the result in its slot again. */
   interceptOver?: URL;
+  /** What had the focus as the navigation started, when the caller read it: else go() reads it as it starts. */
+  focusedAtStart?: Element | null;
 };
 
 /**
@@ -369,7 +406,8 @@ class Navigator {
     this.channel = null;
   }
 
-  async navigate(href: string, history: 'push' | 'replace', scroll: boolean): Promise<void> {
+  /** `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called. */
+  async navigate(href: string, history: 'push' | 'replace', scroll: boolean, focusedAtStart = document.activeElement): Promise<void> {
     const url = new URL(withBasePath(href, this.deps.basePath), window.location.href);
     if (!isWebUrl(url)) {
       console.error(`netjes: refusing to navigate to ${url.protocol} URL`);
@@ -387,7 +425,7 @@ class Navigator {
       const key = createKey();
       window.history[history === 'push' ? 'pushState' : 'replaceState']({ [STATE_KEY]: key }, '', url.href);
       this.setCurrent(key, { ...this.current, url });
-      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE);
+      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart);
       return;
     }
 
@@ -397,11 +435,16 @@ class Navigator {
       pending: 'loading',
       usePrefetch: true,
       reuseSegments: true,
+      focusedAtStart,
     });
   }
 
-  submit(action: URL, body: SubmitBody): Promise<void> {
-    return this.go(action, { method: 'POST', ...body }, { history: 'auto', scroll: 'auto', pending: 'submitting', usePrefetch: false, reuseSegments: false });
+  submit(action: URL, body: SubmitBody, focusedAtStart = document.activeElement): Promise<void> {
+    return this.go(
+      action,
+      { method: 'POST', ...body },
+      { history: 'auto', scroll: 'auto', pending: 'submitting', usePrefetch: false, reuseSegments: false, focusedAtStart },
+    );
   }
 
   /**
@@ -553,13 +596,17 @@ class Navigator {
     if (known) {
       this.active?.controller.abort();
       this.setCurrent(key, { ...known, url });
-      this.deps.commit(this.current, scroll);
+      this.deps.commit(this.current, scroll, document.activeElement);
       return;
     }
     void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true });
   }
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
+    // Read before anything this navigation starts can move it: inside the click (or the keypress) that started it,
+    // before React has handled that event's own state updates, such as a menu that closes. navigate() and submit()
+    // pass what they read, or what a link or a form read before the app's own handler ran.
+    const focusedAtStart = options.focusedAtStart === undefined ? document.activeElement : options.focusedAtStart;
     if (url.origin !== window.location.origin) {
       // navigate() and Form hand other origins to the browser, and every page URL the router keeps is on this one.
       // Refuse one that gets here all the same: a failed load would send the browser to it.
@@ -638,7 +685,7 @@ class Navigator {
       this.forgetToken();
       committed = true;
       const scroll = shown.base ? NONE : options.scroll === 'auto' ? (shown.url.pathname === previous.pathname ? NONE : TOP) : options.scroll;
-      this.deps.commit(shown, scroll);
+      this.deps.commit(shown, scroll, focusedAtStart);
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
       if (request.method === 'POST') {
@@ -809,21 +856,22 @@ function elementForFragment(fragment: string): HTMLElement | null {
   return document.getElementById(decoded) ?? document.getElementById(fragment);
 }
 
-function applyScroll(intent: ScrollIntent) {
+/** Scrolls as the intent says, and returns the element a fragment names, which then takes the focus. */
+function applyScroll(intent: ScrollIntent): HTMLElement | null {
   switch (intent.kind) {
     case 'none':
-      return;
+      return null;
     case 'top':
       window.scrollTo(0, 0);
-      return;
+      return null;
     case 'restore':
       window.scrollTo(intent.x, intent.y);
-      return;
+      return null;
     case 'hash': {
       const target = elementForFragment(intent.hash.slice(1));
       if (target) target.scrollIntoView();
       else window.scrollTo(0, 0);
-      return;
+      return target;
     }
     default: {
       const exhaustive: never = intent;
@@ -832,7 +880,7 @@ function applyScroll(intent: ScrollIntent) {
   }
 }
 
-type View = { loaded: Loaded; id: number; scroll: ScrollIntent };
+type View = { loaded: Loaded; id: number; scroll: ScrollIntent; focusedAtStart: Element | null };
 type ViewValue = { payload: PagePayload; url: URL };
 
 const RouterContext = createContext<InternalRouter | null>(null);
@@ -896,6 +944,7 @@ export function RouterProvider({
     },
     id: 0,
     scroll: NONE,
+    focusedAtStart: null,
   }));
   const [navigation, setNavigation] = useState<NavigationState>(IDLE);
   const [navigator] = useState(() => {
@@ -910,9 +959,9 @@ export function RouterProvider({
         showDocument,
         download,
         setPending: setNavigation,
-        commit: (loaded, scroll) =>
+        commit: (loaded, scroll, focusedAtStart) =>
           startTransition(() => {
-            setView((previous) => ({ loaded, id: previous.id + 1, scroll }));
+            setView((previous) => ({ loaded, id: previous.id + 1, scroll, focusedAtStart }));
             setNavigation(IDLE);
           }),
       },
@@ -974,19 +1023,37 @@ export function RouterProvider({
       }),
     [navigator, actionListeners],
   );
+  // Directly after the registration above, and in a passive effect, never a layout one: React runs a component's
+  // effects in order, a commit's layout effects before any passive one, and the mark must not show while server
+  // action calls still wait for the router.
+  useEffect(() => {
+    const html = document.documentElement;
+    html.setAttribute(HYDRATED_ATTRIBUTE, '');
+    return () => html.removeAttribute(HYDRATED_ATTRIBUTE);
+  }, []);
+  // The key of the page on screen before this commit.
+  const committedPageKey = useRef(pageKeyOf(view.loaded));
+  // In the commit that shows the page, before the browser paints it, and after the layout effects of the page and its
+  // layouts, which have focused an autoFocus element by then. Every focus call keeps the scroll position applyScroll
+  // sets, the one Back restores included.
   useLayoutEffect(() => {
-    if (view.id > 0) applyScroll(view.scroll);
+    if (view.id === 0) return;
+    const target = applyScroll(view.scroll);
+    const key = pageKeyOf(view.loaded);
+    const replaced = key !== committedPageKey.current;
+    committedPageKey.current = key;
+    moveFocusAfterNavigation({ target, replaced, keep: view.scroll.kind === 'none', focusedAtStart: view.focusedAtStart });
   }, [view]);
 
   const router = useMemo<InternalRouter>(
     () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true),
+      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart),
+      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
       forward: () => window.history.forward(),
-      submit: (action, body) => navigator.submit(action, body),
+      submit: (action, body, options) => navigator.submit(action, body, options?.focusedAtStart),
       onActionResponse: (listener) => {
         actionListeners.add(listener);
         return () => actionListeners.delete(listener);
@@ -1014,12 +1081,15 @@ export function RouterProvider({
                 params={payload.params}
                 status={payload.status}
                 pageKind={payload.pageKind}
-                pageKey={view.loaded.pageKey ?? url.pathname}
+                pageKey={pageKeyOf(view.loaded)}
                 retry={() => void router.refresh()}
                 metadata={payload.metadata}
               />
             </ErrorBoundary>
           </Shell>
+          {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
+              new page has set. */}
+          <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
         </NavigationContext>
       </ViewContext>
     </RouterContext>
@@ -1028,8 +1098,13 @@ export function RouterProvider({
 
 const errorPageModules = new WeakMap<ModuleLoader, Promise<RouteModules>>();
 
+/**
+ * What the router shows for an error no segment's boundary caught: the app's root error page, handed the error as it
+ * was thrown (its class, its stack, a server action's status), or the built-in page, which says 500.
+ */
 function ErrorFallback({ error, errorPage, loader, payload }: { error: unknown; errorPage: SpecialPageRef | null; loader: ModuleLoader; payload: PagePayload }) {
-  const props = { status: 500, message: error instanceof Error ? error.message : 'Something went wrong' };
+  const caught = asError(error);
+  const props = { status: 500, message: caught.message };
   const builtIn = <RouteTree modules={{ page: null, segments: [] }} props={props} params={payload.params} status={500} pageKey="error" />;
   if (!errorPage) return builtIn;
   let modules = errorPageModules.get(loader);
@@ -1041,14 +1116,24 @@ function ErrorFallback({ error, errorPage, loader, payload }: { error: unknown; 
     // If the error page (or a layout around it) throws as well, fall back to the built-in page.
     <ErrorBoundary resetKey={0} fallback={() => builtIn}>
       <Suspense fallback={null}>
-        <LoadedErrorPage modules={modules} props={props} payload={payload} />
+        <LoadedErrorPage modules={modules} props={props} error={caught} payload={payload} />
       </Suspense>
     </ErrorBoundary>
   );
 }
 
-function LoadedErrorPage({ modules, props, payload }: { modules: Promise<RouteModules>; props: Record<string, unknown>; payload: PagePayload }) {
-  return <RouteTree modules={use(modules)} props={props} params={payload.params} status={500} pageKind="error" pageKey="error" />;
+function LoadedErrorPage({
+  modules,
+  props,
+  error,
+  payload,
+}: {
+  modules: Promise<RouteModules>;
+  props: Record<string, unknown>;
+  error: ErrorPageProps['error'];
+  payload: PagePayload;
+}) {
+  return <RouteTree modules={use(modules)} props={props} params={payload.params} status={500} pageKind="error" pageKey="error" error={error} />;
 }
 
 /** The router's contexts without the router: for the test harness (netjes/testing), which fakes navigation. */
@@ -1098,7 +1183,7 @@ export function usePathname(): string {
   return withoutBasePath(url.pathname, payload.basePath ?? '');
 }
 
-/** An href for a plain `<a>` or attribute, under the base path: what `<Link>` does for its own. */
+/** An href for a plain `<a>`, another attribute or a `fetch`, under the base path: what `<Link>` does for its own. */
 export function useHref(href: string): string {
   return withBasePath(href, useBasePath());
 }

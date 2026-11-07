@@ -379,6 +379,46 @@ public class PageEndpointTests
         Assert.Equal("User-agent: *", await response.Content.ReadAsStringAsync(Ct));
     }
 
+    [Fact]
+    public async Task AGetOnlyEndpoint_LeavesHeadToWhateverElseMatches_AndMapMethodsAnswersIt()
+    {
+        // ASP.NET Core answers HEAD only for the endpoints that list it, so a HEAD to a MapGet URL is routed as if the
+        // endpoint were not there.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/[slug]/page.tsx"],
+            map: a =>
+            {
+                a.MapGet("/api/x", () => "x");
+                a.MapGet("/files/x.txt", () => "x");
+                a.MapGet("/feed", () => Results.Text("<rss/>", "application/rss+xml"));
+                a.MapMethods("/files/y.txt", [HttpMethods.Get, HttpMethods.Head], () => Results.Text("y", "text/plain"));
+            });
+        Task<HttpResponseMessage> HeadAsync(string url) => app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, url), Ct);
+
+        var extensionless = await HeadAsync("/api/x");
+        var file = await HeadAsync("/files/x.txt");
+        var besideAPage = await HeadAsync("/feed");
+        var both = await HeadAsync("/files/y.txt");
+        var post = await app.Client.PostAsync("/api/x", null, Ct);
+
+        // The fallback takes a path without a file extension, and renders the not-found page.
+        Assert.Equal(HttpStatusCode.NotFound, extensionless.StatusCode);
+        Assert.Equal("text/html", extensionless.Content.Headers.ContentType?.MediaType);
+        // Nothing takes a file's path: an empty 404.
+        Assert.Equal(HttpStatusCode.NotFound, file.StatusCode);
+        Assert.Null(file.Content.Headers.ContentType);
+        Assert.Empty(await file.Content.ReadAsByteArrayAsync(Ct));
+        // A dynamic page that matches the URL answers as itself.
+        Assert.Equal(HttpStatusCode.OK, besideAPage.StatusCode);
+        Assert.Equal("text/html", besideAPage.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("/[slug]", (string?)app.Renderer.LastPayload["route"]);
+        Assert.Equal(HttpStatusCode.OK, both.StatusCode);
+        Assert.Equal("text/plain", both.Content.Headers.ContentType?.MediaType);
+        // The fallback takes HEAD, so a 405 for the URL lists it beside the endpoint's GET.
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, post.StatusCode);
+        Assert.Equal(["GET", "HEAD"], post.Content.Headers.Allow);
+    }
+
     [Theory]
     [InlineData(false, HttpStatusCode.TemporaryRedirect)]
     [InlineData(true, HttpStatusCode.PermanentRedirect)]
@@ -454,6 +494,7 @@ public class PageEndpointTests
         Assert.Equal(500, (int?)payload["props"]!["status"]);
         Assert.Equal("database is down", (string?)payload["props"]!["message"]);
         Assert.Contains("InvalidOperationException", (string?)payload["props"]!["stack"]);
+        Assert.Null(payload["props"]!["withheld"]);
     }
 
     [Fact]
@@ -470,6 +511,40 @@ public class PageEndpointTests
         Assert.Equal(500, (int?)payload["status"]);
         Assert.Null((string?)payload["page"]);
         Assert.DoesNotContain("secret detail", payload.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Loader_Throwing_OutsideDevelopment_MarksTheMessageAsWithheld()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/error.tsx", "app/page.tsx"],
+            map: a => a.MapPageLoader("/", IResult () => throw new InvalidOperationException("database is down")),
+            configure: o => o.Mode = NetjesMode.Development,
+            environment: "Production");
+
+        await app.GetDocumentAsync("/");
+
+        var props = app.Renderer.LastPayload["props"]!;
+        Assert.Equal("Internal Server Error", (string?)props["message"]);
+        Assert.True((bool?)props["withheld"]);
+        Assert.Null(props["stack"]);
+    }
+
+    [Fact]
+    public async Task LoaderForbidden_WithoutForbiddenPage_IsNotWithheld()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/error.tsx", "app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Forbidden()),
+            configure: o => o.Mode = NetjesMode.Development,
+            environment: "Production");
+
+        await app.GetDocumentAsync("/");
+
+        var payload = app.Renderer.LastPayload;
+        Assert.Equal("app/error.tsx", (string?)payload["page"]);
+        Assert.Equal("Forbidden", (string?)payload["props"]!["message"]);
+        Assert.Null(payload["props"]!["withheld"]);
     }
 
     [Fact]

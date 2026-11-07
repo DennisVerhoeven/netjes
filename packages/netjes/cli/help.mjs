@@ -6,7 +6,12 @@
  * @typedef {import('./commands.mjs').OptionSpec} OptionSpec
  */
 
-export const DOCS_URL = 'https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/cli.md';
+/**
+ * The CLI reference at the release tag of `version`: the page on main can describe commands and options that this
+ * version does not have.
+ * @param {string} version
+ */
+export const docsUrl = (version) => `https://github.com/DennisVerhoeven/netjes/blob/v${version}/docs/reference/cli.md`;
 
 /**
  * Options every command takes.
@@ -55,7 +60,7 @@ export function overviewHelp(commands, version) {
     columns(Object.entries(GLOBAL_OPTIONS).map(([name, option]) => [label(name, option), describe(option)])),
     '',
     'Run `netjes help <command>` for its options and examples.',
-    `Docs: ${DOCS_URL}`,
+    `Docs: ${docsUrl(version)}`,
     '',
   ].join('\n');
 }

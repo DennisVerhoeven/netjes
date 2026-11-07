@@ -12,7 +12,7 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest and Docker files, and references `netjes` and `Netjes` at the same exact version.
+`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest, a C# test project, a Playwright suite and Docker files, and references `netjes` and `Netjes` at the same exact version.
 
 ## Add it to a project
 
@@ -35,9 +35,9 @@ Tailwind CSS and the TanStack Query client are on by default; `netjes({ tailwind
 
 | Import | What it holds |
 |---|---|
-| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest |
+| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest, and `CSP_SCRIPT_HASHES`, the hashes of Netjes's inline scripts for a Content-Security-Policy without a nonce |
 | `netjes/vite` | The Vite plugin |
-| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest |
+| `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest, and `renderDocument()` and `inlineScriptHashes()`, for a page's whole document and the inline scripts in it |
 | `netjes/vitals` | `useReportWebVitals` and `<WebVitals />` |
 | `netjes/zod` | `deferred(schema)`, for values that loaders stream with `Page.Defer` |
 | `netjes` (bin) | The command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info`, `agents` |
@@ -52,4 +52,4 @@ Each import is an ES module with its type declarations, so an app's `tsc` reads 
 - [Vite plugin](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/vite-plugin.md)
 - [The netjes command](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/cli.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.

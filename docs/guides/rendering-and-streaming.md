@@ -6,7 +6,7 @@ This guide is for app developers who want to know how a Netjes page becomes HTML
 
 A request for a page goes through ASP.NET Core first. The endpoint for the page file runs its C# loaders (the layouts' and the page's), and Netjes builds the page payload: which page and layouts to show, their props, the route parameters, the shared props and the seeded queries. The next step depends on who asked:
 
-- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it.
+- A document request (a browser loading the URL) sends the payload to a Node process, the sidecar, which renders the whole HTML document with React and streams it back. The payload is embedded in the document, and the browser hydrates it. Once the client router runs there, `<html>` carries `data-netjes-hydrated`, which end-to-end tests wait for ([testing](testing.md#wait-for-hydration)).
 - A client navigation (`<Link>`, `router.push`, a `<Form>` post) asks the same URL for the payload as JSON. No Node process is involved: the browser loads the page module and renders it itself.
 
 Only document requests need the sidecar. Redirects, not-found and forbidden results, authorization and the response status are all decided in .NET before anything is rendered.
@@ -32,7 +32,7 @@ The app does not start until every process has reported ready, within `StartupTi
 
 | Option | Default | Limits |
 |---|---|---|
-| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. |
+| `RenderTimeout` | 15 s | How long a process may take to render the shell of a streamed document: everything outside Suspense boundaries that are still waiting. In production also how long a health ping waits for an answer, and never less than 5 s ([Restarts](#restarts)). |
 | `StreamTimeout` | 60 s | How long a whole document may take, deferred values and Suspense boundaries included. A complete document (for a crawler, below) waits up to this long. |
 
 A render that runs out of time fails with the error page.
@@ -40,6 +40,8 @@ A render that runs out of time fails with the error page.
 ### Restarts
 
 A process that exits is restarted after 1 second, then after 2, 4, 8 and 16 seconds for each crash in a row, and after 30 seconds from then on. The delay goes back to 1 second once a process has stayed up for 30 seconds. Each exit is logged with the last lines the process printed.
+
+In production, a process that stops answering without exiting (stuck in a loop, deadlocked, stopped by a signal) is restarted the same way. Netjes sends a health ping (`GET /health`) to a process that has answered no render for 5 seconds; one that gives no answer within `RenderTimeout`, and never less than 5 seconds, is taken out of the ready ones and killed, with an error in the log, and then restarts as a crashed one does. A render that had been sent to it fails with the error page. A process kept busy by a long render, but for less than that, is left alone, as is one that waits on data while it renders. In development nothing is pinged, since the process also runs the Vite dev server and can stop at a breakpoint in your code. A sidecar script of your own (`Netjes:SidecarScript`) must answer `GET /health`, with any status and without reading a request body.
 
 Renders while a process is down go like this:
 
@@ -59,11 +61,11 @@ builder.Services.AddHealthChecks().AddNetjes();
 app.MapHealthChecks("/healthz");
 ```
 
-It reports Healthy when every process is ready, Degraded while some are restarting (renders go to the others), and Unhealthy when none is ready. The template's Docker health check calls `/healthz`. See [deployment](deployment.md#health-checks).
+It reports Healthy when every process is ready, Degraded while some are restarting (renders go to the others), and Unhealthy when none is ready. A process that stopped answering counts as restarting from the moment it is taken out. The template's Docker health check calls `/healthz`. See [deployment](deployment.md#health-checks).
 
 ## Streamed documents
 
-A document streams. The sidecar sends the shell as soon as it is ready, with a fallback in place of each Suspense boundary that is still waiting, and sends the content of those boundaries as it becomes ready. The browser hydrates the shell while the rest is still arriving, so the page is interactive before its slow parts are there.
+A document streams. The sidecar sends the shell as soon as it is ready, with a fallback in place of each Suspense boundary that is still waiting, and sends the content of those boundaries as it becomes ready. The browser hydrates the shell while the rest is still arriving, so the page is interactive before its slow parts are there. A page with an external `beforeInteractive` script hydrates once that script has loaded or failed ([Metadata](metadata.md#code-that-runs-before-the-first-paint)).
 
 A boundary is either a `loading.tsx` file, which wraps the page below its folder in `<Suspense fallback={<Loading />}>`, or a `<Suspense>` you write in a component. A page waits inside a boundary for two things: a `Page.Defer` value it reads with `use()`, and code that loads late (`React.lazy`, `dynamic()`).
 
@@ -160,7 +162,7 @@ static async Task<IReadOnlyList<ActivityItem>> ActivityAsync(
 - A document carries a placeholder for each value, and the value follows in the same response, as a small inline script, once it is ready.
 - A client navigation gets NDJSON instead of JSON: the payload on the first line, then one line per value as it completes.
 
-A value that throws, or has not arrived when `StreamTimeout` runs out, rejects on the client, and `use()` throws it to the nearest `error.tsx`. In production the message is "Something went wrong"; in development it is the exception's message. The failure is logged as a warning (category `Netjes.Deferred`).
+A value that throws, or has not arrived when `StreamTimeout` runs out, rejects on the client, and `use()` throws it to the nearest `error.tsx`. With error details on (`IncludeErrorDetails`, on in the Development environment), the message is the exception's. With them off, the server sends an empty error in its place, and the client rejects with the message "Something went wrong" and `error.withheld` true. A value that did not arrive in time says "The value did not arrive in time", and a value whose task was cancelled says "The value was cancelled", in every environment and not withheld. The failure is logged as a warning (category `Netjes.Deferred`).
 
 ## Complete documents
 
@@ -174,11 +176,12 @@ The response then starts once every deferred value has arrived, up to `StreamTim
 
 ## When no sidecar is ready
 
-In production, a document request that finds no Node process ready (they have all crashed and are restarting) does not wait for one. Loaders and authorization run as usual and the response has the status it would have had, but .NET writes the document itself: a head with the stylesheets, the client entry and the CSP nonce, the `<title>`, description and robots from the loader's `PageMetadata`, and a body with only the page payload. The browser renders the page instead of hydrating it, and `Page.Defer` values stream in after it as usual. ([ADR 0013](../decisions/0013-client-rendered-fallback.md) has the reasoning.)
+In production, a document request that finds no Node process ready (they have all crashed or stopped answering, and are restarting) does not wait for one. Loaders and authorization run as usual and the response has the status it would have had, but .NET writes the document itself: a head with the stylesheets, the client entry and the CSP nonce, the `<title>`, description and robots from the loader's `PageMetadata`, and a body with only the page payload. The browser renders the page instead of hydrating it, and `Page.Defer` values stream in after it as usual. ([ADR 0013](../decisions/0013-client-rendered-fallback.md) has the reasoning.)
 
 - Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route`.
 - It is never stored in the output cache, and it goes out with `Cache-Control: no-store` in place of any header the page set, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, `Surrogate-Control` and the others listed in [caching](caching.md#cdns-and-proxies)), so no browser, and no CDN that goes by the response's headers, keeps it once the processes are back.
 - Visitors without JavaScript, and crawlers and link previews that run none, get an empty page with the title, description and robots from C#. Layout title templates, and the metadata that page and layout files export, apply once the page renders.
+- Once the page has rendered, the client router runs as it does on a hydrated page and puts the same `data-netjes-hydrated` on `<html>`, so end-to-end tests wait for it here too ([testing](testing.md#wait-for-hydration)).
 - The health check reports Unhealthy while it lasts.
 - A render that reached a process and failed there, or timed out, still gets the error page.
 - Development never falls back, since its process also runs the Vite dev server the browser loads from, and neither does `netjes export`.
@@ -210,6 +213,6 @@ If something fails while Netjes serves a page, it renders the nearest boundary f
 - `Page.NotFound()`, `Page.Forbidden()`, `Page.Unauthorized()`, and empty 401, 403 and 404 responses (from authorization, say): the nearest `not-found.tsx`, `forbidden.tsx` or `unauthorized.tsx`, else the error page. A user who fails a layout loader's `RequireAuthorization(...)` gets that section's own boundary (or the nearest above it) inside the layouts above the section, and the section's loader never runs.
 - If the error page fails to render too: `app/global-error.tsx`, without any layout. If that is missing or fails as well: a plain HTML page with the status.
 
-An `error.tsx` gets `{ error, reset }`, with the status as `error.status`. In production `error.message` is the status's reason phrase ("Internal Server Error"), so nothing about the exception reaches the browser. In development it is the exception's message, and the stack is there too: the JavaScript stack for a render that failed in the sidecar (`SsrRenderException.JsStack`), the .NET one otherwise. `NetjesOptions.IncludeErrorDetails` sets this either way. Both are plain text, without the terminal colour codes Vite puts in its errors, and the message can take several lines, such as the code frame Vite reports for a syntax error in a page: show it with `white-space: pre-wrap` (`whitespace-pre-wrap` in Tailwind CSS), as the built-in error page and the template's `error.tsx` do.
+An `error.tsx` gets `{ error, reset }`, with the status as `error.status`. In production `error.message` is the status's reason phrase ("Internal Server Error"), so nothing about the exception reaches the browser, and `error.withheld` is true, so the page can leave the message out; `error.stack` is undefined. In development it is the exception's message, not withheld, and the stack is there too: the JavaScript stack for a render that failed in the sidecar (`SsrRenderException.JsStack`), the .NET one otherwise. `NetjesOptions.IncludeErrorDetails` sets this either way. Both are plain text, without the terminal colour codes Vite puts in its errors, and the message can take several lines, such as the code frame Vite reports for a syntax error in a page: show it with `white-space: pre-wrap` (`whitespace-pre-wrap` in Tailwind CSS), as the built-in error page and the template's `error.tsx` do. A status rendered without an exception, such as `Page.Forbidden()` where no `forbidden.tsx` is, gets its reason phrase as the message in every environment, and that message is not withheld.
 
 Every such failure is logged: unhandled exceptions as errors, bad requests as warnings (category `Netjes.Rendering.PageErrorMiddleware`). The [routing guide](routing.md) describes where each boundary file goes.

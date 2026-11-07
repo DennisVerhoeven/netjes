@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
@@ -14,15 +15,20 @@ namespace Netjes.Sidecar;
 
 /// <summary>
 /// Runs <c>sidecar/server.mjs</c> under Node and renders pages through its loopback HTTP endpoint.
-/// In development the sidecar also hosts the Vite dev server. The process is restarted if it crashes, and it
-/// exits by itself when this process goes away (its stdin closes). A request that never reached its process (the
-/// connection was refused or reset while connecting, or the process had exited) goes out once more, to the process
-/// that is ready next.
+/// In development the sidecar also hosts the Vite dev server. The process is restarted if it crashes, and in
+/// production also if it stops answering (see <see cref="SidecarWatchdog"/>), and it exits by itself when this process
+/// goes away (its stdin closes). A request that never reached its process (the connection was refused or reset while
+/// connecting, or the process had exited) goes out once more, to the process that is ready next.
 /// </summary>
 /// <param name="handler">Sends the requests; tests hand in one that fails on purpose.</param>
 /// <param name="killTree">Kills a process and the processes it started; tests hand in one that fails on purpose.</param>
+/// <param name="watchdog">How the process is checked for answers; tests hand in a quicker one.</param>
 internal sealed partial class NodeSidecar(
-    NetjesContext context, ILogger<NodeSidecar> logger, HttpMessageHandler? handler = null, Action<Process>? killTree = null)
+    NetjesContext context,
+    ILogger<NodeSidecar> logger,
+    HttpMessageHandler? handler = null,
+    Action<Process>? killTree = null,
+    SidecarWatchdog? watchdog = null)
     : ISsrRenderer, IAsyncDisposable
 {
     internal const string TokenHeader = "X-Netjes-Token";
@@ -49,12 +55,24 @@ internal sealed partial class NodeSidecar(
 
     private readonly HttpClient _http = new(handler ?? new HttpClientHandler()) { Timeout = Timeout.InfiniteTimeSpan };
     private readonly Action<Process> _killTree = killTree ?? (process => process.Kill(entireProcessTree: true));
+    // Development is left alone: its process hosts the Vite dev server, and stops at a breakpoint in page code.
+    private readonly SidecarWatchdog _watchdog =
+        context.Mode == NetjesMode.Production ? watchdog ?? SidecarWatchdog.Default : SidecarWatchdog.Off;
+
+    /// <summary>Cancelled once a stop begins, which ends the watchdog's loops and gives up a ping on its way.</summary>
+    private readonly CancellationTokenSource _watch = new();
     private readonly string _token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
     private readonly Lock _gate = new();
     private readonly Queue<string> _recentStderr = new();
     private TaskCompletionSource<Endpoint> _ready = NewReadySource();
     private Process? _process;
     private bool _processReported;
+
+    /// <summary>When a process last answered a render or a value (a <see cref="Stopwatch"/> timestamp), for the watchdog.</summary>
+    private long _lastAnswer;
+
+    /// <summary>A process that has a health ping it did not answer, so that its exit can say what a ping needs.</summary>
+    private Process? _pinged;
 
     /// <summary>Why the current process could not start, when it said so (NETJES_FAILED) before it exited.</summary>
     private Exception? _processFailure;
@@ -305,7 +323,10 @@ internal sealed partial class NodeSidecar(
 
         try
         {
-            return await _http.SendAsync(request, completion, cancellationToken);
+            var response = await _http.SendAsync(request, completion, cancellationToken);
+            // It answers: the watchdog need not ask.
+            Volatile.Write(ref _lastAnswer, Stopwatch.GetTimestamp());
+            return response;
         }
         catch (Exception ex) when (IsConnectFailure(ex))
         {
@@ -378,8 +399,14 @@ internal sealed partial class NodeSidecar(
     {
         lock (_gate)
         {
-            // Nothing restarts from here on, so the process stays the one this stop ends.
-            _stopping = true;
+            // Nothing restarts from here on, so the process stays the one this stop ends, and nothing pings it. Once:
+            // a later stop can come after the dispose, which disposes the source.
+            if (!_stopping)
+            {
+                _stopping = true;
+                _ = _watch.CancelAsync();
+            }
+
             var process = _process;
             // Run outside the lock, since it calls into the process.
             return _stop ??= Task.Run(() => StopProcessAsync(process));
@@ -442,6 +469,7 @@ internal sealed partial class NodeSidecar(
         {
             _process?.Dispose();
             _http.Dispose();
+            _watch.Dispose();
         }
     }
 
@@ -543,6 +571,7 @@ internal sealed partial class NodeSidecar(
             return false;
         }
 
+        Endpoint endpoint;
         lock (_gate)
         {
             if (ready is null || _processReported || !ReferenceEquals(process, _process))
@@ -554,7 +583,14 @@ internal sealed partial class NodeSidecar(
             _everReady = true;
             _readyAt = Stopwatch.GetTimestamp();
             ViteOrigin = ready.ViteOrigin;
-            _ready.TrySetResult(new Endpoint(new Uri($"http://127.0.0.1:{ready.Port}/"), process));
+            endpoint = new Endpoint(new Uri($"http://127.0.0.1:{ready.Port}/"), process);
+            _ready.TrySetResult(endpoint);
+        }
+
+        // Before the log line, which can throw.
+        if (!_watchdog.IsOff)
+        {
+            _ = WatchAsync(endpoint);
         }
 
         logger.LogInformation(
@@ -681,6 +717,8 @@ internal sealed partial class NodeSidecar(
 
         string stderr;
         int exitCode;
+        int pid;
+        bool pinged;
         TimeSpan delay;
         lock (_gate)
         {
@@ -695,6 +733,8 @@ internal sealed partial class NodeSidecar(
             }
 
             exitCode = process.ExitCode;
+            pid = process.Id;
+            pinged = ReferenceEquals(Interlocked.CompareExchange(ref _pinged, null, process), process);
             var failure = _processFailure ?? new SsrRenderException($"The Node sidecar exited with code {exitCode}.", stderr);
             // Renders waiting for this process to come up fail with its exit. Those for one that was ready wait for the
             // restart, on the source put in place when it was taken out.
@@ -724,6 +764,16 @@ internal sealed partial class NodeSidecar(
         logger.LogError(
             "The Node sidecar exited with code {ExitCode}; restarting in {Delay}s. Last output:\n{Stderr}",
             exitCode, delay.TotalSeconds, stderr);
+        // Most likely a sidecar script of the app's own that reads every request as a render. The one Netjes ships answers
+        // the ping, so a process of it that exits with a ping waiting went down for a reason of its own.
+        if (pinged && context.Options.SidecarScript is not null)
+        {
+            logger.LogWarning(
+                "The Node sidecar {Pid} exited while Netjes's health ping waited for its answer. A sidecar script of your " +
+                "own (Netjes:SidecarScript) must answer GET /health, with any status, without reading a request body.",
+                pid);
+        }
+
         if (logFailure is not null)
         {
             ExceptionDispatchInfo.Throw(logFailure);
@@ -881,6 +931,159 @@ internal sealed partial class NodeSidecar(
         }
 
         logger.LogWarning("The Node sidecar {Pid} kept running; it takes renders again.", endpoint.Pid);
+    }
+
+    /// <summary>
+    /// Looks after a process that reported ready until it exits, is replaced or the sidecar stops. Every interval,
+    /// unless it answered a render or a value in that time, it is pinged, and one that gives no answer in time is taken
+    /// out and killed (see <see cref="TakeOutHung"/>). A process a refusal took out is still pinged, since it runs.
+    /// </summary>
+    private async Task WatchAsync(Endpoint endpoint)
+    {
+        CancellationToken stopping;
+        lock (_gate)
+        {
+            if (_stopping)
+            {
+                return;
+            }
+
+            // Read before a stop, which cancels the source before the dispose can dispose it.
+            stopping = _watch.Token;
+        }
+
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(_watchdog.Interval, stopping);
+                if (!IsWatched(endpoint))
+                {
+                    return;
+                }
+
+                // A render that finished proves what a ping would, and a ping under load would only queue behind it.
+                if (Stopwatch.GetElapsedTime(Volatile.Read(ref _lastAnswer)) < _watchdog.Interval)
+                {
+                    continue;
+                }
+
+                var timeout = _watchdog.TimeoutFor(context.Options);
+                if (await IsHungAsync(endpoint, timeout, stopping))
+                {
+                    // Pinged again next time if the kill failed: the process stays out until it exits.
+                    TakeOutHung(endpoint, timeout);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                logger.LogError(ex, "Watching the Node sidecar {Pid} failed: {Message} It is no longer pinged.", endpoint.Pid, ex.Message);
+            }
+            catch (Exception)
+            {
+                // The log sink failed too, and nothing awaits this.
+            }
+        }
+    }
+
+    /// <summary>Whether the watchdog still looks after this process: it is the current one, it runs, and no stop has begun.</summary>
+    private bool IsWatched(Endpoint endpoint)
+    {
+        lock (_gate)
+        {
+            return !_stopping && ReferenceEquals(endpoint.Process, _process) && !HasExited(endpoint.Process);
+        }
+    }
+
+    /// <summary>
+    /// Pings the process: <c>GET /health</c> with its token on a connection of its own, written by hand rather than sent
+    /// through the HTTP client, so that a ping records no span or metric of a render. Any bytes back count as an
+    /// answer, whatever the status. True only when none came within <paramref name="timeout"/>, connecting included
+    /// (on Linux a full accept queue drops the connection rather than refuse it). A connection that is refused, reset or
+    /// closed without an answer says the process exited or does not listen, which its exit and the renders handle.
+    /// </summary>
+    private async Task<bool> IsHungAsync(Endpoint endpoint, TimeSpan timeout, CancellationToken stopping)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+        deadline.CancelAfter(timeout);
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, endpoint.Uri.Port), deadline.Token);
+            // The process has the ping from here on: if it exits without an answer, its exit says what a ping needs.
+            Volatile.Write(ref _pinged, endpoint.Process);
+            await using var connection = new NetworkStream(socket, ownsSocket: false);
+            await connection.WriteAsync(Encoding.ASCII.GetBytes(
+                $"GET /health HTTP/1.1\r\nHost: {endpoint.Uri.Authority}\r\n{TokenHeader}: {_token}\r\nConnection: close\r\n\r\n"),
+                deadline.Token);
+            // Room for all of a short answer: closing with some of it unread would reset the connection.
+            if (await connection.ReadAsync(new byte[512], deadline.Token) > 0)
+            {
+                Interlocked.CompareExchange(ref _pinged, null, endpoint.Process);
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or SocketException or IOException && !stopping.IsCancellationRequested)
+        {
+            if (!deadline.IsCancellationRequested)
+            {
+                // Refused, reset or closed: the process exited or does not listen.
+                return false;
+            }
+
+            // No answer in time. It is killed next, which is no exit for the ping to explain.
+            Interlocked.CompareExchange(ref _pinged, null, endpoint.Process);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Takes a process that did not answer a ping out of the ready ones and kills it, so that it restarts as a crashed
+    /// one does: renders wait for the restart, and the health check and the pool count it as restarting. One that a
+    /// refusal took out is out already, and its restore finds it exited.
+    /// </summary>
+    private void TakeOutHung(Endpoint endpoint, TimeSpan waited)
+    {
+        lock (_gate)
+        {
+            if (_stopping || !ReferenceEquals(endpoint.Process, _process))
+            {
+                return;
+            }
+
+            if (_ready.Task.IsCompletedSuccessfully && ReferenceEquals(_ready.Task.Result, endpoint))
+            {
+                _ready = NewReadySource();
+            }
+        }
+
+        try
+        {
+            logger.LogError(
+                "The Node sidecar {Pid} has not answered for {Seconds}s; killing it so that it restarts.", endpoint.Pid, waited.TotalSeconds);
+        }
+        catch (Exception)
+        {
+            // The log sink failed; the process is killed regardless.
+        }
+
+        try
+        {
+            _killTree(endpoint.Process);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex, "Killing the Node sidecar {Pid} failed: {Message} It, or a process it started, may still be running.",
+                endpoint.Pid, ex.Message);
+        }
     }
 
     private static bool HasExited(Process process)

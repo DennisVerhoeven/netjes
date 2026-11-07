@@ -15,8 +15,17 @@ type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode
  */
 export function Document({ info, dataJson, children }: DocumentProps) {
   const { nonce } = info;
+  // Netjes owns <html> and <body>: the app's layout renders inside the body, so its markup cannot give either one an
+  // attribute. A script that runs before hydration can (a theme, a browser extension, a translator), and in development
+  // React logs a mismatch for each attribute on an element that its props do not have. suppressHydrationWarning ends
+  // that check for the element's own attributes. It also makes React accept any text that is the element's own child,
+  // in production too: text that a layout or a page renders outside any element or Suspense boundary sits directly in
+  // the body, and a mismatch there is neither reported nor repaired. The elements in the body are checked as before,
+  // their attributes and their text. React does not write the prop into the markup, and production does not check
+  // attributes at all. The check is off for `lang` too: the server and the client read it from the same payload, so it
+  // differs only when a script changed it, or when Netjes has a bug.
   return (
-    <html lang={info.lang}>
+    <html lang={info.lang} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -28,8 +37,18 @@ export function Document({ info, dataJson, children }: DocumentProps) {
         {info.assets.stylesheets.map((href) => (
           <link key={href} rel="stylesheet" href={href} nonce={nonce} />
         ))}
+        {/* In development, the CSS the page imports, so that it is styled before its scripts run. Vite's client owns
+            each element's text once it runs: the CSS module with that id sets it as it loads, before hydration, and
+            again after every edit. The sidecar inlines the build that module carries, but a file edited between the
+            render and the import differs, so React leaves the text unchecked. */}
         {info.devStyles?.map((style) => (
-          <style key={style.id} data-vite-dev-id={style.id} nonce={nonce} dangerouslySetInnerHTML={{ __html: style.css }} />
+          <style
+            key={style.id}
+            data-vite-dev-id={style.id}
+            nonce={nonce}
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: style.css }}
+          />
         ))}
         {info.assets.modulePreloads.map((href) => (
           <link key={href} rel="modulepreload" href={href} nonce={nonce} />
@@ -38,7 +57,7 @@ export function Document({ info, dataJson, children }: DocumentProps) {
           <script key={src} type="module" src={src} async nonce={nonce} />
         ))}
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {/* Already escaped for HTML by the server; the client reads it back verbatim to hydrate. */}
         <script id={DATA_ELEMENT_ID} type="application/json" nonce={nonce} dangerouslySetInnerHTML={{ __html: dataJson }} />
         {children}

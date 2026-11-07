@@ -13,7 +13,7 @@ Netjes is a React framework for .NET teams. You write pages in `app/` with the N
 
 - **The server is ASP.NET Core.** Loaders and actions are minimal API handlers, with dependency injection, model binding, ASP.NET Core authentication and `RequireAuthorization()`, and the data access you already use. There is no second server to deploy or keep in step.
 - **The pages are React.** Layouts, loading and error boundaries, client navigation, Suspense and streaming, with Vite, Tailwind CSS, TanStack Query and Vitest set up.
-- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references and typed routes, so a renamed property or a mistyped link is a type error.
+- **Types come from C#.** The C# records are the source: `generated/netjes.ts` holds zod schemas, typed server action references, typed routes and typed endpoint URLs, so a renamed property or a mistyped link is a type error.
 - **Forms work without JavaScript.** A form that calls a C# server action posts as a plain HTML form when scripts are off, and comes back with its errors and what was typed.
 
 ## A small example
@@ -105,22 +105,22 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
+`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, a C# test project, a Playwright suite, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
 
 [Getting started](docs/getting-started.md) takes that app from the first page to a deployed container. If you know the Next.js App Router, [Coming from Next.js](docs/coming-from-nextjs.md) maps each of its concepts to the Netjes counterpart.
 
 ## Features
 
-- **Routing** with the App Router file conventions: layouts, templates, `loading`, `error`, `not-found`, `forbidden` and `unauthorized` boundaries, route groups, dynamic, catch-all and optional catch-all segments, parallel and intercepting routes, a client router with prefetching and back and forward from memory, base paths and locale routing. [Routing](docs/guides/routing.md)
+- **Routing** with the App Router file conventions: layouts, templates, `loading`, `error`, `not-found`, `forbidden` and `unauthorized` boundaries, route groups, dynamic, catch-all and optional catch-all segments, parallel and intercepting routes, one URL per page, a client router with prefetching, back and forward from memory, and announcements and focus after a navigation to another page, base paths and locale routing. [Routing](docs/guides/routing.md)
 - **Data loading** in C#: page loaders, layout loaders that are skipped on navigations within their section, shared props for every page, public configuration read at runtime, and TanStack Query seeded from the loader so queries render on the server. [Data loading](docs/guides/data-loading.md)
 - **Server actions and forms**: C# endpoints with typed references, DataAnnotations validation, `<Form>` with a fallback without JavaScript, antiforgery and same-origin checks, revalidation, uploads and downloads. [Actions and forms](docs/guides/actions-and-forms.md)
 - **Rendering and streaming**: streamed documents, `Page.Defer` for slow values, `loading.tsx` and Suspense, complete documents for crawlers, `dynamic()` and `clientOnly()`, and in production a page the browser renders itself while no Node process is ready. [Rendering and streaming](docs/guides/rendering-and-streaming.md)
-- **Caching**: output-cached pages with tag and path revalidation, from actions or from anywhere, draft mode that bypasses the cache. [Caching](docs/guides/caching.md)
+- **Caching**: output-cached pages with tag and path revalidation, from actions or from anywhere, draft mode that bypasses the cache, and `.CacheQueryKeys` to keep query strings a page does not read out of it. [Caching](docs/guides/caching.md)
 - **Metadata**: titles with templates, descriptions, Open Graph, Twitter and robots tags from page files or from C#, a sitemap and `robots.txt` from the route table, and `<Script>`. [Metadata](docs/guides/metadata.md)
 - **Images**: `<Image>` with an optimiser endpoint, configured widths and allow-listed remote hosts, and optional resizing and WebP with SkiaSharp. [Images](docs/guides/images.md)
-- **Static export**: `netjes export` writes every page as a complete HTML file. [Static export](docs/guides/static-export.md)
-- **Security defaults**: security headers on every document, an opt-in Content-Security-Policy with nonces or hashes, body limits for actions, safe redirects and a guarded image endpoint. [Security](docs/guides/security.md)
-- **Testing**: Vitest set up by the Vite plugin, a harness that renders pages and components with a fake router and fake actions, and C# tests against the real app. [Testing](docs/guides/testing.md)
+- **Static export**: `netjes export` writes every page as a complete HTML file, with `sitemap.xml`, `robots.txt` and any endpoint marked `.IncludeInExport()` as files. [Static export](docs/guides/static-export.md)
+- **Security defaults**: `nosniff` on every response through `UseNetjes()` and the other security headers on every document, an opt-in Content-Security-Policy with nonces or hashes, body limits for actions, safe redirects and a guarded image endpoint. [Security](docs/guides/security.md)
+- **Testing**: Vitest set up by the Vite plugin, a harness that renders pages and components with a fake router and fake actions, `renderDocument` for a page's whole document and the hashes of its inline scripts, C# tests against the real app, and in new apps a C# test project and a Playwright suite against a development and a production server. [Testing](docs/guides/testing.md)
 - **Deployment**: `dotnet publish` runs the client build and ships it with the app; Docker, health checks, OpenTelemetry traces and metrics, several instances behind a load balancer. [Deployment](docs/guides/deployment.md)
 - **Coding agents**: new apps come with an `AGENTS.md` and a Netjes skill, and the docs are published as `llms.txt` and `llms-full.txt`. [Coding agents](docs/guides/coding-agents.md)
 
@@ -129,22 +129,22 @@ npm run dev          # http://localhost:5080
 | | |
 |---|---|
 | Start | [Getting started](docs/getting-started.md), [Coming from Next.js](docs/coming-from-nextjs.md) |
-| Guides | [Routing](docs/guides/routing.md), [Data loading](docs/guides/data-loading.md), [Actions and forms](docs/guides/actions-and-forms.md), [Rendering and streaming](docs/guides/rendering-and-streaming.md), [Caching](docs/guides/caching.md), [Metadata](docs/guides/metadata.md), [Images](docs/guides/images.md), [Static export](docs/guides/static-export.md), [Security](docs/guides/security.md), [Deployment](docs/guides/deployment.md), [Testing](docs/guides/testing.md), [Redirects, rewrites and headers](docs/guides/redirects-rewrites-headers.md), [Coding agents](docs/guides/coding-agents.md) |
+| Guides | [Routing](docs/guides/routing.md), [Data loading](docs/guides/data-loading.md), [Actions and forms](docs/guides/actions-and-forms.md), [Rendering and streaming](docs/guides/rendering-and-streaming.md), [Caching](docs/guides/caching.md), [Images](docs/guides/images.md), [Metadata](docs/guides/metadata.md), [Static export](docs/guides/static-export.md), [Redirects, rewrites and headers](docs/guides/redirects-rewrites-headers.md), [Security](docs/guides/security.md), [Testing](docs/guides/testing.md), [Deployment](docs/guides/deployment.md), [Coding agents](docs/guides/coding-agents.md) |
 | Reference | [React API](docs/reference/react-api.md), [C# API](docs/reference/csharp-api.md), [Options](docs/reference/options.md), [The netjes command](docs/reference/cli.md), [Vite plugin](docs/reference/vite-plugin.md) |
-| How it works | [Architecture](docs/architecture.md), [Design decisions](docs/decisions/) |
+| How it works | [Architecture](docs/architecture.md), [Design decisions](docs/decisions/README.md) |
 | Project | [Roadmap](docs/roadmap.md), [Changelog](CHANGELOG.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md) |
 
 [docs/README.md](docs/README.md) lists every page with a line on what it covers.
 
-Two example apps show the pieces together. The [Blog](examples/Blog) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](examples/TaskBoard) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
+Two example apps show the pieces together. The [Blog](examples/Blog/README.md) has a catch-all docs section, a guestbook that works without JavaScript, a JSON API used through TanStack Query, streaming, images and a static export. [TaskBoard](examples/TaskBoard/README.md) is a multi-tenant project tracker with cookie authentication, Postgres through EF Core, protected sections, optimistic updates, Testcontainers tests and a production Docker Compose stack behind a TLS proxy.
 
 ## Packages
 
 | Package | What it holds |
 |---|---|
-| [`netjes`](packages/netjes) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
-| [`Netjes`](src/Netjes) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
-| [`Netjes.Images.SkiaSharp`](src/Netjes.Images.SkiaSharp) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
+| [`netjes`](packages/netjes/README.md) on npm | The Vite plugin, the client router and components, the sidecar that renders pages, the `netjes` command and the app template |
+| [`Netjes`](src/Netjes/README.md) on NuGet | The ASP.NET Core library: routing from `app/`, loaders, server actions, rendering, caching, the image endpoint, type generation |
+| [`Netjes.Images.SkiaSharp`](src/Netjes.Images.SkiaSharp/README.md) on NuGet | Optional image processing for `<Image>`: resizing and WebP |
 
 The three are released together under one version. An app uses the same version of `netjes` and `Netjes`, which `netjes new` pins and `netjes info` checks.
 
@@ -152,13 +152,13 @@ The three are released together under one version. An app uses the same version 
 
 - The .NET 10 SDK. Apps target `net10.0`.
 - Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer (`^22.22.2 || ^24.15.0 || >=26.0.0`), at build time and next to the app in production: the server renders pages in Node processes it starts and supervises.
-- React 19, Vite 7 or newer, and zod 4 for the generated schemas. `netjes new` installs them.
+- React 19, Vite 7 or newer, and zod 4 for the generated schemas: 4.4.0 or newer, so that pages under a Content-Security-Policy without `'unsafe-eval'` report no violation ([zod in the browser](docs/guides/security.md#zod-in-the-browser)). `netjes new` installs them.
 - Docker, only for the template's container setup.
 - Linux, macOS or Windows. CI runs the .NET and JavaScript tests on all three (the ones that need Docker on Linux only), and the end-to-end suites and the package check on Linux.
 
 ## Status
 
-Netjes is at 0.0.2, its first release. Until 1.0, a new version can change the API; the [changelog](CHANGELOG.md) says what changed and what to do about it.
+Netjes is at 0.0.2. Until 1.0, a new version can change the API; the [changelog](CHANGELOG.md) says what changed and what to do about it.
 
 Not there yet:
 

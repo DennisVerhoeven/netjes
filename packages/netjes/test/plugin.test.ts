@@ -4,9 +4,12 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, normalizePath, type ConfigEnv, type Plugin, type PluginOption, type UserConfig } from 'vite';
+import { build, mergeConfig, normalizePath, type ConfigEnv, type Plugin, type PluginOption, type UserConfig } from 'vite';
 import { describe, expect, it } from 'vitest';
 import netjes from '../vite/plugin.mjs';
+
+/** Netjes's own Vitest setup file, which the plugin names by path, like the cleanup file, and the package does not export. */
+const OWN_SETUP = normalizePath(fileURLToPath(new URL('../dist/testing-vitest.js', import.meta.url)));
 
 async function flatten(options: PluginOption[]): Promise<Plugin[]> {
   const plugins: Plugin[] = [];
@@ -36,6 +39,11 @@ function callConfig(plugin: Plugin, config: UserConfig = {}, env: ConfigEnv = se
   return handler?.call({} as never, config, env) as (UserConfig & { test?: Record<string, unknown> }) | undefined;
 }
 
+/** The app's Vitest settings once Vite has merged the plugin's into them, as it does with what a config hook returns. */
+function mergedTest(plugin: Plugin, config: UserConfig) {
+  return (mergeConfig(config, callConfig(plugin, config) ?? {}) as { test?: Record<string, unknown> }).test;
+}
+
 async function loadVirtual(plugin: Plugin, id: string) {
   const resolveHook = plugin.resolveId;
   const resolve = typeof resolveHook === 'function' ? resolveHook : resolveHook?.handler;
@@ -52,7 +60,8 @@ describe('the page module map', () => {
     const code = await loadVirtual(plugin, 'virtual:netjes/pages');
 
     expect(code).toBe(
-      'export const pages = import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"]);\n',
+      'export const pages = import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"]);\n' +
+        'export const appDir = "app";\n',
     );
   });
 
@@ -70,6 +79,8 @@ describe('the page module map', () => {
     const code = await loadVirtual(plugin, 'virtual:netjes/pages');
 
     expect(code).toContain('"/src/app/**/{page,');
+    // The folder the map's keys start with, which renderDocument needs for routes and segment ids.
+    expect(code).toContain('export const appDir = "src/app";\n');
     expect(code).not.toContain('pages/');
   });
 });
@@ -104,10 +115,11 @@ describe('the netjes modules the plugin names', () => {
     expect(path.posix.dirname(shell)).toBe(path.posix.dirname(exported('netjes')));
   });
 
-  it('sets up Vitest with the setup file the package exports', async () => {
+  it('sets up Vitest with the setup file the package exports, and its own next to it', async () => {
     const { plugin } = await core();
+    const cleanup = exported('netjes/testing/setup');
 
-    expect(callConfig(plugin)?.test?.setupFiles).toEqual([exported('netjes/testing/setup')]);
+    expect(callConfig(plugin)?.test?.setupFiles).toEqual([cleanup, path.posix.join(path.posix.dirname(cleanup), 'testing-vitest.js')]);
   });
 });
 
@@ -294,6 +306,18 @@ describe('Vitest defaults', () => {
       expect.arrayContaining(['**/node_modules/**', '**/dist/**', '**/bin/**', '**/obj/**', '**/e2e/**']),
     );
     expect(String((test?.setupFiles as string[])[0])).toMatch(/dist[\\/]testing-setup\.js$/);
+    expect(String((test?.setupFiles as string[])[1])).toMatch(/dist[\\/]testing-vitest\.js$/);
+  });
+
+  it("adds Netjes's own setup file to every app's, after the app's own", async () => {
+    const { plugin } = await core();
+
+    expect(mergedTest(plugin, {})?.setupFiles).toEqual([expect.stringMatching(/dist[\\/]testing-setup\.js$/), OWN_SETUP]);
+    expect(mergedTest(plugin, { test: { setupFiles: ['./mine.ts'] } })?.setupFiles).toEqual(['./mine.ts', OWN_SETUP]);
+    expect(mergedTest(plugin, { test: { setupFiles: './mine.ts' } })?.setupFiles).toEqual(['./mine.ts', OWN_SETUP]);
+    expect(mergedTest(plugin, { test: { setupFiles: [] } })?.setupFiles).toEqual([OWN_SETUP]);
+    expect(mergedTest(plugin, { root: '/nonexistent/app' })?.setupFiles).toEqual([OWN_SETUP]);
+    expect(mergedTest((await core({ test: false })).plugin, { test: { setupFiles: ['./mine.ts'] } })?.setupFiles).toEqual(['./mine.ts']);
   });
 
   it('shares the app copy of Testing Library with the setup file, under Vitest only', async () => {
@@ -303,14 +327,14 @@ describe('Vitest defaults', () => {
     expect(callConfig(plugin, {}, { command: 'serve', mode: 'development' })?.resolve?.dedupe).not.toContain('@testing-library/react');
   });
 
-  it('leaves settings the app configured itself alone', async () => {
+  it("leaves settings the app configured itself alone, adding only its own setup file to the app's", async () => {
     const { plugin } = await core();
 
     const test = callConfig(plugin, { test: { environment: 'happy-dom', exclude: ['x/**'], setupFiles: [] } } as UserConfig)?.test;
 
     expect(test?.environment).toBeUndefined();
     expect(test?.exclude).toBeUndefined();
-    expect(test?.setupFiles).toBeUndefined();
+    expect(test?.setupFiles).toEqual([OWN_SETUP]);
   });
 
   it('only uses jsdom and Testing Library when the app has them installed', async () => {
@@ -319,7 +343,21 @@ describe('Vitest defaults', () => {
     const test = callConfig(plugin, { root: '/nonexistent/app' })?.test;
 
     expect(test?.environment).toBeUndefined();
-    expect(test?.setupFiles).toBeUndefined();
+    expect(test?.setupFiles).toEqual([OWN_SETUP]);
+  });
+
+  it("provides the app's query defaultOptions to the tests, next to the app's own provide", async () => {
+    const defaultOptions = { queries: { staleTime: Number.POSITIVE_INFINITY, retry: 1 }, mutations: { retry: 2 } };
+
+    expect(callConfig((await core({ query: { defaultOptions } })).plugin)?.test?.provide).toEqual({ 'netjes:query': defaultOptions });
+    expect(callConfig((await core()).plugin)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(callConfig((await core({ query: {} })).plugin)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(callConfig((await core({ query: false })).plugin)?.test?.provide).toBeUndefined();
+
+    // A provide key of the app's own, which the app would declare in Vitest's ProvidedContext.
+    const mine = { test: { provide: { mine: [1, 2] } } } as unknown as UserConfig;
+    expect(callConfig((await core()).plugin, mine)?.test?.provide).toEqual({ 'netjes:query': {} });
+    expect(mergedTest((await core()).plugin, mine)?.provide).toEqual({ mine: [1, 2], 'netjes:query': {} });
   });
 
   it('adds nothing with test: false', async () => {

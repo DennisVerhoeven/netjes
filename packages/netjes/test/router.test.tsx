@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, delay, http } from 'msw';
 import { setupServer } from 'msw/node';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, startTransition, useState } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { Form } from '../src/form.tsx';
@@ -357,6 +357,29 @@ describe('client navigation', () => {
     expect(window.location.pathname + window.location.hash).toBe('/refresh#section');
     expect(window.history.length).toBe(historyLength);
     expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('settles router.push awaited inside a transition, and shows the page when the transition ends', async () => {
+    server.use(pageHandler('/about', payload('about', '/about', { props: { team: 'core' } })));
+    await renderApp(payload('refresh', '/refresh', { props: { n: 0 } }));
+    let settled = false;
+    let shownWhileItRan: boolean | undefined;
+
+    // An app's own async transition, as a form action is: React holds the transitions started while it runs, the
+    // router's commit included, so a push that waited for its commit would never settle.
+    act(() =>
+      startTransition(async () => {
+        await pageRouter!.push('/about');
+        await delay(20);
+        shownWhileItRan = screen.queryByRole('heading', { name: 'About core' }) !== null;
+        settled = true;
+      }),
+    );
+
+    await waitFor(() => expect(settled).toBe(true));
+    expect(shownWhileItRan).toBe(false);
+    expect(await screen.findByRole('heading', { name: 'About core' })).toBeDefined();
+    expect(window.location.pathname).toBe('/about');
   });
 });
 

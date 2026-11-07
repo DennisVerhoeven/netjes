@@ -1,7 +1,8 @@
-# Releases a tagged version: checks and tests the tag, packs the npm package and both NuGet packages, then, once a
-# maintainer approves the "release" environment, publishes them and creates the GitHub release. RELEASING.md has the
-# setup it needs (the environment, its secrets, the registries' trusted publishing) and the steps for a release.
-# Every publishing step skips what is already published, so a failed run can be run again.
+# Releases a tagged version: checks and tests the tag, moves the package READMEs' links from main to the tag, packs
+# the npm package and both NuGet packages, then, once a maintainer approves the "release" environment, publishes them
+# and creates the GitHub release. RELEASING.md has the setup it needs (the environment, its secrets, the registries'
+# trusted publishing) and the steps for a release. Every publishing step skips what is already published, so a failed
+# run can be run again.
 name: Release
 
 on:
@@ -83,6 +84,13 @@ jobs:
       - name: .NET tests
         run: dotnet test Netjes.slnx -c Release
 
+      # npm and NuGet show each version's README, so the packed copies link the docs at the tag, not on main. The
+      # steps above ran on the tag's own READMEs; this changes the job's checkout and what it packs, nothing else.
+      - name: The package READMEs link the tag
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: node scripts/release.mjs links "$VERSION"
+
       - name: Pack
         run: |
           out="$RUNNER_TEMP/packages"
@@ -95,6 +103,16 @@ jobs:
         env:
           VERSION: ${{ steps.check.outputs.version }}
         run: node scripts/release.mjs packages "$VERSION" "$RUNNER_TEMP/packages"
+
+      # cmp fails on any difference, and on a package without the README, whose copy then comes out empty.
+      - name: The packed READMEs are the linked ones
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          out="$RUNNER_TEMP/packages"
+          unzip -p "$out/Netjes.$VERSION.nupkg" README.md | cmp - src/Netjes/README.md
+          unzip -p "$out/Netjes.Images.SkiaSharp.$VERSION.nupkg" README.md | cmp - src/Netjes.Images.SkiaSharp/README.md
+          tar -xOzf "$out/netjes-$VERSION.tgz" package/README.md | cmp - packages/netjes/README.md
 
       - name: Release notes from CHANGELOG.md
         env:

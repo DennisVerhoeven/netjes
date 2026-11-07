@@ -47,6 +47,25 @@ public class SitemapTests
     }
 
     [Fact]
+    public async Task Sitemap_OutsideAnExport_StillListsPagesExcludedFromExport()
+    {
+        // The export writes a sitemap of the pages it writes; a server serves them all.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/guestbook/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/guestbook", () => Page.Props()).ExcludeFromExport();
+                a.MapSitemap(new Uri("https://blog.example/"));
+            });
+
+        var xml = XDocument.Parse(await (await app.Client.GetAsync("/sitemap.xml", Ct)).Content.ReadAsStringAsync(Ct));
+
+        Assert.Equal(
+            ["https://blog.example/", "https://blog.example/guestbook"],
+            xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
+    }
+
+    [Fact]
     public async Task Sitemap_UnderAFallbackPolicy_ListsOnlyAnonymousPages_AndIsItselfPublic()
     {
         await using var app = await TestApp.StartAsync(
@@ -103,6 +122,24 @@ public class SitemapTests
     }
 
     [Fact]
+    public async Task Sitemap_AnswersHeadAsGet()
+    {
+        // Crawlers and link checkers ask with HEAD; the server sends a HEAD's status and headers without the body.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/about/page.tsx"],
+            map: a => a.MapSitemap(new Uri("https://blog.example")));
+
+        var get = await app.Client.GetAsync("/sitemap.xml", Ct);
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/sitemap.xml"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("application/xml", head.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(TimeSpan.FromHours(1), head.Headers.CacheControl?.MaxAge);
+        Assert.Equal(get.Headers.CacheControl, head.Headers.CacheControl);
+        Assert.Equal(get.Content.Headers.ContentLength, head.Content.Headers.ContentLength);
+    }
+
+    [Fact]
     public async Task RobotsTxt_PointsAtTheSitemapAndListsDisallowedPaths()
     {
         await using var app = await TestApp.StartAsync(
@@ -120,6 +157,19 @@ public class SitemapTests
         Assert.Equal(
             "User-agent: *\nDisallow: /admin\nDisallow: /_netjes/\n\nSitemap: https://blog.example/sitemap.xml\n",
             await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task RobotsTxt_AnswersHeadAsGet()
+    {
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.MapRobotsTxt(new Uri("https://blog.example")));
+
+        var get = await app.Client.GetAsync("/robots.txt", Ct);
+        var head = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/robots.txt"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, head.StatusCode);
+        Assert.Equal("text/plain", head.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(get.Content.Headers.ContentLength, head.Content.Headers.ContentLength);
     }
 
     [Fact]

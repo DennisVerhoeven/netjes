@@ -14,7 +14,9 @@ namespace Netjes.Sidecar;
 /// refused or reset the connection) stops counting as ready: it is exiting, though .NET may not have handled that yet,
 /// or on Windows its accept queue is full. The render reached nobody, so it goes to the next pick, as does one whose
 /// pick is not ready when it is tried: none was, or it was taken out just after it was picked. One with deferred
-/// values stays, since they are sent to its process, and waits for that one to take renders again.
+/// values stays, since they are sent to its process, and waits for that one to take renders again. In production a
+/// process that stops answering stops counting as ready too, from the moment its sidecar takes it out to kill it (see
+/// <see cref="SidecarWatchdog"/>).
 /// </summary>
 internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
 {
@@ -31,7 +33,8 @@ internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
     /// Kills a process and the processes it started, for each sidecar; tests hand in their own. Internal, so the
     /// container, which only uses public constructors, never fills it in.
     /// </param>
-    internal SidecarPool(NetjesContext context, ILoggerFactory loggers, Action<Process>? killTree)
+    /// <param name="watchdog">How each sidecar checks its process for answers; tests hand in a quicker one.</param>
+    internal SidecarPool(NetjesContext context, ILoggerFactory loggers, Action<Process>? killTree, SidecarWatchdog? watchdog = null)
     {
         if (context.Options.SidecarProcesses < 1)
         {
@@ -41,7 +44,7 @@ internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
 
         var count = context.Mode == NetjesMode.Development ? 1 : context.Options.SidecarProcesses;
         _members = [.. Enumerable.Range(0, count)
-            .Select(_ => new Member(new NodeSidecar(context, loggers.CreateLogger<NodeSidecar>(), killTree: killTree)))];
+            .Select(_ => new Member(new NodeSidecar(context, loggers.CreateLogger<NodeSidecar>(), killTree: killTree, watchdog: watchdog)))];
     }
 
     public int Count => _members.Length;

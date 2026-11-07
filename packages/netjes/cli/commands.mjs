@@ -3,7 +3,7 @@
 // (NETJES_COMMAND=generate|routes|export) it binds a throwaway loopback port, writes its result and exits. Only export
 // starts the Node sidecar, to render the pages.
 import { existsSync, statSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { agents } from './agents.mjs';
@@ -117,13 +117,49 @@ async function build(io, cwd) {
 }
 
 /**
+ * Whether a path that path.relative returned leads below the folder it started from: not the folder itself (''), not
+ * up out of it (`..`, `../site`) and not on another drive (absolute). A name that only starts with two dots (`..site`)
+ * is below.
+ * @param {string} relative
+ */
+function isBelow(relative) {
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/**
+ * Whether `target` is a folder inside the app in `app`, comparing paths as .NET does: on macOS and Windows it
+ * upper-cases each letter, so paths that differ only in case are one folder there (and a long s, ſ, is an s).
+ * @param {string} app
+ * @param {string} target
+ */
+function insideApp(app, target) {
+  const fold = process.platform === 'darwin' || process.platform === 'win32';
+  return isBelow(fold ? path.relative(app.toUpperCase(), target.toUpperCase()) : path.relative(app, target));
+}
+
+/**
+ * The folder an app run in `cwd` sees as its own: its working directory, which macOS and Linux report by the real
+ * path, as getcwd() does (every symlink resolved, each name as the disk spells it), and Windows as it was given. `cwd`
+ * itself when its real path cannot be read.
+ * @param {string} cwd
+ */
+async function appFolder(cwd) {
+  if (process.platform === 'win32') return cwd;
+  try {
+    return await realpath(cwd);
+  } catch {
+    return cwd;
+  }
+}
+
+/**
  * `target` as the user would type it from `from`: relative when it is below, else absolute.
  * @param {string} from
  * @param {string} target
  */
 function displayPath(from, target) {
   const relative = path.relative(from, target);
-  return relative.startsWith('..') || path.isAbsolute(relative) ? target : relative || '.';
+  return relative === '' ? '.' : isBelow(relative) ? relative : target;
 }
 
 /**
@@ -204,6 +240,8 @@ function layout(name) {
     ['Features/', 'the C# side, one folder per feature: loaders and server actions'],
     ['Program.cs', `the ASP.NET Core app (${name}.csproj)`],
     ['generated/netjes.ts', 'types and zod schemas from C#, rewritten by netjes generate; never edit it'],
+    [`tests/${name}.Tests/`, `C# tests of loaders and actions, run by dotnet test tests/${name}.Tests`],
+    ['e2e/', 'Playwright tests against a development and a production server, run by npm run test:e2e'],
     ['Dockerfile', 'and the docker-compose files: Docker for development and production'],
   ];
   const width = Math.max(...rows.map(([entry]) => (entry ?? '').length)) + 2;
@@ -213,7 +251,7 @@ function layout(name) {
 /** @type {Record<string, Command>} */
 export const COMMANDS = {
   new: {
-    summary: 'Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod and Vitest',
+    summary: 'Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright',
     args: '<dir>',
     arguments: { '<dir>': { description: 'The folder to create the app in; it must not exist yet, or be empty' } },
     options: {
@@ -401,7 +439,7 @@ export const COMMANDS = {
   },
 
   export: {
-    summary: 'Build, then write every page as static HTML into a folder',
+    summary: 'Build, then write every page, and each endpoint marked IncludeInExport, into a folder as static files',
     args: '[dir]',
     arguments: { '[dir]': { description: 'The folder to write the site to, inside the app', default: 'out' } },
     options: {
@@ -410,7 +448,19 @@ export const COMMANDS = {
     examples: ['netjes export', 'netjes export site --no-build'],
     project: () => true,
     async run({ io, cwd, args, options }) {
+      // A relative folder is resolved against cwd as the app will see it, so that a --cwd through a symlink still
+      // names a folder inside the app; the app compares paths as text.
+      const app = await appFolder(cwd);
+      const output = path.resolve(app, args[0] ?? 'out');
       if (!options['no-build']) {
+        // The app decides where the export may write (StaticExportService.OutputProblems, ADR 0007), before it
+        // renders anything: only it knows Netjes:Root and the folders it needs. A folder outside the app is refused
+        // here too, before the build, which runs in cwd, so the app is there. With --no-build only the app checks,
+        // since Netjes:Root can put the app above cwd.
+        if (!insideApp(app, output)) {
+          printError(io, `netjes export: the output folder ${output} must be inside the app (${app}), such as 'out'; nothing was built`);
+          return 1;
+        }
         const code = await build(io, cwd);
         if (code !== 0) return code;
       }
@@ -423,7 +473,7 @@ export const COMMANDS = {
           ...commandEnv(io),
           ASPNETCORE_ENVIRONMENT: io.env.ASPNETCORE_ENVIRONMENT ?? 'Production',
           NETJES_COMMAND: 'export',
-          NETJES_OUTPUT: path.resolve(cwd, args[0] ?? 'out'),
+          NETJES_OUTPUT: output,
         },
       });
     },
@@ -451,7 +501,7 @@ export const COMMANDS = {
       name: {
         type: 'string',
         value: '<Name>',
-        description: "The app's name in AGENTS.md",
+        description: "The app's name in AGENTS.md, and the <Name> of the test project tests/<Name>.Tests it looks for",
         default: 'the name of its .csproj, else the folder name',
       },
       force: { type: 'boolean', description: 'Replace the files that exist', default: 'off: keep them' },

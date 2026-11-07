@@ -14,7 +14,8 @@ internal static class ClientRenderShell
 {
     /// <summary>
     /// <c>DEFERRED_BOOTSTRAP</c> from <c>packages/netjes/src/deferred.ts</c>, character for character, so a hash-based
-    /// Content-Security-Policy allows it by the same hash.
+    /// Content-Security-Policy allows it by the same hash, which <see cref="NetjesContentSecurityPolicy.ScriptHashes"/>
+    /// lists.
     /// </summary>
     internal const string DeferredBootstrap =
         "self.__netjes_d=self.__netjes_d||function(i,v,e){self.__netjes_v[i]=[v,e]};Object.prototype.hasOwnProperty.call(self,'__netjes_v')||(self.__netjes_v={})";

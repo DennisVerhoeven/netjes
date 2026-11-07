@@ -55,6 +55,7 @@ describe('the client entry', () => {
   afterEach(() => {
     delete globals.__netjes_v;
     delete globals.__netjes_d;
+    document.head.innerHTML = '';
     document.body.innerHTML = '';
     vi.doUnmock('virtual:netjes/pages');
     vi.restoreAllMocks();
@@ -99,6 +100,8 @@ describe('the client entry', () => {
     expect(createRoot).not.toHaveBeenCalled();
     // The server's HTML stays, with plain links and forms that the browser loads in full.
     expect(document.querySelector('main')?.outerHTML).toBe('<main><a href="/blog">Blog</a></main>');
+    // No router runs in the document, so nothing says it does.
+    expect(document.documentElement.hasAttribute('data-netjes-hydrated')).toBe(false);
     expect(errors).toHaveBeenCalledOnce();
     expect(String(errors.mock.calls[0]?.[0])).toContain('app/about/page.tsx');
   });
@@ -131,6 +134,73 @@ describe('the client entry', () => {
       expect(hydrateRoot).not.toHaveBeenCalled();
 
       // The parser reaches the end of the shell.
+      document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
+      await entry;
+
+      expect(hydrateRoot).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, 'readyState');
+    }
+  });
+
+  /** The page module, which records each time it is imported. */
+  function pageModuleRecorded() {
+    const imported = vi.fn(async () => ({ default: () => null }));
+    vi.doMock('virtual:netjes/pages', () => ({ pages: { '/app/about/page.tsx': imported } }));
+    return imported;
+  }
+
+  /** What `<Script src={src} strategy="beforeInteractive">` puts in the document: the head's marker and an inert entry. */
+  const beforeInteractiveEntry = (src: string) =>
+    `<script type="application/json" data-netjes-script="${src}">${JSON.stringify({ src, attributes: {} })}</script>`;
+
+  it("imports the page's modules only once the shell is parsed and the external entries have loaded, when the head has the marker", async () => {
+    const imported = pageModuleRecorded();
+    document.head.innerHTML = '<meta name="netjes-before-interactive">';
+    serverDocument(`<header>Blog</header>${beforeInteractiveEntry('/polyfills.js')}`, {}, {}, 'app/about/page.tsx');
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' });
+    try {
+      const entry = import('../src/client-entry.tsx');
+      // The entry has read the payload.
+      await vi.waitFor(() => expect(globals.__netjes_d).toBeTypeOf('function'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Nothing is taken over before the shell is parsed, where entries further down still have to arrive.
+      expect(document.head.querySelector('script')).toBeNull();
+      expect(imported).not.toHaveBeenCalled();
+
+      // The parser reaches the end of the shell, past a second entry, and both scripts start loading, in order.
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<main>the page</main>${beforeInteractiveEntry('/later.js')}<template id="${SHELL_END_ID}"></template>`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const adopted = [...document.head.querySelectorAll<HTMLScriptElement>('script')];
+      expect(adopted.map((script) => script.getAttribute('src'))).toEqual(['/polyfills.js', '/later.js']);
+      expect(imported).not.toHaveBeenCalled();
+
+      adopted[0]?.dispatchEvent(new Event('load'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(imported).not.toHaveBeenCalled();
+      adopted[1]?.dispatchEvent(new Event('load'));
+      await entry;
+
+      expect(imported).toHaveBeenCalledOnce();
+      expect(hydrateRoot).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document, 'readyState');
+    }
+  });
+
+  it("imports the page's modules before the end of the shell when the head has no marker", async () => {
+    const imported = pageModuleRecorded();
+    serverDocument('<header>Blog</header>', {}, {}, 'app/about/page.tsx');
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' });
+    try {
+      const entry = import('../src/client-entry.tsx');
+      await vi.waitFor(() => expect(imported).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(hydrateRoot).not.toHaveBeenCalled();
+
       document.body.insertAdjacentHTML('beforeend', `<main>the page</main><template id="${SHELL_END_ID}"></template>`);
       await entry;
 

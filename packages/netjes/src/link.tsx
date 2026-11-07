@@ -1,25 +1,50 @@
-import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import type { ComponentPropsWithRef, MouseEvent } from 'react';
 import type { Href } from './href.ts';
-import { useBasePath, useInternalRouter, usePathname, withBasePath } from './router.tsx';
+import { useBasePath, useInternalRouter, usePathname, useSearchParams, withBasePath } from './router.tsx';
 
-/** The props of `<Link>`: an anchor's own, with a typed `href` and the client navigation options. */
-export type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+/** The props of `<Link>`: an anchor's own and its ref, with a typed `href` and the client navigation options. */
+export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   /** Typed by the app's routes once `netjes generate` has registered them. */
   href: Href;
   replace?: boolean;
-  /** Scroll to the top (or the #fragment) after navigating. Default true. */
+  /**
+   * Scroll to the top after navigating, or to the #fragment's element, which then takes the focus. Default true. `false`
+   * keeps the scroll position, and the focus on the link while the link has it.
+   */
   scroll?: boolean;
-  /** `intent` (default) fetches the next page on hover or focus. */
+  /** `intent` (default) fetches the next page on hover, focus or touch. */
   prefetch?: 'intent' | 'none';
-  /** Let the browser follow it with a full page load, e.g. for a file download or a page outside Netjes. */
+  /** Let the browser follow it with a full page load: for a page of the app that must load in full, or a page on another site. */
   reloadDocument?: boolean;
 };
 
 const BASE = 'http://netjes.invalid';
 
-function isCurrentPath(href: string, pathname: string) {
-  const url = new URL(href, BASE + pathname);
-  return url.origin === BASE && url.pathname === pathname;
+/** One trailing slash makes no other page: `/docs/` is `/docs`, and `/` stays `/`. */
+function withoutTrailingSlash(path: string) {
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+/** The same values, in any order, as often each. */
+function sameValues(a: string[], b: string[]) {
+  const sorted = [...b].sort();
+  return a.length === b.length && [...a].sort().every((value, i) => value === sorted[i]);
+}
+
+/**
+ * Whether the link goes to the page on screen. An href with a `#` points to a place in a page, so it never does.
+ * Otherwise its URL under the base path has the page's path, give or take one trailing slash, and the page's
+ * values for each query parameter it names; parameters it leaves out do not count. Only the path and the query
+ * enter, against a fixed origin, so the server and the browser agree.
+ */
+function isCurrentPage(href: string, pathname: string, search: URLSearchParams, basePath: string) {
+  if (href.includes('#')) return false;
+  const query = search.toString();
+  // The page's URL as the browser has it: the base path, then the page's path, even one that starts like the base path.
+  const page = new URL(BASE + basePath + pathname + (query ? `?${query}` : ''));
+  const target = new URL(withBasePath(href, basePath), page);
+  if (target.origin !== BASE || withoutTrailingSlash(target.pathname) !== withoutTrailingSlash(page.pathname)) return false;
+  return [...new Set(target.searchParams.keys())].every((key) => sameValues(target.searchParams.getAll(key), search.getAll(key)));
 }
 
 function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -35,10 +60,16 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
   );
 }
 
-/** An `<a>` that navigates on the client. Ctrl/cmd-click, new tabs and external URLs behave like a normal link. */
+/**
+ * An `<a>` that navigates on the client. Ctrl/cmd-click, new tabs and external URLs behave like a normal link. It sets
+ * `aria-current="page"` on a link to the page on screen: the same path, one trailing slash aside, and the page's values
+ * for each query parameter the link names. A link with a `#` is never marked, and an `aria-current` prop wins. After a
+ * navigation to another page, the router announces the page and starts the focus over at the top of the document.
+ */
 export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
   const router = useInternalRouter();
   const pathname = usePathname();
+  const search = useSearchParams();
   const basePath = useBasePath();
   const warm = () => {
     if (prefetch === 'intent' && !reloadDocument) router.prefetch(href);
@@ -47,14 +78,17 @@ export function Link({ href, replace = false, scroll = true, prefetch = 'intent'
   return (
     <a
       href={withBasePath(href, basePath)}
-      aria-current={isCurrentPath(href, pathname) ? 'page' : undefined}
+      aria-current={isCurrentPage(href, pathname, search, basePath) ? 'page' : undefined}
       {...rest}
       onClick={(event) => {
+        // Read before the app's own onClick, which runs as the link is followed: where it moves the focus, such as
+        // back to the button of a menu that closes, the router leaves it.
+        const focusedAtStart = document.activeElement;
         onClick?.(event);
         if (event.defaultPrevented || reloadDocument || !isPlainLeftClick(event)) return;
         if (new URL(href, window.location.href).origin !== window.location.origin) return;
         event.preventDefault();
-        void (replace ? router.replace(href, { scroll }) : router.push(href, { scroll }));
+        void (replace ? router.replace(href, { scroll, focusedAtStart }) : router.push(href, { scroll, focusedAtStart }));
       }}
       onMouseEnter={(event) => {
         onMouseEnter?.(event);

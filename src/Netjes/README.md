@@ -37,7 +37,7 @@ public sealed record GreetInput { public string? Name { get; init; } }
 public sealed record Greeting(string Text);
 ```
 
-The package adds build targets to the project: `using Netjes` when implicit usings are on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`. The app needs the .NET 10 SDK and, at build time and in production, Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer).
+The package adds build targets to the project: `using Netjes` when implicit usings are on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. The app needs the .NET 10 SDK and, at build time and in production, Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer).
 
 ## Documentation
 
@@ -47,4 +47,4 @@ The package adds build targets to the project: `using Netjes` when implicit usin
 - [Options](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/options.md)
 - [Architecture](https://github.com/DennisVerhoeven/netjes/blob/main/docs/architecture.md)
 
-Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as [SECURITY.md](https://github.com/DennisVerhoeven/netjes/blob/main/SECURITY.md) describes. MIT licensed.
+Report bugs in the [issue tracker](https://github.com/DennisVerhoeven/netjes/issues), and security problems privately, as the [security policy](https://github.com/DennisVerhoeven/netjes/security/policy) describes. MIT licensed.

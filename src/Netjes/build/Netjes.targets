@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <Using Include="Netjes" Condition="'$(ImplicitUsings)' == 'enable' or '$(ImplicitUsings)' == 'true'" />
-    <Content Update="package.json;package-lock.json;tsconfig.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
+    <Content Update="package.json;package-lock.json;tsconfig.json;tsconfig.*.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
   <Target Name="NetjesPublishClient" AfterTargets="ComputeFilesToPublish">

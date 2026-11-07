@@ -47,6 +47,14 @@ public class ZodSchemasTests
 
     public sealed record Paged<T>(IReadOnlyList<T> Items, int Total);
 
+    public sealed record Navigation(
+        Href Next,
+        Href? Previous,
+        IReadOnlyList<Href> Links,
+        IReadOnlyList<Href?> Gaps,
+        Dictionary<string, Href> ByKey,
+        Deferred<Href> Later);
+
     public static class Blog
     {
         public sealed record Item(string Title);
@@ -216,6 +224,29 @@ public class ZodSchemasTests
     public void Output_IsDeterministic()
     {
         Assert.Equal(Generate(typeof(Post)).Declarations, Generate(typeof(Post)).Declarations);
+    }
+
+    [Fact]
+    public void Href_IsWrittenAsTheGeneratedHrefSchema()
+    {
+        var (declarations, reference) = Generate(typeof(Navigation));
+
+        Assert.Equal("Navigation", reference);
+        Assert.Contains(
+            """
+            export const Navigation = z.object({
+              next: Href,
+              previous: Href.nullable(),
+              links: z.array(Href),
+              gaps: z.array(Href.nullable()),
+              byKey: z.record(z.string(), Href),
+              later: deferred(Href),
+            });
+            """.ReplaceLineEndings("\n"),
+            declarations);
+        // The generated file declares Href itself, from the app's pages.
+        Assert.DoesNotContain("export const Href", declarations);
+        Assert.DoesNotContain("HrefSchema", declarations);
     }
 
     [Fact]

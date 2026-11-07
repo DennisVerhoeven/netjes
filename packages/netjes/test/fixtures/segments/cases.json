@@ -1,0 +1,123 @@
+{
+  "about": "The route and segments the server sends with the document of each case's page: tests/Netjes.Tests/Routing/SegmentFixtureTests.cs requests each url from an app with these files, and test/render-document.test.tsx builds the same payload in TypeScript, as renderDocument in netjes/testing does. A change to either rule fails one of the two until this file says what both send. A new kind of segment file needs a case here.",
+  "cases": [
+    {
+      "name": "a page inside a route group",
+      "files": ["app/layout.tsx", "app/(shop)/layout.tsx", "app/(shop)/cart/page.tsx"],
+      "url": "/cart",
+      "page": "app/(shop)/cart/page.tsx",
+      "params": {},
+      "route": "/cart",
+      "status": 200,
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/(shop)", "layout": "app/(shop)/layout.tsx", "depth": 0 }
+      ]
+    },
+    {
+      "name": "a folder with only a loading file",
+      "files": ["app/layout.tsx", "app/docs/loading.tsx", "app/docs/intro/page.tsx"],
+      "url": "/docs/intro",
+      "page": "app/docs/intro/page.tsx",
+      "params": {},
+      "route": "/docs/intro",
+      "status": 200,
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/docs", "loading": "app/docs/loading.tsx" }
+      ]
+    },
+    {
+      "name": "a folder with only a not-found file",
+      "files": ["app/layout.tsx", "app/blog/not-found.tsx", "app/blog/[slug]/page.tsx"],
+      "url": "/blog/hello",
+      "page": "app/blog/[slug]/page.tsx",
+      "params": { "slug": "hello" },
+      "route": "/blog/[slug]",
+      "status": 200,
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/blog" }
+      ]
+    },
+    {
+      "name": "a folder with every segment file",
+      "files": [
+        "app/layout.tsx",
+        "app/template.tsx",
+        "app/loading.tsx",
+        "app/error.tsx",
+        "app/not-found.tsx",
+        "app/forbidden.tsx",
+        "app/unauthorized.tsx",
+        "app/page.tsx"
+      ],
+      "url": "/",
+      "page": "app/page.tsx",
+      "params": {},
+      "route": "/",
+      "status": 200,
+      "segments": [
+        {
+          "id": "app",
+          "layout": "app/layout.tsx",
+          "template": "app/template.tsx",
+          "loading": "app/loading.tsx",
+          "error": "app/error.tsx",
+          "depth": 0
+        }
+      ]
+    },
+    {
+      "name": "a layout of a catch-all",
+      "files": ["app/layout.tsx", "app/docs/[...path]/layout.tsx", "app/docs/[...path]/page.tsx"],
+      "url": "/docs/a/b",
+      "page": "app/docs/[...path]/page.tsx",
+      "params": { "path": ["a", "b"] },
+      "route": "/docs/[...path]",
+      "status": 200,
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/docs/[...path]", "layout": "app/docs/[...path]/layout.tsx", "depth": 3 }
+      ]
+    },
+    {
+      "name": "a layout of an optional catch-all without values",
+      "files": ["app/layout.tsx", "app/shop/[[...filters]]/layout.tsx", "app/shop/[[...filters]]/page.tsx"],
+      "url": "/shop",
+      "page": "app/shop/[[...filters]]/page.tsx",
+      "params": { "filters": [] },
+      "route": "/shop/[[...filters]]",
+      "status": 200,
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/shop/[[...filters]]", "layout": "app/shop/[[...filters]]/layout.tsx", "depth": 1 }
+      ]
+    },
+    {
+      "name": "the not-found page of a URL no page matches",
+      "files": ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+      "url": "/missing",
+      "page": "app/not-found.tsx",
+      "params": {},
+      "route": null,
+      "pageKind": "notFound",
+      "status": 404,
+      "segments": [{ "id": "app", "layout": "app/layout.tsx", "depth": 0 }]
+    },
+    {
+      "name": "an app directory with a folder above it",
+      "appDir": "src/app",
+      "files": ["src/app/layout.tsx", "src/app/(docs)/docs/[...path]/layout.tsx", "src/app/(docs)/docs/[...path]/page.tsx"],
+      "url": "/docs/a/b",
+      "page": "src/app/(docs)/docs/[...path]/page.tsx",
+      "params": { "path": ["a", "b"] },
+      "route": "/docs/[...path]",
+      "status": 200,
+      "segments": [
+        { "id": "src/app", "layout": "src/app/layout.tsx", "depth": 0 },
+        { "id": "src/app/(docs)/docs/[...path]", "layout": "src/app/(docs)/docs/[...path]/layout.tsx", "depth": 3 }
+      ]
+    }
+  ]
+}

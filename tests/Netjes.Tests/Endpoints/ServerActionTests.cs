@@ -108,7 +108,9 @@ public class ServerActionTests
                 a.MapAction("noop", () => ServerAction.Ok("done"));
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         Assert.Null((await app.GetDataJsonAsync("/"))["antiforgery"]);
 
         var response = await app.Client.GetAsync("/_netjes/antiforgery", Ct);
@@ -465,7 +467,9 @@ public class ServerActionTests
                     input.All ? ServerAction.Ok().Revalidate("posts") : ServerAction.Ok().RevalidatePath($"/posts/{input.Id}"));
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var token = await TokenAsync(app);
         await app.GetDataAsync("/posts/1");
         await app.GetDataAsync("/posts/2");

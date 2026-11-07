@@ -36,7 +36,9 @@ public class CachePageSegmentTests
                 s.AddOutputCache();
                 RecordingStore.Install(s, keys);
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
     private static async Task<JsonNode> DataAsync(TestApp app, string url, string? segments = null, string data = "1")
     {
@@ -130,7 +132,9 @@ public class CachePageSegmentTests
                 a.MapGet("/elsewhere/{team}", () => Page.Render("/[team]")).CachePage(TimeSpan.FromMinutes(5));
             },
             services: s => s.AddOutputCache(),
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
         var key = (string)(await DataAsync(app, "/core"))["segments"]![1]!["key"]!;
 
         var holding = await DataAsync(app, "/elsewhere/core", segments: key);
@@ -162,7 +166,9 @@ public class CachePageSegmentTests
                 s.AddOutputCache();
                 s.Replace(ServiceDescriptor.Singleton(store));
             },
-            configureApp: a => a.UseOutputCache());
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
 
     /// <summary>The team layout's key, from the uncached page under it: nothing is stored on the way.</summary>
     private static async Task<string> LayoutKeyAsync(TestApp app, string team = "core") =>

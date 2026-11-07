@@ -1,14 +1,14 @@
 # React API
 
-This is the reference for the npm package `netjes`: every export of every entry point, with its signature and what it does, for app developers looking up an API. The guides explain how the pieces fit: [Routing](../guides/routing.md), [Data loading](../guides/data-loading.md), [Actions and forms](../guides/actions-and-forms.md), [Metadata](../guides/metadata.md), [Images](../guides/images.md) and [Testing](../guides/testing.md). The C# side is in the [C# API](csharp-api.md).
+This is the reference for the npm package `netjes`: every export of every entry point, with its signature and what it does, for app developers looking up an API. The guides explain how the pieces fit: [Routing](../guides/routing.md), [Data loading](../guides/data-loading.md), [Actions and forms](../guides/actions-and-forms.md), [Images](../guides/images.md), [Metadata](../guides/metadata.md) and [Testing](../guides/testing.md). The C# side is in the [C# API](csharp-api.md).
 
 ## Entry points
 
 | Import | What it holds |
 |---|---|
-| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types |
+| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
-| [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests |
+| [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests, and `renderDocument()` and `inlineScriptHashes()` for a page's whole document |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
 | [`netjes/vitals`](#netjesvitals) | Core Web Vitals: `useReportWebVitals()` and `<WebVitals />` |
 | [`netjes/vite`](#netjesvite) | The `netjes()` Vite plugin |
@@ -53,10 +53,18 @@ The props of every layout component. A layout with parallel routes also gets eac
 #### `ErrorPageProps`
 
 ```ts
-type ErrorPageProps = { error: Error & { status?: number }; reset: () => void };
+type ErrorPageProps = { error: Error & { status?: number; withheld?: boolean }; reset: () => void };
 ```
 
-The props of an `error.tsx`: what was thrown, with the HTTP status when the server rendered the page for an error, and `reset()` to render the segment again.
+The props of an `error.tsx`: what was thrown, and `reset()` to try again. `error.status` is the HTTP status of a server answer behind the error. `error.withheld` is true when `error.message` is a stand-in that Netjes wrote in place of a message it does not show, so an error page renders the message only when `!error.withheld`. `reset()` renders the segment again after an error a segment's boundary caught; on an error page the server rendered it loads the page from the server again (`router.refresh()`); on the page the router's own boundary shows it does nothing, so offer a link or a full reload there. What the error holds depends on where it came from:
+
+- **The server rendered the error page** for an exception in a loader, an action without JavaScript or the render: `status` is the response's status, 500 or a `BadHttpRequestException`'s. With error details on ([`IncludeErrorDetails`](options.md#rendering-and-the-sidecar), on in the Development environment), `message` and `stack` are the exception's. With them off, `message` is the status's reason phrase, such as `Internal Server Error`, `withheld` is true and `stack` is undefined.
+- **The server rendered the error page for a status alone**, such as `Page.Forbidden()` in a folder without a `forbidden.tsx`, or an empty 400 from binding: `message` is the status's reason phrase, such as `Forbidden`, in every environment, and it is not withheld. `stack` is undefined.
+- **An error thrown in the browser**, caught by a segment's `error.tsx`, or by the router's own boundary, which hands it to the root `app/error.tsx`: the error as it was thrown, with its own class, message and stack, and no `status` unless it is a `ServerActionError`. A thrown string becomes an `Error` with that text. Any other thrown value becomes an `Error` with the message `Something went wrong`, and `withheld` true.
+- **A server action that failed**: a [`ServerActionError`](#serveractionerror), with the status of the server's answer, withheld when the server sent no message.
+- **A `Page.Defer` value that failed**, read with `use()`: with error details on, the exception's message; with them off, `Something went wrong`, and `withheld` true. An exception whose message is empty reads as withheld in any environment. A value that did not arrive within `StreamTimeout` (`The value did not arrive in time`), one whose task was cancelled (`The value was cancelled`) and one whose navigation stream ended first carry Netjes's own message, which is not withheld.
+
+`withheld` is not a development switch. It says whether this message stands in for another, so in production an error thrown in the browser keeps its own message, and the reason phrase for a status alone is not withheld; in development, with error details on, the server withholds nothing. Netjes sets it only on the errors it builds, as it does `status`, but an error class of the app's own with a `withheld` property of its own reads the same way.
 
 ### Navigation
 
@@ -65,16 +73,16 @@ The props of an `error.tsx`: what was thrown, with the HTTP status when the serv
 ```ts
 function Link(props: LinkProps): JSX.Element;
 
-type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   href: Href;
   replace?: boolean;            // replace the history entry instead of adding one
-  scroll?: boolean;             // default true: scroll to the top, or to the #fragment
+  scroll?: boolean;             // default true: scroll to the top, or to the #fragment and focus it
   prefetch?: 'intent' | 'none'; // default 'intent': fetch the page on hover, focus and touch
   reloadDocument?: boolean;     // let the browser load the URL with a full page load
 };
 ```
 
-An `<a>` that navigates on the client. It sets `aria-current="page"` when its path is the current one, and puts its `href` under the base path. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. See [Links](../guides/routing.md#links).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region, when its name differs from the previous page's, and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. See [Links](../guides/routing.md#links) and [Focus and announcements](../guides/routing.md#focus-and-announcements).
 
 #### `useRouter`
 
@@ -91,7 +99,7 @@ type Router = {
 };
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -122,7 +130,7 @@ function useSearchParams(): URLSearchParams;
 function useSearchParams<Schema extends StandardSchemaV1>(schema: Schema): StandardSchemaV1.InferOutput<Schema>;
 ```
 
-The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level.
+The query string. With a schema, it parses an object of the values (a string each, or an array of strings for a key that repeats) and drops the values the schema rejects, so its defaults and optional fields apply; only a value that stays invalid without them throws. Define the schema at module level. On a page that `netjes export` wrote, it sees no query string, whatever the address bar shows; [static export](../guides/static-export.md#in-the-browser) says what to read there instead. On an output-cached page with `.CacheQueryKeys(...)`, list every key read here, or requests with it are not cached ([query strings a page does not read](../guides/caching.md#query-strings-a-page-does-not-read)).
 
 #### `useParams`
 
@@ -163,7 +171,7 @@ The base path the app is mounted under with `UsePathBase`, or `''` at the root. 
 function useHref(href: string): string;
 ```
 
-`href` under the base path, for a plain `<a href>` or another attribute: what `<Link>` does for its own. Root-relative paths get the base path unless they already start with it; other URLs are returned as they are.
+`href` under the base path, for a plain `<a href>`, another attribute or a `fetch`: what `<Link>` does for its own. Root-relative paths get the base path unless they already start with it; other URLs are returned as they are.
 
 #### `useLocale`
 
@@ -180,7 +188,7 @@ The request culture the page was rendered in with `AddNetjesLocalization`, such 
 ```ts
 function Form(props: FormProps): JSX.Element;
 
-type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> & {
+type FormProps = Omit<ComponentPropsWithRef<'form'>, 'method' | 'action'> & {
   method?: 'get' | 'post';        // default 'get'
   action?: string | FormAction;   // default: the current URL
   replace?: boolean;              // for a GET form: replace the history entry
@@ -190,17 +198,17 @@ type FormProps = Omit<FormHTMLAttributes<HTMLFormElement>, 'method' | 'action'> 
 type FormAction = (formData: FormData) => void | Promise<void>;
 ```
 
-A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. See [`<Form>` in detail](../guides/actions-and-forms.md#form-in-detail).
+A `<form>` that submits without a full page load and treats the answer like a navigation. A GET form navigates to its action with the fields as the query string. A POST form posts with `fetch`, adds the antiforgery token, follows a redirect or shows the page the server rendered, and leaves a response that is not a page as it is (an HTML document is shown, an attachment downloaded, a failure reported through `useNavigation()`). With a function `action`, React runs it, so `useFormStatus` works; for `useAction`'s `formAction` the server renders a real post to the action, so the form works without JavaScript too. A `ref` gets the `<form>` element. See [`<Form>` in detail](../guides/actions-and-forms.md#form-in-detail).
 
 #### `SubmitButton`
 
 ```ts
 function SubmitButton(props: SubmitButtonProps): JSX.Element;
 
-type SubmitButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'>;
+type SubmitButtonProps = Omit<ComponentPropsWithRef<'button'>, 'type'>;
 ```
 
-A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript.
+A submit button whose `formAction` is rendered under the base path, so it posts to the right place with and without JavaScript. A `ref` gets the `<button>` element.
 
 #### `serverAction`
 
@@ -261,10 +269,13 @@ After the input of the page's action (`MapPageAction`) failed its DataAnnotation
 class ServerActionError extends Error {
   name: 'ServerActionError';
   readonly status: number;
+  readonly withheld: boolean;
 }
 ```
 
 Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429.
+
+`status` is the status of the server's answer. `message` is the message the server sent: the exception's (for a 4xx always, for a 5xx only with error details on), or the reason phrase for a call the server refused, such as `Forbidden`. `withheld` is true when the server sent no message, as for a 5xx with error details off; `message` is then `Server action <name> failed with status <status>`. An answer that is not JSON, such as a proxy's 502 page, gets that message too, but is not withheld.
 
 ### Server data
 
@@ -302,6 +313,16 @@ function useNonce(): string | undefined;
 
 The page's Content-Security-Policy nonce, for inline scripts and styles of your own; `undefined` without a policy, or under one without `{nonce}`. `<Script>` uses it by itself. See [Security](../guides/security.md).
 
+### Content-Security-Policy
+
+#### `CSP_SCRIPT_HASHES`
+
+```ts
+const CSP_SCRIPT_HASHES: string;
+```
+
+The `script-src` sources that allow Netjes's fixed inline scripts by their hashes, for a policy without a nonce: one `'sha256-…'` per script, in its quotes and separated by spaces, as in `` `script-src 'self' ${CSP_SCRIPT_HASHES}` ``. It is for a policy that JavaScript writes, such as a static host's headers for [exported pages](../guides/static-export.md#deferred-values-and-suspense); in C#, the same value is [`NetjesContentSecurityPolicy.ScriptHashes`](csharp-api.md#netjescontentsecuritypolicy). A fixed script has the same text in every document. In this version there is one, the bootstrap that collects streamed `Page.Defer` values; a Netjes version that changes it or adds such a script changes the value. The scripts that deliver `Page.Defer` values, and React's scripts that reveal Suspense boundaries, differ from render to render, so no hash covers them. React's script for form actions that are functions is left out too, since its text follows the React version. See [Security](../guides/security.md#hash-based).
+
 ### Components
 
 #### `Image`
@@ -309,7 +330,7 @@ The page's Content-Security-Policy nonce, for inline scripts and styles of your 
 ```ts
 function Image(props: ImageProps): JSX.Element;
 
-type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
+type ImageProps = Omit<ComponentPropsWithRef<'img'>, 'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'alt'> & {
   src: string;           // a path in public/ or a URL on an allowed remote host
   alt: string;           // '' for a decorative image
   width: number;         // the intrinsic size in CSS pixels
@@ -321,12 +342,12 @@ type ImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'srcSet' | '
 };
 ```
 
-An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. See [Images](../guides/images.md).
+An `<img>` that reserves its space, loads lazily and offers resized copies from `/_netjes/image`: a 1x and a 2x copy for a fixed size, every configured width with `sizes`. SVGs, `data:` and `blob:` URLs are used as they are. A `ref` gets the `<img>` element. See [Images](../guides/images.md).
 
 #### `Script`
 
 ```ts
-function Script(props: ScriptProps): null;
+function Script(props: ScriptProps): JSX.Element | null;
 
 type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad' | 'onError' | 'children' | 'dangerouslySetInnerHTML'> & {
   id?: string;                       // required for an inline script
@@ -339,7 +360,7 @@ type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad' | 'onE
 type ScriptStrategy = 'beforeInteractive' | 'afterInteractive' | 'lazyOnload';
 ```
 
-A third-party script that does not block the page, like `next/script`. Each is added to the document once, by `id` or `src`. `afterInteractive` adds it after hydration, `lazyOnload` once the page has loaded and the browser is idle, and `beforeInteractive` writes an external script into the server-rendered head. The page's CSP nonce is added when there is one. See [Third-party scripts](../guides/metadata.md#third-party-scripts-script).
+A script loaded by strategy, like `next/script`: `afterInteractive` and `lazyOnload` do not block the page. Each is added to the document once, by `id` or `src`, except inline `beforeInteractive` code, which the server writes wherever a component renders it. `afterInteractive` adds it after hydration, and `lazyOnload` once the page has loaded and the browser is idle; neither renders anything where it stands. `beforeInteractive` writes it into a server-rendered document, with a `<meta name="netjes-before-interactive">` in the head: inline code where the component stands, which the parser runs as it reaches it, and for a `src` a preload in the head and an inert entry where the component stands. An entry in the shell runs once the shell is parsed, in order with the others, before the page's modules run and the page hydrates; one in a Suspense boundary that streams in later (a `loading.tsx`'s) runs when that part of the page hydrates, so keep these scripts in the shell. A script the browser will not run (`noModule`, a `text/plain` type) is neither preloaded nor waited for. Both the inline script and the entry carry `data-netjes-script`, and the entry is a `type="application/json"` script; the attribute and the meta's name are reserved. A `beforeInteractive` component that mounts in the browser adds its script as `afterInteractive` does. `onLoad` and `onError` are called after the component mounts, once an external script has loaded or failed, and `onLoad` once inline code has run. The page's CSP nonce is added when there is one. See [Third-party scripts](../guides/metadata.md#third-party-scripts-script) and [Code that runs before the first paint](../guides/metadata.md#code-that-runs-before-the-first-paint).
 
 #### `dynamic`
 
@@ -400,7 +421,7 @@ The type of `export const metadata` in pages, layouts and special pages. See [Me
 type MetadataTitle = string | { default?: string; template?: string; absolute?: string };
 ```
 
-A title, or a layout's default and template (`'%s · Site'`), or an absolute title that skips templates.
+A title, a layout's `template` (`'%s · Site'`) and `default`, or an `absolute` title that skips templates. A `default`, on a layout or a page, goes through the nearest `template` of the layouts above it like a string title, never through the one beside it; a layout's `default` is also the title of the pages below it that set none. See [Titles](../guides/metadata.md#titles).
 
 #### `MetadataImage`
 
@@ -431,10 +452,28 @@ Filled in by the generated file through declaration merging, which types `Href`:
 #### `buildHref`
 
 ```ts
-function buildHref(pattern: string, params: Record<string, unknown>, search?: SearchParamsInput): string;
+function buildHref(
+  pattern: string,
+  params: Record<string, unknown>,
+  search?: SearchParamsInput,
+  options?: { hash?: string | undefined },
+): string;
 ```
 
-The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. The generated `route()` calls it with typed parameters.
+The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...filters]]`), with every segment value encoded and catch-all values taken as arrays, followed by the query from `search` and the fragment from `options.hash`. A missing or empty required value throws `netjes: route '<pattern>' needs the parameter '<name>'`. A value or a catch-all entry that is `.`, `..` or `''` throws `netjes: route '<pattern>' cannot take '<value>' for the parameter '<name>'`: a browser would resolve it to another path, and an empty first entry under `/[...slug]` would make `//host`, another site. `hash` is the id of an element on the page: one leading `#` is dropped and the rest is percent-encoded (`'über-uns'` gives `#%C3%BCber-uns`); with nothing left, no fragment is added. For example, `buildHref('/docs/[...path]', { path: ['guides', 'caching'] }, undefined, { hash: 'keys' })` is `/docs/guides/caching#keys`. The generated `route()` calls it with typed parameters.
+
+#### `buildEndpointUrl`
+
+```ts
+function buildEndpointUrl(
+  template: string,
+  values: Readonly<Record<string, unknown>>,
+  search?: SearchParamsInput,
+  endpoint?: string,
+): string;
+```
+
+The URL of one of the app's endpoints from its route template as the generated file writes it: literals as they are, with `%`, `{`, `}`, `#` and `\` encoded, and `{name}`, `{name?}`, `{name=default}` (the default encoded), `{*name}` and `{**name}`, without constraints. Each route value is encoded with `encodeURIComponent`; a `{**name}` value keeps its slashes. A value that would leave a segment `.` or `..`, or a `{**name}` value with such a piece or an empty piece before its end (`'/x'`, `'a//b'`), throws `netjes: endpoint '<endpoint>' cannot take '<value>' for the route value '<name>'`: a browser and `fetch` resolve a dot segment before sending (`/api/posts/../likes` is `/api/likes`), and under `/{**path}` a leading `/` would make `//host`, another site. A missing, `null` or `''` optional value drops its segment, or its part with the `.` before it; a missing value with a default is filled in, unless it is a whole segment at the end, which is left out (`/openapi/{doc=v1}.json` keeps `v1`); a missing, `null` or `''` required value, or an optional one whose segment is followed by one that stays (`x` in `/a/{x?}/b`, or in `/a/{x?}/{y?}` with `y` given), throws `netjes: endpoint '<endpoint>' needs the route value '<name>'` (the template when `endpoint` is not given). The values the template does not name are the query string, followed by `search`. The result is root-relative, without the base path: `buildEndpointUrl('/api/items/{id}', { id: 'a b', v: 2 })` is `/api/items/a%20b?v=2`. The generated `endpointUrl()` calls it with typed values ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)).
 
 #### `SearchParamsInput`
 
@@ -442,7 +481,7 @@ The URL of a route pattern written in file syntax (`/blog/[slug]`, `/docs/[...pa
 type SearchParamsInput = Record<string, SearchValue | readonly SearchValue[]>;
 ```
 
-The query of `buildHref` and `route()`. An array repeats the key; `null` and `undefined` are left out.
+The query of `buildHref`, `route()`, `buildEndpointUrl` and `endpointUrl()`. An array repeats the key; `null` and `undefined` are left out.
 
 #### `SearchValue`
 
@@ -458,7 +497,7 @@ One query value.
 function isRouteHref(value: string, patterns: readonly string[]): boolean;
 ```
 
-Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or an `http(s):`, `mailto:` or `tel:` URL. `//host` and `/\host` are not. The generated `isHref()` and `Href` schema call it.
+Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or an `http(s):`, `mailto:` or `tel:` URL. `//host` and `/\host` are not, and neither is any URL that holds an ASCII control character or starts or ends with a space: browsers drop those characters, so `/\t/evil.example` goes to `evil.example`. The generated `isHref()` and `Href` schema call it. A root-relative URL has to match a pattern, which a C# `Netjes.Href`, checked for its shape only, does not ask.
 
 ### Payload types
 
@@ -546,7 +585,7 @@ The value `deferred()` parses to: a thenable that records `status`, `value` and 
 
 ## `netjes/testing`
 
-The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing.
+The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
 
 #### `createTestApp`
 
@@ -562,8 +601,8 @@ type TestAppOptions = {
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
-  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }); retries are off
-  queryClient?: QueryClient;        // use this client instead of a new one
+  defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
+  queryClient?: QueryClient;        // use this client, as it is, instead of a new one
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
@@ -585,6 +624,7 @@ type TestActionAnswer = ActionState<unknown> & {
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // set, as .WithQuery does
   invalidate?: ReadonlyArray<readonly unknown[]>;                      // invalidated, as .Invalidate does
   fields?: readonly string[]; // after a failure: the fields `values` keeps, as the server names them (default all)
+  message?: string;           // after a failure other than a 422: the message the server would send (default none: withheld)
 };
 ```
 
@@ -601,11 +641,45 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token, and the `QueryClient` has retries off.
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)).
+
+#### `renderDocument`
+
+```ts
+function renderDocument(page: string, options?: RenderDocumentOptions): Promise<string>;
+
+type RenderDocumentOptions = {
+  props?: Record<string, unknown>;                   // the page's props, as its loader sends them
+  params?: Params;                                   // the route values, as useParams() returns them
+  url?: string;                                      // the page's URL, default '/'
+  layouts?: Record<string, Record<string, unknown>>; // each layout loader's props, by the layout's file
+  shared?: unknown;                                  // the shared props, default null
+  status?: number;                                   // default 200, or the boundary file's
+  nonce?: string;                                    // the CSP nonce on every script and stylesheet
+  lang?: string;                                     // <html lang>, default 'en'
+  publicConfig?: Record<string, unknown>;            // what usePublicConfig() reads
+  modules?: Record<string, () => Promise<unknown>>;  // the pages map, keyed '/app/...'; default the app's from netjes()
+  signal?: AbortSignal;                              // stops the render, which rejects with its reason
+};
+```
+
+Renders the document of `page`, a file of the pages map named from the app's root (`'app/blog/[slug]/page.tsx'`), as the Node sidecar renders it for a crawler, and resolves with its HTML, from `<!DOCTYPE html>` to `</html>`: the page inside the layouts the server wraps it in, with the head, Netjes's inline scripts and the payload. It builds the payload's route and segments from the pages map by the server's rules, and takes everything else from `options`; no C# runs. It waits for every Suspense boundary, and a Promise in the props or a layout's props is a `Page.Defer` value: rendered in place once it resolves, left as its Suspense fallback when it rejects, and waited for while it is pending, until `signal` aborts. What the server adds and `options` cannot set is left out: the build's stylesheets and scripts, development styles, the query entries a loader seeds with `.WithQuery`, metadata from C#, an antiforgery token, the locale, draft mode, the base path and the image optimiser's settings.
+
+It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. A boundary file renders inside the layouts down to its own folder, as the server renders it in place of a page in or below that folder, but with a `null` route in the payload, and a section's own `forbidden` or `unauthorized` file inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization. It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map, the app's folder and the query shell, also when `modules` is given ([the document](../guides/testing.md#the-document)).
+
+#### `inlineScriptHashes`
+
+```ts
+function inlineScriptHashes(html: string): Promise<string[]>;
+```
+
+The hash-sources of the inline scripts in `html` that a browser runs and checks against a Content-Security-Policy's script sources, each `'sha256-…'` in its quotes, as a policy lists them and as `CSP_SCRIPT_HASHES` holds Netjes's: one per script element without `src` that has text and no type, a JavaScript type, `module`, `importmap` or `speculationrules`, hashed as a browser hashes it, from its text with each line break as LF. Each hash is listed once, in the order of the first script with it. Data blocks, such as the page payload (`type="application/json"`), and classic scripts with `nomodule` are left out. It runs in any environment. It sees only the scripts in `html`: a document from `renderDocument` is a crawler's, without the scripts React streams to reveal a Suspense boundary for a visitor, and the inline code of an `afterInteractive` or `lazyOnload` `<Script>`, which `<Script>` adds in the browser, is in no document; a `beforeInteractive` one's is ([the document](../guides/testing.md#the-document)).
 
 ## `netjes/testing/setup`
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
+
+The plugin also adds a setup file of its own to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. It is not an entry point of the package. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](../guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 
@@ -643,13 +717,17 @@ These are exported for the plugin and the .NET app; app code does not import the
 
 | Import | What it is |
 |---|---|
-| `netjes/client-entry` | The browser entry the plugin builds: it reads the page payload, hydrates the document (or renders it, when no sidecar was ready to render it on the server) and receives streamed deferred values. |
-| `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. |
+| `netjes/client-entry` | The browser entry the plugin builds: before anything else it turns zod's compiled parsers off ([zod in the browser](../guides/security.md#zod-in-the-browser)), then it reads the page payload, runs the external scripts of a page with a `beforeInteractive` [`<Script>`](#script) (once the shell is parsed, before the page's modules), hydrates the document (or renders it, when no sidecar was ready to render it on the server), receives streamed deferred values, and starts the client router, which marks `<html>` with `data-netjes-hydrated` (below). |
+| `netjes/server-entry` | The server entry: `render` and `renderToStream`, which the sidecar calls with a page payload. The payload's format is internal and can change in any version; a test renders a page's document with [`renderDocument`](#renderdocument) instead. |
 | `netjes/sidecar` | The Node sidecar, `sidecar/server.mjs`, which the .NET app starts and supervises. |
+
+The entry is internal, but the mark is public. The client router puts `data-netjes-hydrated`, with an empty value, on `<html>` once it runs in the document: after React has hydrated the page (the content of its Suspense boundaries can follow), or rendered it when no sidecar was ready, and after the router has registered as the page's action client. It is the sign end-to-end tests wait for before they click ([testing](../guides/testing.md#wait-for-hydration)). The server never renders it, a client navigation keeps it, and the router takes it off if it unmounts. The name is reserved: an app does not set, change or remove it, and a stylesheet or a DOM snapshot that reads `<html>`'s attributes in the browser sees it.
+
+The route announcer is public in the same way. After a client navigation to another path or query, the router puts the new page's name (its title, else its first `h1`, else its path), when that name differs from the previous page's, in a visually hidden live region, `<div aria-live="polite" aria-atomic="true" data-netjes-route-announcer="">`, which it renders after the app's content, in the browser only, once the page has hydrated, so the server's HTML does not contain it. It has no role, so `getByRole('status')` does not find it; an end-to-end test finds it by its attribute ([Focus and announcements](../guides/routing.md#focus-and-announcements)). The attribute is reserved, and a test that reads the text of a whole container, such as `body`, gets the region's text too.
 
 ## The generated module
 
-`generated/netjes.ts` is written from the app's C# types and page files by the app in Development and by `netjes generate` ([Generated types](../guides/data-loading.md#generated-types)). Next to a zod schema and a type per C# type, it exports:
+`generated/netjes.ts` is written from the app's C# types and page files by the app when it starts in development mode (`TypesFile`) and by `netjes generate` ([Generated types](../guides/data-loading.md#generated-types)). Next to a zod schema and a type per C# type, it exports:
 
 | Export | What it is |
 |---|---|
@@ -657,12 +735,14 @@ These are exported for the plugin and the .NET app; app code does not import the
 | `layouts` | Each layout loader's props schema by folder, for `defineLayout`. Only when the app has layout loaders. |
 | `sharedProps` | The shared props schema, for `useSharedProps`; `z.unknown()` without `UseSharedProps<T>`. |
 | `api` | `{ request?, response? }` schemas of each JSON minimal API, keyed `'GET /api/...'`. |
+| `endpointUrl(key, params?, search?)` | The URL of one of the app's endpoints, values encoded, without the base path (pass it through [`useHref`](#usehref)). `key` is the method and route as in `api`: a JSON endpoint of the app has one for each of its methods except `HEAD`, any other endpoint one for `GET`, if it answers `GET` ([Endpoint URLs](../guides/data-loading.md#endpoint-urls)). Pages, page actions, server actions, endpoints that name no HTTP method (`app.Map`, `MapHealthChecks`), fallbacks, static assets, MVC conventional routes and Netjes's own endpoints have none; `MapSitemap` and `MapRobotsTxt` have keys. `search` adds query values the endpoint does not bind. |
+| `EndpointParams`, `EndpointKey` | The route values and the query values each endpoint binds, typed from its C# handler, and its keys as a type. |
 | `forms` | The `[FromForm]` schema of each page action, by pattern. |
 | `serverActions` | A typed `ServerAction` per `MapAction`, by name. Only when the app has server actions. |
-| `route(pattern, params?, search?)` | The URL of a page, values encoded, typed by pattern. |
+| `route(pattern, params?, search?, options?)` | The URL of a page, values encoded, typed by pattern. `options` is `{ hash }`, where `hash` is the id of an element on the page, added as a `#fragment`; pass `undefined` as `search` to give `options` without a query. |
 | `Route` | The URLs the pages serve, as template literal types. |
-| `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`. |
-| `isHref(value)` | Whether a string is an `Href`. |
+| `Href` | `Route` with a query or fragment, `?…`, `#…`, and `http(s):`, `mailto:` and `tel:` URLs; also a zod schema of the same name, for `Href.parse(value)`, which the schemas use for each C# `Netjes.Href` property ([Links from C#](../guides/data-loading.md#links-from-c)). The file declares the schema, with `isHref` and `routePatterns`, right after its imports, before the schemas that use it. |
+| `isHref(value)` | Whether a string is an `Href`, by the rules of [`isRouteHref`](#isroutehref). |
 | `RouteParams`, `RoutePattern`, `routePatterns` | The parameters per pattern, the patterns as a type, and as an array. |
 
 TanStack Query's hooks (`useQuery`, `useMutation`, `useQueryClient` and the rest) come straight from `@tanstack/react-query`; Netjes provides the client ([Server state](../guides/data-loading.md#server-state-with-tanstack-query)).

@@ -42,7 +42,9 @@ crit: Netjes.Rendering.ViteManifestProvider[0]
       No production build found at '/app/dist/client/.vite/manifest.json'. To develop, run `npm run dev`, or start the app with ASPNETCORE_ENVIRONMENT=Development. To run in production, build first: `npm run build` in '/app'.
 ```
 
-For Node.js the line is `Could not start 'node'. Is Node.js installed and on the PATH? Set Netjes:NodeExecutable to use another executable.`, and for a build without the sidecar script `` Cannot find the netjes sidecar at '/app/dist/server/netjes-sidecar.mjs'. Run `npm run build` in '/app'. ``. A container runtime or process manager sees exit code 1, as for any app that fails to start. In a test host such as `WebApplicationFactory`, the start fails with that message instead ([testing](testing.md#the-app-over-http)).
+For Node.js the line is `Could not start 'node'. Is Node.js installed and on the PATH? Set Netjes:NodeExecutable to use another executable.`, and for a build without the sidecar script `` Cannot find the netjes sidecar at '/app/dist/server/netjes-sidecar.mjs'. Run `npm run build` in '/app'. ``. A container runtime or process manager sees exit code 1 for these failures. In a test host such as `WebApplicationFactory`, the start fails with that message instead ([testing](testing.md#the-app-over-http)).
+
+Exit code 1 is for these failures only, and in Development for a Vite dev server that does not start ([the sidecar pool](rendering-and-streaming.md#the-sidecar-pool)). An exception that nothing catches, such as one thrown from `Program.cs` or on a thread the app starts itself, ends the app as .NET ends any process that crashes: it prints the exception with its stack and aborts, which is exit code 134 (SIGABRT) on Linux and macOS. That includes Netjes's other startup checks, such as page files in a `pages/` folder or two pages that match the same URLs: `UseNetjes()` and `MapPages()` throw their exception into `Program.cs`. `Environment.FailFast` and a stack overflow end it the same way. A request's exceptions do not end it: ASP.NET Core catches them, and Netjes renders a page's as its [error page](rendering-and-streaming.md#error-pages). The host catches one from a `BackgroundService`, logs it and stops the app with exit code 0. In a container, the abort ends the process only under an init; see [a crash in a container](#a-crash-in-a-container).
 
 ## Docker
 
@@ -50,8 +52,10 @@ Every app made with `netjes new` has a `Dockerfile` and three Compose files. An 
 
 ```bash
 docker compose up                                                     # development: dotnet watch + Vite HMR on http://localhost:8080
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image, on port 8080
 ```
+
+Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way, and Vite's port, 5173, does not move.
 
 The `Dockerfile` has these stages:
 
@@ -61,15 +65,24 @@ The `Dockerfile` has these stages:
 | `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. |
 | `client` | `npm run build`: `dist/client` and `dist/server`. |
 | `build` | `dotnet publish` with `-p:NetjesSkipClientBuild=true`, taking `dist/` from `client`. |
-| `production` | The ASP.NET Core runtime image plus the `node` binary, the published app, running as the non-root `app` user, with a `HEALTHCHECK` on `/healthz`. |
+| `tini` | Ubuntu's `tini` package, installed in the SDK image, for the static binary that `production` copies. |
+| `production` | The ASP.NET Core runtime image plus the `node` and `tini` binaries and the published app. tini starts the app (`tini -s -- dotnet MyApp.dll`, see [below](#a-crash-in-a-container)) as the non-root `app` user, and a `HEALTHCHECK` checks `/healthz`. |
 
 The Compose files:
 
 - `docker-compose.yml` defines the `app` service from the `production` stage, with `pull_policy: build`, so `up -d` always builds and never reuses a stale or development image.
-- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes ports 8080 and 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
-- `docker-compose.prod.yml` publishes port 8080 and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
+- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes the app's port (8080, or `APP_PORT`) and Vite's 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
+- `docker-compose.prod.yml` publishes the app on port 8080, or `APP_PORT`, and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
 
 ASP.NET Core logs a warning at startup that those keys are not encrypted at rest. Encrypt them with one of the `ProtectKeysWith...` methods (a certificate, Azure Key Vault) if that matters where you run.
+
+### A crash in a container
+
+The production image starts the app with `tini -s -- dotnet MyApp.dll`. tini is the container's first process, PID 1, and the app runs as its child. tini passes the signals it gets on to the app, so `docker stop` stops the app at once; it reaps processes left without a parent; and it exits with the app's exit code, or 128 plus the number of the signal that ended the app. A crash then ends the container with code 134, and `restart: always` starts it again.
+
+Without an init, .NET is the container's PID 1, and the kernel ignores a signal that a container's PID 1 has no handler for. A crash, from an exception that nothing catches, `Environment.FailFast` or a stack overflow, makes .NET abort the process with SIGABRT, which then does not end it. On arm64 the thread that crashed spins at 100% of a CPU and the process never exits, so the container stays up and no restart policy acts. After a crash at startup the container is unhealthy, but after a later one, such as on a thread of the app's own, the rest of the app keeps serving and its health check still passes. On x86-64 under emulation, the process has been seen to end after a few seconds, with code 139 instead of 134. The startup failures that exit with code 1 ([What the server needs](#what-the-server-needs)) end the process with or without an init; Netjes's other startup checks end it as any crash does, so they need the init too.
+
+So any image that runs a Netjes app needs an init as PID 1. In an image of your own, or one made from an earlier template, copy the `tini` stage, its `COPY` into the production stage and the `ENTRYPOINT` from the template's `Dockerfile`. Or have the host start an init: `docker run --init`, `init: true` on a Compose service, or `initProcessEnabled` in the `linuxParameters` of an Amazon ECS container definition. A host's init covers only the containers it starts that way; `docker run` without `--init`, Kubernetes and most other hosts run the image's entry point as PID 1. tini in the image also runs under a host's init: `-s` makes it reap the app's orphaned processes there too, without warning that it is not PID 1.
 
 ## Configuration
 
@@ -151,7 +164,7 @@ A visitor whose browser runs the old build and whose navigation reaches a new in
 
 ### Size and hosts
 
-A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts` and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
+A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts`, name the query keys each cached page reads with `.CacheQueryKeys(...)`, so other query strings add no entries ([caching](caching.md#query-strings-a-page-does-not-read)), and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
 
 ## Health checks
 
@@ -166,10 +179,12 @@ app.MapHealthChecks("/healthz");
 | Status | When | `/healthz` answers |
 |---|---|---|
 | Healthy | Every process is ready. | 200 |
-| Degraded | Some processes are restarting; the others take the renders. | 200 |
+| Degraded | Some processes are restarting, after they exited or stopped answering; the others take the renders. | 200 |
 | Unhealthy | None is ready: starting, or all restarting. Documents are then [rendered in the browser](rendering-and-streaming.md#when-no-sidecar-is-ready). | 503 |
 
 The status codes are ASP.NET Core's defaults for `MapHealthChecks`. The template's `Dockerfile` and `docker-compose.yml` use `/healthz` for Docker's health check.
+
+The app restarts its own Node processes: one that exits, and in production one that stops answering without exiting. Netjes pings a process that has answered no render for 5 seconds, and kills and restarts one that gives no answer within `RenderTimeout` (15 seconds by default, never less than 5); the check reports it as restarting from the moment it is taken out ([rendering](rendering-and-streaming.md#restarts)). So a restart policy that acts when the app's own process exits, as the template's `restart: always` does, is all the host needs; a probe of `/healthz` tells a load balancer which instances render on the server right now.
 
 ## Telemetry
 
@@ -210,18 +225,21 @@ Netjes logs through `ILogger`, under these categories:
 
 | Category | What it logs |
 |---|---|
-| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back. |
+| `Netjes.Sidecar.NodeSidecar` | The Node processes: their output (stdout as information, stderr as warnings, without terminal colour codes), exits with their last lines, restarts, processes taken out and back, and processes killed because they stopped answering (errors). In production also a warning when a sidecar script of the app's own (`Netjes:SidecarScript`) exits while a health ping waits for its answer, and an error when watching a process for answers fails, after which that process is no longer pinged. |
 | `Netjes.Sidecar.NodeSidecarHostedService` | Why the app could not start its Node processes, or in development the Vite dev server: one critical entry, after which the app exits with code 1. |
 | `Netjes.Rendering.ViteManifestProvider` | That the app started in Production without a build: one critical entry, after which it exits with code 1. |
-| `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order). |
+| `Netjes.Rendering.PageRenderer` | Documents sent for the browser to render, deferred values that could not be delivered, output-cached pages that cannot be stored (a nonce, an endpoint that is not keyed, the middleware order), Content-Security-Policies that refuse what documents need (once per policy; see [security](security.md#what-netjes-checks)). |
 | `Netjes.Rendering.PageErrorMiddleware` | Exceptions while serving a page (errors) and bad requests (warnings). |
 | `Netjes.Rendering.CachePaths` | Output-cached renders that read a request cookie. |
+| `Netjes.Rendering.PageCachePolicy` | Development: once, at Information, that pages are not output-cached there. |
 | `Netjes.Deferred` | `Page.Defer` values that failed or could not be serialized. |
 | `Netjes.ServerActions` | Server action calls that failed (errors) or were refused (warnings). |
+| `Netjes.Sitemap` | At debug level, that `/sitemap.xml` answered 404 because the base path is longer than its URLs may carry ([sitemap and robots](metadata.md#sitemap-and-robots)). |
 | `Netjes.Routing.RouteDiagnostics` | [Route warnings](routing.md) at startup. |
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
-| `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
-| `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, and why a page could not be exported. |
+| `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in development mode, and the `generate` and `routes` commands. |
+| `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, why a page or an endpoint marked `.IncludeInExport()` could not be exported, and warnings about a `sitemap.xml` or `robots.txt` written for a loopback site URL ([static export](static-export.md#sitemap-and-robotstxt)). |
+| `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages, and endpoints marked `.IncludeInExport()`, that read the query string, which the export never sends ([static export](static-export.md#loaders-that-read-the-query-string)). |
 
 Set their levels as for any category:
 

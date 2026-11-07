@@ -47,6 +47,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             return;
         }
 
+        // GET only, not HEAD: a HEAD would mint the token and its cookie, and the answer would carry no token.
         endpoints.MapGet("/_netjes/antiforgery", (HttpContext http, IAntiforgery antiforgery) =>
             {
                 var tokens = antiforgery.GetAndStoreTokens(http);
@@ -55,6 +56,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             })
             .CacheOutput(policy => policy.NoCache())
             .WithDisplayName("Netjes antiforgery token")
+            .WithMetadata(NetjesEndpointMetadata.Instance)
             .ExcludeFromDescription();
     }
 
@@ -82,8 +84,9 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         return endpoints
             .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
             .WithLayoutConventions(endpoints, route)
+            .AddEndpointFilter(EndAborted)
             .AddEndpointFilter(Traced("netjes.loader", route.Pattern))
-            .WithMetadata(EndpointMetadataFor(route.Pattern, loader))
+            .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
             .ExcludeFromDescription();
     }
@@ -110,7 +113,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
             .AddEndpointFilter(Traced("netjes.action", route.Pattern))
-            .WithMetadata(EndpointMetadataFor(route.Pattern, action))
+            .WithMetadata(EndpointMetadataFor(route.Pattern, action, isLoader: false))
             .WithMetadata(new PageActionMetadata(route.Pattern), new ActionFormFields(action.Method), new RequireAntiforgeryTokenAttribute())
             .AddEndpointFilter(RejectCrossSitePosts)
             .AddEndpointFilter(RejectInvalidAntiforgeryToken)
@@ -185,6 +188,23 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         return builder;
     }
 
+    /// <summary>
+    /// A loader that stopped because its visitor left ends that request alone, as a render does
+    /// (<see cref="PageRenderer.EndAborted"/>). Outside <see cref="Traced"/>, whose span still records the cancellation.
+    /// </summary>
+    private static async ValueTask<object?> EndAborted(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        try
+        {
+            return await next(context);
+        }
+        catch (OperationCanceledException ex) when (context.HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            context.HttpContext.RequestServices.GetRequiredService<PageRenderer>().EndAborted(context.HttpContext, ex);
+            return Results.Empty;
+        }
+    }
+
     /// <summary>A span around the loader or action delegate (see <see cref="NetjesTelemetry"/>).</summary>
     private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string route) =>
         async (context, next) =>
@@ -247,13 +267,57 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <c>.RevalidatePath(path)</c>, other code with <see cref="IPageCache"/>. Requires <c>AddOutputCache()</c> and
     /// <c>UseOutputCache()</c>. Cached pages carry no antiforgery token. Draft mode bypasses the cache. How entries are
     /// keyed is the same under any output caching of a page (<c>CacheOutput</c> too); on an endpoint that is no page
-    /// (a minimal API returning <c>Page.Render</c>), only with <c>CachePage</c>.
+    /// (a minimal API returning <c>Page.Render</c>), only with <c>CachePage</c>. Entries are keyed on the query string
+    /// as sent; <see cref="CacheQueryKeys{TBuilder}"/> keeps query strings the page does not read out of the cache. In
+    /// the Development environment nothing is stored: each request renders the page, which goes out
+    /// <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c>. Each endpoint it is put on
+    /// carries a <see cref="CachedPageMetadata"/> with <paramref name="duration"/> and a copy of
+    /// <paramref name="tags"/>, the copy the cache entries are tagged with, so changing the array after the call changes
+    /// neither.
     /// </summary>
     public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags)
-        where TBuilder : IEndpointConventionBuilder =>
-        builder
-            .CacheOutput(policy => policy.Expire(duration).Tag(tags))
-            .WithMetadata(new OmitAntiforgeryTokenMetadata(), new CachedPageMetadata());
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+
+        // The policy reads the array it is given on every request, so it gets a copy: the page stays tagged as its
+        // metadata says when the caller changes its array afterwards.
+        string[] copy = [.. tags];
+        return builder
+            .CacheOutput(policy => policy.Expire(duration).Tag(copy))
+            .WithMetadata(new OmitAntiforgeryTokenMetadata(), new CachedPageMetadata(duration, copy));
+    }
+
+    /// <summary>
+    /// Names the query keys a cached page reads, so that other query strings, such as a tracking link's, add no entries
+    /// to the output cache. A request is cached as usual, keyed on its query string as sent, when it has no query string
+    /// or when every segment of that query string names one of <paramref name="keys"/>, compared without regard to case.
+    /// Any other query string, one with another key, an empty segment (<c>?</c>, <c>?page=2&amp;</c>) or a segment
+    /// without a name (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored
+    /// in it. The page rendered for it goes out <c>Cache-Control: no-store, private</c> unless it sets its own
+    /// <c>Cache-Control</c> (or gets antiforgery's, on a visitor's first page under a policy other than
+    /// <c>CachePage</c>), and its payload keeps the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules apply: on
+    /// a page under any output caching, and on an endpoint <c>CachePage</c> is put on. It does not make a page cached, and
+    /// elsewhere it does nothing, so a route group can mix pages and APIs: an endpoint outside the page rules narrows its
+    /// key with <c>SetVaryByQuery</c>. Of two calls on one endpoint, the last decides. On a layout loader it applies to
+    /// each page below the layout, unless a later call replaces it there: the page's own, or, for a page without a
+    /// loader, one on <c>MapPages()</c>.
+    /// </summary>
+    /// <param name="builder">The endpoint or group the convention is put on.</param>
+    /// <param name="keys">The names the page reads from the query string, decoded, as a loader or component reads them.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="keys"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="keys"/> holds a <c>null</c> or empty key.</exception>
+    public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        if (keys.Any(string.IsNullOrEmpty))
+        {
+            throw new ArgumentException("A query key cannot be null or empty.", nameof(keys));
+        }
+
+        return builder.WithMetadata(new CacheQueryKeysMetadata(new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase)));
+    }
 
     /// <summary>
     /// Maps a server action, the counterpart of a Next.js <c>'use server'</c> function: a POST endpoint at
@@ -414,9 +478,12 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static readonly System.Reflection.FieldInfo? GroupOuter =
         typeof(RouteGroupBuilder).GetField("_outerEndpointRouteBuilder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
-    // The page marker, and the props type the loader's inferred return type names (for the type generator).
-    private static object[] EndpointMetadataFor(string pattern, Delegate handler) =>
-        PagePropsMetadata.For(handler) is { } props ? [new PageEndpointMetadata(pattern), props] : [new PageEndpointMetadata(pattern)];
+    // Netjes's page marker, the page an app reads, and the props type the loader's inferred return type names (for the
+    // type generator).
+    private static object[] EndpointMetadataFor(string pattern, Delegate handler, bool isLoader) =>
+        PagePropsMetadata.For(handler) is { } props
+            ? [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader), props]
+            : [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader)];
 
     private static PageRoute RequireRoute(IEndpointRouteBuilder endpoints, string pattern)
     {

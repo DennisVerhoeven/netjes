@@ -76,16 +76,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run docs:check
 
-      # Netjes.Tests, Blog.Tests and TaskBoard.Tests. TaskBoard's tests run Postgres in Docker (Testcontainers), and
-      # SidecarCrashTests finds the sidecar with pgrep; the runner has both.
+      # Netjes.Tests, Blog.Tests and TaskBoard.Tests. TaskBoard's tests run Postgres in Docker (Testcontainers),
+      # Netjes.Tests builds the template's and the examples' production images, and SidecarCrashTests finds the sidecar
+      # with pgrep; the runner has Docker and pgrep.
       - name: .NET tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test Netjes.slnx -c Release
 
-  # The build-and-test job on macOS and Windows, without what needs Linux. The TaskBoard tests that start Postgres in
-  # Docker (Category=Docker) are left out: GitHub's macOS runners have no Docker, and its Windows runners run Windows
-  # containers only. The end-to-end suites (TaskBoard's needs Docker too), the package check (a bash script built on
-  # Linux tools) and the benchmark harness run in the Linux jobs only.
+  # The build-and-test job on macOS and Windows, without what needs Linux. The tests that need Docker (Category=Docker:
+  # TaskBoard's tests that start Postgres, and the image tests) are left out: GitHub's macOS runners have no Docker, and
+  # its Windows runners run Windows containers only. The end-to-end suites (TaskBoard's needs Docker too), the package
+  # check (a bash script built on Linux tools) and the benchmark harness run in the Linux jobs only.
   build-and-test-os:
     name: build-and-test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -217,5 +218,12 @@ jobs:
         with:
           nuget-cache: 'off'
 
-      - name: Pack, scaffold, test, publish and serve a new app
+      # The new app's Playwright version follows the template's range; a version the cache does not hold is downloaded.
+      - name: Cache Playwright's browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-template-${{ hashFiles('packages/netjes/template/package.json') }}-chromium
+
+      - name: Pack, scaffold, test, publish and serve a new app, and run its Playwright suite
         run: scripts/check-packages.sh

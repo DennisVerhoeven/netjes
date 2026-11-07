@@ -58,8 +58,9 @@ const CSHARP_KEYWORDS = new Set(
     'unsafe ushort using virtual void volatile while').split(' '),
 );
 
-// Types the template's C# uses by their simple names. A root namespace of the same name hides the type from that code,
-// and the build fails (CS0118, CS0234); Program is the class the top-level statements in Program.cs make (CS0101).
+// Types the template's C# uses by their simple names, in the app and in its test project, whose namespace starts with
+// the app's name. A root namespace of the same name hides the type from that code, and the build fails (CS0118, CS0234);
+// Program is the class the top-level statements in Program.cs make (CS0101).
 const TEMPLATE_TYPES = new Set([
   'Program',
   'SiteProps',
@@ -71,6 +72,17 @@ const TEMPLATE_TYPES = new Set([
   'TimeProvider',
   'IEndpointRouteBuilder',
   'FromFormAttribute',
+  'IWebHostBuilder',
+  'NetjesOptions',
+  'ISsrRenderer',
+  'Task',
+  'CancellationToken',
+  'NetjesHeaders',
+  'JsonNode',
+  'TestContext',
+  'Assert',
+  'FormUrlEncodedContent',
+  'HttpStatusCode',
 ]);
 
 /**
@@ -95,7 +107,7 @@ export async function namesFor(target, name) {
   }
   const names = name === undefined ? projectNames(path.basename(target)) : { ...projectNames(name), dotnet: name };
   if (TEMPLATE_TYPES.has(names.dotnet)) {
-    return { problem: `'${names.dotnet}' is the name of a type the app's code uses; choose another name with --name` };
+    return { problem: `'${names.dotnet}' is the name of a type the app's code or its test project uses; choose another name with --name` };
   }
   const manifest = JSON.parse(await readFile(path.join(TEMPLATE, 'package.json'), 'utf8'));
   if (Object.hasOwn({ ...manifest.dependencies, ...manifest.devDependencies }, names.npm)) {
@@ -123,6 +135,21 @@ export async function packageVersion() {
  */
 export function fillNames(text, names) {
   return text.replaceAll('__NAME__', names.dotnet).replaceAll('__name__', names.npm).replaceAll('__TITLE__', names.title);
+}
+
+/**
+ * Keeps or drops the parts of a template file that apply only to some apps, and removes the markers around them, each
+ * on a line of its own: what is between `<!--netjes:if name-->` and `<!--netjes:else-->` or `<!--netjes:end-->` stays
+ * when the app has `name`, and what is between `<!--netjes:else-->` and `<!--netjes:end-->` stays when it does not.
+ * @param {string} text
+ * @param {{ tests: boolean; e2e: boolean }} has what the app has: a C# test project, a Playwright suite
+ */
+export function keepSections(text, has) {
+  return text.replace(
+    /^<!--netjes:if (tests|e2e)-->\n([\s\S]*?)(?:^<!--netjes:else-->\n([\s\S]*?))?^<!--netjes:end-->\n/gm,
+    (_, /** @type {'tests' | 'e2e'} */ name, /** @type {string} */ kept, /** @type {string | undefined} */ otherwise) =>
+      has[name] ? kept : (otherwise ?? ''),
+  );
 }
 
 /** @param {string} file a path in the template @returns {Promise<string>} */
@@ -165,7 +192,7 @@ export async function scaffold(target, options = {}) {
       const source = path.join(from, entry);
       const destination = path.join(to, fill(RENAMED.get(entry) ?? entry));
       if ((await stat(source)).isDirectory()) await copy(source, destination);
-      else await writeFile(destination, fill(await readFile(source, 'utf8')));
+      else await writeFile(destination, fill(keepSections(await readFile(source, 'utf8'), { tests: true, e2e: true })));
     }
   }
 

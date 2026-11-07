@@ -1,8 +1,8 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type APIRequestContext, expect, test } from '@playwright/test';
-import { isMarked, markWindow, watchForErrors } from './helpers.ts';
+import { type APIRequestContext, type Route, expect, test } from '@playwright/test';
+import { isMarked, markWindow, watchForErrors, watchForViolations } from './helpers.ts';
 
 test.describe('server rendering', () => {
   test.use({ javaScriptEnabled: false });
@@ -103,6 +103,30 @@ test.describe('in the browser', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a script that sets attributes on <html> and <body> before hydration logs no hydration error', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'development', 'React checks attributes in its development build only');
+    const errors = watchForErrors(page);
+    // As a theme script or a browser extension would: write to each element as soon as the parser has made it. An init
+    // script runs before the document has any element, so it waits for them.
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        document.documentElement?.setAttribute('data-theme', 'dark');
+        if (document.body) {
+          document.body.setAttribute('data-gr-ext-installed', '');
+          observer.disconnect();
+        }
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    });
+
+    await page.goto('/');
+    await markWindow(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveAttribute('data-gr-ext-installed', '');
+    expect(errors).toEqual([]);
+  });
+
   test('a nonce-based Content-Security-Policy allows exactly the scripts Netjes rendered', async ({ page }) => {
     const errors = watchForErrors(page);
     const response = await page.goto('/blog/react-pages-on-dotnet');
@@ -127,7 +151,8 @@ test.describe('in the browser', () => {
     await page.getByRole('link', { name: '← All posts' }).click();
     await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
     expect(await isMarked(page)).toBe(true);
-    expect(errors.filter((e) => !e.includes('Content Security Policy'))).toEqual([]);
+    // Chromium logs an error for the handler the test injected; nothing else may be logged.
+    expect(errors.filter((e) => !/\binline event handler\b/.test(e))).toEqual([]);
   });
 
   test('Core Web Vitals are reported to the server', async ({ page }) => {
@@ -179,7 +204,8 @@ test.describe('in the browser', () => {
 
   test('the like button calls a server action and keeps the count in TanStack Query', async ({ page }) => {
     const errors = watchForErrors(page);
-    // The page is output-cached, so the count it was rendered with can be behind; the client refetches it.
+    // LikeButton refetches the count once the page is interactive. Wait for that, so a refetch answered before the like
+    // cannot arrive after it and put the old count back.
     const refetched = page.waitForResponse((response) => response.url().endsWith('/api/posts/forms-that-work-without-javascript/likes'));
     await page.goto('/blog/forms-that-work-without-javascript');
     await markWindow(page);
@@ -355,6 +381,7 @@ test.describe('a page whose module does not load', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'About' })).toBeVisible();
     // The router never started: its links are plain links, which the browser loads in full.
     expect(await page.evaluate(() => window.history.state)).toBeNull();
+    expect(await page.locator('html').getAttribute('data-netjes-hydrated')).toBeNull();
     await page.evaluate(() => {
       (window as unknown as Record<string, unknown>).__beforeTheLink = true;
     });
@@ -440,5 +467,271 @@ test.describe('development only', () => {
     } finally {
       await rm(path.join(app, 'test-results'), { recursive: true, force: true });
     }
+  });
+});
+
+test.describe('output caching', () => {
+  test('a cached post is rendered for every request in development, and stored in production', async ({ request }, testInfo) => {
+    // A client navigation's payload: the Blog's documents carry a CSP nonce, so they are never stored.
+    const url = '/blog/forms-that-work-without-javascript';
+    const first = await request.get(url, { headers: { 'X-Netjes-Data': '1' } });
+    const second = await request.get(url, { headers: { 'X-Netjes-Data': '1' } });
+
+    expect(first.status()).toBe(200);
+    expect(second.status()).toBe(200);
+    if (testInfo.project.name === 'development') {
+      // The code behind the page can change between any two requests there.
+      for (const response of [first, second]) {
+        expect(response.headers()['age']).toBeUndefined();
+        expect(response.headers()['cache-control']).toBe('no-store, private');
+      }
+    } else {
+      // The first answer is stored and the second comes from the output cache. When an earlier request stored the post
+      // already, the first comes from the cache, and the entry (30 seconds) can expire before the second.
+      expect(second.headers()['age'] ?? first.headers()['age']).toBeDefined();
+    }
+  });
+
+  test("a post's documents render on every request under the nonce CSP, while its client payloads come from the output cache", async ({ request }, testInfo) => {
+    test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
+    // No query string: the post's `.CacheQueryKeys()` lists no key, so a request with any query string is never stored.
+    const url = '/blog/file-based-routing';
+
+    // A stored document would hand every visitor the same nonce, so a document that carries one is rendered each time.
+    const documents = [await request.get(url), await request.get(url)];
+    for (const response of documents) {
+      expect(response.status()).toBe(200);
+      expect(response.headers()['cache-control']).toBe('no-store, private');
+      expect(response.headers()['age']).toBeUndefined();
+    }
+    const [firstNonce, secondNonce] = documents.map((response) => /'nonce-([^']+)'/.exec(response.headers()['content-security-policy'] ?? '')?.[1]);
+    expect(firstNonce).toBeTruthy();
+    expect(secondNonce).toBeTruthy();
+    expect(secondNonce).not.toBe(firstNonce);
+
+    // A client navigation's payload carries no nonce: the first is rendered and stored, the second is that copy. On a
+    // retry the first can be a copy too, of what the failed attempt stored, so only the second is asked about its age.
+    // That entry (30 seconds) can expire between the two: the second then rendered and stored a new one, which the next
+    // request is served.
+    const headers = { 'X-Netjes-Data': '1' };
+    let first = await request.get(url, { headers });
+    let second = await request.get(url, { headers });
+    if (first.headers()['age'] !== undefined && second.headers()['age'] === undefined) {
+      first = second;
+      second = await request.get(url, { headers });
+    }
+    for (const response of [first, second]) {
+      expect(response.status()).toBe(200);
+      expect(response.headers()['cache-control']).toBeUndefined();
+    }
+    expect(second.headers()['age']).toBeDefined();
+    expect(await second.text()).toBe(await first.text());
+  });
+
+  test('a post with a query string it does not read is rendered for each request and stored nowhere', async ({ request }, testInfo) => {
+    test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
+    // Another key, and empty segments, which the query parser drops but which make another query string.
+    for (const query of ['?utm_source=e2e', '?&&']) {
+      const url = `/blog/file-based-routing${query}`;
+      const payloadThenDocument: Record<string, string>[] = [{ 'X-Netjes-Data': '1' }, {}];
+      for (const headers of payloadThenDocument) {
+        const first = await request.get(url, { headers });
+        const second = await request.get(url, { headers });
+        for (const response of [first, second]) {
+          expect(response.status()).toBe(200);
+          expect(response.headers()['cache-control']).toBe('no-store, private');
+          expect(response.headers()['age']).toBeUndefined();
+        }
+      }
+
+      // The payload, the first line of what the deferred values follow, keeps the URL as sent: the client shows it.
+      const payload = await (await request.get(url, { headers: { 'X-Netjes-Data': '1' } })).text();
+      expect(JSON.parse(payload.split('\n', 1)[0]!).url).toBe(url);
+    }
+  });
+});
+
+test.describe('the hydrated mark', () => {
+  test('marks <html> as hydrated in every document, a reload included', async ({ page }) => {
+    const html = page.locator('html');
+    await page.goto('/');
+    await expect(html).toHaveAttribute('data-netjes-hydrated', '');
+
+    // Holds back every script the next document requests: its inline scripts still run, but the client entry, and with
+    // it the router, waits until the test lets it.
+    let holding = true;
+    const held: Route[] = [];
+    await page.route('**/*', (route) => {
+      if (holding && route.request().resourceType() === 'script') held.push(route);
+      else return route.continue();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    await page.waitForFunction(() => document.readyState === 'interactive');
+
+    // The whole document is in, and none of the scripts it requests has run. The history entry kept what the router
+    // stored in it before the reload; the new document has no mark yet.
+    expect(held).not.toHaveLength(0);
+    expect(await html.getAttribute('data-netjes-hydrated')).toBeNull();
+
+    holding = false;
+    await Promise.all(held.splice(0).map((route) => route.continue()));
+    await expect(html).toHaveAttribute('data-netjes-hydrated', '');
+    await markWindow(page);
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Blog' }).click();
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    expect(await isMarked(page)).toBe(true);
+  });
+});
+
+test.describe('HEAD requests', () => {
+  test('robots.txt and sitemap.xml answer HEAD as they answer GET', async ({ request }) => {
+    // Crawlers and link checkers ask with HEAD. Kestrel sends the status and headers of a HEAD without the body.
+    for (const url of ['/robots.txt', '/sitemap.xml']) {
+      const get = await request.get(url);
+      const head = await request.head(url);
+
+      expect(head.status(), url).toBe(200);
+      for (const name of ['content-type', 'content-length', 'cache-control']) {
+        expect(head.headers()[name], `${name} of ${url}`).toBe(get.headers()[name]);
+      }
+      expect(get.headers()['content-length'], url).toBeDefined();
+      expect((await head.body()).length, url).toBe(0);
+    }
+  });
+});
+
+test.describe('focus and announcements', () => {
+  test("a client navigation announces the new page's title and starts the focus over at the top of the document", async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/');
+    await markWindow(page);
+    const announcer = page.locator('[data-netjes-route-announcer]');
+    await expect(announcer).toHaveText('');
+
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Blog' }).click();
+
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await expect(announcer).toHaveText('Blog · Netjes Blog');
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+    expect(await isMarked(page)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('the skip link moves the focus to the main content, as without JavaScript', async ({ page, browser }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+    const main = page.getByRole('main');
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    // main takes the focus for as long as it has it.
+    await expect(main).toBeFocused();
+    await expect(main).toHaveAttribute('tabindex', '-1');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: '← All posts' })).toBeFocused();
+    await expect(main).not.toHaveAttribute('tabindex');
+    expect(await isMarked(page)).toBe(true);
+    expect(errors).toEqual([]);
+
+    // The browser's own fragment navigation, without JavaScript, gets the same next Tab.
+    const context = await browser.newContext({ javaScriptEnabled: false, baseURL: test.info().project.use.baseURL });
+    try {
+      const plain = await context.newPage();
+      await plain.goto('/blog/react-pages-on-dotnet');
+      await plain.keyboard.press('Tab');
+      await expect(plain.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+      await plain.keyboard.press('Enter');
+      await plain.keyboard.press('Tab');
+      await expect(plain.getByRole('link', { name: '← All posts' })).toBeFocused();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("Back restores the scroll position, and the router's focus does not move it", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 320 });
+    await page.goto('/blog');
+    await markWindow(page);
+    const last = page.getByRole('article').last().getByRole('heading').getByRole('link');
+    await last.scrollIntoViewIfNeeded();
+    const scrolled = await page.evaluate(() => window.scrollY);
+    expect(scrolled).toBeGreaterThan(0);
+    const title = (await last.textContent()) ?? '';
+
+    await last.click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+    await page.goBack();
+
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await expect(page.locator('[data-netjes-route-announcer]')).toHaveText('Blog · Netjes Blog');
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    expect(await isMarked(page)).toBe(true);
+  });
+});
+
+test.describe('Content-Security-Policy violations', () => {
+  test('no page meets a Content-Security-Policy violation', async ({ page }) => {
+    // The Blog's policy has no 'unsafe-eval'. A violation the page's code catches logs nothing to the console.
+    const violations = await watchForViolations(page);
+    await page.goto('/');
+    await markWindow(page);
+    await page.goto('/blog/react-pages-on-dotnet');
+    await markWindow(page);
+
+    await page.getByRole('link', { name: '← All posts' }).click();
+    await expect(page.getByRole('heading', { name: 'All posts' })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('About');
+
+    expect(await isMarked(page)).toBe(true);
+    expect(violations).toEqual([]);
+  });
+});
+
+test.describe('one URL per page', () => {
+  test("another case of a page's URL lands on the file's spelling, with its nav link current", async ({ page }) => {
+    const response = await page.goto('/ABOUT');
+
+    // The server answered /ABOUT with a permanent redirect to the file's spelling, which the browser followed.
+    await expect(page).toHaveURL(/\/about$/);
+    expect((await response?.request().redirectedFrom()?.response())?.status()).toBe(308);
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+test.describe('beforeInteractive scripts', () => {
+  test("the root layout's beforeInteractive script runs before the page hydrates, under the nonce policy", async ({ page }) => {
+    const errors = watchForErrors(page);
+    // Records whether the router had stored its key in the history entry when the class appeared, which it does as it
+    // hydrates the page. The page is a fresh load, so the entry starts without one.
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        if (!document.documentElement?.classList.contains('js')) return;
+        const state: unknown = history.state;
+        const key = typeof state === 'object' && state !== null ? (state as Record<string, unknown>).__netjes : undefined;
+        (window as unknown as Record<string, unknown>).__routerKeyWhenJs = typeof key;
+        observer.disconnect();
+      });
+      observer.observe(document, { attributes: true, attributeFilter: ['class'], subtree: true });
+    });
+
+    const response = await page.goto('/');
+    await markWindow(page);
+
+    await expect(page.locator('html')).toHaveClass(/(^|\s)js(\s|$)/);
+    expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__routerKeyWhenJs)).toBe('undefined');
+    // Written into the document, with the page's nonce, ahead of the content it comes before.
+    const html = (await response?.text()) ?? '';
+    const script = html.indexOf('<script id="js-enabled" nonce=');
+    expect(script).toBeGreaterThan(-1);
+    expect(script).toBeLessThan(html.indexOf('<main'));
+    expect(errors).toEqual([]);
   });
 });

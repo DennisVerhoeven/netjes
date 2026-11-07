@@ -49,7 +49,8 @@ public partial class ClientRenderFallbackTests
             """.ReplaceLineEndings("\n"));
     }
 
-    private static async Task<TestApp> StartAsync(
+    /// <summary>An app in Production whose sidecar has exited, so every document is the shell .NET writes itself.</summary>
+    internal static async Task<TestApp> StartAsync(
         Action<WebApplication>? map = null,
         Action<NetjesOptions>? configure = null,
         Action<IServiceCollection>? services = null,
@@ -590,7 +591,7 @@ public partial class ClientRenderFallbackTests
         // Each value as JSON.parse reads it. Values that are done when the loop looks go in the order they were deferred,
         // so the slow one can come before the failed one.
         Assert.Equal(
-            [("d0", "42", null), ("d1", "</script><b>&", null), ("d2", null, "Something went wrong")],
+            [("d0", "42", null), ("d1", "</script><b>&", null), ("d2", null, "")],
             ValuesIn(html)
                 .Select(v => (v.Id, v.Json is null ? null : JsonSerializer.Deserialize<JsonElement>(v.Json).ToString(), v.Error))
                 .OrderBy(v => v.Id, StringComparer.Ordinal));

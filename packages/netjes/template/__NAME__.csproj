@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The SDK compiles everything below this file: the C# tests and the Playwright specs have builds of their own. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>
   </PropertyGroup>
 
 <!--NETJES_REFERENCES-->

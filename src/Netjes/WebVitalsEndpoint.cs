@@ -39,6 +39,7 @@ internal static class WebVitalsEndpoint
             .MapPost(Path, HandleAsync)
             .DisableAntiforgery()
             .WithDisplayName("Netjes web vitals")
+            .WithMetadata(NetjesEndpointMetadata.Instance)
             .ExcludeFromDescription();
 
     private static async Task<IResult> HandleAsync(HttpContext http, IRouteTableProvider routes)

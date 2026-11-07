@@ -6,7 +6,7 @@ This guide is for app developers putting a Netjes app in front of real users. It
 
 | What | Default | Change it with |
 |---|---|---|
-| `X-Content-Type-Options`, `Referrer-Policy`, framing headers on documents | On | `Netjes:SecurityHeaders` |
+| `X-Content-Type-Options` on every response through `UseNetjes()`; `Referrer-Policy` and framing headers on documents | On | `Netjes:SecurityHeaders` |
 | Content-Security-Policy | Off | `NetjesOptions.ContentSecurityPolicy` |
 | Antiforgery token and same-origin check on server actions and page actions | On | `.DisableAntiforgery()` on a page action; `AllowedActionOrigins` |
 | Server action body limit | 1 MB | `ActionBodySizeLimit`, `[RequestSizeLimit]` |
@@ -25,16 +25,34 @@ Every HTML document Netjes renders (pages, not-found and error pages, the plain 
 |---|---|
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `X-Frame-Options` | `SAMEORIGIN`, unless the app decides about framing itself (below) |
-| `Content-Security-Policy` | `frame-ancestors 'self'` added to `NetjesOptions.ContentSecurityPolicy` when you set one, likewise |
+| `X-Frame-Options` | `SAMEORIGIN`, or what the policy's `frame-ancestors` implies (below) |
+| `Content-Security-Policy` | `frame-ancestors 'self'` added to `NetjesOptions.ContentSecurityPolicy` when you set one without `frame-ancestors`, unless the app sent `X-Frame-Options` |
 
-Client payloads (JSON) and static files get none of them.
+Every other response that passes through `UseNetjes()` gets `X-Content-Type-Options: nosniff` too: client payloads (JSON), static files from `public/` and the client build, `robots.txt`, `sitemap.xml`, `/_netjes/antiforgery`, the app's own endpoints, and answers from the output cache. Under a policy such as `script-src 'self'`, any response from the app's origin can be loaded as a script or a stylesheet, and with `nosniff` the browser refuses to run a script whose `Content-Type` is missing or not a JavaScript type, or to apply a stylesheet whose `Content-Type` is missing or not `text/css`. Nor does it take a response with no `Content-Type` for HTML: a page that an endpoint writes itself with `Response.WriteAsync` shows as plain text, and none of its scripts run, unless the endpoint sets `Response.ContentType = "text/html; charset=utf-8"` first. Netjes adds it as the response starts, only when the response does not have it by then, so a value the app sets is kept and an answer from the output cache carries it once. A response that middleware registered before `UseNetjes()` writes itself, without passing the request on, does not get it. These responses get none of the other headers in the table. The image endpoint sends `nosniff` and a sandboxing Content-Security-Policy of its own, whatever `Enabled` says (see [the image endpoint](images.md#the-image-endpoint)).
 
-Framing is the app's own once it sends `X-Frame-Options` itself, or has `frame-ancestors` in the Content-Security-Policy that goes out: its own header, or else `NetjesOptions.ContentSecurityPolicy`. Netjes then adds neither framing header, so nothing contradicts it. Browsers obey `frame-ancestors` over `X-Frame-Options`, which cannot name another site, so to let a partner frame your pages, send `frame-ancestors 'self' https://partner.example`. ASP.NET Core antiforgery adds `X-Frame-Options: SAMEORIGIN` with each new token cookie; browsers ignore it next to `frame-ancestors`, and `AntiforgeryOptions.SuppressXFrameOptionsHeader` turns it off.
+An app that sends `X-Frame-Options` itself decides about framing alone: Netjes adds neither framing header, so nothing contradicts it.
+
+An app with `frame-ancestors` in a Content-Security-Policy that goes out (its own header, or else `NetjesOptions.ContentSecurityPolicy`) gets the `X-Frame-Options` that the directive implies, for browsers that know only that header, and no `frame-ancestors` from Netjes:
+
+| `frame-ancestors` | `X-Frame-Options` |
+|---|---|
+| `'none'`, an empty list, or other sites only, such as `https://partner.example`, or scheme sources no page of the app has, such as `data:` or `blob:` | `DENY` |
+| `'self'`, `*`, `http:` or `https:`, with or without other sites | `SAMEORIGIN` |
+
+Every policy counts, whether it comes in a header of its own or joined to others by commas, and the strictest decides: when one of them implies `DENY`, the document gets `DENY`. A `Content-Security-Policy-Report-Only` header does not count. Directive names and keywords such as `'self'` are compared ignoring case. Browsers obey `frame-ancestors` over `X-Frame-Options`, which cannot name another site, so to let a partner frame your pages, send `frame-ancestors 'self' https://partner.example`: browsers that support `frame-ancestors` let the partner frame them, and a browser that knows only `X-Frame-Options` keeps them to your own site.
+
+Netjes sets `X-Frame-Options` on a document before the visitor's antiforgery cookie is stored. ASP.NET Core antiforgery adds `X-Frame-Options: SAMEORIGIN` with each new token cookie, but only to a response that has no `X-Frame-Options` yet, so on documents it adds none: a visitor's first page, a returning visitor's, and a page from the output cache all get the same header. Four limits remain:
+
+- A host source that names your own site counts as another site: `frame-ancestors https://www.example.com` on `https://www.example.com` gets `DENY`. Netjes does not compare sources with the request's host, which behind a proxy is not always the one the browser sees. Write `'self'` for your own site.
+- Code that stores antiforgery tokens before the page renders, such as a loader or a middleware that calls `IAntiforgery.GetAndStoreTokens`, has antiforgery add its `SAMEORIGIN` to a visitor's first page before Netjes decides, and Netjes keeps it as the app's own. Set `AntiforgeryOptions.SuppressXFrameOptionsHeader = true` to have Netjes follow the policy there too.
+- Netjes decides when the page renders, so it does not see a policy that a middleware writes later, in a `Response.OnStarting` callback. Set such a policy before the page renders, or send `X-Frame-Options` yourself.
+- A page whose loader or render throws is answered with its error page on a cleared response, so the headers set before the exception are gone, your own `Content-Security-Policy` and `X-Frame-Options` included. That error page gets `SAMEORIGIN`, or the `X-Frame-Options` that the `frame-ancestors` of `NetjesOptions.ContentSecurityPolicy` implies, with the option's policy. To have your policy on those pages too, set it in `NetjesOptions.ContentSecurityPolicy`.
+
+On responses that are not documents, and on every response with `Enabled = false`, antiforgery still adds its `X-Frame-Options: SAMEORIGIN` with each new token cookie; `AntiforgeryOptions.SuppressXFrameOptionsHeader` turns it off.
 
 `NetjesOptions.SecurityHeaders` (`Netjes:SecurityHeaders`) has two settings:
 
-- `Enabled = false` turns them all off. To preview the app in an editor's frame, such as VS Code's Simple Browser, set it in `appsettings.Development.json`, and turn off the header that antiforgery adds in code, since ASP.NET Core does not bind `AntiforgeryOptions` from configuration:
+- `Enabled = false` turns all of them off, `nosniff` on the other responses included; the image endpoint keeps its own. To preview the app in an editor's frame, such as VS Code's Simple Browser, set it in `appsettings.Development.json`, and turn off the header that antiforgery adds in code, since ASP.NET Core does not bind `AntiforgeryOptions` from configuration:
 
   ```json
   { "Netjes": { "SecurityHeaders": { "Enabled": false } } }
@@ -64,24 +82,94 @@ builder.Services.AddNetjes(options =>
     options.ContentSecurityPolicy = "script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'self'");
 ```
 
-Netjes makes a nonce for each document and puts it on everything it renders: the module scripts and preloads, the stylesheets, the payload, the scripts that stream deferred values and reveal Suspense boundaries, and Vite's `csp-nonce` meta (for the styles Vite injects in development). `useNonce()` returns it for inline scripts or styles of your own, and `<Script>` uses it.
+Netjes makes a nonce for each document and puts it on everything it renders: the module scripts and preloads, the stylesheets, the payload, the scripts that stream deferred values and reveal Suspense boundaries, and Vite's `csp-nonce` meta (for the styles Vite injects in development). `useNonce()` returns it for inline scripts or styles of your own, and `<Script>` uses it. A `beforeInteractive` `<Script>` with a `src` is written into the document as an entry that the client entry turns into a script, with the nonce, before the page hydrates ([code that runs before the first paint](metadata.md#code-that-runs-before-the-first-paint)). The client entry takes only entries that carry the document's nonce, so markup that reaches the page some other way, such as HTML from a user that a sanitizer let through, cannot make it run a script.
 
 A document with a nonce is never stored in the output cache: a stored copy would give every visitor the same, readable nonce. Netjes renders such a page each time and logs a warning once per output-cached page. For cached pages, use a hash-based policy.
 
-If you write the policy yourself, for example with a headers library, call `HttpContext.GetCspNonce()` for the request's nonce, and Netjes puts the same one on what it renders. The output cache rule applies to that nonce as well.
+If you write the policy yourself, for example with a headers library, call `HttpContext.GetCspNonce()` for the request's nonce, before the page renders, and Netjes puts the same one on what it renders. A nonce the library makes itself is on none of it, so browsers refuse what the rest of the policy does not allow, and Netjes warns about it ([what Netjes checks](#what-netjes-checks)). The output cache rule applies to that nonce as well.
 
 ### Hash-based
 
-A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow the one inline script Netjes puts in every document's head, the bootstrap that collects streamed values, by its hash:
+A policy without `{nonce}` makes no nonce, so pages under it can be output-cached. It must allow, by their hashes, the inline scripts that Netjes writes with the same text into every document. `NetjesContentSecurityPolicy.ScriptHashes` lists those hashes:
 
 ```csharp
 options.ContentSecurityPolicy =
-    "script-src 'self' 'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='; object-src 'none'; base-uri 'self'";
+    $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'; base-uri 'self'";
 ```
 
-That is the hash of the bootstrap in this version; a Netjes version that changes its text changes the hash. Inline `<Script>` code of your own needs its hash listed too.
+`ScriptHashes` holds a `'sha256-…'` source for each such script, in its quotes and separated by spaces. In this version there is one, the bootstrap in the head that collects streamed values, so the value is `'sha256-FSjVV+FzmXP8KKrLKLdvst/5N/bEWSkde01XzpGKRgs='`. A Netjes version that changes the bootstrap, or adds a script like it, changes the value. So build the policy from `ScriptHashes` rather than pasting the hash: a pasted hash would block the script after such an upgrade. A policy written in JavaScript, such as a static host's headers for [exported pages](static-export.md), gets the same value from the npm package: `import { CSP_SCRIPT_HASHES } from 'netjes'`.
+
+Keep `'self'`: a hash allows only the inline script it was computed from, and the built app's module scripts are files the app serves, which `'self'` allows. Leave out `'strict-dynamic'`, which needs a nonce here: next to it, browsers ignore `'self'`, and the module scripts carry no nonce under this policy and no `integrity` attribute for a hash to match, so browsers refuse them and the page does not hydrate. Inline `<Script>` code of your own needs its hash listed too: for `afterInteractive` and `lazyOnload`, the hash of the code as you passed it; for `beforeInteractive`, the hash of the code as the document carries it, which differs where the code holds `<script` or `</script` ([code that runs before the first paint](metadata.md#code-that-runs-before-the-first-paint)). An external `<Script>` from another origin needs that origin in `script-src`, as any other script from there does. Without a nonce, the client entry turns every entry of an external `beforeInteractive` script in the document into a script, one in HTML from a user that a sanitizer let through included: the hosts the policy allows bound what such markup can load, so list only those the app needs, and let no `<script>` element through a sanitizer.
+
+In the Development environment the module scripts come from the Vite dev server, on another origin, so a policy without a nonce lists that origin as well; [in development](#in-development) shows how.
+
+A form action that is a function makes React add an inline script of its own, which replays a submission made before the page hydrates. A server action from `useAction` in `<Form action>` adds none, since Netjes renders that form with the action's URL. Any other function does, in `<Form action>`, in `<SubmitButton formAction>` (server actions included) or on a plain `<form>` or `<button>`. The script's text follows the React version, so `ScriptHashes` leaves it out. List its hash for the React version you run (Chromium names the hash in the console when it blocks the script), or keep such actions off pages under the policy. While the script is blocked, a submission made before the page hydrates is lost; after hydration, React runs the action without it.
 
 No hash covers what streams after the shell: each script that delivers a `Page.Defer` value carries that value, and React's scripts that reveal Suspense boundaries name the boundaries of that render. A hash-based policy blocks both, so a page served under one must not stream: no `Page.Defer`, and no Suspense boundary still waiting when the shell goes out (lazy code under `loading.tsx` included). Pages from `netjes export` are the exception, since their scripts are fixed text; see [static export](static-export.md#deferred-values-and-suspense).
+
+### zod in the browser
+
+Neither kind of policy needs `'unsafe-eval'` for zod. In the browser, the client entry turns zod's compiled parsers off (zod's `jitless` setting) before any of the app's modules run, in development, in production and in exported pages ([ADR 0036](../decisions/0036-zod-runs-without-compiled-parsers-in-the-browser.md)). Without that, zod would compile each object schema's parser into a function made from a string, after testing once whether it may. A policy refuses the test when its `script-src` leaves out `'unsafe-eval'`, as both policies above do, or when it has no `script-src` and its `default-src` leaves it out; a policy with neither directive lets zod compile. Although zod catches the error and the page works, the browser reports the refusal as a violation of `script-src` (blocked URI `eval`) on every document: it fires a `securitypolicyviolation` event, and sends a report to the policy's `report-uri` or `report-to` endpoint when it has one. Chromium logs nothing to the console for it when the policy has a `script-src`. When the policy leaves scripts to `default-src`, Chromium logs one error, which reads in full "Note that 'script-src' was not explicitly set, so 'default-src' is used as a fallback."
+
+This holds in every browser, with or without a policy, for every zod object schema made in the page: the generated props schemas that `definePage` and `defineLayout` parse with, `api[...].response.parse(...)`, and the app's own search-param and form schemas. A Web Worker has a global object of its own, which the setting does not reach: a worker of the app's own that parses with zod calls `z.config({ jitless: true })` before it makes a schema. Netjes has no setting to keep the compiled parsers. An app's own call of zod's `z.compile(schema)` is left alone: it makes a function from a string whatever the setting says, so a policy that refuses zod's test reports it.
+
+The cost shows where one schema parses many objects: a list of 1,000 small objects takes about 0.5 ms to parse, against about 0.09 ms with compiled parsers. A new schema's first parse of one object, such as a page's props, is faster, since nothing is compiled.
+
+It takes zod 4.4.0 or newer, which reads the setting however many copies of zod the page loads. zod 4.0 to 4.3 do not read it, and still test once per document: upgrade zod to 4.4.0 or newer (an app made with `netjes new` asks for `^4.6.7`). Server rendering in the Node sidecar, and the app's Vitest tests, do not run the client entry, so they keep the compiled parsers.
+
+### What Netjes checks
+
+Netjes sends the policy as written, in every environment, and compares it with what each document needs. When it refuses something, `Netjes.Rendering.PageRenderer` logs a warning that names the directive and what to change, once per policy (a nonce that changes from document to document does not make it another policy). Every policy in the `Content-Security-Policy` header that goes out counts, your own or `NetjesOptions.ContentSecurityPolicy`, several joined by commas included. A report-only policy does not count, and nor does a policy that a middleware writes in a `Response.OnStarting` callback, after the page renders. The warnings are about:
+
+- the scripts, in the list that script elements follow: `script-src-elem`, else `script-src`, else `default-src`. A list that holds the document's nonce allows them all, since Netjes puts that nonce on every script it writes. Netjes warns when any other list refuses the bootstrap (it holds neither every hash in `ScriptHashes` nor `'unsafe-inline'` without a hash, a nonce or `'strict-dynamic'` beside it), has `'strict-dynamic'`, which leaves the module scripts nothing to be allowed by, or refuses the module scripts (it holds none of `'self'`, `*`, `http:`, `https:` or a host source). Netjes does not judge which host a host source names: behind a proxy, the request's host is not always the one the browser sees. So a list of other hosts only gets no warning, and nor does `self` without its quotes, which browsers read as a host named `self`. When the list is `default-src`, a warning says to add the missing source there; a `script-src` added instead takes the place of `default-src` for every script, so it needs `'self'` as well;
+- a nonce that is not the document's, such as one your own code makes without `GetCspNonce()`. It is on none of what Netjes renders, and next to it `'unsafe-inline'` does not count, so when the rest of its list refuses one of the scripts, or in Development the inlined styles, Netjes warns once, about the nonce;
+- in Development, the Vite dev server's scripts, its socket and the inlined styles ([in development](#in-development)).
+
+A policy that allows all of it, but blocks something else, such as a script that streams a deferred value, gets no warning. Netjes compares no more than about 100 different policies, so an app that writes another one for each request does not make it keep them all. The static export (`netjes export`) is not checked: its files go out under the static host's policy.
+
+### In development
+
+In the Development environment the browser loads the page's module scripts from the Vite dev server, on another origin than the app's, and Vite's client in the page opens a WebSocket to it, which brings your edits to the page (hot module replacement). Netjes keeps the policy as written there too, so a policy also has to allow these:
+
+- **The dev server's scripts.** The document's nonce in `script-src` covers them, from `{nonce}` or `GetCspNonce()`: Netjes puts it on `@vite/client` and on the client entry, and the modules they load inherit it. A list without it lists the dev server's origin, or browsers refuse the scripts and the page does not hydrate. The origin is `http://localhost:5173`, on another port when `ViteDevPort` (`Netjes:ViteDevPort`) moves it, or the one in `NETJES_VITE_ORIGIN` when browsers reach the dev server at another address.
+- **The socket.** A policy with `connect-src`, or with `default-src` and no `connect-src`, lists the socket's address in it: `ws://` and the dev server's host and port, such as `ws://localhost:5173` (`wss://` for an `https` origin), or `ws:`. A nonce does not cover connections, `'self'` stands for the app's own origin, whose port is another, and an `http://` source never matches a `ws://` address. Without it, browsers refuse the socket, and an edit shows only once you reload the page. When `server.hmr` in the Vite config moves the socket (its `host`, `port`, `clientPort` or `protocol`), list the address it gives instead.
+- **The styles.** In Development the document carries the app's CSS inline, in `<style>` elements, and Vite's client adds more of them as modules load and change. Both carry the nonce when the document has one (Vite reads it from the `csp-nonce` meta). So the list that style elements follow, `style-src-elem`, else `style-src`, else `default-src`, needs that nonce or `'unsafe-inline'`, which counts only with no hash or nonce beside it; otherwise pages show without their styles. A client build links its CSS as files instead.
+- **Images and fonts.** Vite serves the files the app imports, such as the URL that `import logo from './logo.png'` gives, and the files its CSS names with `url()`, from the dev server's origin too. So a policy with `img-src` or `font-src`, or with `default-src` and not them, lists that origin there, or those files do not load. `media-src` does the same for imported audio and video.
+
+Netjes warns about the first three once per policy; it cannot see which images or fonts a page uses, so it does not check those. Under a policy without `'unsafe-eval'`, the browser can also report a violation of `script-src` with the blocked URI `eval` in Development, from the development code of React or Vite rather than from zod. The page still hydrates, the built app does not report it, and Netjes does not check for `'unsafe-eval'`. The simplest policy for Development is none: set the policy outside Development only.
+
+```csharp
+builder.Services.AddNetjes(options =>
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        options.ContentSecurityPolicy =
+            $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; connect-src 'self'; object-src 'none'; base-uri 'self'";
+    }
+});
+```
+
+To try the policy in Development as well, widen it there with the dev server's origin and its socket:
+
+```csharp
+builder.Services.AddNetjes(options =>
+{
+    var scripts = $"'self' {NetjesContentSecurityPolicy.ScriptHashes}";
+    var connections = "'self'";
+    if (builder.Environment.IsDevelopment())
+    {
+        // The Vite dev server, which serves the scripts there, and its socket, on the same host and port unless
+        // server.hmr in the Vite config moves it.
+        var devServer = new Uri(builder.Configuration["NETJES_VITE_ORIGIN"] ?? $"http://localhost:{options.ViteDevPort}");
+        scripts += $" {devServer.GetLeftPart(UriPartial.Authority)}";
+        connections += $" {(devServer.Scheme == "https" ? "wss" : "ws")}://{devServer.Authority}";
+    }
+
+    options.ContentSecurityPolicy = $"script-src {scripts}; connect-src {connections}; object-src 'none'; base-uri 'self'";
+});
+```
+
+A policy with `style-src` adds `'unsafe-inline'` to it in Development in the same way, and one with `img-src`, `font-src` or `default-src` the dev server's origin.
 
 ## Server actions and page actions
 
@@ -128,6 +216,8 @@ return Page.IsLocalUrl(returnUrl) ? Page.LocalRedirect(returnUrl) : Page.Redirec
 
 The client router never loads a page from another origin: a redirect or link to another site is a full page load, handed to the browser.
 
+Netjes's own redirect of another spelling of a page's URL ([One URL per page](routing.md#one-url-per-page)) is built from the URL the client sent, and never sends a location that could lead off the site. Under a root catch-all with `TrailingSlash.Never`, `//other.example/` would go to `//other.example`, `/\other.example/` to `/\other.example`, and `/%5Cother.example/` to a location that a client which decodes it reads as `/\other.example`: each of them is answered as it was sent, without a redirect. So is a URL whose location would hold a backslash, which browsers read as a slash, a `#`, which ends the path, a control character such as a tab, which browsers drop, or a character beyond ASCII, and one whose base path comes from a header, such as an `X-Forwarded-Prefix` taken from anyone, and would make the location start with `//` or `/\`.
+
 ## The image endpoint
 
 `/_netjes/image` serves only the widths and qualities you configure, reads local images from `public/` only and only as their files are spelled, fetches remote images only from the hosts in `Netjes:Images:RemoteHosts` (https on the default port, public addresses only, no redirects followed, no proxy, within a size cap and a timeout), serves only PNG, JPEG, GIF, WebP and AVIF bytes (SVG only with `AllowSvg`, sandboxed), and bounds how many images it reads, fetches and processes at once. The [images guide](images.md) has every limit and setting.
@@ -149,14 +239,15 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 ## Hosts and HTTPS
 
-- `AllowedHosts`: the template's `appsettings.json` allows any host (`*`), and its `appsettings.Development.json` allows only `localhost;127.0.0.1;[::1]`, so a page that rebinds its DNS name to your machine cannot reach the dev app. Pin `AllowedHosts` to your host names in production: the output cache keys entries on the host, and every made-up host would otherwise get entries of its own.
+- `AllowedHosts`: the template's `appsettings.json` allows any host (`*`), and its `appsettings.Development.json` allows only `localhost;127.0.0.1;[::1]`, so a page that rebinds its DNS name to your machine cannot reach the dev app. Pin `AllowedHosts` to your host names in production: the output cache keys entries on the host, and every made-up host would otherwise get entries of its own. Made-up query strings make entries too: name the query keys each cached page reads with `.CacheQueryKeys(...)` ([caching](caching.md#query-strings-a-page-does-not-read)).
 - HSTS and HTTPS redirection are ASP.NET Core's. The template calls `UseHsts()` and `UseHttpsRedirection()` outside Development.
 - Behind a proxy that terminates TLS, call `UseForwardedHeaders()` first, trusting only that proxy's network, so the app sees the original scheme, host and client address. [Deployment](deployment.md#proxies-and-base-paths) has an example.
 
 ## Errors and configuration
 
-- Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`.
+- Error pages show exception messages and stacks only in Development (`IncludeErrorDetails`). In production an `error.tsx` gets the status's reason phrase as `error.message`, marked with `error.withheld`, and no stack. A failed `Page.Defer` value goes to the browser with an empty message, and a server action's 5xx with none; the browser marks both as withheld.
 - Everything in `Netjes:PublicConfig` is sent to the browser as it is. Never put a secret there.
+- The generated file names the app's endpoints: `api` its JSON endpoints, and `endpointUrl()` the method and route of each endpoint that has a key, an endpoint the app maps only in Development included, since the file is generated in Development. The routes are one map in that file, so once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file. Pages share that chunk, usually through the root layout, so expect every page to load it, also one that never calls `endpointUrl`. While nothing calls it, the build leaves the map out. `api` ships its keys the same way. A route in the file is no easier to reach than one outside it: authorization stays on the endpoint (`RequireAuthorization()`) ([Endpoint URLs](data-loading.md#endpoint-urls)).
 - Output-cached pages are served to every visitor; keep per-visitor data out of them. See [caching](caching.md#shared-props-and-cookies).
 
 ## The development server

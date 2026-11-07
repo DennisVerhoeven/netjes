@@ -3,7 +3,8 @@ services:
   app:
     restart: always
     ports:
-      - "8080:8080"
+      # The host's port: APP_PORT, from the shell or a .env file next to this file, or 8080.
+      - "${APP_PORT:-8080}:8080"
     read_only: true
     tmpfs:
       - /tmp

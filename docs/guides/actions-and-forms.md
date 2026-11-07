@@ -59,7 +59,7 @@ That is the form `netjes new` writes. With JavaScript it calls the action with `
 | `ServerAction.Ok()` | Success without a result. |
 | `ServerAction.Invalid(field, message)`, `ServerAction.Invalid(errors)` | Status 422 with the errors per field: `{ ok: false, status: 422, errors }`. |
 | `ServerAction.Redirect(url)` | Success, then the client navigates to `url` (relative or http(s), checked as `Page.Redirect` checks it). |
-| `ServerAction.Forbidden()`, `ServerAction.NotFound()` | 403 or 404. A call from React throws `ServerActionError` to the nearest error boundary; a post without JavaScript gets the error page. |
+| `ServerAction.Forbidden()`, `ServerAction.NotFound()` | 403 or 404. A call from React throws `ServerActionError`, with the reason phrase (`Forbidden`, `Not Found`) as its message, to the nearest error boundary; a post without JavaScript gets the error page. |
 
 Field names in `errors` are written with the app's JSON naming policy, so `Title` comes back as `title`, matching the field and the zod schema. Chain these on any result:
 
@@ -89,7 +89,7 @@ export const serverActions = {
 } as const;
 ```
 
-Call a reference with an object, sent as JSON, or with `FormData`, sent as a form post. It resolves to an `ActionState`: `{ ok: true, result }`, or `{ ok: false, status, errors, values }` after a 422. Any other failure (403, 404, 413, 500, a refused token) throws a `ServerActionError` with the `status`. The Blog's like button calls its action from a click, with an optimistic count:
+Call a reference with an object, sent as JSON, or with `FormData`, sent as a form post. It resolves to an `ActionState`: `{ ok: true, result }`, or `{ ok: false, status, errors, values }` after a 422. Any other failure (403, 404, 413, 500, a refused token) throws a `ServerActionError` with the `status`. Its `withheld` is true when the server sent no message, as for an exception in the action while error details are off: the message is then Netjes's own, `Server action <name> failed with status 500`, which an error page that renders the message only when `!error.withheld` leaves out ([`ServerActionError`](../reference/react-api.md#serveractionerror)). The Blog's like button calls its action from a click, with an optimistic count:
 
 ```tsx
 const likePost = serverActions['posts.like'];
@@ -383,7 +383,7 @@ A form post is never sent twice: one still on its way when another call's header
 | `replace` | For a GET form: replace the history entry instead of adding one. |
 | `reloadDocument` | Let the browser submit the form itself, with a full page load. |
 
-The other props are those of a `<form>`. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
+The other props are those of a `<form>`, and a `ref` gets the `<form>` element. Without JavaScript every form is a native form; with it, `<Form>` submits with `fetch` and handles the answer:
 
 - A page, or a redirect to one, is shown as a navigation.
 - An HTML document that is not a Netjes page is shown as the browser would show it, and is never requested again as a GET.
@@ -417,4 +417,4 @@ app.MapPageAction("/photos", async (IFormFile photo, PhotoStore photos, Cancella
 
 A server action called with `FormData` that holds a file sends it as multipart as well, so `useAction` uploads with JavaScript. Without JavaScript the browser sends files only from a form with `encType="multipart/form-data"`, and React warns about an `encType` on a form whose action is a function, which is why the page action is the way for uploads that must work either way.
 
-A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, or link to a GET endpoint with `<Link reloadDocument>` or a plain `<a download>`.
+A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).

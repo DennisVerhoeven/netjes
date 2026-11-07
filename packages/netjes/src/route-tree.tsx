@@ -1,4 +1,5 @@
 import { Component, type ReactElement, type ReactNode, Suspense, createContext } from 'react';
+import { withheldError } from './errors.ts';
 import { type Metadata, MetadataTags, resolveMetadata } from './metadata.tsx';
 import type { ErrorPageProps, LoadedSegment, RouteModules } from './modules.ts';
 import type { PageKind, Params, SegmentRef } from './payload.ts';
@@ -17,6 +18,8 @@ type RouteTreeProps = {
   pageKey: string;
   /** What `reset` does on an error page the server chose: load the page again. */
   retry?: () => void;
+  /** The error an error page (`pageKind` error) gets in place of the one the server's props describe: one caught here. */
+  error?: ErrorPageProps['error'];
   /** Metadata from the C# loader. */
   metadata?: Metadata | undefined;
 };
@@ -53,15 +56,23 @@ export class ErrorBoundary extends Component<BoundaryProps, { error: unknown; fa
   }
 }
 
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Something went wrong');
+/** What a boundary caught, as the Error `error.tsx` gets: an Error as it is, a string as its message, else a stand-in. */
+export function asError(error: unknown): ErrorPageProps['error'] {
+  if (error instanceof Error) return error;
+  return typeof error === 'string' ? new Error(error) : withheldError();
 }
 
-/** The error the server reported (props of the error page it rendered), as an Error for `error.tsx`. */
+/**
+ * The error the server reported (props of the error page it rendered), as an Error for `error.tsx`: marked withheld
+ * when the server says its message stands in for the exception's, and with the server's stack or none, never the
+ * stack of the code here that built it.
+ */
 function serverError(props: Record<string, unknown>): ErrorPageProps['error'] {
   const error: ErrorPageProps['error'] = new Error(typeof props.message === 'string' ? props.message : 'Something went wrong');
   if (typeof props.status === 'number') error.status = props.status;
-  if (typeof props.stack === 'string') error.stack = props.stack;
+  if (props.withheld === true) error.withheld = true;
+  // Defined rather than assigned, as an own property: Firefox keeps the stack in an accessor on Error.prototype.
+  Object.defineProperty(error, 'stack', { value: typeof props.stack === 'string' ? props.stack : undefined, writable: true, configurable: true });
   return error;
 }
 
@@ -70,9 +81,9 @@ function serverError(props: Record<string, unknown>): ErrorPageProps['error'] {
  * layout > template > error boundary > Suspense (loading) > the next segment or the page. Layouts keep their state
  * while the page underneath changes; templates remount.
  */
-export function RouteTree({ modules, segments = [], props, params, status, pageKind, pageKey, retry, metadata }: RouteTreeProps): ReactElement {
+export function RouteTree({ modules, segments = [], props, params, status, pageKind, pageKey, retry, metadata, error }: RouteTreeProps): ReactElement {
   const Page = modules.page;
-  const pageProps = pageKind === 'error' ? { ...props, error: serverError(props), reset: retry ?? (() => {}) } : props;
+  const pageProps = pageKind === 'error' ? { ...props, error: error ?? serverError(props), reset: retry ?? (() => {}) } : props;
   let element: ReactElement = Page ? <Page key={pageKey} {...pageProps} /> : <BuiltInPage key={pageKey} status={status} props={props} />;
   for (let i = modules.segments.length - 1; i >= 0; i--) {
     const { Layout, Template, Loading, Error: SegmentError, slots } = modules.segments[i]!;
