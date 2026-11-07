@@ -871,7 +871,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Next.js | Netjes |
 |---|---|
 | Static by default | Dynamic by default: every page renders per request, and goes out `no-store`, since pages carry per-user shared props and antiforgery tokens. [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md) |
-| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching. In the Development environment every request renders the page, as `next dev` renders routes on each request; where Next.js keeps fetch results there (`force-cache`, `serverComponentsHmrCache`), cache slow data in your services. [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment) |
+| ISR, `export const revalidate` | `.CachePage(TimeSpan.FromSeconds(30))` on the loader, on ASP.NET Core output caching. In the Development environment every request renders the page, as `next dev` renders routes on each request; where Next.js keeps fetch results there (`force-cache`, `serverComponentsHmrCache`), cache slow data in your services. [Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment). Each query string is cached as a page of its own, so `?utm_source=feed` stores another copy: name the keys a page reads with `.CacheQueryKeys(...)`, and other query strings render per request ([query strings a page does not read](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#query-strings-a-page-does-not-read)) |
 | `export const dynamic` and other segment config | Endpoint conventions on the loader: `.CachePage(...)`, `.StaticParams(...)`, `.RequireAuthorization()` |
 | On-demand revalidation in a route handler | `IPageCache.RevalidatePathAsync(path)` and `RevalidateTagAsync(tag)`, from any endpoint or background job |
 | `unstable_cache`, the fetch cache | .NET's own caching (`IMemoryCache`, `HybridCache`) in your services |
@@ -887,7 +887,7 @@ This page is for developers who know the Next.js App Router. It maps each Next.j
 | Typed routes | Generated from the page files: `route('/blog/[slug]', { slug })`, with the query as its third argument and `{ hash }` as its fourth for a `#fragment`, and `<Link href>` checks its URL. Endpoints get typed URLs from their C# handlers: `endpointUrl('GET /api/posts/{slug}/likes/', { slug })` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)) |
 | Fast Refresh, Turbopack | Vite with React Fast Refresh ([ADR 0004](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0004-vite-for-dev-server-and-builds.md)) |
 | Tailwind CSS setup | On by default in `netjes()`: `@import "tailwindcss"` in a stylesheet the root layout imports |
-| Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) |
+| Jest or Vitest, `next-router-mock` | Vitest defaults in `netjes()`, and `createTestApp()` from `netjes/testing`. A new app also has a C# test project in `tests/<App>.Tests`, for loaders and actions, and a Playwright suite in `e2e/`. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) |
 | `useReportWebVitals` | `useReportWebVitals` from `netjes/vitals`; `<WebVitals />` sends them to .NET metrics |
 | CSP nonces through middleware | `NetjesOptions.ContentSecurityPolicy` with `{nonce}`, and `useNonce()`. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md) |
 | A CSP without nonces, for static or cached pages | `NetjesOptions.ContentSecurityPolicy` without `{nonce}`, with `NetjesContentSecurityPolicy.ScriptHashes` in its `script-src`, or `CSP_SCRIPT_HASHES` from `netjes` for a policy written in JavaScript. Pages under it can be output-cached, but must not stream. [Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#hash-based) |
@@ -945,7 +945,7 @@ Next.js prerenders what it can. Netjes renders every page per request and sends 
 
 ## Moving an app over
 
-1. Create an app with `npx netjes new` and move the components across; the `app/` file names are the same.
+1. Create an app with `npx netjes new` and move the components across; the `app/` file names are the same. Playwright specs go in `e2e/`, which the new app's `playwright.config.ts` runs against a development and a production server.
 2. Rewrite each server component's data fetching, `getServerSideProps` or `generateMetadata` as a C# loader, returning a record of props.
 3. Turn `'use server'` functions into `MapAction` endpoints, and route handlers into minimal APIs, mapped for `GET` and `HEAD` where a handler exports `GET` ([HEAD requests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#head-requests)).
 4. Move `middleware.ts` and the `next.config.js` redirects, rewrites and headers into `Program.cs`.
