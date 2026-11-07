@@ -291,6 +291,28 @@ describe('netjes new tests', () => {
     expect(pageTests).toContain('Tell us your name.');
   });
 
+  it("type-checks Node-side TypeScript with Node's types, and everything else without them", async () => {
+    const app = await newShop();
+    const json = async (file: string) => JSON.parse(await readFile(path.join(app, file), 'utf8'));
+
+    expect(await json('tsconfig.json')).toEqual({ files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }] });
+    const browser = await json('tsconfig.app.json');
+    expect(browser.compilerOptions.types).toEqual(['vite/client']);
+    expect(browser.include).toEqual(['**/*.ts', '**/*.tsx']);
+    expect(browser.exclude).toEqual(expect.arrayContaining(['node_modules', 'dist', 'e2e', 'scripts', 'vite.config.ts', 'playwright.config.ts']));
+    // A .ts file next to the C# tests is checked like any other, and bin/ and obj/ are left out wherever they are.
+    expect(browser.exclude).not.toContain('tests');
+    expect(browser.exclude).toEqual(expect.arrayContaining(['**/bin', '**/obj']));
+    const node = await json('tsconfig.node.json');
+    expect(node.extends).toBe('./tsconfig.app.json');
+    expect(node.compilerOptions).toEqual({ types: ['node'] });
+    expect(node.include).toEqual(['vite.config.ts', 'playwright.config.ts', 'e2e', 'scripts']);
+    expect(node.exclude).toEqual(['node_modules']);
+    const manifest = await json('package.json');
+    expect(manifest.scripts.typecheck).toBe('tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit');
+    expect(manifest.devDependencies['@types/node']).toBe('^22.20.5');
+  });
+
   it("keeps the app's C# tests out of its build and its image", async () => {
     const app = await newShop();
 

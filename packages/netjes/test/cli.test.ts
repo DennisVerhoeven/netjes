@@ -49,6 +49,8 @@ describe('netjes new', () => {
       'tests/MyShop.Tests/HomePageTests.cs',
       'vite.config.ts',
       'tsconfig.json',
+      'tsconfig.app.json',
+      'tsconfig.node.json',
       'package.json',
       'Dockerfile',
       'docker-compose.yml',
@@ -61,8 +63,7 @@ describe('netjes new', () => {
       expect(existsSync(path.join(app, file)), file).toBe(true);
     }
     expect(existsSync(path.join(app, 'pages'))).toBe(false);
-    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).include).toContain('app');
-    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).include).not.toContain('pages');
+    expect(JSON.parse(await readFile(path.join(app, 'tsconfig.json'), 'utf8')).files).toEqual([]);
     expect(await readFile(path.join(app, 'Program.cs'), 'utf8')).toContain('using MyShop;');
     expect(JSON.parse(await readFile(path.join(app, 'package.json'), 'utf8')).name).toBe('my-shop');
     expect(await readFile(path.join(app, 'Dockerfile'), 'utf8')).toContain('MyShop.dll');

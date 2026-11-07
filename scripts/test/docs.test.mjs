@@ -214,15 +214,18 @@ describe('the docs', () => {
     }
   });
 
-  // "Add Netjes to an existing app" tells readers to add "the one `netjes new` writes".
-  it('inline the template\'s tsconfig.json in the guide for an existing app', async () => {
+  // "Add Netjes to an existing app" tells readers to add "the one `netjes new` writes", and the two it names.
+  it("inline the template's TypeScript configs in the guide for an existing app", async () => {
     const guide = await readFile(path.join(ROOT, 'docs/getting-started.md'), 'utf8');
-    const step = guide.indexOf('Add a `tsconfig.json`, the one `netjes new` writes');
-    assert.notEqual(step, -1, 'getting-started.md no longer has the tsconfig.json step');
-    const block = /^ *```json\r?\n([\s\S]*?)\r?\n *```/m.exec(guide.slice(step));
-    assert.ok(block, 'the tsconfig.json step has no json block');
-    const inlined = JSON.parse(block[1] ?? '');
-    const template = JSON.parse(await readFile(path.join(ROOT, 'packages/netjes/template/tsconfig.json'), 'utf8'));
+    const start = guide.indexOf('Add a `tsconfig.json`, the one `netjes new` writes');
+    assert.notEqual(start, -1, 'getting-started.md no longer has the step with the TypeScript configs');
+    const step = guide.slice(start, guide.indexOf('\n5. ', start));
+    const inlined = [...step.matchAll(/^ *```json\r?\n([\s\S]*?)\r?\n *```/gm)].map(([, block]) => JSON.parse(block ?? ''));
+    const template = await Promise.all(
+      ['tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json'].map(async (file) =>
+        JSON.parse(await readFile(path.join(ROOT, 'packages/netjes/template', file), 'utf8')),
+      ),
+    );
     assert.deepEqual(inlined, template);
   });
 

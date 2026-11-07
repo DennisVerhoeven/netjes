@@ -503,11 +503,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 To add Netjes to an ASP.NET Core project you already have:
 
 1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
 
    ```bash
    npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
-   npm install -D vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite \
+   npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
 3. Add a `vite.config.ts`:
@@ -518,7 +518,16 @@ To add Netjes to an ASP.NET Core project you already have:
 
    export default defineConfig({ plugins: [netjes()] });
    ```
-4. Add a `tsconfig.json`, the one `netjes new` writes. It type-checks `app`, `components`, `generated` and `vite.config.ts`:
+4. Add a `tsconfig.json`, the one `netjes new` writes, and the two configs it points to:
+
+   ```json
+   {
+     "files": [],
+     "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+   }
+   ```
+
+   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output; add any other folder that holds TypeScript of its own to its `exclude`:
 
    ```json
    {
@@ -538,7 +547,21 @@ To add Netjes to an ASP.NET Core project you already have:
        "skipLibCheck": true,
        "noEmit": true
      },
-     "include": ["app", "components", "generated", "vite.config.ts"]
+     "include": ["**/*.ts", "**/*.tsx"],
+     "exclude": ["node_modules", "dist", "**/bin", "**/obj", "publish", "out", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"]
+   }
+   ```
+
+   `tsconfig.node.json` type-checks the files that run in Node, `vite.config.ts`, `playwright.config.ts`, `e2e/` and `scripts/`, with Node's types. It keeps the DOM's types, which the callbacks a Playwright test runs in the page use:
+
+   ```json
+   {
+     "extends": "./tsconfig.app.json",
+     "compilerOptions": {
+       "types": ["node"]
+     },
+     "include": ["vite.config.ts", "playwright.config.ts", "e2e", "scripts"],
+     "exclude": ["node_modules"]
    }
    ```
 

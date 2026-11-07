@@ -71,6 +71,9 @@ describe('the npm manifest', () => {
           'template/tests/__NAME__.Tests/__NAME__.Tests.csproj',
           'template/tests/__NAME__.Tests/AppFactory.cs',
           'template/tests/__NAME__.Tests/HomePageTests.cs',
+          'template/tsconfig.json',
+          'template/tsconfig.app.json',
+          'template/tsconfig.node.json',
         ]),
       );
     });

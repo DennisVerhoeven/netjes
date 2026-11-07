@@ -124,23 +124,51 @@ npm test --silent
 npm run typecheck --silent
 # netjes exports declarations, so the app's compiler options apply to the app's own code alone: one that the package's
 # sources do not meet, such as noPropertyAccessFromIndexSignature, does not fail the app.
-cat > tsconfig.index-access.json <<'JSON'
-{ "extends": "./tsconfig.json", "compilerOptions": { "noPropertyAccessFromIndexSignature": true } }
+for config in tsconfig.app.json tsconfig.node.json; do
+  cat > tsconfig.index-access.json <<JSON
+{ "extends": "./$config", "compilerOptions": { "noPropertyAccessFromIndexSignature": true } }
 JSON
-npx tsc -p tsconfig.index-access.json
+  npx tsc -p tsconfig.index-access.json
+done
 rm tsconfig.index-access.json
 npx netjes generate --check
 # create-vite's React-TS template also sets noUnusedLocals, erasableSyntaxOnly and more, which an app's tsc applies to
 # the template's files and the package's declarations. packages/netjes/tsconfig.strict-app.json holds that flag list
-# (the package's own typecheck uses it as well); here the app's own tsconfig.json is extended after it, so the app's
+# (the package's own typecheck uses it as well); here each of the app's own configs is extended after it, so the app's
 # settings still apply.
-cat > tsconfig.strict.json <<JSON
+for config in tsconfig.app.json tsconfig.node.json; do
+  cat > tsconfig.strict.json <<JSON
 {
-  "extends": ["$root/packages/netjes/tsconfig.strict-app.json", "./tsconfig.json"]
+  "extends": ["$root/packages/netjes/tsconfig.strict-app.json", "./$config"]
 }
 JSON
-npx tsc -p tsconfig.strict.json
+  npx tsc -p tsconfig.strict.json
+done
 rm tsconfig.strict.json
+
+echo "== typecheck covers every TypeScript file"
+# An error fails the typecheck in a folder the template does not have, and in the C# tests' folder.
+# $1: a file to write; $2: its code.
+typecheck_fails_on() {
+  mkdir -p "$(dirname "$1")"
+  printf '%s\n' "$2" > "$1"
+  if npm run typecheck --silent > "$work/typecheck" 2>&1; then echo "npm run typecheck passed with an error in $1"; exit 1; fi
+  grep -qF "$1" "$work/typecheck" || { echo "npm run typecheck failed, but not on $1:"; cat "$work/typecheck"; exit 1; }
+  rm "$1"
+}
+typecheck_fails_on lib/stray.ts 'export const stray: number = "text";'
+typecheck_fails_on tests/stray.test.ts 'export const stray: number = "text";'
+rmdir lib
+# Node's types are for the files that run in Node: not in a component, which runs in the browser too.
+typecheck_fails_on components/stray.ts 'export const stray = process.argv;'
+mkdir scripts
+cat > scripts/stray.ts <<'TS'
+import { readFileSync } from 'node:fs';
+
+export const stray = readFileSync(process.argv[1] ?? '', 'utf8');
+TS
+npm run typecheck --silent
+rm -r scripts
 
 echo "== C# tests"
 # With no client build, which nothing above has made. The scaffold has no global.json, so dotnet test uses its default
