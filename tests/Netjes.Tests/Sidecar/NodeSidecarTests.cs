@@ -1076,7 +1076,9 @@ public class NodeSidecarTests
         using var loggers = new LoggerFactory([logs]);
         await using var sidecar = Create("ping-crash-sidecar.mjs", loggers: loggers, watchdog: Quick);
         await sidecar.StartAsync(Ct);
-        var pid = await SidecarPoolTests.PidAsync(sidecar);
+        // From the launch's log line, not a render: a ping that comes first or meanwhile ends the process and cuts it short.
+        var started = logs.Entries.First(e => e.Message.StartsWith("Started Node sidecar ", StringComparison.Ordinal)).Message;
+        var pid = int.Parse(started["Started Node sidecar ".Length..].Split(' ')[0], System.Globalization.CultureInfo.InvariantCulture);
 
         // Idle, the process is pinged, and the ping ends it.
         var warning = await WaitForLogAsync(logs, e => e.Level == LogLevel.Warning
