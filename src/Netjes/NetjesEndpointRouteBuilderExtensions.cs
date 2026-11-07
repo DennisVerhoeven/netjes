@@ -268,6 +268,11 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .WithMetadata(new OmitAntiforgeryTokenMetadata(), new CachedPageMetadata(duration, copy));
     }
 
+    /// <summary>Names the query keys a cached page reads.</summary>
+    public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder;
+
     /// <summary>
     /// Maps a server action, the counterpart of a Next.js <c>'use server'</c> function: a POST endpoint at
     /// <c>/_netjes/actions/{name}</c> that binds like any minimal API handler (JSON body, <c>[FromForm]</c> fields,

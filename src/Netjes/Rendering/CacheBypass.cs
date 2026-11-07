@@ -21,6 +21,9 @@ internal static class CacheBypass
     /// <summary>A page in the Development environment, where code changes between requests (<see cref="PageCachePolicy"/>).</summary>
     public const string Development = "netjes-development";
 
+    /// <summary>A query string that holds more than the keys the page names with <c>CacheQueryKeys</c> (<see cref="CachePaths"/>).</summary>
+    public const string UnreadQuery = "netjes-unread-query";
+
     /// <summary>Gives the request a key value of its own under <paramref name="reason"/>.</summary>
     public static void Apply(OutputCacheContext context, string reason) =>
         context.CacheVaryByRules.VaryByValues[reason] = Guid.NewGuid().ToString("N");

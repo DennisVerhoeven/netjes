@@ -26,6 +26,8 @@ internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment en
         return trimmed.ToLowerInvariant();
     }
 
+    internal static bool ReadsOnlyDeclaredKeys(string query, IReadOnlySet<string> keys) => true;
+
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
     {
         if (IsFailedFormPost(context))

@@ -63,6 +63,12 @@ public sealed class CachedPageMetadata
     public IReadOnlyList<string> Tags { get; }
 }
 
+/// <summary>
+/// The query keys <c>CacheQueryKeys</c> was given, compared as the query parser compares them, without regard to case.
+/// Internal for now, unlike <see cref="CachedPageMetadata"/>: it is a page rule of its own, not a setting of <c>CachePage</c>.
+/// </summary>
+internal sealed record CacheQueryKeysMetadata(IReadOnlySet<string> Keys);
+
 /// <summary>Patterns that have an explicit loader, so the file-based data source skips them.</summary>
 internal sealed class PageLoaderRegistry
 {
