@@ -109,6 +109,18 @@ describe('netjes new names', () => {
     ['ValueTask'],
     ['TimeProvider'],
     ['FromFormAttribute'],
+    // The test project's namespace starts with the app's name, so the same goes for what the tests use.
+    ['IWebHostBuilder'],
+    ['NetjesOptions'],
+    ['ISsrRenderer'],
+    ['Task'],
+    ['CancellationToken'],
+    ['NetjesHeaders'],
+    ['JsonNode'],
+    ['TestContext'],
+    ['Assert'],
+    ['FormUrlEncodedContent'],
+    ['HttpStatusCode'],
   ])('rejects %s, a type name the app uses', async (name) => {
     const message = await fails(['new', 'app', '--name', name, '--skip-install']);
 
@@ -124,7 +136,25 @@ describe('netjes new names', () => {
 
   it("rejects every type name the template's C# uses by its simple name, apart from the ones that build", async () => {
     // Each of these, as the root namespace, was built with the template: it hides nothing the app's code looks up.
-    const builds = new Set(['Microsoft', 'HomePage', 'MapHomePage', 'HomeProps', 'GreetInput', 'Greeting', 'FromForm']);
+    const builds = new Set([
+      'Microsoft',
+      'HomePage',
+      'MapHomePage',
+      'HomeProps',
+      'GreetInput',
+      'Greeting',
+      'FromForm',
+      'AppFactory',
+      'ConfigureWebHost',
+      'WebApplicationFactory',
+      'FixedHtml',
+      'RenderAsync',
+      'System',
+      'HomePageTests',
+      'IClassFixture',
+      'Fact',
+      'Greet',
+    ]);
     const parameters = new Set(['Message', 'RenderedAt', 'Name', 'Text', 'SiteName']);
     const used = new Set<string>();
     for (const file of await readdir(TEMPLATE, { recursive: true })) {
@@ -225,6 +255,57 @@ describe('netjes new output', () => {
     expect(err()).toBe(
       `netjes new: npm install failed (exit code 7). The app is in ${path.join(temp, 'my-shop')}: fix what npm reported, then run \`npm install\` there.\n`,
     );
+  });
+});
+
+describe('netjes new tests', () => {
+  async function newShop() {
+    const { io } = recordingIo(temp);
+    expect(await run(['new', 'my-shop', '--skip-install'], io)).toBe(0);
+    return path.join(temp, 'my-shop');
+  }
+
+  it("gives the app a C# test project that runs under dotnet test's default runner", async () => {
+    const app = await newShop();
+
+    const tests = path.join(app, 'tests', 'MyShop.Tests');
+    const project = await readFile(path.join(tests, 'MyShop.Tests.csproj'), 'utf8');
+    expect(project).toContain('<ProjectReference Include="../../MyShop.csproj" />');
+    for (const name of ['xunit.v3.mtp-off', 'xunit.runner.visualstudio', 'Microsoft.NET.Test.Sdk', 'Microsoft.AspNetCore.Mvc.Testing']) {
+      expect(project, name).toContain(`<PackageReference Include="${name}" `);
+    }
+    // xunit.v3 itself runs only under Microsoft.Testing.Platform, which needs a global.json, and that would shadow the
+    // SDK pin of a repository the app sits in.
+    expect(project).not.toContain('Include="xunit.v3"');
+    expect(existsSync(path.join(app, 'global.json'))).toBe(false);
+    // The package's build targets, which add this to the app, do not reach the test project.
+    expect(project).toContain('<Using Include="Netjes" />');
+    const factory = await readFile(path.join(tests, 'AppFactory.cs'), 'utf8');
+    expect(factory).toContain('namespace MyShop.Tests;');
+    expect(factory).toContain('WebApplicationFactory<Program>');
+    expect(factory).toContain('UseEnvironment("Testing")');
+    // A test run must not rewrite generated/netjes.ts, or `netjes generate --check` after it would pass on stale types.
+    expect(factory).toContain('TypesFile = null');
+    const pageTests = await readFile(path.join(tests, 'HomePageTests.cs'), 'utf8');
+    expect(pageTests).toContain('Hello from C#');
+    expect(pageTests).toContain('Tell us your name.');
+  });
+
+  it("keeps the app's C# tests out of its build and its image", async () => {
+    const app = await newShop();
+
+    expect(await readFile(path.join(app, 'MyShop.csproj'), 'utf8')).toContain(
+      '<DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>',
+    );
+    expect((await readFile(path.join(app, '.dockerignore'), 'utf8')).split('\n')).toEqual(expect.arrayContaining(['tests', 'e2e']));
+  });
+
+  it('points out the tests among the things it created', async () => {
+    const { io, out } = recordingIo(temp);
+
+    expect(await run(['new', 'my-shop', '--skip-install'], io)).toBe(0);
+
+    expect(out()).toMatch(/^ {2}tests\/MyShop\.Tests\/ +\S/m);
   });
 });
 

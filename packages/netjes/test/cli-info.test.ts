@@ -195,6 +195,25 @@ describe('netjes info', () => {
     expect(out).toContain('netjes generate');
   });
 
+  it('does not count the root tests folder as code the generated types come from, but counts a nested one', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    // The app's own code and its types were written together, a minute ago; only the tests have changed since.
+    const old = new Date(Date.now() - 60_000);
+    for (const file of ['generated/netjes.ts', 'Program.cs', 'SiteProps.cs', 'Features/Home/HomePage.cs']) {
+      await utimes(path.join(app, file), old, old);
+    }
+    await mkdir(path.join(app, 'tests', 'App.Tests'), { recursive: true });
+    await writeFile(path.join(app, 'tests', 'App.Tests', 'NewTests.cs'), 'class NewTests { }');
+
+    expect((await info()).out).toContain('✓ generated/netjes.ts is newer than the C# code');
+
+    await mkdir(path.join(app, 'Features', 'tests'), { recursive: true });
+    await writeFile(path.join(app, 'Features', 'tests', 'Nested.cs'), 'class Nested { }');
+
+    expect((await info()).out).toMatch(/^! generated\/netjes\.ts is older than Features\/tests\/Nested\.cs$/m);
+  });
+
   it('warns when this netjes is not the one the app has installed', async () => {
     await newApp();
     await install(app, { ...INSTALLED, netjes: '0.0.0-other' });

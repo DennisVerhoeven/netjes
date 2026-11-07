@@ -5,6 +5,8 @@ publish
 **/dist
 **/.vite
 **/test-results
+tests
+e2e
 .git
 **/.env
 **/.env.*

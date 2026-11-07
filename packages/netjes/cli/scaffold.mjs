@@ -58,8 +58,9 @@ const CSHARP_KEYWORDS = new Set(
     'unsafe ushort using virtual void volatile while').split(' '),
 );
 
-// Types the template's C# uses by their simple names. A root namespace of the same name hides the type from that code,
-// and the build fails (CS0118, CS0234); Program is the class the top-level statements in Program.cs make (CS0101).
+// Types the template's C# uses by their simple names, in the app and in its test project, whose namespace starts with
+// the app's name. A root namespace of the same name hides the type from that code, and the build fails (CS0118, CS0234);
+// Program is the class the top-level statements in Program.cs make (CS0101).
 const TEMPLATE_TYPES = new Set([
   'Program',
   'SiteProps',
@@ -71,6 +72,17 @@ const TEMPLATE_TYPES = new Set([
   'TimeProvider',
   'IEndpointRouteBuilder',
   'FromFormAttribute',
+  'IWebHostBuilder',
+  'NetjesOptions',
+  'ISsrRenderer',
+  'Task',
+  'CancellationToken',
+  'NetjesHeaders',
+  'JsonNode',
+  'TestContext',
+  'Assert',
+  'FormUrlEncodedContent',
+  'HttpStatusCode',
 ]);
 
 /**

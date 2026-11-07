@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Packs the NuGet and npm packages into a local feed, scaffolds an app with `netjes new --packages` that restores
-# from that feed only, then tests, type-checks (also under create-vite's React-TS flags), builds and runs it in
-# Production. Run from the repository root.
+# from that feed only, then runs its Vitest and C# tests, type-checks it (also under create-vite's React-TS flags),
+# builds and runs it in Production. Run from the repository root; the scaffold goes in a temporary folder, outside this
+# repository's global.json, whose test runner the app's test project does not use.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -118,7 +119,7 @@ TSX
 npx vitest run --config vitest.glue.config.ts
 rm vitest.glue.config.ts glue-setup.ts glue.test.tsx
 
-echo "== test, typecheck, publish"
+echo "== test and typecheck"
 npm test --silent
 npm run typecheck --silent
 # netjes exports declarations, so the app's compiler options apply to the app's own code alone: one that the package's
@@ -140,8 +141,21 @@ cat > tsconfig.strict.json <<JSON
 JSON
 npx tsc -p tsconfig.strict.json
 rm tsconfig.strict.json
+
+echo "== C# tests"
+# With no client build, which nothing above has made. The scaffold has no global.json, so dotnet test uses its default
+# runner, as in a new app.
+[[ ! -e dist ]] || { echo "dist/ is there before the C# tests, which must not need it"; exit 1; }
+dotnet test tests/App.Tests -c Release --nologo
+
+echo "== publish"
 # The package's build/Netjes.targets makes publish run `npm run build` and ship dist/ (client, server and sidecar).
 dotnet publish -c Release -o "$work/publish" --nologo -v quiet
+# The test project and the TypeScript configs stay out of what goes to a server.
+[[ ! -e "$work/publish/tests" ]] || { echo "the publish folder holds tests/"; exit 1; }
+[[ ! -e "$work/publish/App.Tests.dll" ]] || { echo "the publish folder holds App.Tests.dll"; exit 1; }
+leftover=$(find "$work/publish" -maxdepth 1 -name 'tsconfig*.json')
+[[ -z "$leftover" ]] || { echo "the publish folder holds TypeScript configs: $leftover"; exit 1; }
 
 echo "== run the published app"
 (cd "$work/publish" && ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS="http://127.0.0.1:$port" dotnet App.dll >"$work/app.log" 2>&1) &

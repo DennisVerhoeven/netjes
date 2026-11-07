@@ -240,6 +240,7 @@ function layout(name) {
     ['Features/', 'the C# side, one folder per feature: loaders and server actions'],
     ['Program.cs', `the ASP.NET Core app (${name}.csproj)`],
     ['generated/netjes.ts', 'types and zod schemas from C#, rewritten by netjes generate; never edit it'],
+    [`tests/${name}.Tests/`, `C# tests of loaders and actions, run by dotnet test tests/${name}.Tests`],
     ['Dockerfile', 'and the docker-compose files: Docker for development and production'],
   ];
   const width = Math.max(...rows.map(([entry]) => (entry ?? '').length)) + 2;

@@ -68,6 +68,9 @@ describe('the npm manifest', () => {
           'template/_gitignore',
           'template/__NAME__.csproj',
           'template/Properties/launchSettings.json',
+          'template/tests/__NAME__.Tests/__NAME__.Tests.csproj',
+          'template/tests/__NAME__.Tests/AppFactory.cs',
+          'template/tests/__NAME__.Tests/HomePageTests.cs',
         ]),
       );
     });
