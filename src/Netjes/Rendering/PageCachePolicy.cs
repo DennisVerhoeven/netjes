@@ -10,7 +10,8 @@ namespace Netjes.Rendering;
 /// <summary>
 /// The output-cache rules of pages, whichever policy caches them: <c>CachePage</c>, ASP.NET Core's <c>CacheOutput</c> in
 /// any form, an <c>[OutputCache]</c> attribute or a base policy of the app. <see cref="CachePaths"/> keys an entry on
-/// the path and query string as sent and keeps failed form posts out; <see cref="CachedSegments"/> keeps documents and payloads apart
+/// the path and query string as sent and keeps failed form posts and query strings outside <c>CacheQueryKeys</c> out;
+/// <see cref="CachedSegments"/> keeps documents and payloads apart
 /// and keys a payload by the layouts the client holds. Without them, a document request could be served a stored
 /// payload, and a client a payload that leaves out a layout it does not have. Every entry is also keyed by the client
 /// build (<see cref="IAssetResolver.Version"/>), for instances on different builds sharing a store during a rolling

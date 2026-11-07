@@ -108,6 +108,7 @@ public class CacheControlTests
     [InlineData("nonce")]
     [InlineData("not found")]
     [InlineData("cookie")]
+    [InlineData("another query key")]
     public async Task CachedPages_RenderedButNotStored_AreKeptOutOfEveryCache(string reason)
     {
         await using var app = await TestApp.StartAsync(
@@ -121,7 +122,7 @@ public class CacheControlTests
                 }
 
                 return reason == "not found" ? Page.NotFound() : Page.Props();
-            }).CachePage(TimeSpan.FromMinutes(1)),
+            }).CachePage(TimeSpan.FromMinutes(1)).CacheQueryKeys("page"),
             services: s => s.AddOutputCache(),
             configureApp: a =>
             {
@@ -139,7 +140,7 @@ public class CacheControlTests
             },
             environment: "Testing",
             mode: NetjesMode.Development);
-        var request = new HttpRequestMessage(HttpMethod.Get, "/");
+        var request = new HttpRequestMessage(HttpMethod.Get, reason == "another query key" ? "/?x=1" : "/");
         if (reason == "authorization header")
         {
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "token");
@@ -148,6 +149,38 @@ public class CacheControlTests
         var response = await app.Client.SendAsync(request, Ct);
 
         Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
+    }
+
+    /// <summary>
+    /// CacheQueryKeys changes only whether the output cache keeps a response: a declared key's response is stored and
+    /// left to output caching, and a page that sets its own header keeps it for any other key too.
+    /// </summary>
+    [Theory]
+    [InlineData("/?page=1", null)]
+    [InlineData("/", null)]
+    [InlineData("/?x=1", "public, max-age=60")]
+    [InlineData("/?page=1", "public, max-age=60")]
+    public async Task CachedPages_WithCacheQueryKeys_KeepTheHeaderTheyWouldHaveHad(string url, string? set)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", (HttpContext http) =>
+            {
+                if (set is not null)
+                {
+                    http.Response.Headers.CacheControl = set;
+                }
+
+                return Page.Props();
+            }).CachePage(TimeSpan.FromMinutes(1)).CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var response = await app.Client.GetAsync(url, Ct);
+
+        Assert.Equal(set, response.Headers.CacheControl?.ToString());
     }
 
     [Fact]

@@ -901,12 +901,24 @@ internal sealed class PageRenderer(
     /// as a minimal API returning <c>Page.Render</c>, cached by <c>CacheOutput</c> or a base policy) could be served
     /// for a document request when it is a payload, or the other way round. It is rendered each time instead, and the
     /// app hears about it once per endpoint: <c>CachePage</c> keys such an endpoint by the page rules. Only about a 200,
-    /// the one status ASP.NET Core's default policy stores: a not-found page was never going to be kept.
+    /// the one status ASP.NET Core's default policy stores: a not-found page was never going to be kept. A query string
+    /// outside the page's <c>CacheQueryKeys</c> has no key of the page rules either, as the page asked, so it is rendered
+    /// each time without a warning.
     /// </summary>
     private void KeepUnkeyedPagesOutOfTheOutputCache(HttpContext http, int status)
     {
-        if (http.Features.Get<IOutputCacheFeature>() is not { Context: { EnableOutputCaching: true, AllowCacheStorage: true } } outputCache
-            || PageCachePolicy.Applied(http))
+        if (http.Features.Get<IOutputCacheFeature>() is not { Context: { EnableOutputCaching: true, AllowCacheStorage: true } } outputCache)
+        {
+            return;
+        }
+
+        if (CachePaths.LeavesQueryUncached(http))
+        {
+            outputCache.Context.AllowCacheStorage = false;
+            return;
+        }
+
+        if (PageCachePolicy.Applied(http))
         {
             return;
         }
@@ -942,7 +954,8 @@ internal sealed class PageRenderer(
     /// not, so after signing out Back would show the signed-out user's page. A visitor's page is no exception: its
     /// document stays when the client router signs the visitor in, and then shows their pages (ADR 0014). Pages that
     /// chose their own header keep theirs, and so do responses the output cache stores. A render of an output-cached
-    /// page that is not stored (a signed-in user, an Authorization header, a nonce) is one visitor's page, so it gets
+    /// page that is not stored (a signed-in user, an Authorization header, a nonce, a query string outside its
+    /// <c>CacheQueryKeys</c>) is one visitor's page, so it gets
     /// the default too, and so does an output-cached page in the Development environment, which renders for every
     /// request and is never stored (ADR 0023): a browser that kept it would show it from before an edit on Back.
     /// </summary>
