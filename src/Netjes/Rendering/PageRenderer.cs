@@ -506,14 +506,15 @@ internal sealed class PageRenderer(
         // with the deferred content hidden after them for an inline script to reveal, so it showed only with JavaScript.
         var waitForAll = !context.Options.StreamDocuments || context.Command is { Name: "export" } || IsCrawler(http);
         var renderId = collector.Values.Count > 0 ? Convert.ToHexString(RandomNumberGenerator.GetBytes(12)) : null;
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+        // Both deadlines run on the app's clock (TimeProvider), as the request's other times do.
         var limit = context.Options.StreamTimeout;
-        stop.CancelAfter(DeferredDeadline(limit));
+        using var stopAt = new CancellationTokenSource(DeferredDeadline(limit), time);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, stopAt.Token);
         // Deferred values go to the sidecar as they complete; it may need them before the shell (waitForAll). They are
         // sent until the document is done or the sidecar's own deadline passes: the failures for values that ran out of
         // time come after `stop`, and a sidecar that stops answering (a crash) must not hold the request open.
-        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-        delivery.CancelAfter(limit);
+        using var deliveryEnds = new CancellationTokenSource(limit, time);
+        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, deliveryEnds.Token);
         // The render is asked for first, so it has a sidecar process before any value is delivered (the sidecar keeps
         // values that arrive before the render reads them).
         var rendering = ssr.RenderStreamAsync(HtmlSafeJson.Escape(json), new SsrStreamOptions(waitForAll, renderId), http.RequestAborted);
