@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Blog.Tests;
 
@@ -146,14 +148,42 @@ public class StartupFailureTests
         return (process.ExitCode, string.Join('\n', output));
     }
 
-    /// <summary>The real Blog in a test host, with its server rendering as configured.</summary>
+    /// <summary>
+    /// The real Blog in a test host, with its server rendering as configured. The app's start waits until the factory
+    /// is waiting for it: WebApplicationFactory reads the app's lifetime from its services as it begins to wait, and a
+    /// start that fails disposes those services (<c>app.Run()</c> does), so a start that failed first would leave the
+    /// test an ObjectDisposedException from the factory in place of the reason.
+    /// </summary>
     private sealed class FailingApp(Action<IWebHostBuilder> configure) : WebApplicationFactory<Program>
     {
+        private readonly TaskCompletionSource _waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
             builder.UseContentRoot(GuestbookRateLimitTests.BlogApp.ExampleRoot);
             configure(builder);
+            // First, so that it starts ahead of the app's own hosted services, the sidecar's among them.
+            builder.ConfigureServices(services =>
+                services.Insert(0, new ServiceDescriptor(typeof(IHostedService), new StartsWhen(_waiting.Task))));
         }
+
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            var host = builder.Build();
+            // The factory's start reads the lifetime before its first await, and waits for the app's start from there on.
+            var started = host.StartAsync();
+            _waiting.SetResult();
+            started.GetAwaiter().GetResult();
+            return host;
+        }
+    }
+
+    /// <summary>A hosted service whose start waits for <paramref name="signal"/>.</summary>
+    private sealed class StartsWhen(Task signal) : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken) => signal.WaitAsync(cancellationToken);
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
