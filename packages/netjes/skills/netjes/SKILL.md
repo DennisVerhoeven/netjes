@@ -13,6 +13,10 @@ Netjes renders React pages from ASP.NET Core. C# receives every request and owns
 - `Features/<Feature>/*.cs`: the C# side of a feature, mapped by an extension method that `Program.cs` calls before `app.MapPages()`. Loaders and actions: [references/data-and-actions.md](references/data-and-actions.md).
 - `generated/netjes.ts`: zod schemas and typed references generated from the C# types and the page files. Read it to see what a page receives; never edit it.
 - `components/`: React components and their tests. Testing: [references/testing.md](references/testing.md).
+- `tests/<App>.Tests/`: the C# tests (xUnit v3 and `WebApplicationFactory`), where the app has them, as an app made with `netjes new` does.
+- `e2e/`: the Playwright specs, which `npm run test:e2e` runs.
+- The root folders `tests/` and `e2e/` are outside the app's build (`DefaultItemExcludes` in a new app's project file), so the app's own C# does not go there.
+- `scripts/`: code that runs only in Node. In the TypeScript configs `netjes new` writes, `tsconfig.app.json` checks the app's code without Node's types, so a component that reads `process` or imports `node:*` fails `npm run typecheck`; `tsconfig.node.json` checks `scripts/`, `e2e/`, `vite.config.ts` and `playwright.config.ts` with them. Do not add `node` to the `types` of `tsconfig.app.json`.
 
 ## The loop for any change
 

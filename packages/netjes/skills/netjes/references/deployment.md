@@ -7,6 +7,7 @@ A Netjes app is an ASP.NET Core app that also needs Node at runtime: the .NET pr
 ```bash
 npx netjes generate --check   # in CI: the generated types match the C# types
 npm test && npm run typecheck && dotnet build
+dotnet test tests/MyApp.Tests -c Release   # the C# tests, where the app has them; a plain dotnet test runs none
 dotnet publish -c Release -o bin/publish   # runs `npm run build`, ships dist/ (client, server bundle, sidecar)
 cd bin/publish && ASPNETCORE_ENVIRONMENT=Production dotnet MyApp.dll
 ```
