@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -495,8 +494,8 @@ test.describe('output caching', () => {
 
   test("a post's documents render on every request under the nonce CSP, while its client payloads come from the output cache", async ({ request }, testInfo) => {
     test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
-    // Each query string is an entry of its own, so no earlier run, retry or test has stored this one.
-    const url = `/blog/file-based-routing?run=${randomUUID()}`;
+    // No query string: the post names no query keys, so a request with one is never stored, whatever else it carries.
+    const url = '/blog/file-based-routing';
 
     // A stored document would hand every visitor the same nonce, so a document that carries one is rendered each time.
     const documents = [await request.get(url), await request.get(url)];
@@ -510,17 +509,45 @@ test.describe('output caching', () => {
     expect(secondNonce).toBeTruthy();
     expect(secondNonce).not.toBe(firstNonce);
 
-    // A client navigation's payload carries no nonce: the first is rendered and stored, the second is that copy.
+    // A client navigation's payload carries no nonce: the first is rendered and stored, the second is that copy. On a
+    // retry the first can be a copy too, of what the failed attempt stored, so only the second is asked about its age.
+    // That entry (30 seconds) can expire between the two: the second then rendered and stored a new one, which the next
+    // request is served.
     const headers = { 'X-Netjes-Data': '1' };
-    const first = await request.get(url, { headers });
-    const second = await request.get(url, { headers });
+    let first = await request.get(url, { headers });
+    let second = await request.get(url, { headers });
+    if (first.headers()['age'] !== undefined && second.headers()['age'] === undefined) {
+      first = second;
+      second = await request.get(url, { headers });
+    }
     for (const response of [first, second]) {
       expect(response.status()).toBe(200);
       expect(response.headers()['cache-control']).toBeUndefined();
     }
-    expect(first.headers()['age']).toBeUndefined();
     expect(second.headers()['age']).toBeDefined();
     expect(await second.text()).toBe(await first.text());
+  });
+
+  test('a post with a query string it does not read is rendered for each request and stored nowhere', async ({ request }, testInfo) => {
+    test.skip(testInfo.project.name !== 'production', 'the Development environment stores no page');
+    // Another key, and empty segments, which the query parser drops but which make another query string.
+    for (const query of ['?utm_source=e2e', '?&&']) {
+      const url = `/blog/file-based-routing${query}`;
+      const payloadThenDocument: Record<string, string>[] = [{ 'X-Netjes-Data': '1' }, {}];
+      for (const headers of payloadThenDocument) {
+        const first = await request.get(url, { headers });
+        const second = await request.get(url, { headers });
+        for (const response of [first, second]) {
+          expect(response.status()).toBe(200);
+          expect(response.headers()['cache-control']).toBe('no-store, private');
+          expect(response.headers()['age']).toBeUndefined();
+        }
+      }
+
+      // The payload, the first line of what the deferred values follow, keeps the URL as sent: the client shows it.
+      const payload = await (await request.get(url, { headers: { 'X-Netjes-Data': '1' } })).text();
+      expect(JSON.parse(payload.split('\n', 1)[0]!).url).toBe(url);
+    }
   });
 });
 

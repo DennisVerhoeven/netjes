@@ -269,6 +269,36 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     }
 
     /// <summary>
+    /// Names the query keys a cached page reads, so that other query strings, such as a tracking link's, add no entries
+    /// to the output cache. A request is cached as usual, keyed on its query string as sent, when it has no query string
+    /// or when every segment of that query string names one of <paramref name="keys"/>, compared without regard to case.
+    /// Any other query string, one with another key, an empty segment (<c>?page=2&amp;</c>) or a segment without a name
+    /// (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored in it. The page
+    /// rendered for it goes out <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c> (or
+    /// gets antiforgery's, on a visitor's first page under a policy other than <c>CachePage</c>), and its payload keeps
+    /// the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules apply: on
+    /// a page under any output caching, and on an endpoint <c>CachePage</c> is put on. It does not make a page cached, and
+    /// elsewhere it does nothing, so a route group can mix pages and APIs: an endpoint outside the page rules narrows its
+    /// key with <c>SetVaryByQuery</c>. Of two calls on one endpoint, the last decides. On a layout loader it applies to
+    /// each page below the layout, unless a later call replaces it there: the page's own, or, for a page without a
+    /// loader, one on <c>MapPages()</c>.
+    /// </summary>
+    /// <param name="builder">The endpoint or group the convention is put on.</param>
+    /// <param name="keys">The names the page reads from the query string, decoded, as a loader or component reads them.</param>
+    /// <exception cref="ArgumentException"><paramref name="keys"/> is <c>null</c> or holds a <c>null</c> or empty key.</exception>
+    public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        if (keys.Any(string.IsNullOrEmpty))
+        {
+            throw new ArgumentException("A query key cannot be null or empty.", nameof(keys));
+        }
+
+        return builder.WithMetadata(new CacheQueryKeysMetadata(new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
     /// Maps a server action, the counterpart of a Next.js <c>'use server'</c> function: a POST endpoint at
     /// <c>/_netjes/actions/{name}</c> that binds like any minimal API handler (JSON body, <c>[FromForm]</c> fields,
     /// services) and returns a <see cref="ServerActionResult"/>. Call it from React with <c>serverAction(name)</c> and

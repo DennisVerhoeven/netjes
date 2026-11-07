@@ -99,6 +99,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0044 – `beforeInteractive` scripts run before the page's code](decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)
 - [0045 – Typed URLs for the app's endpoints](decisions/0045-typed-urls-for-the-apps-endpoints.md)
 - [0046 – The export writes the GET endpoints marked IncludeInExport](decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)
+- [0047 – Cached pages name the query keys they read](decisions/0047-cached-pages-name-the-query-keys-they-read.md)
 
 ## The project
 

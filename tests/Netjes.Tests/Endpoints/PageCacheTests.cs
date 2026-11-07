@@ -87,11 +87,18 @@ public class PageCacheTests
     /// A cached page whose shared props read a cookie. In the Testing environment, with Netjes in development mode
     /// (routes from <c>app/</c> on disk), unless <paramref name="development"/> asks for the Development environment.
     /// </summary>
-    private static Task<TestApp> StartWithCookieSharedPropsAsync(bool development = false) =>
+    private static Task<TestApp> StartWithCookieSharedPropsAsync(bool development = false, string[]? queryKeys = null) =>
         TestApp.StartAsync(
             ["app/posts/[id]/page.tsx"],
             configure: o => o.SharedProps = http => ValueTask.FromResult<object?>(new { Theme = http.Request.Cookies["theme"] }),
-            map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5)),
+            map: a =>
+            {
+                var page = a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id })).CachePage(TimeSpan.FromMinutes(5));
+                if (queryKeys is not null)
+                {
+                    page.CacheQueryKeys(queryKeys);
+                }
+            },
             services: s => s.AddOutputCache(),
             configureApp: a => a.UseOutputCache(),
             environment: development ? "Development" : "Testing",
@@ -211,6 +218,107 @@ public class PageCacheTests
         Assert.Contains("'theme'", warning.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("CacheShell", warning.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("coming", warning.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The warning says a render was stored for every visitor. A render for a query key the page does not name is stored
+    /// nowhere, so that one visitor's value reaches nobody else; a render for a key it names still warns.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ARenderForAnotherKeyThatReadsACookie_DoesNotWarn()
+    {
+        await using var app = await StartWithCookieSharedPropsAsync(queryKeys: ["page"]);
+
+        await DataWithCookieAsync(app, "/posts/1?x=1", "theme=dark");
+
+        Assert.DoesNotContain(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+
+        await DataWithCookieAsync(app, "/posts/1?page=1", "theme=dark");
+
+        Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Shared props run after the renderer has refused storage, but a loader runs before it, while storage is still
+    /// allowed. So what keeps a loader's read quiet is that a render for a key the page does not name has no watch on its cookies.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ALoaderThatReadsACookieForAnotherKey_DoesNotWarn()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/[id]/page.tsx"],
+            map: a => a.MapPageLoader("/posts/[id]", (HttpContext http, string id) => Page.Props(new { Id = id, Theme = http.Request.Cookies["theme"] }))
+                .CachePage(TimeSpan.FromMinutes(5))
+                .CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var other = await DataWithCookieAsync(app, "/posts/1?x=1", "theme=dark");
+
+        Assert.Equal("dark", (string?)other["props"]!["theme"]);
+        Assert.DoesNotContain(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+
+        await DataWithCookieAsync(app, "/posts/1?page=1", "theme=dark");
+
+        Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+    }
+
+    private sealed class NoConventions : IEndpointConventionBuilder
+    {
+        public void Add(Action<EndpointBuilder> convention)
+        {
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void CacheQueryKeys_WithAnEmptyOrNullKey_Throws(string? key)
+    {
+        var thrown = Assert.Throws<ArgumentException>(() => new NoConventions().CacheQueryKeys("page", key!));
+
+        Assert.Equal("keys", thrown.ParamName);
+    }
+
+    [Fact]
+    public void CacheQueryKeys_WithANullArray_Throws()
+    {
+        var thrown = Assert.Throws<ArgumentNullException>(() => new NoConventions().CacheQueryKeys(null!));
+
+        Assert.Equal("keys", thrown.ParamName);
+    }
+
+    /// <summary>
+    /// Groups mix pages and APIs, so the convention does not refuse an endpoint outside the page rules: one that is no page
+    /// and not under CachePage keeps ASP.NET Core's rules, where every query key varies the entry and <c>SetVaryByQuery</c> narrows it.
+    /// </summary>
+    [Fact]
+    public async Task CacheQueryKeys_OnAnEndpointThatIsNoPage_ChangesNothing()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGet("/api/count", () => Interlocked.Increment(ref calls)).CacheOutput().CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var other = await app.Client.GetStringAsync("/api/count?x=1", Ct);
+        var otherAgain = await app.Client.GetAsync("/api/count?x=1", Ct);
+        var anotherValue = await app.Client.GetStringAsync("/api/count?x=2", Ct);
+        var emptySegment = await app.Client.GetStringAsync("/api/count?&", Ct);
+        var bare = await app.Client.GetStringAsync("/api/count", Ct);
+
+        Assert.Equal("1", other);
+        Assert.Equal("1", await otherAgain.Content.ReadAsStringAsync(Ct));
+        Assert.True(otherAgain.Headers.Age.HasValue);
+        Assert.Null(otherAgain.Headers.CacheControl);
+        Assert.Equal("2", anotherValue);
+        // The parser reads both as no query at all, and ASP.NET Core's key is made from what it read: one entry.
+        Assert.Equal(("3", "3"), (emptySegment, bare));
     }
 
     [Fact]

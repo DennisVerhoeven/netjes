@@ -3,18 +3,22 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Netjes.Routing;
 
 namespace Netjes.Rendering;
 
 /// <summary>
 /// Output-cache policy for pages: tags each entry with its path (for <c>RevalidatePath</c>), keys it on the path and
-/// query string as sent, never serves or stores a page rendered in place of a failed form post, and warns once per page when a render
+/// query string as sent, never serves or stores a page rendered in place of a failed form post or for a query string
+/// outside the page's <c>CacheQueryKeys</c>, and warns once per page when a render
 /// it stores read <c>Request.Cookies</c>. It works wherever it runs among the request's policies: it only adds to the
 /// key in <see cref="CacheRequestAsync"/> (a policy after it, such as ASP.NET Core's default one, sets the lookup and
 /// storage flags again), and refuses storage once the response is known.
 /// </summary>
 internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment environment) : IOutputCachePolicy
 {
+    private const string UnreadQueryKey = "Netjes.UnreadQuery";
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedCookies = new(StringComparer.Ordinal);
 
     public static string TagFor(string path) => "netjes-path:" + Normalize(path);
@@ -24,6 +28,40 @@ internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment en
         var withoutQuery = path.Split('?', 2)[0];
         var trimmed = withoutQuery.Length > 1 ? withoutQuery.TrimEnd('/') : withoutQuery;
         return trimmed.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// The page's <c>CacheQueryKeys</c> leave this request's query string out, so the output cache neither answers it nor
+    /// stores what it renders.
+    /// </summary>
+    public static bool LeavesQueryUncached(HttpContext http) => http.Items.ContainsKey(UnreadQueryKey);
+
+    /// <summary>
+    /// Whether every segment of the raw query string (<paramref name="query"/>, empty or starting with <c>?</c>) has a name
+    /// in <paramref name="keys"/>. The raw text decides, not <see cref="HttpRequest.Query"/>: the parser drops empty
+    /// segments, but <c>?page=2&amp;</c> and <c>?page=2&amp;&amp;</c> are other query strings, each an entry of its own under
+    /// the page rules, so anyone could fill the cache with them. A name is decoded as the parser decodes it, <c>+</c> as a
+    /// space and then percent-escapes. An entry stays keyed on the query string as sent, so a name read differently from the
+    /// parser could only store a page for its own URL or lose a hit, never serve one query string's page for another.
+    /// </summary>
+    internal static bool ReadsOnlyDeclaredKeys(string query, IReadOnlySet<string> keys)
+    {
+        if (query.Length == 0)
+        {
+            return true;
+        }
+
+        foreach (var segment in query[1..].Split('&'))
+        {
+            var valueStart = segment.IndexOf('=');
+            var name = valueStart < 0 ? segment : segment[..valueStart];
+            if (name.Length == 0 || !keys.Contains(Uri.UnescapeDataString(name.Replace('+', ' '))))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
@@ -38,12 +76,27 @@ internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment en
             return ValueTask.CompletedTask;
         }
 
-        context.Tags.Add(TagFor(context.HttpContext.Request.Path));
+        var http = context.HttpContext;
+        var request = http.Request;
+        if (http.GetEndpoint()?.Metadata.GetMetadata<CacheQueryKeysMetadata>() is { } queryKeys
+            && !ReadsOnlyDeclaredKeys(request.QueryString.Value ?? "", queryKeys.Keys))
+        {
+            // A query string the page does not read: a stored copy would answer this one URL, and every made-up query
+            // string would store another. The key value of its own finds no stored entry and lets no request wait for
+            // another's render. A policy after this one allows storage again, so the flag refuses it later: in the
+            // renderer before it builds the payload, which then keeps its antiforgery token under a policy other than
+            // CachePage, and in ServeResponseAsync for a response no renderer wrote. Nothing is stored, so the tag, the
+            // keys of the page rules and the watch on cookies are left out.
+            CacheBypass.Apply(context, CacheBypass.UnreadQuery);
+            http.Items[UnreadQueryKey] = true;
+            return ValueTask.CompletedTask;
+        }
+
+        context.Tags.Add(TagFor(request.Path));
         // The default key upper-cases the path (unless UseCaseSensitivePaths), but route values reach loaders as sent,
         // and a loader may compare them exactly: /s/Ab and /s/aB can be different pages. It also upper-cases query
         // names and sorts repeated values, and a policy may key on some names only, but the payload repeats the URL as
         // sent (the client shows it in the address bar), so another query string must not be served it.
-        var request = context.HttpContext.Request;
         context.CacheVaryByRules.VaryByValues["netjes-path"] = request.PathBase.Value + request.Path.Value;
         context.CacheVaryByRules.VaryByValues["netjes-query"] = request.QueryString.Value ?? "";
         WatchCookies(context);
@@ -109,7 +162,7 @@ internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment en
 
     public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        if (IsFailedFormPost(context))
+        if (IsFailedFormPost(context) || LeavesQueryUncached(context.HttpContext))
         {
             context.AllowCacheStorage = false;
         }

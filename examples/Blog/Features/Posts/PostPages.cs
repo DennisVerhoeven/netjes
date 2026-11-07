@@ -57,6 +57,10 @@ public static class PostPages
                         })
                     : Page.NotFound())
             .CachePage(TimeSpan.FromSeconds(30))
+            // The post reads nothing from the query string, so a request with one, such as a tracking link's
+            // ?utm_source=..., is rendered for itself and stored nowhere, rather than adding a copy of the post to the
+            // cache for each query string a link or a visitor makes up.
+            .CacheQueryKeys()
             .StaticParams<PostStore>(store => store.All.Select(post => new { slug = post.Slug }));
     }
 

@@ -5,6 +5,7 @@ public static class Microsoft.AspNetCore.Builder.NetjesApplicationBuilderExtensi
   public static Microsoft.AspNetCore.Builder.IApplicationBuilder UseNetjes(this Microsoft.AspNetCore.Builder.IApplicationBuilder app)
 public static class Microsoft.AspNetCore.Builder.NetjesEndpointRouteBuilderExtensions
   public static TBuilder CachePage<TBuilder>(this TBuilder builder, TimeSpan duration, params string[] tags) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
+  public static TBuilder CacheQueryKeys<TBuilder>(this TBuilder builder, params string[] keys) where TBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string name, Delegate action)
   public static Netjes.Routing.LayoutLoaderBuilder MapLayoutLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string segment, Delegate loader)
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate action)
