@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Text.Json;
-
 namespace Netjes.Tests.Packaging;
 
 /// <summary>
@@ -50,27 +47,10 @@ public class BuildTargetsTests : IDisposable
         Assert.Contains(folder + "/Feature.cs", DefaultItems("Compile"));
     }
 
-    private List<string> DefaultItems(params string[] types)
-    {
-        string[] arguments = ["msbuild", "App.csproj", .. (types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types).Select(t => "-getItem:" + t)];
-        var start = new ProcessStartInfo("dotnet", arguments)
-        {
-            WorkingDirectory = _dir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var process = Process.Start(start)!;
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        Assert.True(process.WaitForExit(120_000), "msbuild did not finish");
-        Assert.True(process.ExitCode == 0, output.Result + error.Result);
-
-        using var json = JsonDocument.Parse(output.Result);
-        return json.RootElement.GetProperty("Items").EnumerateObject()
-            .SelectMany(group => group.Value.EnumerateArray())
-            .Select(item => item.GetProperty("Identity").GetString()!.Replace('\\', '/'))
+    private List<string> DefaultItems(params string[] types) =>
+        MsBuildItems.Of(_dir, "App.csproj", types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types)
+            .Select(item => item.Path())
             .ToList();
-    }
 
     private void Write(string path, string content)
     {
