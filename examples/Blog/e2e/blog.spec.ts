@@ -511,9 +511,15 @@ test.describe('output caching', () => {
 
     // A client navigation's payload carries no nonce: the first is rendered and stored, the second is that copy. On a
     // retry the first can be a copy too, of what the failed attempt stored, so only the second is asked about its age.
+    // That entry (30 seconds) can expire between the two: the second then rendered and stored a new one, which the next
+    // request is served.
     const headers = { 'X-Netjes-Data': '1' };
-    const first = await request.get(url, { headers });
-    const second = await request.get(url, { headers });
+    let first = await request.get(url, { headers });
+    let second = await request.get(url, { headers });
+    if (first.headers()['age'] !== undefined && second.headers()['age'] === undefined) {
+      first = second;
+      second = await request.get(url, { headers });
+    }
     for (const response of [first, second]) {
       expect(response.status()).toBe(200);
       expect(response.headers()['cache-control']).toBeUndefined();
