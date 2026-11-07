@@ -107,7 +107,7 @@ export async function namesFor(target, name) {
   }
   const names = name === undefined ? projectNames(path.basename(target)) : { ...projectNames(name), dotnet: name };
   if (TEMPLATE_TYPES.has(names.dotnet)) {
-    return { problem: `'${names.dotnet}' is the name of a type the app's code uses; choose another name with --name` };
+    return { problem: `'${names.dotnet}' is the name of a type the app's code or its test project uses; choose another name with --name` };
   }
   const manifest = JSON.parse(await readFile(path.join(TEMPLATE, 'package.json'), 'utf8'));
   if (Object.hasOwn({ ...manifest.dependencies, ...manifest.devDependencies }, names.npm)) {

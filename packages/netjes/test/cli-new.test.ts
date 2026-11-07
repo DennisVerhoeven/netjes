@@ -124,12 +124,12 @@ describe('netjes new names', () => {
   ])('rejects %s, a type name the app uses', async (name) => {
     const message = await fails(['new', 'app', '--name', name, '--skip-install']);
 
-    expect(message).toBe(`netjes new: '${name}' is the name of a type the app's code uses; choose another name with --name`);
+    expect(message).toBe(`netjes new: '${name}' is the name of a type the app's code or its test project uses; choose another name with --name`);
   });
 
   it('rejects a folder whose name is a type name the app uses', async () => {
     expect(await fails(['new', 'page', '--skip-install'])).toBe(
-      "netjes new: 'Page' is the name of a type the app's code uses; choose another name with --name",
+      "netjes new: 'Page' is the name of a type the app's code or its test project uses; choose another name with --name",
     );
     expect(existsSync(path.join(temp, 'page'))).toBe(false);
   });

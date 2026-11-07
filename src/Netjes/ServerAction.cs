@@ -86,7 +86,10 @@ public sealed partial class ServerActionResult : IResult
         return this;
     }
 
-    /// <summary>Evicts the output-cached pages at these paths and refreshes the client's page.</summary>
+    /// <summary>
+    /// Evicts the output-cached pages at these paths, never the entry of an endpoint that is not a page (evict that by
+    /// a tag), and refreshes the client's page.
+    /// </summary>
     public ServerActionResult RevalidatePath(params string[] paths)
     {
         _paths.AddRange(paths);

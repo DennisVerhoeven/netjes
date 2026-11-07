@@ -239,7 +239,7 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 ## Hosts and HTTPS
 
-- `AllowedHosts`: the template's `appsettings.json` allows any host (`*`), and its `appsettings.Development.json` allows only `localhost;127.0.0.1;[::1]`, so a page that rebinds its DNS name to your machine cannot reach the dev app. Pin `AllowedHosts` to your host names in production: the output cache keys entries on the host, and every made-up host would otherwise get entries of its own.
+- `AllowedHosts`: the template's `appsettings.json` allows any host (`*`), and its `appsettings.Development.json` allows only `localhost;127.0.0.1;[::1]`, so a page that rebinds its DNS name to your machine cannot reach the dev app. Pin `AllowedHosts` to your host names in production: the output cache keys entries on the host, and every made-up host would otherwise get entries of its own. Made-up query strings make entries too: name the query keys each cached page reads with `.CacheQueryKeys(...)` ([caching](caching.md#query-strings-a-page-does-not-read)).
 - HSTS and HTTPS redirection are ASP.NET Core's. The template calls `UseHsts()` and `UseHttpsRedirection()` outside Development.
 - Behind a proxy that terminates TLS, call `UseForwardedHeaders()` first, trusting only that proxy's network, so the app sees the original scheme, host and client address. [Deployment](deployment.md#proxies-and-base-paths) has an example.
 

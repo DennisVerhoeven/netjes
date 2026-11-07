@@ -111,7 +111,7 @@ npm run dev
 
 Two edits to try:
 
-- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement.
+- In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement. `components/Greeting.test.tsx` finds the button by its text: change it there too, or `npm test` fails.
 - In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it. `tests/MyApp.Tests/HomePageTests.cs` and `e2e/home.spec.ts` check that message: change it there too, or those tests fail.
 
 Hot reload applies changes inside methods. Code that runs once at startup, such as `Program.cs` and the `Map...` calls, needs a restart: press Ctrl+R in the terminal that runs `npm run dev`. Ctrl+C stops it. The app listens on another port with `ASPNETCORE_URLS=http://localhost:3000 npm run dev`. The Vite dev server has a port of its own, 5173: when another app's Vite dev server has it, `npm run dev` says so, and `Netjes__ViteDevPort=5174 npm run dev` moves it.
@@ -535,7 +535,7 @@ To add Netjes to an ASP.NET Core project you already have:
    }
    ```
 
-   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output; add any other folder that holds TypeScript of its own to its `exclude`:
+   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output. Add to its `exclude` any other folder whose TypeScript is not the app's browser code, such as a project with a tsconfig of its own; Node-side TypeScript outside `scripts/` also goes in the `include` of `tsconfig.node.json`:
 
    ```json
    {
@@ -578,7 +578,7 @@ To add Netjes to an ASP.NET Core project you already have:
    `netjes` ships JavaScript with declaration files, so your `tsc` checks your own code alone, also under stricter options you add, such as `exactOptionalPropertyTypes` or `noPropertyAccessFromIndexSignature` (see [TypeScript setup](reference/vite-plugin.md#typescript-setup)).
 5. Put pages in `app/`, with an `app/layout.tsx` that imports a stylesheet containing `@import "tailwindcss";`.
 6. In `Program.cs`, call `builder.Services.AddNetjes()`, then `app.UseNetjes()`, `app.UseAntiforgery()` (after authentication) and `app.MapPages()`.
-7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it each time it starts in Development. Commit it.
+7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it when it starts in development mode and the C# types changed. Commit it.
 8. Start the dev server with `npm run dev` (the `netjes dev` script from step 2), or `npx netjes dev`. It runs the app with `dotnet watch` and Vite hot reloading, on `http://localhost:5080` unless `ASPNETCORE_URLS` says otherwise.
 
 `npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off. [The test project](guides/testing.md#the-test-project) says how to add the C# test project a new app has, and [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) its Playwright suite.

@@ -164,7 +164,7 @@ A visitor whose browser runs the old build and whose navigation reaches a new in
 
 ### Size and hosts
 
-A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts` and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
+A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts`, name the query keys each cached page reads with `.CacheQueryKeys(...)`, so other query strings add no entries ([caching](caching.md#query-strings-a-page-does-not-read)), and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
 
 ## Health checks
 
@@ -237,7 +237,7 @@ Netjes logs through `ILogger`, under these categories:
 | `Netjes.Sitemap` | At debug level, that `/sitemap.xml` answered 404 because the base path is longer than its URLs may carry ([sitemap and robots](metadata.md#sitemap-and-robots)). |
 | `Netjes.Routing.RouteDiagnostics` | [Route warnings](routing.md) at startup. |
 | `Netjes.Routing.FileSystemRouteTableProvider` | Development: route table rescans and the conflicts they find. |
-| `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in Development, and the `generate` and `routes` commands. |
+| `Netjes.TypeGen.TypeGenHostedService` | Writing `generated/netjes.ts` in development mode, and the `generate` and `routes` commands. |
 | `Netjes.Export.StaticExportService` | `netjes export`: what it wrote, why a page or an endpoint marked `.IncludeInExport()` could not be exported, and warnings about a `sitemap.xml` or `robots.txt` written for a loopback site URL ([static export](static-export.md#sitemap-and-robotstxt)). |
 | `Netjes.Export.QueryString` | `netjes export`: warnings about page loaders and layout loaders of exported pages, and endpoints marked `.IncludeInExport()`, that read the query string, which the export never sends ([static export](static-export.md#loaders-that-read-the-query-string)). |
 

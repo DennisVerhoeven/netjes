@@ -1,6 +1,6 @@
 # 0023 – Pages are not output-cached in Development
 
-Status: accepted; extends [ADR 0016](0016-page-cache-rules-under-any-output-caching.md)
+Status: accepted; extends and amends [ADR 0016](0016-page-cache-rules-under-any-output-caching.md)
 
 ## Context
 
@@ -28,6 +28,7 @@ An app sets up output caching and `CachePage` in its `Program.cs`, which runs in
 ## Consequences
 
 - In Development, every request for an output-cached page runs its loaders, so a loader that calls a slow or billed service reaches it every time unless the service caches.
+- ADR 0016 keeps the antiforgery token on a response the cache will not store. In Development no page is stored, yet a page under output caching other than `CachePage` still carries no token, as it would where it could be stored.
 - Output-cached pages differ in one header between Development (`no-store, private`) and production (none, when stored). A page that sets its own `Cache-Control` keeps it, and can still come back from before an edit on Back.
 - Caching is tried on the built app (`netjes build`, then `netjes start`), or in a test host in another environment. `netjes routes` still lists `CachePage` pages as cached.
 - A host that runs development mode with a live Vite dev server outside the Development environment still stores pages, which can then be older than the code. It is rare, and a test host that does so asks for caching.

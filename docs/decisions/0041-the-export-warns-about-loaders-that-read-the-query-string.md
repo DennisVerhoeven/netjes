@@ -27,5 +27,5 @@ The page's endpoint carries what minimal API binding inferred for each of the lo
 
 - An app with an exported page or layout that reads the query string logs a warning on every export. A page exported that way on purpose warns every time, unless the app raises the category's log level, which hides the warning for loaders added later too.
 - The check follows binding, so some reads go unreported: a loader that reads `HttpContext.Request.Query` itself, or takes a type that binds itself with `BindAsync`.
-- The Blog example's export logs one warning, for `/blog`, which it keeps as its example of a filter in the query string; its export suite asserts that warning.
+- The Blog example's export logs one such warning, for `/blog`, which it keeps as its example of a filter in the query string; its export suite asserts that warning.
 - When the router reads the browser's query string on exported pages, the docs that describe the gap and its remedy change with it: the static export guide, `useSearchParams` in the React API reference, "Reading the URL" in the routing guide, and the agent skill.

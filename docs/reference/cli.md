@@ -51,7 +51,7 @@ netjes generate: unknown option '--chek'; did you mean '--check'?
 netjes new <dir> [--name <Name>] [--packages] [--skip-install]
 ```
 
-Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next. Besides the pages and the C# side, the app has a C# test project, `tests/<Name>.Tests`, and a Playwright suite, `e2e/` with `playwright.config.ts` ([testing](../guides/testing.md#the-test-project)). `npm install` brings Playwright's package and no browser; `npx playwright install chromium` fetches that once.
+Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next. Besides the pages and the C# side, the app has a C# test project, `tests/<Name>.Tests` ([the test project](../guides/testing.md#the-test-project)), and a Playwright suite, `e2e/` with `playwright.config.ts` ([the suite of a new app](../guides/testing.md#the-suite-of-a-new-app)). `npm install` brings Playwright's package and no browser; `npx playwright install chromium` fetches that once.
 
 | Argument or option | What it does | Default |
 |---|---|---|
@@ -143,7 +143,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 netjes generate [--check]
 ```
 
-Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts in Development; commit it.
+Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it.
 
 | Option | What it does | Default |
 |---|---|---|
@@ -176,7 +176,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 }
 ```
 
-`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does. A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings): `query-binding` for a loader parameter that reads the query string instead of a route value, `overlap` for two pages that match the same URLs, `ambiguous-endpoint` for an endpoint that ties with a page, and `form-input` for a form input that refuses a post without a checkbox. `files` lists the page and layout files the warning is about, and is empty for a server action's form input.
+`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does. A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings): `query-binding` for a loader parameter that reads the query string instead of a route value, `overlap` for two pages that match the same URLs, `ambiguous-endpoint` for an endpoint that ties with a page or a page action, and `form-input` for a form input that refuses a post without a checkbox. `files` lists the page and layout files the warning is about, and is empty for a server action's form input.
 
 ## netjes export
 
