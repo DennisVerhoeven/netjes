@@ -249,7 +249,7 @@ The check sees the document a crawler gets. A visitor's browser also gets inline
 
 ### The test project
 
-An app made with `netjes new` has a test project in `tests/<App>.Tests`, on xUnit v3. `dotnet test tests/<App>.Tests` builds and runs it, with no Node process and no client build:
+An app made with `netjes new` has a test project in `tests/<App>.Tests`, on xUnit v3:
 
 | File | What it is |
 |---|---|
@@ -257,9 +257,11 @@ An app made with `netjes new` has a test project in `tests/<App>.Tests`, on xUni
 | `AppFactory.cs` | The `WebApplicationFactory<Program>` that [The app over HTTP](#the-app-over-http) describes. |
 | `HomePageTests.cs` | Requests the home page's payload, and posts the `home.greet` form with a name and without one. |
 
+`dotnet test tests/<App>.Tests` builds and runs it, with no Node process and no client build. Name the project: a plain `dotnet test` at the app's root finds only the app's project, which holds no tests, so it runs none and exits 0.
+
 Three things about that setup:
 
-- **The runner.** `xunit.v3.mtp-off` is xUnit v3 for `dotnet test`'s default runner, VSTest, so the project runs under plain `dotnet test` in any folder, and the app needs no `global.json`. `xunit.v3` itself runs only under Microsoft.Testing.Platform, which takes a `global.json`, and one in the app would shadow the SDK version a repository around it pins. In a repository whose `global.json` selects that runner (`"test": { "runner": "Microsoft.Testing.Platform" }`), `dotnet test` refuses a VSTest project: reference `xunit.v3` in place of `xunit.v3.mtp-off`, at the same version, and run `dotnet test --project tests/<App>.Tests`.
+- **The runner.** `xunit.v3.mtp-off` is xUnit v3 for `dotnet test`'s default runner, VSTest, so `dotnet test tests/<App>.Tests` runs it wherever the app sits, and the app needs no `global.json`. `xunit.v3` itself runs only under Microsoft.Testing.Platform, which takes a `global.json`, and one in the app would shadow the SDK version a repository around it pins. In a repository whose `global.json` selects that runner (`"test": { "runner": "Microsoft.Testing.Platform" }`), `dotnet test` refuses a VSTest project: reference `xunit.v3` in place of `xunit.v3.mtp-off`, at the same version, and run `dotnet test --project tests/<App>.Tests`.
 - **The generated types.** `AppFactory` sets `NetjesOptions.TypesFile` to `null`. In development mode the app rewrites `generated/netjes.ts` when it starts, as `dotnet run` does, so without that line a test run would update a stale file, and a `netjes generate --check` after it would pass.
 - **The app's build.** The Web SDK compiles every `.cs` file below the project and makes every `.json` file below it content, so the app's project file leaves two root folders out, the test project and the Playwright specs:
 
@@ -433,7 +435,7 @@ webServer: [
 
 ### The suite of a new app
 
-An app made with `netjes new` has the config above in `playwright.config.ts`, and `npm run test:e2e` runs it, after `npx playwright install chromium` once. `npm install` brings the `@playwright/test` package, about 10 MB, and no browser. Its tests are in `e2e/home.spec.ts`, and each runs against both servers:
+An app made with `netjes new` has the config above in `playwright.config.ts`, and `npm run test:e2e` runs it, after `npx playwright install chromium` once. `npm install` brings the `@playwright/test` package with the two it depends on, about 19 MB, and no browser. Its tests are in `e2e/home.spec.ts`, and each runs against both servers:
 
 - the home page shows the message from its C# loader;
 - the link "About this app" leads to `/about`;

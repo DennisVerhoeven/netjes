@@ -573,6 +573,8 @@ To add Netjes to an ASP.NET Core project you already have:
    }
    ```
 
+   Type-check with the `typecheck` script from step 2. `tsconfig.json` lists no files, so `tsc -p tsconfig.json --noEmit` and a bare `tsc --noEmit` check nothing and exit 0: change a script or a CI step that runs either of them to `npm run typecheck`.
+
    `netjes` ships JavaScript with declaration files, so your `tsc` checks your own code alone, also under stricter options you add, such as `exactOptionalPropertyTypes` or `noPropertyAccessFromIndexSignature` (see [TypeScript setup](reference/vite-plugin.md#typescript-setup)).
 5. Put pages in `app/`, with an `app/layout.tsx` that imports a stylesheet containing `@import "tailwindcss";`.
 6. In `Program.cs`, call `builder.Services.AddNetjes()`, then `app.UseNetjes()`, `app.UseAntiforgery()` (after authentication) and `app.MapPages()`.
