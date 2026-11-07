@@ -31,7 +31,7 @@ scripts/check-packages.sh                      # pack, scaffold, test (Vitest an
 npm run docs:check                             # llms.txt and llms-full.txt match the docs, and every link resolves
 cd bench/netjes && npm test                    # the benchmark harness (not a workspace, so not in the root npm test)
 cd bench/netjes && npm run typecheck           # the harness's JavaScript, strict, from its JSDoc types
-node --test scripts/test/*.test.mjs            # the scripts' tests: release checks, llms.txt, the link check, the docs checks, LF line endings
+node --test scripts/test/*.test.mjs            # the scripts' tests: release checks, llms.txt, the link check, the docs checks, LF line endings, the package check's browser install
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these on every pull request and every push to `main`, on Linux and Node.js 22.22.2, the oldest supported version. On macOS and Windows it runs the build, the type checks, `npm test`, `netjes generate --check`, the docs check and the .NET tests without the Docker ones; the end-to-end suites, the package check and the benchmark harness run on Linux only.
