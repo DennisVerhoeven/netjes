@@ -20,7 +20,7 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 ### Render
 
 - [Rendering and streaming](guides/rendering-and-streaming.md): the Node processes that render pages, streamed documents, `loading.tsx` and `Page.Defer`, crawlers, the client-rendered fallback, `dynamic()` and error pages.
-- [Caching](guides/caching.md): the default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry, endpoints that are not pages, revalidation, draft mode and CDNs.
+- [Caching](guides/caching.md): the default `Cache-Control`, output-cached pages and why none is cached in the Development environment, what keys an entry and the query keys a page reads, endpoints that are not pages, revalidation, draft mode and CDNs.
 - [Images](guides/images.md): `<Image>`, the image endpoint and its limits, and image processing with SkiaSharp.
 
 ### Publish
@@ -32,7 +32,7 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 ### Run
 
 - [Security](guides/security.md): the default headers, Content-Security-Policy in production and in Development and the warnings Netjes logs for a policy, zod without compiled parsers in the browser, antiforgery and origin checks, body limits, redirects and the other defaults.
-- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, a page's whole document with `renderDocument`, C# tests of loaders and actions, Playwright and waiting for hydration, and the checks for CI.
+- [Testing](guides/testing.md): component and page tests with Vitest and `netjes/testing`, failing queries and fake timers included, a page's whole document with `renderDocument`, C# tests of loaders and actions and the test project a new app has, Playwright, a new app's suite and waiting for hydration, and the checks for CI.
 - [Deployment](guides/deployment.md): publishing, Docker, configuration, several instances behind a load balancer, health checks, telemetry and proxies.
 - [Coding agents](guides/coding-agents.md): `llms.txt`, the `AGENTS.md` and skill that new apps get, and `netjes agents` for existing ones.
 
