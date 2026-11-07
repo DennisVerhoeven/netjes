@@ -727,7 +727,7 @@ The route announcer is public in the same way. After a client navigation to anot
 
 ## The generated module
 
-`generated/netjes.ts` is written from the app's C# types and page files by the app in Development and by `netjes generate` ([Generated types](../guides/data-loading.md#generated-types)). Next to a zod schema and a type per C# type, it exports:
+`generated/netjes.ts` is written from the app's C# types and page files by the app when it starts in development mode (`TypesFile`) and by `netjes generate` ([Generated types](../guides/data-loading.md#generated-types)). Next to a zod schema and a type per C# type, it exports:
 
 | Export | What it is |
 |---|---|

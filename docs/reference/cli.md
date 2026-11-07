@@ -143,7 +143,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 netjes generate [--check]
 ```
 
-Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts in Development; commit it.
+Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it.
 
 | Option | What it does | Default |
 |---|---|---|

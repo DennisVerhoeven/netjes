@@ -578,7 +578,7 @@ To add Netjes to an ASP.NET Core project you already have:
    `netjes` ships JavaScript with declaration files, so your `tsc` checks your own code alone, also under stricter options you add, such as `exactOptionalPropertyTypes` or `noPropertyAccessFromIndexSignature` (see [TypeScript setup](reference/vite-plugin.md#typescript-setup)).
 5. Put pages in `app/`, with an `app/layout.tsx` that imports a stylesheet containing `@import "tailwindcss";`.
 6. In `Program.cs`, call `builder.Services.AddNetjes()`, then `app.UseNetjes()`, `app.UseAntiforgery()` (after authentication) and `app.MapPages()`.
-7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it each time it starts in Development. Commit it.
+7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it when it starts in development mode and the C# types changed. Commit it.
 8. Start the dev server with `npm run dev` (the `netjes dev` script from step 2), or `npx netjes dev`. It runs the app with `dotnet watch` and Vite hot reloading, on `http://localhost:5080` unless `ASPNETCORE_URLS` says otherwise.
 
 `npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off. [The test project](guides/testing.md#the-test-project) says how to add the C# test project a new app has, and [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) its Playwright suite.
