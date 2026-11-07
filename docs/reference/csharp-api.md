@@ -2,7 +2,7 @@
 
 This page lists the public API of the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages: every public type and extension method, grouped by what it is for, each with its signature and what it does. It is a reference for app developers; the guides show how the pieces fit together. Options are listed separately, in the [options reference](options.md).
 
-Extension methods live in the namespaces of what they extend, which a web project imports already: `Microsoft.AspNetCore.Builder` (`UseNetjes`, `MapPages`, `MapPageLoader`, ...), `Microsoft.Extensions.DependencyInjection` (`AddNetjes`, ...), `Microsoft.Extensions.Hosting` and `Microsoft.AspNetCore.Http`; the sitemap's are in `Netjes`. The types are in `Netjes`, which the package's build targets import into projects with implicit usings, and in `Netjes.Images`, `Netjes.Images.SkiaSharp`, `Netjes.Rendering` and `Netjes.Routing`.
+Extension methods live in the namespaces of what they extend, which a web project imports already: `Microsoft.AspNetCore.Builder` (`UseNetjes`, `MapPages`, `MapPageLoader`, ...), `Microsoft.Extensions.DependencyInjection` (`AddNetjes`, ...), `Microsoft.Extensions.Hosting` and `Microsoft.AspNetCore.Http`; the sitemap's are in `Netjes`. The types are in `Netjes`, which the package's build targets import into the project that references the package, when implicit usings are on, and in `Netjes.Images`, `Netjes.Images.SkiaSharp`, `Netjes.Rendering` and `Netjes.Routing`. A test project that references the app's project gets the types but not the targets, so it adds `<Using Include="Netjes" />` itself, as a new app's test project does.
 
 The extension methods belong to these static classes, which app code never names:
 
