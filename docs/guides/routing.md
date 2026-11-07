@@ -130,7 +130,7 @@ Netjes has built-in 404 and error pages for apps that have neither file. Special
 
 A catch-all must be the last segment. Parameter names are letters, digits and underscores, not starting with a digit, and each name appears once in a route, in any case. Literal segments match in any case, as ASP.NET Core routes do, and a request in another case is redirected to the file's spelling ([One URL per page](#one-url-per-page)). Route values reach loaders and `params` as the URL spelled them.
 
-Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. The third argument is the query, and `{ hash }` in the fourth is the fragment:
+Build URLs with `route()` from the generated file, which encodes each value and takes catch-all values as arrays. A value or a catch-all entry of `.`, `..` or `''` throws, since the browser would resolve the URL to another path. The third argument is the query, and `{ hash }` in the fourth is the fragment:
 
 ```tsx
 import { route } from '../generated/netjes.ts';

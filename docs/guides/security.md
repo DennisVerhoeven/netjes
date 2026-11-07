@@ -36,8 +36,8 @@ An app with `frame-ancestors` in a Content-Security-Policy that goes out (its ow
 
 | `frame-ancestors` | `X-Frame-Options` |
 |---|---|
-| `'none'`, an empty list, or other sites only, such as `https://partner.example` | `DENY` |
-| `'self'`, `*` or a scheme source such as `https:`, with or without other sites | `SAMEORIGIN` |
+| `'none'`, an empty list, or other sites only, such as `https://partner.example`, or scheme sources no page of the app has, such as `data:` or `blob:` | `DENY` |
+| `'self'`, `*`, `http:` or `https:`, with or without other sites | `SAMEORIGIN` |
 
 Every policy counts, whether it comes in a header of its own or joined to others by commas, and the strictest decides: when one of them implies `DENY`, the document gets `DENY`. A `Content-Security-Policy-Report-Only` header does not count. Directive names and keywords such as `'self'` are compared ignoring case. Browsers obey `frame-ancestors` over `X-Frame-Options`, which cannot name another site, so to let a partner frame your pages, send `frame-ancestors 'self' https://partner.example`: browsers that support `frame-ancestors` let the partner frame them, and a browser that knows only `X-Frame-Options` keeps them to your own site.
 

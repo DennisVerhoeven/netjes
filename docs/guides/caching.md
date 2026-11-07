@@ -52,7 +52,10 @@ Outside the Development environment, the output cache stores a page's response w
 - the status is 200 and the response sets no cookie,
 - the document carries no CSP nonce (a stored nonce would be every visitor's; Netjes logs a warning once per page, see [security](security.md#content-security-policy)),
 - the request is not in draft mode, not the page rendered for a failed form post, and not the client-rendered fallback,
-- and its query string is not one the page's `CacheQueryKeys` leaves out ([below](#query-strings-a-page-does-not-read)).
+- its query string is not one the page's `CacheQueryKeys` leaves out ([below](#query-strings-a-page-does-not-read)),
+- and its visitor did not leave before it was sent.
+
+Identical requests that arrive while a page renders wait for that render, and the output cache hands each of them what it sent. A visitor who leaves while the loader runs or while the page streams a `Page.Defer` value ends only their own request: it ends without an error and is not stored, and each request that waited renders the page for itself. So a loader and its deferred work can take `RequestAborted`.
 
 A render that is not stored is one visitor's page, and gets the default `no-store, private`, as does every output-cached page in the Development environment. Netjes judges that when the response starts: a refusal the output cache makes later, such as for a body over its `MaximumBodySize`, leaves the response without `Cache-Control`. Stored responses carry no `Cache-Control` of their own.
 

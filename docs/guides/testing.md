@@ -271,7 +271,7 @@ Three things about that setup:
 
   The root folders `tests/` and `e2e/` are therefore not part of the app on any OS, and on macOS and Windows, where `Tests/` is the same folder, neither is any other spelling of them. Keep the app's own code out of them. A folder of that name deeper down, such as `Features/Home/tests/`, compiles like any other. `netjes info` does not count the root `tests/` folder when it compares the C# code's age with the generated types.
 
-To add a test project to an app that has none, add that line to the app's project file first, or the test files compile into the app and fail its build. Then copy the three files from [the template](https://github.com/DennisVerhoeven/netjes/tree/main/packages/netjes/template/tests/__NAME__.Tests), with `__NAME__` replaced by the app's project name, and adjust the tests to the app's pages. An app with a Dockerfile also adds `tests` and `e2e` to its `.dockerignore`. The folder name `tests/<App>.Tests`, with `<App>` the name of the app's project file, is what [`netjes agents`](coding-agents.md#an-existing-app) looks for.
+To add a test project to an app that has none, add that line to the app's project file first, or the test files compile into the app and fail its build. Then copy the three files from [the template](https://github.com/DennisVerhoeven/netjes/tree/main/packages/netjes/template/tests/__NAME__.Tests), with `__NAME__` replaced by the app's project name, and adjust the tests to the app's pages. An app with a Dockerfile also adds `tests`, `e2e` and `**/playwright-report` to its `.dockerignore`. The folder name `tests/<App>.Tests`, with `<App>` the name of the app's project file, is what [`netjes agents`](coding-agents.md#an-existing-app) looks for.
 
 ### Loaders as plain methods
 

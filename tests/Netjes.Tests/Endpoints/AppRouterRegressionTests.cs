@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Netjes.Rendering;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -340,15 +341,22 @@ public class AppRouterRegressionTests
     [Fact]
     public async Task CrawlerDocument_WithAValueThatNeverArrives_IsStillComplete()
     {
+        // The deadlines run on the app's clock, which only this test moves: the value is reported as failed while the
+        // delivery is still open, however late the thread pool runs what follows the first deadline.
+        var time = new ManualTime();
+        var limit = TimeSpan.FromMinutes(10);
         await using var app = await TestApp.StartAsync(
             ["app/page.tsx"],
-            configure: o => o.StreamTimeout = TimeSpan.FromMilliseconds(600),
+            configure: o => o.StreamTimeout = limit,
+            services: s => s.AddSingleton<TimeProvider>(time),
             map: a => a.MapPageLoader("/", () => Page.Props(new { Never = Page.Defer(new TaskCompletionSource<int>().Task) })));
+        var rendering = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         app.Renderer.StreamHandler = async (_, options) =>
         {
             // Like the sidecar for a crawler: the document once every value has settled. The real one gives up at
             // StreamTimeout, after .NET has reported the value as failed (DeferredDeadlineTests); this one waits for the
-            // report, so the test does not race two clocks a tenth of a timeout apart.
+            // report.
+            rendering.TrySetResult();
             while (!app.Renderer.Resolved.Any(r => r.RenderId == options.RenderId && r.Id == "d0"))
             {
                 await Task.Delay(5, Ct);
@@ -359,11 +367,100 @@ public class AppRouterRegressionTests
         var request = new HttpRequestMessage(HttpMethod.Get, "/");
         request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)");
 
-        var response = await app.Client.SendAsync(request, Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var sending = app.Client.SendAsync(request, Ct);
+        await rendering.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        time.Advance(PageRenderer.DeferredDeadline(limit));
+        var response = await sending.WaitAsync(TimeSpan.FromSeconds(5), Ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("failed boundary", await response.Content.ReadAsStringAsync(Ct));
         Assert.Equal("The value did not arrive in time", Assert.Single(app.Renderer.Resolved).Error);
+    }
+
+    /// <summary>A clock that moves only when <see cref="Advance"/> moves it, firing the timers that come due on the way.</summary>
+    private sealed class ManualTime : TimeProvider
+    {
+        private readonly DateTimeOffset _start = DateTimeOffset.UtcNow;
+        private readonly List<Timer> _timers = [];
+        private TimeSpan _elapsed;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_timers)
+            {
+                return _start + _elapsed;
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new Timer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        public void Advance(TimeSpan by)
+        {
+            List<Timer> due;
+            lock (_timers)
+            {
+                _elapsed += by;
+                due = [.. _timers.Where(t => t.DueAt <= _elapsed)];
+                foreach (var timer in due)
+                {
+                    _timers.Remove(timer);
+                    if (timer.Period > TimeSpan.Zero && timer.Period != Timeout.InfiniteTimeSpan)
+                    {
+                        timer.DueAt = _elapsed + timer.Period;
+                        _timers.Add(timer);
+                    }
+                }
+            }
+
+            foreach (var timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        private sealed class Timer(ManualTime clock, TimerCallback callback, object? state) : ITimer
+        {
+            public TimeSpan DueAt { get; set; }
+
+            public TimeSpan Period { get; private set; }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (clock._timers)
+                {
+                    clock._timers.Remove(this);
+                    Period = period;
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        DueAt = clock._elapsed + dueTime;
+                        clock._timers.Add(this);
+                    }
+                }
+
+                return true;
+            }
+
+            public void Fire() => callback(state);
+
+            public void Dispose()
+            {
+                lock (clock._timers)
+                {
+                    clock._timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 
     public sealed class Node

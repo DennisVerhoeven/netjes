@@ -165,18 +165,25 @@ public sealed class PageResult : IResult
     }
 
     /// <summary>Writes the result to the response: renders the page (or the not-found, forbidden or unauthorized page), redirects, or sets the status.</summary>
-    public Task ExecuteAsync(HttpContext httpContext)
+    public async Task ExecuteAsync(HttpContext httpContext)
     {
         var renderer = httpContext.RequestServices.GetRequiredService<PageRenderer>();
-        return _kind switch
+        try
         {
-            Kind.Props => renderer.RenderRouteAsync(
-                httpContext, _pattern ?? PatternOf(httpContext), _props, _statusCode ?? StatusCodes.Status200OK, _queries, _metadata),
-            Kind.NotFound => renderer.RenderNotFoundAsync(httpContext),
-            Kind.Redirect => renderer.RedirectAsync(httpContext, _location!, _permanent),
-            Kind.Status => renderer.RenderStatusAsync(httpContext, _statusCode!.Value),
-            _ => throw new InvalidOperationException($"Unknown page result kind {_kind}."),
-        };
+            await (_kind switch
+            {
+                Kind.Props => renderer.RenderRouteAsync(
+                    httpContext, _pattern ?? PatternOf(httpContext), _props, _statusCode ?? StatusCodes.Status200OK, _queries, _metadata),
+                Kind.NotFound => renderer.RenderNotFoundAsync(httpContext),
+                Kind.Redirect => renderer.RedirectAsync(httpContext, _location!, _permanent),
+                Kind.Status => renderer.RenderStatusAsync(httpContext, _statusCode!.Value),
+                _ => throw new InvalidOperationException($"Unknown page result kind {_kind}."),
+            });
+        }
+        catch (OperationCanceledException ex) when (httpContext.RequestAborted.IsCancellationRequested)
+        {
+            renderer.EndAborted(httpContext, ex);
+        }
     }
 
     private static string PatternOf(HttpContext httpContext) =>

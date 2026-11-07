@@ -3,16 +3,31 @@
 # from that feed only, then runs its Vitest and C# tests, type-checks it (also under create-vite's React-TS flags),
 # builds and runs it in Production, and runs its Playwright suite. Run from the repository root; the scaffold goes in a
 # temporary folder, outside this repository's global.json, whose test runner the app's test project does not use.
+# On Linux outside CI, install Chromium's system libraries once first: `npx playwright install-deps chromium`.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 port="${CHECK_PACKAGES_PORT:-5399}"
-# The app's Playwright suite moves its servers with these; by default they stay clear of the examples' ports.
-e2e_dev_port="${E2E_DEV_PORT:-5396}"
-e2e_prod_port="${E2E_PROD_PORT:-5397}"
-e2e_vite_port="${E2E_VITE_PORT:-5398}"
-trap 'fuser -k "$port/tcp" "$e2e_dev_port/tcp" "$e2e_prod_port/tcp" "$e2e_vite_port/tcp" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+# The ports of the app's Playwright suite, which it reads as E2E_DEV_PORT and the rest. Names of their own, so that an
+# environment that moves the examples' suites does not put this check on the same ports; by default they stay clear of
+# the examples' ports.
+e2e_dev_port="${CHECK_PACKAGES_E2E_DEV_PORT:-5396}"
+e2e_prod_port="${CHECK_PACKAGES_E2E_PROD_PORT:-5397}"
+e2e_vite_port="${CHECK_PACKAGES_E2E_VITE_PORT:-5398}"
+app_pid=""
+# Stops the published app this script started, by its PID: on every platform, and nothing else that listens on a port.
+# Playwright stops the servers it starts itself, and the app's Node sidecar exits with the app.
+stop_app() {
+  [[ -n "$app_pid" ]] || return 0
+  kill "$app_pid" 2>/dev/null || return 0
+  for _ in $(seq 1 30); do
+    kill -0 "$app_pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  kill -9 "$app_pid" 2>/dev/null || true
+}
+trap 'stop_app; rm -rf "$work"' EXIT
 feed="$work/feed"
 # Its own NuGet cache: a package rebuilt under the same version must not be served from an earlier run.
 export NUGET_PACKAGES="$work/nuget-packages"
@@ -197,8 +212,9 @@ leftover=$(find "$work/publish" -maxdepth 1 -name 'tsconfig*.json')
 [[ -z "$leftover" ]] || { echo "the publish folder holds TypeScript configs: $leftover"; exit 1; }
 
 echo "== run the published app"
-(cd "$work/publish" && ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS="http://127.0.0.1:$port" dotnet App.dll >"$work/app.log" 2>&1) &
-disown
+# exec, so that the PID is the app's.
+(cd "$work/publish" && ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS="http://127.0.0.1:$port" exec dotnet App.dll >"$work/app.log" 2>&1) &
+app_pid=$!
 for _ in $(seq 1 60); do curl -sf -o /dev/null "http://127.0.0.1:$port/" && break; sleep 1; done
 curl -sf "http://127.0.0.1:$port/" | grep -q "Hello from C#" || { cat "$work/app.log"; exit 1; }
 curl -sf -o /dev/null "http://127.0.0.1:$port/about"
@@ -226,8 +242,9 @@ echo "== end-to-end"
 # The app's Playwright is the newest in the template's range, not the version the repository's lockfile pins, so it can
 # need another Chromium. An install also removes every browser in the shared cache that no Playwright it knows of still
 # uses, and it knows only the folders that ran an install and are still there: without the flag, this check could remove
-# the Chromium that the examples' end-to-end suites launch.
-PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install --with-deps chromium
+# the Chromium that the examples' end-to-end suites launch. Its system libraries only in CI: on Linux, --with-deps runs
+# apt-get through sudo, which asks for a password or fails in a shell that cannot ask, and needs apt.
+PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install ${CI:+--with-deps} chromium
 CI=1 E2E_DEV_PORT="$e2e_dev_port" E2E_PROD_PORT="$e2e_prod_port" E2E_VITE_PORT="$e2e_vite_port" npm run test:e2e --silent
 
 echo "ok: Netjes $version packages build, test, publish and serve a new app"

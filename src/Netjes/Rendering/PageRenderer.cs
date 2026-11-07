@@ -329,6 +329,23 @@ internal sealed class PageRenderer(
         RedirectToAsync(http, UnderBasePath(http, location), permanent);
 
     /// <summary>
+    /// Ends a page request whose visitor left (its loader, the render or a deferred value stopped on
+    /// <c>RequestAborted</c>) without an error, and keeps what it sent out of the output cache. The output cache has
+    /// identical requests wait for the render in progress and hands them its result, a failure included: an error here
+    /// would fail every one of them, and a stored copy would be cut off where the visitor left. With neither, each
+    /// renders the page for itself.
+    /// </summary>
+    internal void EndAborted(HttpContext http, OperationCanceledException exception)
+    {
+        if (http.Features.Get<IOutputCacheFeature>() is { } outputCache)
+        {
+            outputCache.Context.AllowCacheStorage = false;
+        }
+
+        logger.LogDebug(exception, "The request for {Path} was aborted before its page was sent", http.Request.Path);
+    }
+
+    /// <summary>
     /// <see cref="RedirectAsync"/> to a location that is complete as it is, its base path included: one built from the
     /// request target, whose base path may be spelled in a way <see cref="UnderBasePath(HttpContext, string)"/> does not
     /// recognise (<c>/b%61se</c> for <c>/base</c>).
@@ -506,14 +523,15 @@ internal sealed class PageRenderer(
         // with the deferred content hidden after them for an inline script to reveal, so it showed only with JavaScript.
         var waitForAll = !context.Options.StreamDocuments || context.Command is { Name: "export" } || IsCrawler(http);
         var renderId = collector.Values.Count > 0 ? Convert.ToHexString(RandomNumberGenerator.GetBytes(12)) : null;
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+        // Both deadlines run on the app's clock (TimeProvider), as the request's other times do.
         var limit = context.Options.StreamTimeout;
-        stop.CancelAfter(DeferredDeadline(limit));
+        using var stopAt = new CancellationTokenSource(DeferredDeadline(limit), time);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, stopAt.Token);
         // Deferred values go to the sidecar as they complete; it may need them before the shell (waitForAll). They are
         // sent until the document is done or the sidecar's own deadline passes: the failures for values that ran out of
         // time come after `stop`, and a sidecar that stops answering (a crash) must not hold the request open.
-        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-        delivery.CancelAfter(limit);
+        using var deliveryEnds = new CancellationTokenSource(limit, time);
+        using var delivery = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, deliveryEnds.Token);
         // The render is asked for first, so it has a sidecar process before any value is delivered (the sidecar keeps
         // values that arrive before the render reads them).
         var rendering = ssr.RenderStreamAsync(HtmlSafeJson.Escape(json), new SsrStreamOptions(waitForAll, renderId), http.RequestAborted);
@@ -798,9 +816,9 @@ internal sealed class PageRenderer(
     private static bool MayMatchTheAppsOwnPages(string source) =>
         source == "*"
         || source.Equals("'self'", StringComparison.OrdinalIgnoreCase)
-        // A scheme source, such as https: (RFC 3986's scheme and a colon).
-        || (source.Length > 1 && source[^1] == ':' && char.IsAsciiLetter(source[0])
-            && source[1..^1].All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.'));
+        // The scheme sources an http(s) page can match, as CspChecks counts them; data:, blob: and the rest match none.
+        || source.Equals("http:", StringComparison.OrdinalIgnoreCase)
+        || source.Equals("https:", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The nonce for this document: Netjes's own policy gets one (and its header) when it has a <c>{nonce}</c> for it,

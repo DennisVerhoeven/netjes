@@ -84,6 +84,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         return endpoints
             .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
             .WithLayoutConventions(endpoints, route)
+            .AddEndpointFilter(EndAborted)
             .AddEndpointFilter(Traced("netjes.loader", route.Pattern))
             .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
@@ -185,6 +186,23 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         // Applied when endpoints are built, after every MapLayoutLoader call.
         builder.Add(endpoint => registry.ApplyConventions(route, endpoint));
         return builder;
+    }
+
+    /// <summary>
+    /// A loader that stopped because its visitor left ends that request alone, as a render does
+    /// (<see cref="PageRenderer.EndAborted"/>). Outside <see cref="Traced"/>, whose span still records the cancellation.
+    /// </summary>
+    private static async ValueTask<object?> EndAborted(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        try
+        {
+            return await next(context);
+        }
+        catch (OperationCanceledException ex) when (context.HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            context.HttpContext.RequestServices.GetRequiredService<PageRenderer>().EndAborted(context.HttpContext, ex);
+            return Results.Empty;
+        }
     }
 
     /// <summary>A span around the loader or action delegate (see <see cref="NetjesTelemetry"/>).</summary>
