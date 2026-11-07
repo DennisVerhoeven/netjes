@@ -164,7 +164,7 @@ A visitor whose browser runs the old build and whose navigation reaches a new in
 
 ### Size and hosts
 
-A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts` and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
+A cached page's entry is keyed on the host, the path and query string as sent, and the client build, and the cache's size limit counts bodies, not keys. Pin `AllowedHosts`, name the query keys each cached page reads with `.CacheQueryKeys(...)`, so other query strings add no entries ([caching](caching.md#query-strings-a-page-does-not-read)), and bound the store's size (`SizeLimit` for the in-memory store, the server's memory limit for Redis).
 
 ## Health checks
 
