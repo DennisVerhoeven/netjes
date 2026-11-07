@@ -12,7 +12,7 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest and Docker files, and references `netjes` and `Netjes` at the same exact version.
+`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest, a C# test project, a Playwright suite and Docker files, and references `netjes` and `Netjes` at the same exact version.
 
 ## Add it to a project
 

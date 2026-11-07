@@ -1,11 +1,13 @@
 # __TITLE__
 
-A React app on ASP.NET Core, built with Netjes: Vite, Tailwind CSS, TanStack Query, zod and Vitest are set up.
+A React app on ASP.NET Core, built with Netjes: Vite, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright are set up.
 
 ```bash
 npm run dev        # dotnet watch + Vite HMR, http://localhost:5080
 npm test           # Vitest: component tests and the home page's document
-npm run typecheck
+dotnet test tests/__NAME__.Tests   # C# tests of the loader and the server action, in memory
+npm run test:e2e   # Playwright, on a development and a production server (npx playwright install chromium once first)
+npm run typecheck  # every .ts and .tsx file
 npm run routes     # the route table, from C#
 npx netjes build   # types, client and server bundles
 npx netjes info    # check Node.js, the .NET SDK, the packages and this setup
@@ -15,6 +17,8 @@ dotnet publish -c Release
 - `app/` holds the pages, as in the Next.js App Router: `page.tsx` is `/`, `about/page.tsx` is `/about`, `layout.tsx` wraps them all, `not-found.tsx` and `error.tsx` handle the rest. `app/document.test.ts` renders the home page's whole document, as the server sends it, with `renderDocument` from `netjes/testing`.
 - `public/` is served at the site root. `public/favicon.svg`, which the metadata in `app/layout.tsx` links, is the Netjes mark: replace it with the app's own.
 - `Features/` holds the C# side, one folder per feature: `Features/Home/HomePage.cs` maps the home page's loader and the `home.greet` server action the form calls.
+- `tests/__NAME__.Tests/` holds the C# tests: `AppFactory.cs` runs the real app in memory, with no Node and no client build, and `HomePageTests.cs` tests the home page's loader and form. `e2e/` holds the Playwright tests, which `playwright.config.ts` runs against the app in Development and in Production. `__NAME__.csproj` leaves these two root folders out of the app's build, so keep the app's own C# out of them.
+- `tsconfig.json` points to two configs: `tsconfig.app.json` checks the app's code without Node's types, `tsconfig.node.json` checks `vite.config.ts`, `playwright.config.ts`, `e2e/` and `scripts/` with them.
 - `AGENTS.md` tells coding agents how the app is laid out and what the rules are; `CLAUDE.md` imports it for Claude Code.
 - `Properties/launchSettings.json` holds the `http` launch profile that `dotnet run` and IDEs (F5) use: the app in Development on http://localhost:5080, as `npm run dev` runs it but without `dotnet watch`.
 - `generated/netjes.ts` holds zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app rewrites it when it starts in Development; commit it, and run `npx netjes generate --check` in CI.

@@ -105,7 +105,7 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
+`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, a C# test project, a Playwright suite, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
 
 [Getting started](docs/getting-started.md) takes that app from the first page to a deployed container. If you know the Next.js App Router, [Coming from Next.js](docs/coming-from-nextjs.md) maps each of its concepts to the Netjes counterpart.
 

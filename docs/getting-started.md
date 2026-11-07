@@ -28,6 +28,8 @@ Created MyApp in my-app (using the Netjes 0.0.2 packages)
   Features/            the C# side, one folder per feature: loaders and server actions
   Program.cs           the ASP.NET Core app (MyApp.csproj)
   generated/netjes.ts  types and zod schemas from C#, rewritten by netjes generate; never edit it
+  tests/MyApp.Tests/   C# tests of loaders and actions, run by dotnet test tests/MyApp.Tests
+  e2e/                 Playwright tests against a development and a production server, run by npm run test:e2e
   Dockerfile           and the docker-compose files: Docker for development and production
 
 Next:
@@ -55,7 +57,10 @@ my-app/
   generated/netjes.ts        zod schemas, typed actions, routes and endpoint URLs, generated from the C# types
   styles/global.css          Tailwind CSS, imported by app/layout.tsx
   public/favicon.svg         the favicon, the Netjes mark until you put your own there
-  MyApp.csproj, package.json, vite.config.ts, tsconfig.json
+  tests/MyApp.Tests/         the C# tests: AppFactory.cs runs the app in memory, HomePageTests.cs tests the home page
+  e2e/home.spec.ts           Playwright tests of the home page, with and without JavaScript; playwright.config.ts runs them
+  MyApp.csproj, package.json, vite.config.ts
+  tsconfig.json, tsconfig.app.json, tsconfig.node.json   the type check: the app's code, and the files that run in Node
   appsettings.json, appsettings.Development.json
   Properties/launchSettings.json   the launch profile for dotnet run and IDEs
   Dockerfile, docker-compose.yml, docker-compose.override.yml, docker-compose.prod.yml
@@ -107,7 +112,7 @@ npm run dev
 Two edits to try:
 
 - In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement.
-- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it.
+- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it. `tests/MyApp.Tests/HomePageTests.cs` and `e2e/home.spec.ts` check that message: change it there too, or those tests fail.
 
 Hot reload applies changes inside methods. Code that runs once at startup, such as `Program.cs` and the `Map...` calls, needs a restart: press Ctrl+R in the terminal that runs `npm run dev`. Ctrl+C stops it. The app listens on another port with `ASPNETCORE_URLS=http://localhost:3000 npm run dev`. The Vite dev server has a port of its own, 5173: when another app's Vite dev server has it, `npm run dev` says so, and `Netjes__ViteDevPort=5174 npm run dev` moves it.
 
@@ -452,12 +457,15 @@ it('shows the error from C# next to the field, and keeps what was typed', async 
 Run the checks the template's `AGENTS.md` lists before you call a change done:
 
 ```bash
-npm test                      # Vitest
-npm run typecheck             # strict TypeScript, against the generated types
-dotnet build                  # C#, with warnings as errors
-npx netjes generate --check   # fails when generated/netjes.ts is out of date
-npm run routes                # the route table, and warnings about likely mistakes
+npm test                         # Vitest
+npm run typecheck                # strict TypeScript, against the generated types
+dotnet build                     # C#, with warnings as errors
+dotnet test tests/MyApp.Tests    # the C# tests, in memory: no Node and no client build
+npx netjes generate --check      # fails when generated/netjes.ts is out of date
+npm run routes                   # the route table, and warnings about likely mistakes
 ```
+
+For a change to a page or a form, also run `npm run test:e2e`, which runs the Playwright tests in `e2e/` against a development and a production server. Install the browser once first, with `npx playwright install chromium`.
 
 `netjes generate --check` belongs in CI: it runs the app once without serving anything or starting Node, and fails when the committed file no longer matches the C# types. [Testing](guides/testing.md) covers page tests, C# tests of loaders and actions against the real app, and Playwright.
 
@@ -571,7 +579,7 @@ To add Netjes to an ASP.NET Core project you already have:
 7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it each time it starts in Development. Commit it.
 8. Start the dev server with `npm run dev` (the `netjes dev` script from step 2), or `npx netjes dev`. It runs the app with `dotnet watch` and Vite hot reloading, on `http://localhost:5080` unless `ASPNETCORE_URLS` says otherwise.
 
-`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off.
+`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off. [Testing](guides/testing.md#the-test-project) says how to add the C# test project and the Playwright suite a new app has.
 
 ## Next
 

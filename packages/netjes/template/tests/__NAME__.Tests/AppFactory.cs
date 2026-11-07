@@ -17,12 +17,12 @@ public sealed class AppFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             services.AddSingleton<ISsrRenderer, FixedHtml>();
-            // Development mode would rewrite generated/netjes.ts. A test run leaves it stale, for `netjes generate --check`.
+            // Development mode would rewrite generated/netjes.ts: a test run leaves it as it is, for `netjes generate --check`.
             services.Configure<NetjesOptions>(options => options.TypesFile = null);
         });
     }
 
-    /// <summary>Stands in for the Node process. The tests request payloads, which go through no renderer.</summary>
+    /// <summary>Stands in for the Node process: a document request gets this HTML. A payload request goes through no renderer.</summary>
     private sealed class FixedHtml : ISsrRenderer
     {
         public Task<string> RenderAsync(string payloadJson, CancellationToken cancellationToken) =>

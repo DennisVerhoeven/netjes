@@ -15,7 +15,7 @@ Both follow the `main` branch, so they can describe a newer version than the one
 
 | File | For |
 |---|---|
-| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing. |
+| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `tests/<App>.Tests/`, `e2e/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing, the C# tests among them, and the Playwright tests for a change to a page or a form. |
 | `CLAUDE.md` | Claude Code, which reads `CLAUDE.md`: one line, `@AGENTS.md`, which imports the guide. |
 | `.claude/skills/netjes/` | The `netjes` skill ([SKILL.md](../../packages/netjes/skills/netjes/SKILL.md)) and references for routing, data and actions, caching and streaming, testing and deployment. Claude Code loads skills from `.claude/skills/`; `AGENTS.md` points other agents at the folder. |
 
@@ -30,6 +30,8 @@ npx netjes agents            # or: npx netjes agents path/to/app
 ```
 
 It writes the same three, with the project file's name as the title of `AGENTS.md` (`--name` sets another; without a single `.csproj` it takes the directory's name and warns on stderr that it did, so run it in the right folder or pass `--name`). It never replaces a file that exists: it prints the directory, then each file it wrote or kept, and if a `CLAUDE.md` of your own does not import `AGENTS.md`, it says to add the line `@AGENTS.md`. `--force` replaces them all.
+
+`AGENTS.md` lists a test suite only when the app has it, so it never sends an agent to a command that fails there. It names `tests/<App>.Tests/` and `dotnet test tests/<App>.Tests` when `tests/<App>.Tests/<App>.Tests.csproj` exists, with `<App>` the project file's name or `--name`, and otherwise says where to read how to add a test project. It names `e2e/` and `npm run test:e2e` when `playwright.config.ts` exists. It looks when it writes the file, so after adding a suite, compare with `npx netjes agents --force`, as under [After upgrading Netjes](#after-upgrading-netjes). The skill is the same in every app, and words those checks for any app.
 
 ## After upgrading Netjes
 

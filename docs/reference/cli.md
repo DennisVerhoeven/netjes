@@ -12,7 +12,7 @@ netjes --version
 
 | Command | What it does |
 |---|---|
-| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod and Vitest |
+| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright |
 | [`dev`](#netjes-dev) | Run the app in Development: `dotnet watch` with C# hot reload, Vite HMR for pages |
 | [`build`](#netjes-build) | Generate the types, then build the client and server bundles into `dist/` |
 | [`start`](#netjes-start) | Run the app in Production, from a build or a published app |
@@ -51,7 +51,7 @@ netjes generate: unknown option '--chek'; did you mean '--check'?
 netjes new <dir> [--name <Name>] [--packages] [--skip-install]
 ```
 
-Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next.
+Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next. Besides the pages and the C# side, the app has a C# test project, `tests/<Name>.Tests`, and a Playwright suite, `e2e/` with `playwright.config.ts` ([testing](../guides/testing.md#the-test-project)). `npm install` brings Playwright's package and no browser; `npx playwright install chromium` fetches that once.
 
 | Argument or option | What it does | Default |
 |---|---|---|
@@ -70,7 +70,7 @@ Names. The project gets three names: a .NET name (the `.csproj`, the root namesp
 - `--name` with anything other than letters and digits, or starting with a digit (`--name my-shop`; it suggests `--name MyShop`);
 - a folder name with no ASCII letters or digits, unless `--name` is given;
 - a C# keyword as `--name`, such as `class` or `event` (a keyword cannot name a namespace);
-- the name of a type the app's code uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder` and `FromFormAttribute`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` is refused for the same reason, as it gives `Page`;
+- the name of a type the app's code or its test project uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder`, `FromFormAttribute`, `IWebHostBuilder`, `NetjesOptions`, `ISsrRenderer`, `Task`, `CancellationToken`, `NetjesHeaders`, `JsonNode`, `TestContext`, `Assert`, `FormUrlEncodedContent` and `HttpStatusCode`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` or `task` is refused for the same reason, as it gives `Page` or `Task`;
 - an npm name that is one of the app's own dependencies, such as `react`, `vite` or `netjes` (npm refuses to install a package into one of the same name).
 
 How the app references Netjes. From the published package, the `.csproj` gets `<PackageReference Include="Netjes" Version="[x.y.z]" />` and `package.json` gets `"netjes": "x.y.z"`, both the exact version of the netjes that ran `new`: the C# and npm halves speak one protocol. Run from a Netjes checkout (contributors), it references that checkout instead (a `ProjectReference` and a `file:` dependency), unless `--packages` is given. Such an app imports the package's compiled modules from the checkout's `packages/netjes/dist/`, so build them first, with `npm ci && npm run build` at the checkout's root, and again after changing `packages/netjes`.
@@ -234,7 +234,7 @@ netjes 0.0.2 in /home/me/my-shop
 | Vite config | there is no `vite.config.*`, or it does not use `netjes()` | |
 | `package.json` | it is missing, is not valid JSON, or has no `build` script | |
 | `app/` | it is missing; or `pages/` still has pages router files (named with their `app/` files) or API routes in `pages/api/` | it has no `page.tsx` |
-| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer (a hint only: `netjes generate --check` is exact) |
+| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer, the root `tests/` folder left out (a hint only: `netjes generate --check` is exact) |
 
 ## netjes agents
 
@@ -242,7 +242,7 @@ netjes 0.0.2 in /home/me/my-shop
 netjes agents [dir] [--name <Name>] [--force]
 ```
 
-Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](../guides/coding-agents.md) has more.
+Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. `AGENTS.md` lists the C# test command only when `tests/<Name>.Tests/<Name>.Tests.csproj` exists, with `<Name>` the name it gives the app, and `npm run test:e2e` only when `playwright.config.ts` exists. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](../guides/coding-agents.md) has more.
 
 | Argument or option | What it does | Default |
 |---|---|---|
