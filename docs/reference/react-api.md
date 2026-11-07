@@ -658,7 +658,7 @@ type RenderDocumentOptions = {
   nonce?: string;                                    // the CSP nonce on every script and stylesheet
   lang?: string;                                     // <html lang>, default 'en'
   publicConfig?: Record<string, unknown>;            // what usePublicConfig() reads
-  modules?: Record<string, () => Promise<unknown>>;  // the pages map, default the app's from netjes()
+  modules?: Record<string, () => Promise<unknown>>;  // the pages map, keyed '/app/...'; default the app's from netjes()
   signal?: AbortSignal;                              // stops the render, which rejects with its reason
 };
 ```
