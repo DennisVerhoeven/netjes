@@ -31,7 +31,7 @@ How this app is built, for coding agents and the people working with them. It is
 ```bash
 npm run dev                 # dotnet watch + Vite HMR on http://localhost:5080; rewrites generated/netjes.ts on start
 npm test                    # Vitest
-npm run typecheck           # strict TypeScript
+npm run typecheck           # strict TypeScript; in the configs netjes new writes, the app's code without Node's types
 dotnet build                # C#, warnings are errors
 <!--netjes:if tests-->
 dotnet test tests/__NAME__.Tests   # the C# tests; a plain dotnet test here finds only the app's project and runs none
@@ -51,7 +51,7 @@ dotnet publish -c Release   # runs the build and ships dist/
 2. Call its `Map...` method from `Program.cs`, before `app.MapPages()`.
 3. Run `npx netjes generate` (or restart `npm run dev`).
 4. Write `app/blog/[slug]/page.tsx`: `export default definePage(pages['/blog/[slug]'], function Post({ post }) { ... })`.
-5. Test the component with Vitest and `createTestApp` from `netjes/testing`; run the checks below.
+5. Test the loader in C# (in `tests/__NAME__.Tests`, where the app has it) and the component with Vitest and `createTestApp` from `netjes/testing`; run the checks below.
 
 A page without a loader is a plain default export and gets empty props. Forms call server actions: `app.MapAction("posts.like", ...)` in C#, `useAction(serverActions['posts.like'])` and `<Form action={formAction}>` in React; they also work without JavaScript.
 
@@ -65,7 +65,8 @@ A page without a loader is a plain default export and gets empty props. Forms ca
 - Internal links are `<Link href={route('/blog/[slug]', { slug })}>`; a typo in an href is a type error. `route(pattern, params, search, { hash })` builds the query from `search` and a `#fragment` from `hash`, the id of an element on the page; pass `undefined` as `search` for a link with a fragment and no query.
 - After a client navigation to another page, the router starts the focus over at the top of the document, as a page load does, and announces the page to screen readers by its title. Keep the "Skip to content" link the first thing in `app/layout.tsx` that takes the focus, with the content in `<main id="content">`, and give each page a title of its own (`metadata`, or `PageMetadata` from C#): the router says nothing for a page whose title is the previous page's.
 - Action inputs are records with `init` properties: `public sealed record NoteInput { [Required] public string? Text { get; init; } public bool Pinned { get; init; } }`. A field the post leaves out, such as an unchecked checkbox, keeps its default; form binding refuses (400) a post that lacks one of a positional record's constructor fields. DataAnnotations on them (`[Required]`, `[StringLength]`) are checked before the action runs and come back as field errors, with no setup, also for a post that has none of the input's fields. Return `ServerAction.Invalid(field, message)` for other errors the user can fix.
-- `.CachePage(...)` only for pages that are the same for every visitor: their loaders and shared props must not depend on cookies or other per-visitor state. In the Development environment pages are never output-cached (each request renders them), so check caching on `npx netjes build && npx netjes start`, or in a `WebApplicationFactory` test in the `Testing` environment with `Netjes:Mode` set to `Development`.
+- `.CachePage(...)` only for pages that are the same for every visitor: their loaders and shared props must not depend on cookies or other per-visitor state. In the Development environment pages are never output-cached (each request renders them), so check caching on `npx netjes build && npx netjes start`, or in a `WebApplicationFactory` test in the `Testing` environment with `Netjes:Mode` set to `Development`, as the `AppFactory.cs` that `netjes new` writes runs. Each query string as sent is an entry of its own: name the keys a cached page reads with `.CacheQueryKeys("page")`, or `.CacheQueryKeys()` for none, so other query strings render without being stored (`.claude/skills/netjes/references/caching-and-streaming.md`).
+- In the TypeScript configs `netjes new` writes, `tsconfig.app.json` checks the app's code without Node's types, so a component or page that reads `process` or imports `node:*` fails `npm run typecheck`. Code that runs only in Node goes in `scripts/`, which `tsconfig.node.json` checks with them; do not add `node` to the `types` of `tsconfig.app.json`.
 - An `error.tsx` renders `error.message` only when `!error.withheld`, and shows `error.status ?? 500` if it shows a status.
 - `Netjes:PublicConfig` is sent to the browser: never put secrets there. So is the route of each endpoint with an `endpointUrl` key, one mapped only in Development included, once any component calls `endpointUrl`: keep secrets out of routes, and authorize on the endpoint ([security](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/security.md#errors-and-configuration)).
 - Write the failing test first, then the change.
@@ -81,7 +82,7 @@ npm test && npm run typecheck && dotnet build && dotnet test tests/__NAME__.Test
 npm test && npm run typecheck && dotnet build && npx netjes generate --check
 ```
 
-No C# test project was at `tests/__NAME__.Tests/` when this file was written. If the app has C# tests elsewhere, run them too; [testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions) says how to add a project there.
+No C# test project was at `tests/__NAME__.Tests/` when this file was written. If the app has C# tests elsewhere, run them too; [testing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions) says how to add a project there. After adding one, run `npx netjes agents --force`, so that this file lists it, and keep your own additions with `git diff`.
 <!--netjes:end-->
 
 Then `npm run routes` should print no warnings, and the page should work in `npm run dev`, including with JavaScript turned off for forms.
