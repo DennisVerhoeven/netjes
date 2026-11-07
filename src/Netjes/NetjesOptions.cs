@@ -191,7 +191,8 @@ public sealed class NetjesOptions
 
     /// <summary>
     /// The generated TypeScript (zod schemas for page props, shared props, endpoints and forms; typed routes), relative
-    /// to <see cref="Root"/>. Rewritten on startup in Development when it changed, and by <c>netjes generate</c>. Null turns it off.
+    /// to <see cref="Root"/>. Rewritten on startup when it changed and <see cref="Mode"/> is
+    /// <see cref="NetjesMode.Development"/>, in any environment, and by <c>netjes generate</c>. Null turns it off.
     /// </summary>
     public string? TypesFile { get; set; } = "generated/netjes.ts";
 
