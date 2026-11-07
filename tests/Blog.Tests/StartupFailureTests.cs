@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
 
 namespace Blog.Tests;
 
@@ -78,7 +79,15 @@ public class StartupFailureTests
 
         var ex = Assert.ThrowsAny<InvalidOperationException>(() => app.CreateClient());
 
-        Assert.StartsWith($"Could not start '{MissingNode}'.", ex.Message);
+        // The host stops for the reason, and logs it before it is disposed. The factory throws the reason too, unless
+        // the app's thread disposed the failed host before the factory first read its services: then the factory
+        // throws an ObjectDisposedException of its own, which says nothing of why.
+        var failure = Assert.Single(app.Logs, e => e.Message == "Hosting failed to start").Exception;
+        Assert.StartsWith($"Could not start '{MissingNode}'.", failure?.Message);
+        if (ex is not ObjectDisposedException)
+        {
+            Assert.Same(failure, ex);
+        }
     }
 
     /// <summary>
@@ -146,14 +155,41 @@ public class StartupFailureTests
         return (process.ExitCode, string.Join('\n', output));
     }
 
-    /// <summary>The real Blog in a test host, with its server rendering as configured.</summary>
+    /// <summary>The real Blog in a test host, with its server rendering as configured, and what it logs.</summary>
     private sealed class FailingApp(Action<IWebHostBuilder> configure) : WebApplicationFactory<Program>
     {
+        private readonly LogEntries _logs = new();
+
+        public IReadOnlyList<(string Message, Exception? Exception)> Logs => [.. _logs.Entries];
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
             builder.UseContentRoot(GuestbookRateLimitTests.BlogApp.ExampleRoot);
+            builder.ConfigureLogging(logging => logging.AddProvider(_logs));
             configure(builder);
+        }
+    }
+
+    private sealed class LogEntries : ILoggerProvider
+    {
+        public ConcurrentQueue<(string Message, Exception? Exception)> Entries { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new Logger(Entries);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Logger(ConcurrentQueue<(string, Exception?)> entries) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                entries.Enqueue((formatter(state, exception), exception));
         }
     }
 }
