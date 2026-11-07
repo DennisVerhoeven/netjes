@@ -47,6 +47,26 @@ public class BuildTargetsTests : IDisposable
         Assert.Contains(folder + "/Feature.cs", DefaultItems("Compile"));
     }
 
+    [Theory]
+    [InlineData("tsconfig.json")]
+    [InlineData("tsconfig.app.json")]
+    [InlineData("tsconfig.node.json")]
+    public void Content_KeepsTheTypeScriptConfigsOutOfTheOutput(string file)
+    {
+        Write("App.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+              <Import Project="{Path.Combine(RepoRoot(), "src", "Netjes", "build", "Netjes.targets")}" />
+            </Project>
+            """);
+        Write(file, "{}");
+
+        var config = Assert.Single(MsBuildItems.Of(_dir, "App.csproj", "Content"), item => item.Path() == file);
+
+        Assert.Equal("Never", config.GetProperty("CopyToOutputDirectory").GetString());
+        Assert.Equal("Never", config.GetProperty("CopyToPublishDirectory").GetString());
+    }
+
     private List<string> DefaultItems(params string[] types) =>
         MsBuildItems.Of(_dir, "App.csproj", types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types)
             .Select(item => item.Path())
