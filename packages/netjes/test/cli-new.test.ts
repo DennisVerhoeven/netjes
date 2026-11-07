@@ -357,6 +357,14 @@ describe('netjes new tests', () => {
     expect((await readFile(path.join(app, '.dockerignore'), 'utf8')).split('\n')).toEqual(expect.arrayContaining(['tests', 'e2e']));
   });
 
+  it("keeps what the app's suites leave behind out of its image's build context", async () => {
+    const app = await newShop();
+
+    expect((await readFile(path.join(app, '.dockerignore'), 'utf8')).split('\n')).toEqual(
+      expect.arrayContaining(['**/test-results', '**/playwright-report']),
+    );
+  });
+
 });
 
 describe('netjes new without a folder', () => {
