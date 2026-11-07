@@ -400,7 +400,7 @@ A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slu
 
 ## Endpoint URLs
 
-`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`. A `POST` endpoint that is not JSON, such as a webhook, has none.
+`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. A value that would make a `.`, `..` or empty segment throws, since the browser and `fetch` would resolve the URL to another endpoint, or under `/{**path}` to another site. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`. A `POST` endpoint that is not JSON, such as a webhook, has none.
 
 ```tsx
 import { useHref } from 'netjes';

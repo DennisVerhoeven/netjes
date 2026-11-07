@@ -116,6 +116,26 @@ describe('buildHref', () => {
     expect(() => buildHref('/blog/[slug]', {})).toThrow("netjes: route '/blog/[slug]' needs the parameter 'slug'");
     expect(() => buildHref('/docs/[...path]', { path: [] })).toThrow("needs the parameter 'path'");
   });
+
+  it('throws for a value that would make a dot segment or an empty one, which would change the path or the host', () => {
+    // A browser resolves `/blog/..` to `/`, and reads `//evil.example` as another site.
+    expect(() => buildHref('/blog/[slug]', { slug: '..' })).toThrow(
+      "netjes: route '/blog/[slug]' cannot take '..' for the parameter 'slug': a '.', '..' or empty segment would change the URL's path",
+    );
+    expect(() => buildHref('/blog/[slug]', { slug: '.' })).toThrow("cannot take '.' for the parameter 'slug'");
+    expect(() => buildHref('/[...slug]', { slug: ['', 'evil.example'] })).toThrow("cannot take '' for the parameter 'slug'");
+    expect(() => buildHref('/docs/[...path]', { path: ['a', '..', 'b'] })).toThrow("cannot take '..' for the parameter 'path'");
+    expect(() => buildHref('/docs/[...path]', { path: ['a', ''] })).toThrow("cannot take '' for the parameter 'path'");
+    expect(() => buildHref('/shop/[[...filters]]', { filters: ['.'] })).toThrow("cannot take '.' for the parameter 'filters'");
+    expect(() => buildHref('/shop/[[...filters]]', { filters: [''] })).toThrow("cannot take '' for the parameter 'filters'");
+  });
+
+  it('takes values with dots and slashes that stay in their segment', () => {
+    expect(buildHref('/blog/[slug]', { slug: '../x' })).toBe('/blog/..%2Fx');
+    expect(buildHref('/blog/[slug]', { slug: '...' })).toBe('/blog/...');
+    expect(buildHref('/blog/[slug]', { slug: '%2e%2e' })).toBe('/blog/%252e%252e');
+    expect(buildHref('/docs/[...path]', { path: ['.a', 'b..'] })).toBe('/docs/.a/b..');
+  });
 });
 
 describe('buildEndpointUrl', () => {
@@ -178,6 +198,32 @@ describe('buildEndpointUrl', () => {
   it('writes an empty query value, which leaves out only a route value', () => {
     expect(buildEndpointUrl('/api/search', { q: '' })).toBe('/api/search?q=');
     expect(buildEndpointUrl('/api/search', {}, { q: '' })).toBe('/api/search?q=');
+  });
+
+  it('throws for a value that would make a dot segment or an empty one, which would change the path or the host', () => {
+    // A browser resolves `/api/posts/../likes` to `/api/likes`, and reads `//evil.example` as another site.
+    expect(() => buildEndpointUrl('/api/posts/{slug}/likes', { slug: '..' }, undefined, 'POST /api/posts/{slug}/likes')).toThrow(
+      "netjes: endpoint 'POST /api/posts/{slug}/likes' cannot take '..' for the route value 'slug': a '.', '..' or empty segment would change the URL's path",
+    );
+    expect(() => buildEndpointUrl('/api/items/{id}', { id: '.' })).toThrow("netjes: endpoint '/api/items/{id}' cannot take '.' for the route value 'id'");
+    expect(() => buildEndpointUrl('/one/{*path}', { path: '..' })).toThrow("cannot take '..' for the route value 'path'");
+    expect(() => buildEndpointUrl('/files/{name}.{ext?}', { name: '.' })).toThrow("cannot take '.' for the route value 'name'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: '../../admin/users' })).toThrow(
+      "cannot take '../../admin/users' for the route value 'path'",
+    );
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: 'a/./b' })).toThrow("cannot take 'a/./b' for the route value 'path'");
+    expect(() => buildEndpointUrl('/{**path}', { path: '/evil.example' })).toThrow("cannot take '/evil.example' for the route value 'path'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: 'a//b' })).toThrow("cannot take 'a//b' for the route value 'path'");
+    expect(() => buildEndpointUrl('/api/files/{**path}', { path: '/' })).toThrow("cannot take '/' for the route value 'path'");
+  });
+
+  it('takes values with dots and slashes that stay in their segments', () => {
+    expect(buildEndpointUrl('/api/items/{id}', { id: '../x' })).toBe('/api/items/..%2Fx');
+    expect(buildEndpointUrl('/api/items/{id}', { id: '...' })).toBe('/api/items/...');
+    expect(buildEndpointUrl('/files/{name}.{ext?}', { name: '.', ext: 'md' })).toBe('/files/..md');
+    expect(buildEndpointUrl('/one/{*path}', { path: '../../x' })).toBe('/one/..%2F..%2Fx');
+    expect(buildEndpointUrl('/api/files/{**path}', { path: 'a/.b/c..' })).toBe('/api/files/a/.b/c..');
+    expect(buildEndpointUrl('/api/files/{**path}', { path: 'a/' })).toBe('/api/files/a/');
   });
 
   it('writes the literal parts of a template as they are, with what the generator encoded in them', () => {
