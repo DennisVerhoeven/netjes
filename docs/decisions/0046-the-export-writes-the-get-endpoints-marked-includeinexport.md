@@ -26,7 +26,7 @@ Next.js writes a route handler into its export when the handler answers `GET` an
 
 ## Consequences
 
-- An app that maps `MapSitemap` or `MapRobotsTxt` gets `out/sitemap.xml` and `out/robots.txt`. Its export now logs a warning when it falls back to a localhost site URL, until the static host's URL is configured for the environment the export runs in. `.ExcludeFromExport()` on the Map call leaves a file out; `robots.txt` always names the sitemap, so the two are left out together.
+- An app that maps `MapSitemap` or `MapRobotsTxt` gets `out/sitemap.xml` and `out/robots.txt`. Its export now logs a warning when it falls back to a localhost site URL, until the static host's URL is configured for the environment the export runs in. `.ExcludeFromExport()` on the Map call leaves a file out; `robots.txt` always names the sitemap, so leaving out the sitemap means leaving out `robots.txt` too.
 - An app with `public/robots.txt` or `public/sitemap.xml` next to the matching Map call can no longer export until it removes one or excludes the endpoint.
 - The export's last line counts files as well as pages: `Exported 7 pages and 2 files to` and the output directory.
 - An endpoint that reads the query string is warned about like a page loader ([ADR 0041](0041-the-export-warns-about-loaders-that-read-the-query-string.md)), and one that requires a value there fails the export.
