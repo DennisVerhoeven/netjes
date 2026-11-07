@@ -28,7 +28,7 @@ Status: accepted; extends [ADR 0016](0016-page-cache-rules-under-any-output-cach
 ## Consequences
 
 - Without the convention nothing changes, and no app has to do anything.
-- Requests with other keys render each time, and the output cache keeps none of them. The pages rendered for them go out `no-store`, so no CDN keeps them either; a loader's redirect carries no `Cache-Control`, as on any page. A page with many visits through tagged links pays for a render per visit, which it should weigh before adding the convention; data that is slow to load is cached in the service that loads it.
+- Requests with other keys render each time, and the output cache keeps none of them. The pages rendered for them go out `no-store`, so no CDN keeps them, unless the page sets its own `Cache-Control`; a loader's redirect carries no `Cache-Control`, as on any page. A page with many visits through tagged links pays for a render per visit, which it should weigh before adding the convention; data that is slow to load is cached in the service that loads it.
 - A declared key can still fill the cache by value (`?page=1`, `?page=2`) and, where the loader takes it, by repetition (`?page=1&page=1`), bounded by `SizeLimit` as before.
 - Reading a name differently from the parser can only cost a hit or store a page for its own URL. Entries stay keyed as sent, so it cannot serve one query string's page for another.
 - A loader that binds a key the list leaves out keeps working, but those requests are not cached, and nothing warns about it yet. A route warning could share the binding helper the export's warning uses.
