@@ -238,6 +238,33 @@ public class PageCacheTests
         Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Shared props run after the renderer has refused storage, but a loader runs before it, while storage is still
+    /// allowed. So what keeps a loader's read quiet is that a render for a key the page does not name has no watch on its cookies.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ALoaderThatReadsACookieForAnotherKey_DoesNotWarn()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/posts/[id]/page.tsx"],
+            map: a => a.MapPageLoader("/posts/[id]", (HttpContext http, string id) => Page.Props(new { Id = id, Theme = http.Request.Cookies["theme"] }))
+                .CachePage(TimeSpan.FromMinutes(5))
+                .CacheQueryKeys("page"),
+            services: s => s.AddOutputCache(),
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        var other = await DataWithCookieAsync(app, "/posts/1?x=1", "theme=dark");
+
+        Assert.Equal("dark", (string?)other["props"]!["theme"]);
+        Assert.DoesNotContain(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+
+        await DataWithCookieAsync(app, "/posts/1?page=1", "theme=dark");
+
+        Assert.Single(app.Logs, l => l.Level == Microsoft.Extensions.Logging.LogLevel.Warning && l.Message.Contains("cookie", StringComparison.Ordinal));
+    }
+
     private sealed class NoConventions : IEndpointConventionBuilder
     {
         public void Add(Action<EndpointBuilder> convention)
