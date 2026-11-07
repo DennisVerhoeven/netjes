@@ -100,6 +100,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0045 – Typed URLs for the app's endpoints](decisions/0045-typed-urls-for-the-apps-endpoints.md)
 - [0046 – The export writes the GET endpoints marked IncludeInExport](decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)
 - [0047 – Cached pages name the query keys they read](decisions/0047-cached-pages-name-the-query-keys-they-read.md)
+- [0048 – A new app has a C# test project and a Playwright suite, both outside the app's build](decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md)
 
 ## The project
 

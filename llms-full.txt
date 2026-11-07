@@ -113,7 +113,7 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
+`netjes new` writes an ASP.NET Core app with a root layout, a page with a C# loader, a form calling a validated server action, component tests, a C# test project, a Playwright suite, Tailwind CSS, the generated types, and Docker files for development and production. Edit a page and the browser updates through Vite; edit the C# and `dotnet watch` applies it.
 
 [Getting started](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/getting-started.md) takes that app from the first page to a deployed container. If you know the Next.js App Router, [Coming from Next.js](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/coming-from-nextjs.md) maps each of its concepts to the Netjes counterpart.
 
@@ -222,6 +222,8 @@ Created MyApp in my-app (using the Netjes 0.0.2 packages)
   Features/            the C# side, one folder per feature: loaders and server actions
   Program.cs           the ASP.NET Core app (MyApp.csproj)
   generated/netjes.ts  types and zod schemas from C#, rewritten by netjes generate; never edit it
+  tests/MyApp.Tests/   C# tests of loaders and actions, run by dotnet test tests/MyApp.Tests
+  e2e/                 Playwright tests against a development and a production server, run by npm run test:e2e
   Dockerfile           and the docker-compose files: Docker for development and production
 
 Next:
@@ -249,7 +251,10 @@ my-app/
   generated/netjes.ts        zod schemas, typed actions, routes and endpoint URLs, generated from the C# types
   styles/global.css          Tailwind CSS, imported by app/layout.tsx
   public/favicon.svg         the favicon, the Netjes mark until you put your own there
-  MyApp.csproj, package.json, vite.config.ts, tsconfig.json
+  tests/MyApp.Tests/         the C# tests: AppFactory.cs runs the app in memory, HomePageTests.cs tests the home page
+  e2e/home.spec.ts           Playwright tests of the home page, with and without JavaScript; playwright.config.ts runs them
+  MyApp.csproj, package.json, vite.config.ts
+  tsconfig.json, tsconfig.app.json, tsconfig.node.json   the type check: the app's code, and the files that run in Node
   appsettings.json, appsettings.Development.json
   Properties/launchSettings.json   the launch profile for dotnet run and IDEs
   Dockerfile, docker-compose.yml, docker-compose.override.yml, docker-compose.prod.yml
@@ -301,7 +306,7 @@ npm run dev
 Two edits to try:
 
 - In `components/Greeting.tsx`, change the button's text. The browser updates in place, keeping the click count: Vite's hot module replacement.
-- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it.
+- In `Features/Home/HomePage.cs`, change `"Hello from C#"`. `dotnet watch` applies the change to the running app; reload the page to see it. `tests/MyApp.Tests/HomePageTests.cs` and `e2e/home.spec.ts` check that message: change it there too, or those tests fail.
 
 Hot reload applies changes inside methods. Code that runs once at startup, such as `Program.cs` and the `Map...` calls, needs a restart: press Ctrl+R in the terminal that runs `npm run dev`. Ctrl+C stops it. The app listens on another port with `ASPNETCORE_URLS=http://localhost:3000 npm run dev`. The Vite dev server has a port of its own, 5173: when another app's Vite dev server has it, `npm run dev` says so, and `Netjes__ViteDevPort=5174 npm run dev` moves it.
 
@@ -646,12 +651,15 @@ it('shows the error from C# next to the field, and keeps what was typed', async 
 Run the checks the template's `AGENTS.md` lists before you call a change done:
 
 ```bash
-npm test                      # Vitest
-npm run typecheck             # strict TypeScript, against the generated types
-dotnet build                  # C#, with warnings as errors
-npx netjes generate --check   # fails when generated/netjes.ts is out of date
-npm run routes                # the route table, and warnings about likely mistakes
+npm test                         # Vitest
+npm run typecheck                # strict TypeScript, against the generated types
+dotnet build                     # C#, with warnings as errors
+dotnet test tests/MyApp.Tests    # the C# tests, in memory: no Node and no client build
+npx netjes generate --check      # fails when generated/netjes.ts is out of date
+npm run routes                   # the route table, and warnings about likely mistakes
 ```
+
+For a change to a page or a form, also run `npm run test:e2e`, which runs the Playwright tests in `e2e/` against a development and a production server. Install the browser once first, with `npx playwright install chromium`.
 
 `netjes generate --check` belongs in CI: it runs the app once without serving anything or starting Node, and fails when the committed file no longer matches the C# types. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md) covers page tests, C# tests of loaders and actions against the real app, and Playwright.
 
@@ -697,11 +705,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 To add Netjes to an ASP.NET Core project you already have:
 
 1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.2`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules` and `dist` kept out of the build, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.2` with `Netjes` 0.0.2), and the tools the template builds, tests and type-checks with:
 
    ```bash
    npm install netjes@0.0.2 react react-dom zod @tanstack/react-query
-   npm install -D vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite \
+   npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
 3. Add a `vite.config.ts`:
@@ -712,7 +720,16 @@ To add Netjes to an ASP.NET Core project you already have:
 
    export default defineConfig({ plugins: [netjes()] });
    ```
-4. Add a `tsconfig.json`, the one `netjes new` writes. It type-checks `app`, `components`, `generated` and `vite.config.ts`:
+4. Add a `tsconfig.json`, the one `netjes new` writes, and the two configs it points to:
+
+   ```json
+   {
+     "files": [],
+     "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+   }
+   ```
+
+   `tsconfig.app.json` type-checks every `.ts` and `.tsx` file in the project without Node's types, so a component that reads `process` fails the check. It leaves out the Node-side files and the folders that hold installed packages or build output; add any other folder that holds TypeScript of its own to its `exclude`:
 
    ```json
    {
@@ -732,9 +749,25 @@ To add Netjes to an ASP.NET Core project you already have:
        "skipLibCheck": true,
        "noEmit": true
      },
-     "include": ["app", "components", "generated", "vite.config.ts"]
+     "include": ["**/*.ts", "**/*.tsx"],
+     "exclude": ["node_modules", "dist", "**/bin", "**/obj", "publish", "out", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"]
    }
    ```
+
+   `tsconfig.node.json` type-checks the files that run in Node, `vite.config.ts`, `playwright.config.ts`, `e2e/` and `scripts/`, with Node's types. It keeps the DOM's types, which the callbacks a Playwright test runs in the page use:
+
+   ```json
+   {
+     "extends": "./tsconfig.app.json",
+     "compilerOptions": {
+       "types": ["node"]
+     },
+     "include": ["vite.config.ts", "playwright.config.ts", "e2e", "scripts"],
+     "exclude": ["node_modules"]
+   }
+   ```
+
+   Type-check with the `typecheck` script from step 2. `tsconfig.json` lists no files, so `tsc -p tsconfig.json --noEmit` and a bare `tsc --noEmit` check nothing and exit 0: change a script or a CI step that runs either of them to `npm run typecheck`.
 
    `netjes` ships JavaScript with declaration files, so your `tsc` checks your own code alone, also under stricter options you add, such as `exactOptionalPropertyTypes` or `noPropertyAccessFromIndexSignature` (see [TypeScript setup](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#typescript-setup)).
 5. Put pages in `app/`, with an `app/layout.tsx` that imports a stylesheet containing `@import "tailwindcss";`.
@@ -742,7 +775,7 @@ To add Netjes to an ASP.NET Core project you already have:
 7. Run `npx netjes generate`, which writes `generated/netjes.ts` from the C# types; the app rewrites it each time it starts in Development. Commit it.
 8. Start the dev server with `npm run dev` (the `netjes dev` script from step 2), or `npx netjes dev`. It runs the app with `dotnet watch` and Vite hot reloading, on `http://localhost:5080` unless `ASPNETCORE_URLS` says otherwise.
 
-`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off.
+`npx netjes info` checks the result: Node.js and the SDK, the installed packages and their versions, the Vite config and the `app/` folder. [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md) lists the plugin's options, including how to turn Tailwind CSS, the query client or the Vitest defaults off. [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-test-project) says how to add the C# test project and the Playwright suite a new app has.
 
 ## Next
 
@@ -3887,7 +3920,7 @@ The Vite dev server binds to `localhost`. `NETJES_VITE_HOST=0.0.0.0` (in the env
 
 # Testing
 
-This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, and a test of the home page's whole document, `app/document.test.ts`.
+This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, a test of the home page's whole document, `app/document.test.ts`, a [C# test project](#the-test-project), `tests/<App>.Tests`, and a [Playwright suite](#end-to-end-tests), `e2e/`.
 
 ## Vitest
 
@@ -4134,6 +4167,32 @@ The check sees the document a crawler gets. A visitor's browser also gets inline
 
 ## C# tests of loaders and actions
 
+### The test project
+
+An app made with `netjes new` has a test project in `tests/<App>.Tests`, on xUnit v3:
+
+| File | What it is |
+|---|---|
+| `<App>.Tests.csproj` | References the app's project, `Microsoft.AspNetCore.Mvc.Testing`, `Microsoft.NET.Test.Sdk`, `xunit.v3.mtp-off` and `xunit.runner.visualstudio`. It has `<Using Include="Netjes" />` of its own, since the `using Netjes;` that the package's build targets add reaches the app's project only. |
+| `AppFactory.cs` | The `WebApplicationFactory<Program>` that [The app over HTTP](#the-app-over-http) describes. |
+| `HomePageTests.cs` | Requests the home page's payload, and posts the `home.greet` form with a name and without one. |
+
+`dotnet test tests/<App>.Tests` builds and runs it, with no Node process and no client build. Name the project: a plain `dotnet test` at the app's root finds only the app's project, which holds no tests, so it runs none and exits 0.
+
+Three things about that setup:
+
+- **The runner.** `xunit.v3.mtp-off` is xUnit v3 for `dotnet test`'s default runner, VSTest, so `dotnet test tests/<App>.Tests` runs it wherever the app sits, and the app needs no `global.json`. `xunit.v3` itself runs only under Microsoft.Testing.Platform, which takes a `global.json`, and one in the app would shadow the SDK version a repository around it pins. In a repository whose `global.json` selects that runner (`"test": { "runner": "Microsoft.Testing.Platform" }`), `dotnet test` refuses a VSTest project: reference `xunit.v3` in place of `xunit.v3.mtp-off`, at the same version, and run `dotnet test --project tests/<App>.Tests`.
+- **The generated types.** `AppFactory` sets `NetjesOptions.TypesFile` to `null`. In development mode the app rewrites `generated/netjes.ts` when it starts, as `dotnet run` does, so without that line a test run would update a stale file, and a `netjes generate --check` after it would pass.
+- **The app's build.** The Web SDK compiles every `.cs` file below the project and makes every `.json` file below it content, so the app's project file leaves two root folders out, the test project and the Playwright specs:
+
+  ```xml
+  <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>
+  ```
+
+  The root folders `tests/` and `e2e/` are therefore not part of the app, in any case on macOS and Windows, where `Tests/` is the same folder. Keep the app's own code out of them. A folder of that name deeper down, such as `Features/Home/tests/`, compiles like any other. `netjes info` does not count the root `tests/` folder when it compares the C# code's age with the generated types.
+
+To add a test project to an app that has none, add that line to the app's project file first, or the test files compile into the app and fail its build. Then copy the three files from [the template](https://github.com/DennisVerhoeven/netjes/tree/main/packages/netjes/template/tests/__NAME__.Tests), with `__NAME__` replaced by the app's project name, and adjust the tests to the app's pages. An app with a Dockerfile also adds `tests` and `e2e` to its `.dockerignore`. The folder name `tests/<App>.Tests`, with `<App>` the name of the app's project file, is what [`netjes agents`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md#an-existing-app) looks for.
+
 ### Loaders as plain methods
 
 `Page.Props(x)` returns a `PageResult<T>` whose `Props` holds `x` (null for a redirect or not-found), so you can call a loader written as a method from a test:
@@ -4185,7 +4244,11 @@ public sealed class FakeRenderer : ISsrRenderer
 
 The factory runs the app in the `Testing` environment, with Netjes in development mode, rather than in `Development`. In the Development environment Netjes output-caches no page: each request renders the page again, and an output-cached page goes out `no-store` there ([caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#in-the-development-environment)). So a test of what `CachePage` or other output caching stores runs in `Testing`, or any environment other than `Development`; a test of what Development does sets `UseEnvironment("Development")`.
 
-The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does.
+The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does, unless the factory sets `TypesFile` to `null`, as a new app's does:
+
+```csharp
+builder.ConfigureServices(services => services.Configure<NetjesOptions>(options => options.TypesFile = null));
+```
 
 When the app cannot start, `CreateClient()` throws why, as an `InvalidOperationException` whose message says what to do: `No production build found at …` for a test that runs the app in Production without a build, or `Could not start 'node'. …` for one that renders with the real Node processes where Node.js is not installed. Run as its own program, the app logs that message in one line and exits with code 1 instead ([deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#what-the-server-needs)).
 
@@ -4269,7 +4332,7 @@ A test about every page at once, such as one that checks that each page `CachePa
 
 ## End-to-end tests
 
-Playwright tests the app in a real browser. The examples run each suite against two servers at once, one in Development (the Vite dev server) and one in Production (the build), since some failures show in one only. A server in the Playwright config waits for the app's health check:
+Playwright tests the app in a real browser. An app made with `netjes new` has a suite in `e2e/`, and the examples have their own. Each runs against two servers at once, one in Development (the Vite dev server) and one in Production (the build), since some failures show in one only. A server in the Playwright config waits for the app's health check:
 
 ```ts
 webServer: [
@@ -4288,7 +4351,27 @@ webServer: [
 ],
 ```
 
-`--no-build` starts the last build, so build the app first: the examples' `test:e2e` script is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
+`--no-build` starts the last build, so build the app first: the `test:e2e` script of a new app and of the examples is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
+
+### The suite of a new app
+
+An app made with `netjes new` has the config above in `playwright.config.ts`, and `npm run test:e2e` runs it, after `npx playwright install chromium` once. `npm install` brings the `@playwright/test` package with the two it depends on, about 19 MB, and no browser. Its tests are in `e2e/home.spec.ts`, and each runs against both servers:
+
+- the home page shows the message from its C# loader;
+- the link "About this app" leads to `/about`;
+- with JavaScript turned off, posting the form without a name shows "Tell us your name."
+
+A link and a form work before the page has hydrated, so these three need no [wait for hydration](#wait-for-hydration); a test that needs the client does.
+
+| Variable | What it moves | Default |
+|---|---|---|
+| `E2E_DEV_PORT` | The development server | 5090 |
+| `E2E_PROD_PORT` | The production server | 5091 |
+| `E2E_VITE_PORT` | The development server's Vite dev server (`Netjes__ViteDevPort`) | 5190 |
+
+With `CI` set, Playwright always starts its own servers, retries a failed test once and fails on a `test.only`. Without it, it reuses a server that is already listening on those ports, so two runs on the same ports test each other's code: give each run its own ports.
+
+To add the suite to an app that has none, add the `DefaultItemExcludes` line from [The test project](#the-test-project) first, or the build treats `e2e/` as the app's. Then run `npm install -D @playwright/test`, add the `test:e2e` script, and copy `playwright.config.ts` and `e2e/` from [the template](https://github.com/DennisVerhoeven/netjes/blob/main/packages/netjes/template/playwright.config.ts). The config and the specs run in Node, so they type-check with Node's types: `tsconfig.node.json` in [the guide for an existing app](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/getting-started.md#add-netjes-to-an-existing-app) lists them.
 
 ### Wait for hydration
 
@@ -4329,9 +4412,9 @@ npm ci
 npx netjes generate --check            # the committed generated/netjes.ts matches the C# code
 npm run typecheck
 npm test                               # Vitest
-dotnet test -c Release                 # loaders and actions
-dotnet build                           # the Debug build that dotnet run --no-build starts
-npx playwright install --with-deps chromium && npx playwright test
+dotnet test tests/MyApp.Tests -c Release   # loaders and actions
+npx playwright install --with-deps chromium
+npm run test:e2e                       # dotnet build, for the Debug build that dotnet run --no-build starts, then Playwright
 ```
 
 `netjes generate --check` runs the app once in command mode, without a build or a Node process and on a throwaway loopback port, and exits 1 when the generated types are out of date. An app that does not start, such as one with a loader or action minimal APIs cannot bind, fails the check with the exception's message. Startup code that needs a database can skip that work with `app.GetNetjesCommand()`; see the [CLI reference](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md#netjes-generate).
@@ -4660,7 +4743,7 @@ Both follow the `main` branch, so they can describe a newer version than the one
 
 | File | For |
 |---|---|
-| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing. |
+| `AGENTS.md` | Any agent that reads `AGENTS.md`: how the app is laid out (`app/`, `Features/`, `tests/<App>.Tests/`, `e2e/`, `generated/netjes.ts`), the commands, how to add a page with data, the rules (C# decides, zod at the boundaries, TanStack Query for server state, never edit generated files) and the checks to run before finishing, the C# tests among them, and the Playwright tests for a change to a page or a form. |
 | `CLAUDE.md` | Claude Code, which reads `CLAUDE.md`: one line, `@AGENTS.md`, which imports the guide. |
 | `.claude/skills/netjes/` | The `netjes` skill ([SKILL.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/SKILL.md)) and references for routing, data and actions, caching and streaming, testing and deployment. Claude Code loads skills from `.claude/skills/`; `AGENTS.md` points other agents at the folder. |
 
@@ -4675,6 +4758,8 @@ npx netjes agents            # or: npx netjes agents path/to/app
 ```
 
 It writes the same three, with the project file's name as the title of `AGENTS.md` (`--name` sets another; without a single `.csproj` it takes the directory's name and warns on stderr that it did, so run it in the right folder or pass `--name`). It never replaces a file that exists: it prints the directory, then each file it wrote or kept, and if a `CLAUDE.md` of your own does not import `AGENTS.md`, it says to add the line `@AGENTS.md`. `--force` replaces them all.
+
+`AGENTS.md` lists a test suite only when the app has one where `netjes new` puts it, so that it does not send an agent to a command the app lacks. It names `tests/<App>.Tests/` and `dotnet test tests/<App>.Tests` when `tests/<App>.Tests/<App>.Tests.csproj` exists, with `<App>` the project file's name or `--name`, and otherwise says that it found no test project there and where to read how to add one. It names `e2e/` and `npm run test:e2e` when `playwright.config.ts`, an `e2e/` folder and a `test:e2e` script in `package.json` all exist. It looks at those paths and that script only, so where it names the files in a suite, such as `AppFactory.cs`, or the Playwright config's two servers, it says what `netjes new` writes. A suite in another place or under another script is not listed; add a line for it to `AGENTS.md`. It looks when it writes the file, so after adding a suite, compare with `npx netjes agents --force`, as under [After upgrading Netjes](#after-upgrading-netjes). The skill is the same in every app, and words those checks for any app.
 
 ## After upgrading Netjes
 
@@ -6260,7 +6345,7 @@ Set in the app's project file, read by `build/Netjes.targets`, which the Netjes 
 | `NetjesBuildCommand` | `npm run build` | The client build that `dotnet publish` runs. |
 | `NetjesSkipClientBuild` | unset | `true` publishes the `dist/` that is already there instead of building it. |
 
-The targets also keep `node_modules/`, `dist/`, `test-results/`, `playwright-report/` and `publish/` out of the project's items, keep `package.json`, `package-lock.json` and `tsconfig.json` out of the output, and add `using Netjes;` when implicit usings are on. See [deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#build-and-publish).
+The targets also keep `node_modules/`, `dist/`, `test-results/`, `playwright-report/` and `publish/` out of the project's items, keep `package.json`, `package-lock.json`, `tsconfig.json` and any `tsconfig.*.json` out of the output, and add `using Netjes;` when implicit usings are on. To copy one of those files anyway, set `CopyToOutputDirectory` and `CopyToPublishDirectory` with a `<Content Update="..." />` in a `Directory.Build.targets` next to the project file: MSBuild imports the package's targets after the project file's body, so the same item in the project file has no effect. See [deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#build-and-publish).
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md -->
 
@@ -6278,7 +6363,7 @@ netjes --version
 
 | Command | What it does |
 |---|---|
-| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod and Vitest |
+| [`new <dir>`](#netjes-new) | Create an app: ASP.NET Core with React pages, Tailwind CSS, TanStack Query, zod, Vitest, xUnit and Playwright |
 | [`dev`](#netjes-dev) | Run the app in Development: `dotnet watch` with C# hot reload, Vite HMR for pages |
 | [`build`](#netjes-build) | Generate the types, then build the client and server bundles into `dist/` |
 | [`start`](#netjes-start) | Run the app in Production, from a build or a published app |
@@ -6317,7 +6402,7 @@ netjes generate: unknown option '--chek'; did you mean '--check'?
 netjes new <dir> [--name <Name>] [--packages] [--skip-install]
 ```
 
-Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next.
+Creates an app in `<dir>`, runs `npm install` in it, and prints where things are and what to run next. Besides the pages and the C# side, the app has a C# test project, `tests/<Name>.Tests`, and a Playwright suite, `e2e/` with `playwright.config.ts` ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-test-project)). `npm install` brings Playwright's package and no browser; `npx playwright install chromium` fetches that once.
 
 | Argument or option | What it does | Default |
 |---|---|---|
@@ -6336,7 +6421,7 @@ Names. The project gets three names: a .NET name (the `.csproj`, the root namesp
 - `--name` with anything other than letters and digits, or starting with a digit (`--name my-shop`; it suggests `--name MyShop`);
 - a folder name with no ASCII letters or digits, unless `--name` is given;
 - a C# keyword as `--name`, such as `class` or `event` (a keyword cannot name a namespace);
-- the name of a type the app's code uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder` and `FromFormAttribute`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` is refused for the same reason, as it gives `Page`;
+- the name of a type the app's code or its test project uses by its simple name: `Program`, `SiteProps`, `Page`, `ServerAction`, `WebApplication`, `ValueTask`, `DateTimeOffset`, `TimeProvider`, `IEndpointRouteBuilder`, `FromFormAttribute`, `IWebHostBuilder`, `NetjesOptions`, `ISsrRenderer`, `Task`, `CancellationToken`, `NetjesHeaders`, `JsonNode`, `TestContext`, `Assert`, `FormUrlEncodedContent` and `HttpStatusCode`. A root namespace of that name hides the type, and the build fails (CS0101, CS0118 or CS0234). A folder named `page` or `task` is refused for the same reason, as it gives `Page` or `Task`;
 - an npm name that is one of the app's own dependencies, such as `react`, `vite` or `netjes` (npm refuses to install a package into one of the same name).
 
 How the app references Netjes. From the published package, the `.csproj` gets `<PackageReference Include="Netjes" Version="[x.y.z]" />` and `package.json` gets `"netjes": "x.y.z"`, both the exact version of the netjes that ran `new`: the C# and npm halves speak one protocol. Run from a Netjes checkout (contributors), it references that checkout instead (a `ProjectReference` and a `file:` dependency), unless `--packages` is given. Such an app imports the package's compiled modules from the checkout's `packages/netjes/dist/`, so build them first, with `npm ci && npm run build` at the checkout's root, and again after changing `packages/netjes`.
@@ -6500,7 +6585,7 @@ netjes 0.0.2 in /home/me/my-shop
 | Vite config | there is no `vite.config.*`, or it does not use `netjes()` | |
 | `package.json` | it is missing, is not valid JSON, or has no `build` script | |
 | `app/` | it is missing; or `pages/` still has pages router files (named with their `app/` files) or API routes in `pages/api/` | it has no `page.tsx` |
-| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer (a hint only: `netjes generate --check` is exact) |
+| `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer, the root `tests/` folder left out (a hint only: `netjes generate --check` is exact) |
 
 ## netjes agents
 
@@ -6508,7 +6593,7 @@ netjes 0.0.2 in /home/me/my-shop
 netjes agents [dir] [--name <Name>] [--force]
 ```
 
-Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md) has more.
+Writes what `netjes new` gives coding agents into an existing app: `AGENTS.md` (how this app is built and tested, with links to the Netjes docs and `llms.txt`), a `CLAUDE.md` that imports it, and the Netjes skill in `.claude/skills/netjes/`. `AGENTS.md` lists the C# test command only when `tests/<Name>.Tests/<Name>.Tests.csproj` exists, with `<Name>` the name it gives the app, and `npm run test:e2e` only when `playwright.config.ts`, an `e2e/` folder and a `test:e2e` script exist. It prints each file as `wrote` or `kept`: a file that exists is kept unless `--force` is given. When it keeps a `CLAUDE.md` that does not import `AGENTS.md`, it says to add the `@AGENTS.md` line. When the folder has no `.csproj` (or more than one) and `--name` is not given, it warns on stderr that the app is named after the folder, and still writes the files. After upgrading Netjes, `rm -r .claude/skills/netjes && npx netjes agents` refreshes the skill and keeps the rest. The [coding agents guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/coding-agents.md) has more.
 
 | Argument or option | What it does | Default |
 |---|---|---|
@@ -6646,6 +6731,8 @@ Both builds stop on a route handler in `appDir`: a file named `route` plus one e
 
 The TypeScript sources ship in the package too: the declaration maps and source maps point at them, so an editor's go to definition and a stack trace lead to the TypeScript.
 
+A new app has three configs. `tsconfig.json` lists no files and points to the two others, as in create-vite's React-TS template. `tsconfig.app.json` checks every `.ts` and `.tsx` file in the app without Node's types, so a component that reads `process` fails the check. `tsconfig.node.json` checks `vite.config.ts`, `playwright.config.ts`, `e2e/` and `scripts/` with them. `npm run typecheck` runs `tsc -p` on those two, since `tsc -b` would write `.tsbuildinfo` files. `tsc -p tsconfig.json` and a bare `tsc` check nothing and exit 0, since that config lists no files. [Add Netjes to an existing app](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/getting-started.md#add-netjes-to-an-existing-app) shows all three ([ADR 0048](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md)).
+
 ### Vitest defaults
 
 Under Vitest, unless `test` is `false`, the plugin sets these, each only if the app's own `test` config leaves it unset, with two exceptions, which it adds to what the app sets: Netjes's own setup file, in `setupFiles`, and `provide['netjes:query']`.
@@ -6696,7 +6783,7 @@ cd my-app
 npm run dev          # http://localhost:5080
 ```
 
-`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest and Docker files, and references `netjes` and `Netjes` at the same exact version.
+`netjes new` writes an ASP.NET Core app with React pages, Tailwind CSS, TanStack Query, zod, Vitest, a C# test project, a Playwright suite and Docker files, and references `netjes` and `Netjes` at the same exact version.
 
 ## Add it to a project
 
@@ -6848,10 +6935,10 @@ Netjes renders React pages from ASP.NET Core. C# receives every request and owns
 
 ## The loop for any change
 
-1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic.
+1. Write the failing test first: a Vitest component test, or a C# test for loader and action logic (in `tests/<App>.Tests`, where a new app has its test project).
 2. Change the C# record, loader or action, then run `npx netjes generate` so `generated/netjes.ts` matches (a running `npm run dev` rewrites it when it restarts).
 3. Use the generated names in React: `pages['/pattern']`, `layouts['app/folder']`, `serverActions['name']`, `api['GET /api/...']`, `route('/pattern', params)`, `endpointUrl('GET /api/...', params)`.
-4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings.
+4. Check: `npm test`, `npm run typecheck`, `dotnet build` (warnings are errors), `npx netjes generate --check`, and `npm run routes` for route warnings. Where the app has them, which an app made with `netjes new` does: `dotnet test tests/<App>.Tests` for the C# tests, and `npm run test:e2e` for a change to a page or a form.
 
 ## A page with data, end to end
 
@@ -6912,6 +6999,8 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 |---|---|
 | `npm run dev` | `dotnet watch` with Vite HMR on http://localhost:5080 |
 | `npm test`, `npm run typecheck` | Vitest; strict TypeScript |
+| `dotnet test tests/<App>.Tests` | The C# tests, in an app that has that project; no Node and no client build |
+| `npm run test:e2e` | Playwright, in an app that has that script; `npx playwright install chromium` once first |
 | `npx netjes generate [--check]` | Rewrite `generated/netjes.ts`; `--check` fails when it is stale |
 | `npm run routes` (`netjes routes [--json]`) | The route table and route warnings, as ASP.NET Core sees them |
 | `npx netjes build` | Types, then the client and server bundles |
@@ -7258,6 +7347,8 @@ Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the us
 
 ## Loaders and actions: C#
 
+An app made with `netjes new` has a test project in `tests/<App>.Tests`, with an `AppFactory` set up as below and tests of the home page: `dotnet test tests/<App>.Tests` runs them. In another app, copy that setup from the [testing guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/testing.md#c-tests-of-loaders-and-actions); the app's project needs `<DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>` first, since the Web SDK compiles everything below it.
+
 - Loader logic: call the loader or the method it uses and read `PageResult<T>.Props` in an xUnit test.
 - Endpoints: test the real app with `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing` (ASP.NET Core 10 makes the `Program` class of top-level statements public, so the test project sees it). No Node is needed when the test sets `Netjes:Mode` to `Development` (routes come from `app/` on disk) and registers an `ISsrRenderer` (`Netjes.Rendering`) of its own that returns fixed HTML, in `ConfigureServices`. Run it in the `Testing` environment (`builder.UseEnvironment("Testing")`), as the testing guide's factory does: `WebApplicationFactory` uses `Development` unless told otherwise, and there Netjes output-caches no page, so a test of `CachePage` would see every request render. Request a page as the client router does, with the header `X-Netjes-Data: 1` (`NetjesHeaders.Data`): the answer is the page payload as JSON, with `props`, `status` and `antiforgery`; a page with `Page.Defer` values answers NDJSON, the payload first. When the app cannot start (no build in Production, `node` not found), `CreateClient()` throws an `InvalidOperationException` that says why.
 - Server actions are `POST /_netjes/actions/{name}`. Call one as the client router does: the fields form-encoded, `X-Netjes-Data: 1`, and the payload's `antiforgery.requestToken` in the header named by `antiforgery.headerName` (a client that keeps cookies, so the antiforgery cookie goes along; `GET /_netjes/antiforgery` returns a token too). A plain form post, as without JavaScript, sends the token as the `antiforgery.formFieldName` field instead.
@@ -7265,7 +7356,7 @@ Fake timers work with Testing Library: after `vi.useFakeTimers()`, create the us
 
 ## End to end: Playwright
 
-Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
+An app made with `netjes new` has this set up: `playwright.config.ts`, `e2e/home.spec.ts` and `npm run test:e2e`, after `npx playwright install chromium` once. Put Playwright tests in `e2e/` (Vitest skips it). Run them against the app in Development (`dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Development`) and in Production (`npm run build`, then `dotnet run --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Production`), waiting on `/healthz`. Test the forms with JavaScript turned off too (`test.use({ javaScriptEnabled: false })`): they must post, show errors and keep what was typed.
 
 With JavaScript on, wait for hydration after each full page load, before the first click or keystroke; until then links load pages in full and forms post natively, so the test can pass without the client. Netjes puts `data-netjes-hydrated` on `<html>` once the client router runs in the document:
 
@@ -7282,7 +7373,7 @@ await expect(page.locator('html')).toHaveAttribute('data-netjes-hydrated', '');
 npm test && npm run typecheck && dotnet build && npx netjes generate --check
 ```
 
-and `npm run routes` without new warnings.
+and `npm run routes` without new warnings. Where the app has them: `dotnet test tests/<App>.Tests`, and `npm run test:e2e` for a change to a page or a form.
 
 ## More
 
@@ -7404,6 +7495,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0045 – Typed URLs for the app's endpoints](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0045-typed-urls-for-the-apps-endpoints.md): the generated `endpointUrl()` builds the URL of the app's endpoints that are not pages or actions, by a key written as in `api`, its method and route (a JSON endpoint one for each method but `HEAD`, any other one for `GET` if it answers `GET`), with the route values and query values its handler binds typed in TypeScript as binding accepts them, and without the base path, which `useHref` adds.
 - [0046 – The export writes the GET endpoints marked IncludeInExport](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md): `netjes export` writes the answer of each endpoint marked `.IncludeInExport()` as a file at its URL, `MapSitemap` and `MapRobotsTxt` among them, and the exported sitemap lists the pages the export writes.
 - [0047 – Cached pages name the query keys they read](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0047-cached-pages-name-the-query-keys-they-read.md): `.CacheQueryKeys(...)` keeps a request in the output cache only when every segment of its raw query string names a listed key; any other request is rendered for itself and goes out `no-store, private`, and stored entries stay keyed on the query string as sent.
+- [0048 – A new app has a C# test project and a Playwright suite, both outside the app's build](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md): `netjes new` writes `tests/<App>.Tests`, on the VSTest variant of xUnit v3, and a Playwright suite, the app's project leaves the root `tests/` and `e2e/` folders out of its build, the typecheck covers every TypeScript file through two configs under a root with no files, and `netjes agents` lists a test command only for an app that has it.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes; a new record supersedes it.
 
@@ -7439,6 +7531,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - Typed URLs for the app's endpoints: `endpointUrl()`, `EndpointParams` and `EndpointKey` in the generated file, and `buildEndpointUrl` in `netjes`, which `endpointUrl()` calls. The endpoints the app maps have keys, their method and route as in `api` (`'GET /api/posts/{slug}/likes/'`), JSON or not: a JSON endpoint one for each of its methods except `HEAD`, any other endpoint one for `GET`, if it answers `GET`. Pages, page actions, server actions, endpoints that name no HTTP method, fallbacks, static assets and MVC conventional routes have none. `endpointUrl(key, params, search)` fills the route with the encoded values and puts the query values the handler binds, then those of `search`, in the query string. The route values and query values are typed from the C# handler, an enum as its C# names and its values, which the query string binds; a missing required route value and a name the endpoint does not bind are type errors. The URL has no base path: pass it through `useHref` for a `fetch` or an `<a href>`, where a hand-built `/api/...` URL misses the base path under `UsePathBase`. Run `npx netjes generate` after upgrading: every app's generated file changes, and imports `buildEndpointUrl` from `netjes`. A C# type named `EndpointParams`, `EndpointKey`, `endpointTemplates`, `endpointUrl` or `buildEndpointUrl` gets a qualified schema name, with its declaring type or its namespace (`MyAppFeaturesEndpointParams` for `MyApp.Features.EndpointParams`): change the app's imports of that schema. The generated file now holds the route of each such endpoint, an endpoint mapped only in Development included. Once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file, which pages share, also those that never call it. A route in the file is no easier to reach than one outside it: keep authorization on the endpoint (`RequireAuthorization()`), and do not rely on a URL staying unknown ([security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#errors-and-configuration)). Netjes's own endpoints (`/_netjes/image`, `/_netjes/antiforgery`, the vitals beacon and the locale redirect) have no key, and answer as before ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls), [ADR 0045](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0045-typed-urls-for-the-apps-endpoints.md)).
 - `netjes export` writes `sitemap.xml` and `robots.txt` for an app that maps `MapSitemap` and `MapRobotsTxt`, requested from the app after the pages like a page. The exported sitemap lists the pages the export writes, in the order it writes them, and leaves out the pages marked `.ExcludeFromSitemap()` or `.ExcludeFromExport()`; the sitemap the app serves lists the pages marked `.ExcludeFromExport()` as before. Both files take their URLs from the `siteUrl` passed to the Map calls in the environment the export runs in, Production unless `ASPNETCORE_ENVIRONMENT` says otherwise. To keep either file out, add `.ExcludeFromExport()` to its Map call, and to `MapRobotsTxt` as well when the sitemap is left out, since `robots.txt` names it. A check that expects the export to hold neither file must change ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#sitemap-and-robotstxt), [ADR 0046](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)).
 - `.IncludeInExport()`, a convention for an endpoint that is no page (on a page's loader or `MapPages()` it changes nothing), which `netjes export` writes as a file at its URL, like a Next.js route handler with `dynamic = 'force-static'`: `app.MapGet("/llms.txt", ...).IncludeInExport()` writes `out/llms.txt`. The export requests it with a `GET` and no query string after the pages and writes the body of its 200 byte for byte, without its headers; any other status fails the export. It fails before writing anything when such an endpoint answers no `GET`, has route parameters, a path segment that is no safe file name or a last segment without a file extension, requires authorization, or has the path of a file in the client build or of another file the export writes. `.ExcludeFromExport()` wins over it. One that reads the query string is warned about in `Netjes.Export.QueryString`, as a page loader is ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#other-endpoints-as-files-includeinexport)).
+- New apps have a C# test project, `tests/<App>.Tests`, which `dotnet test tests/<App>.Tests` runs in memory, with no Node and no client build, and a Playwright suite, `e2e/` with `playwright.config.ts` and `npm run test:e2e`, against a development and a production server ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-test-project), [ADR 0048](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md)). A plain `dotnet test` at the app's root runs no tests and exits 0, since it finds only the app's project: name the test project, in a script or a CI step too. `npm run typecheck` in a new app checks every `.ts` and `.tsx` file, through `tsconfig.app.json` and `tsconfig.node.json` under a `tsconfig.json` with no files of its own, and `@types/node` gives Node's types to the files that run in Node only. Existing apps keep working as they are. To adopt these, in this order: add `<DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>` to the app's project file, or the test files compile into the app; copy the test project from the template (with `xunit.v3` in place of `xunit.v3.mtp-off` in a repository whose `global.json` selects Microsoft.Testing.Platform); copy the three TypeScript configs, the `typecheck` script and `@types/node` from [the guide for an existing app](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/getting-started.md#add-netjes-to-an-existing-app), which can show type errors in files the old config did not check, and change any script or CI step that runs `tsc -p tsconfig.json` or a bare `tsc` to `npm run typecheck`, since the new `tsconfig.json` lists no files, so those check nothing and exit 0; optionally copy the Playwright files; and run `rm -r .claude/skills/netjes && npx netjes agents --force`, then use `git diff` to keep your own additions to `AGENTS.md`.
 
 ### Changed
 
@@ -7464,6 +7557,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - An external `<Script strategy="beforeInteractive">` is no longer an async script in the head, which ran whenever it arrived, in no order. The server now preloads it and writes an inert entry where the component stands; once the shell is parsed, the client entry runs these scripts one after the other, in the order they stand in the document, with the page's nonce, and the page's modules run and the page hydrates once each of them has loaded or failed. They do not hold up rendering, but a slow host now delays the page's interactivity: give a script the page does not need before then `strategy="afterInteractive"`. The script keeps its `id` and attributes. One the browser does not run, with `noModule` or a `type` that is neither JavaScript nor `module` (a consent manager's `text/plain`), is added to the head but neither preloaded nor waited for. A page with any `beforeInteractive` script, inline or external, runs its own modules once the shell is parsed, instead of while the rest of the shell arrives, and its head has a `<meta name="netjes-before-interactive">`; a test that snapshots the head sees it. A component that mounts in the browser (after a client navigation, when no sidecar was ready, or in a `createTestApp()` test) adds its script after it mounts, as `afterInteractive` does, and one the server's document already ran is not added again. Keep these scripts outside Suspense boundaries that may still wait when the shell goes out: there an external one runs when its part of the page hydrates. In development Netjes warns about `async`, `defer` and `type="module"` on such a script ([code that runs before the first paint](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md#code-that-runs-before-the-first-paint), [ADR 0044](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0044-before-interactive-scripts-run-before-the-pages-code.md)).
 - The export of an app that maps `MapSitemap` or `MapRobotsTxt` and falls back to a localhost site URL when none is configured, as the docs' example does, now publishes links to localhost in `sitemap.xml` and `robots.txt`. The export writes them and logs a warning for each in `Netjes.Export.StaticExportService`, and its exit code is unchanged. Set the static host's URL for the export, such as `SiteUrl=https://www.example.com npx netjes export` when the app reads `app.Configuration["SiteUrl"]`, or leave both files out with `.ExcludeFromExport()` ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#sitemap-and-robotstxt)).
 - `netjes export` fails before it writes anything when a `robots.txt` or `sitemap.xml` in `public/`, or one a Vite plugin writes into the client build, has the path of `MapRobotsTxt` or `MapSitemap`: the app serves that file ahead of routing, so the endpoint never answered, and the export used to copy the file. Remove the file or the Map call, or keep the file and add `.ExcludeFromExport()` to the Map call. The export also fails on a `MapSitemap` or `MapRobotsTxt` mapped in a route group with route parameters, such as `/{lang}`, since it writes each one once: add `.ExcludeFromExport()` to the call. A page that needs a folder where the export writes a file, such as a page at `/404.html`, also fails the export now, naming both. The export's last line now reads `Exported N pages and M files to <dir>` ([static export](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/static-export.md#sitemap-and-robotstxt)).
+- `build/Netjes.targets` keeps every `tsconfig.*.json` out of the build output and the publish folder, as it already did `tsconfig.json`. The Web SDK copied such a file, such as a `tsconfig.app.json`, next to the app. An app has nothing to do, unless its running code reads such a file from there: then it sets `CopyToOutputDirectory` and `CopyToPublishDirectory` on that file with a `<Content Update="tsconfig.app.json" ... />` in a `Directory.Build.targets` next to its project file. The same item in the project file itself has no effect, since MSBuild imports the package's targets after the project file's body.
+- `netjes new` refuses eleven more names, the types the new test project uses by their simple names: `IWebHostBuilder`, `NetjesOptions`, `ISsrRenderer`, `Task`, `CancellationToken`, `NetjesHeaders`, `JsonNode`, `TestContext`, `Assert`, `FormUrlEncodedContent` and `HttpStatusCode`. So `netjes new task` stops working: pass `--name` with another name.
+- `netjes agents`, in any app, lists `dotnet test tests/<Name>.Tests` only when `tests/<Name>.Tests/<Name>.Tests.csproj` exists, and `npm run test:e2e` only when `playwright.config.ts`, an `e2e/` folder and a `test:e2e` script exist. A suite in another place or under another script is not listed: add a line for it to `AGENTS.md`. It decides when it writes `AGENTS.md`, and keeps a file that exists: an app has nothing to do, and one that adds a suite later runs `npx netjes agents --force`, which replaces `AGENTS.md`, and uses `git diff` to keep its own additions.
+- `netjes info` no longer counts `.cs` files in the root `tests/` folder when it compares the C# code's age with `generated/netjes.ts`.
 
 ### Fixed
 

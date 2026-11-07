@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Text.Json;
-
 namespace Netjes.Tests.Packaging;
 
 /// <summary>
@@ -50,27 +47,30 @@ public class BuildTargetsTests : IDisposable
         Assert.Contains(folder + "/Feature.cs", DefaultItems("Compile"));
     }
 
-    private List<string> DefaultItems(params string[] types)
+    [Theory]
+    [InlineData("tsconfig.json")]
+    [InlineData("tsconfig.app.json")]
+    [InlineData("tsconfig.node.json")]
+    public void Content_KeepsTheTypeScriptConfigsOutOfTheOutput(string file)
     {
-        string[] arguments = ["msbuild", "App.csproj", .. (types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types).Select(t => "-getItem:" + t)];
-        var start = new ProcessStartInfo("dotnet", arguments)
-        {
-            WorkingDirectory = _dir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var process = Process.Start(start)!;
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        Assert.True(process.WaitForExit(120_000), "msbuild did not finish");
-        Assert.True(process.ExitCode == 0, output.Result + error.Result);
+        Write("App.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+              <Import Project="{Path.Combine(RepoRoot(), "src", "Netjes", "build", "Netjes.targets")}" />
+            </Project>
+            """);
+        Write(file, "{}");
 
-        using var json = JsonDocument.Parse(output.Result);
-        return json.RootElement.GetProperty("Items").EnumerateObject()
-            .SelectMany(group => group.Value.EnumerateArray())
-            .Select(item => item.GetProperty("Identity").GetString()!.Replace('\\', '/'))
-            .ToList();
+        var config = Assert.Single(MsBuildItems.Of(_dir, "App.csproj", "Content"), item => item.Path() == file);
+
+        Assert.Equal("Never", config.GetProperty("CopyToOutputDirectory").GetString());
+        Assert.Equal("Never", config.GetProperty("CopyToPublishDirectory").GetString());
     }
+
+    private List<string> DefaultItems(params string[] types) =>
+        MsBuildItems.Of(_dir, "App.csproj", types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types)
+            .Select(item => item.Path())
+            .ToList();
 
     private void Write(string path, string content)
     {

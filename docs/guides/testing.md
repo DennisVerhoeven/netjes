@@ -1,6 +1,6 @@
 # Testing
 
-This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, and a test of the home page's whole document, `app/document.test.ts`.
+This guide is for app developers writing tests for a Netjes app: component and page tests in Vitest with the `netjes/testing` harness, tests of C# loaders and actions with `WebApplicationFactory`, end-to-end tests in Playwright, and the checks to run in CI. An app made with `netjes new` has two component tests to start from, in `components/`, a test of the home page's whole document, `app/document.test.ts`, a [C# test project](#the-test-project), `tests/<App>.Tests`, and a [Playwright suite](#end-to-end-tests), `e2e/`.
 
 ## Vitest
 
@@ -247,6 +247,32 @@ The check sees the document a crawler gets. A visitor's browser also gets inline
 
 ## C# tests of loaders and actions
 
+### The test project
+
+An app made with `netjes new` has a test project in `tests/<App>.Tests`, on xUnit v3:
+
+| File | What it is |
+|---|---|
+| `<App>.Tests.csproj` | References the app's project, `Microsoft.AspNetCore.Mvc.Testing`, `Microsoft.NET.Test.Sdk`, `xunit.v3.mtp-off` and `xunit.runner.visualstudio`. It has `<Using Include="Netjes" />` of its own, since the `using Netjes;` that the package's build targets add reaches the app's project only. |
+| `AppFactory.cs` | The `WebApplicationFactory<Program>` that [The app over HTTP](#the-app-over-http) describes. |
+| `HomePageTests.cs` | Requests the home page's payload, and posts the `home.greet` form with a name and without one. |
+
+`dotnet test tests/<App>.Tests` builds and runs it, with no Node process and no client build. Name the project: a plain `dotnet test` at the app's root finds only the app's project, which holds no tests, so it runs none and exits 0.
+
+Three things about that setup:
+
+- **The runner.** `xunit.v3.mtp-off` is xUnit v3 for `dotnet test`'s default runner, VSTest, so `dotnet test tests/<App>.Tests` runs it wherever the app sits, and the app needs no `global.json`. `xunit.v3` itself runs only under Microsoft.Testing.Platform, which takes a `global.json`, and one in the app would shadow the SDK version a repository around it pins. In a repository whose `global.json` selects that runner (`"test": { "runner": "Microsoft.Testing.Platform" }`), `dotnet test` refuses a VSTest project: reference `xunit.v3` in place of `xunit.v3.mtp-off`, at the same version, and run `dotnet test --project tests/<App>.Tests`.
+- **The generated types.** `AppFactory` sets `NetjesOptions.TypesFile` to `null`. In development mode the app rewrites `generated/netjes.ts` when it starts, as `dotnet run` does, so without that line a test run would update a stale file, and a `netjes generate --check` after it would pass.
+- **The app's build.** The Web SDK compiles every `.cs` file below the project and makes every `.json` file below it content, so the app's project file leaves two root folders out, the test project and the Playwright specs:
+
+  ```xml
+  <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;e2e/**</DefaultItemExcludes>
+  ```
+
+  The root folders `tests/` and `e2e/` are therefore not part of the app, in any case on macOS and Windows, where `Tests/` is the same folder. Keep the app's own code out of them. A folder of that name deeper down, such as `Features/Home/tests/`, compiles like any other. `netjes info` does not count the root `tests/` folder when it compares the C# code's age with the generated types.
+
+To add a test project to an app that has none, add that line to the app's project file first, or the test files compile into the app and fail its build. Then copy the three files from [the template](https://github.com/DennisVerhoeven/netjes/tree/main/packages/netjes/template/tests/__NAME__.Tests), with `__NAME__` replaced by the app's project name, and adjust the tests to the app's pages. An app with a Dockerfile also adds `tests` and `e2e` to its `.dockerignore`. The folder name `tests/<App>.Tests`, with `<App>` the name of the app's project file, is what [`netjes agents`](coding-agents.md#an-existing-app) looks for.
+
 ### Loaders as plain methods
 
 `Page.Props(x)` returns a `PageResult<T>` whose `Props` holds `x` (null for a redirect or not-found), so you can call a loader written as a method from a test:
@@ -298,7 +324,11 @@ public sealed class FakeRenderer : ISsrRenderer
 
 The factory runs the app in the `Testing` environment, with Netjes in development mode, rather than in `Development`. In the Development environment Netjes output-caches no page: each request renders the page again, and an output-cached page goes out `no-store` there ([caching](caching.md#in-the-development-environment)). So a test of what `CachePage` or other output caching stores runs in `Testing`, or any environment other than `Development`; a test of what Development does sets `UseEnvironment("Development")`.
 
-The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does.
+The test project references the app's project and `Microsoft.AspNetCore.Mvc.Testing`; ASP.NET Core 10 makes the `Program` class of top-level statements public, so `WebApplicationFactory<Program>` can start it. In development mode the app also writes `generated/netjes.ts` at startup when it is out of date, as `dotnet run` does, unless the factory sets `TypesFile` to `null`, as a new app's does:
+
+```csharp
+builder.ConfigureServices(services => services.Configure<NetjesOptions>(options => options.TypesFile = null));
+```
 
 When the app cannot start, `CreateClient()` throws why, as an `InvalidOperationException` whose message says what to do: `No production build found at …` for a test that runs the app in Production without a build, or `Could not start 'node'. …` for one that renders with the real Node processes where Node.js is not installed. Run as its own program, the app logs that message in one line and exits with code 1 instead ([deployment](deployment.md#what-the-server-needs)).
 
@@ -382,7 +412,7 @@ A test about every page at once, such as one that checks that each page `CachePa
 
 ## End-to-end tests
 
-Playwright tests the app in a real browser. The examples run each suite against two servers at once, one in Development (the Vite dev server) and one in Production (the build), since some failures show in one only. A server in the Playwright config waits for the app's health check:
+Playwright tests the app in a real browser. An app made with `netjes new` has a suite in `e2e/`, and the examples have their own. Each runs against two servers at once, one in Development (the Vite dev server) and one in Production (the build), since some failures show in one only. A server in the Playwright config waits for the app's health check:
 
 ```ts
 webServer: [
@@ -401,7 +431,27 @@ webServer: [
 ],
 ```
 
-`--no-build` starts the last build, so build the app first: the examples' `test:e2e` script is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
+`--no-build` starts the last build, so build the app first: the `test:e2e` script of a new app and of the examples is `dotnet build && playwright test`. Give each development server its own `Netjes__ViteDevPort`, so two of them can run side by side. Put the specs in `e2e/`, which the Vitest defaults leave out, and install the browser once with `npx playwright install chromium`. `examples/Blog/playwright.config.ts` also runs the app under a base path, with no Node process ready (the client-rendered fallback), and as a static export.
+
+### The suite of a new app
+
+An app made with `netjes new` has the config above in `playwright.config.ts`, and `npm run test:e2e` runs it, after `npx playwright install chromium` once. `npm install` brings the `@playwright/test` package with the two it depends on, about 19 MB, and no browser. Its tests are in `e2e/home.spec.ts`, and each runs against both servers:
+
+- the home page shows the message from its C# loader;
+- the link "About this app" leads to `/about`;
+- with JavaScript turned off, posting the form without a name shows "Tell us your name."
+
+A link and a form work before the page has hydrated, so these three need no [wait for hydration](#wait-for-hydration); a test that needs the client does.
+
+| Variable | What it moves | Default |
+|---|---|---|
+| `E2E_DEV_PORT` | The development server | 5090 |
+| `E2E_PROD_PORT` | The production server | 5091 |
+| `E2E_VITE_PORT` | The development server's Vite dev server (`Netjes__ViteDevPort`) | 5190 |
+
+With `CI` set, Playwright always starts its own servers, retries a failed test once and fails on a `test.only`. Without it, it reuses a server that is already listening on those ports, so two runs on the same ports test each other's code: give each run its own ports.
+
+To add the suite to an app that has none, add the `DefaultItemExcludes` line from [The test project](#the-test-project) first, or the build treats `e2e/` as the app's. Then run `npm install -D @playwright/test`, add the `test:e2e` script, and copy `playwright.config.ts` and `e2e/` from [the template](https://github.com/DennisVerhoeven/netjes/blob/main/packages/netjes/template/playwright.config.ts). The config and the specs run in Node, so they type-check with Node's types: `tsconfig.node.json` in [the guide for an existing app](../getting-started.md#add-netjes-to-an-existing-app) lists them.
 
 ### Wait for hydration
 
@@ -442,9 +492,9 @@ npm ci
 npx netjes generate --check            # the committed generated/netjes.ts matches the C# code
 npm run typecheck
 npm test                               # Vitest
-dotnet test -c Release                 # loaders and actions
-dotnet build                           # the Debug build that dotnet run --no-build starts
-npx playwright install --with-deps chromium && npx playwright test
+dotnet test tests/MyApp.Tests -c Release   # loaders and actions
+npx playwright install --with-deps chromium
+npm run test:e2e                       # dotnet build, for the Debug build that dotnet run --no-build starts, then Playwright
 ```
 
 `netjes generate --check` runs the app once in command mode, without a build or a Node process and on a throwaway loopback port, and exits 1 when the generated types are out of date. An app that does not start, such as one with a loader or action minimal APIs cannot bind, fails the check with the exception's message. Startup code that needs a database can skip that work with `app.GetNetjesCommand()`; see the [CLI reference](../reference/cli.md#netjes-generate).

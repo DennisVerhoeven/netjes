@@ -9,7 +9,8 @@
     "dev": "netjes dev",
     "build": "vite build && vite build --ssr",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:e2e": "dotnet build && playwright test",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "generate": "netjes generate",
     "routes": "netjes routes"
   },
@@ -21,10 +22,12 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^30.1.3",

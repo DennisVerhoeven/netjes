@@ -218,5 +218,12 @@ jobs:
         with:
           nuget-cache: 'off'
 
-      - name: Pack, scaffold, test, publish and serve a new app
+      # The new app's Playwright version follows the template's range; a version the cache does not hold is downloaded.
+      - name: Cache Playwright's browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-template-${{ hashFiles('packages/netjes/template/package.json') }}-chromium
+
+      - name: Pack, scaffold, test, publish and serve a new app, and run its Playwright suite
         run: scripts/check-packages.sh
