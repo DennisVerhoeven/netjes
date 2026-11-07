@@ -1015,6 +1015,86 @@ public class PageOutputCacheKeyTests
         Assert.Equal(2, store.Writes - before);
     }
 
+    /// <summary>
+    /// A page without a loader has no call of its own. Its layout loader's list holds for it until a call on
+    /// <c>MapPages()</c>, whose conventions run after the layouts', replaces that list.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "layout", "other")]
+    [InlineData("all", "all", "layout")]
+    public async Task CacheQueryKeys_OnALayoutLoader_AppliesToAPageWithoutALoader_UnlessMapPagesMakesACall(string? onMapPages, string stored, string notStored)
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/docs/layout.tsx", "app/docs/a/page.tsx"],
+            map: a => a.MapLayoutLoader("/docs", () => Page.Props()).CacheQueryKeys("layout"),
+            pages: pages =>
+            {
+                pages.CachePage(TimeSpan.FromMinutes(5));
+                if (onMapPages is not null)
+                {
+                    pages.CacheQueryKeys(onMapPages);
+                }
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync($"/docs/a?{notStored}=1");
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync($"/docs/a?{stored}=1");
+        Assert.Equal(1, store.Writes - before);
+    }
+
+    /// <summary>
+    /// The list says which requests may be stored; the loader still decides how they are answered. Two values do not bind
+    /// to an <c>int?</c>, so that request is a 400, which is not stored. A string takes them, and each repetition is an entry.
+    /// </summary>
+    [Fact]
+    public async Task WithCacheQueryKeys_ARepeatedKey_IsStoredOnlyWhereTheLoaderCanBindIt()
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/numbers/page.tsx", "app/words/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/numbers", (int? page) => Page.Props(new { Page = page })).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("page");
+                a.MapPageLoader("/words", (string? page) => Page.Props(new { Page = page })).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("page");
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        var notBound = await visitor.SendAsync(HttpMethod.Get, "/numbers?page=2&page=3", (NetjesHeaders.Data, "1"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, notBound.StatusCode);
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/numbers?page=2");
+        Assert.Equal(1, store.Writes - before);
+
+        var bound = await visitor.DataAsync("/words?page=2&page=3");
+        await visitor.DataAsync("/words?page=2&page=2");
+
+        Assert.Equal("2,3", (string?)bound["props"]!["page"]);
+        Assert.Equal(3, store.Writes - before);
+    }
+
     /// <summary>Output caching decides whether a page is cached at all: without it the convention changes nothing.</summary>
     [Fact]
     public async Task CacheQueryKeys_OnAPageThatIsNotCached_ChangesNothing()
