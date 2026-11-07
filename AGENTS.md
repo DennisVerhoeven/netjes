@@ -9,7 +9,7 @@ Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, s
 | `src/Netjes/` | The ASP.NET Core library: routing (`Routing/`), rendering and the payload (`Rendering/`), the sidecar pool (`Sidecar/`), typegen (`TypeGen/`), images, export, server actions |
 | `src/Netjes.Images.SkiaSharp/` | The optional SkiaSharp image processor |
 | `packages/netjes/` | The npm package: the Vite plugin (`vite/`), the client router and components (`src/`, compiled into `dist/`, which the package exports), the sidecar (`sidecar/server.mjs`), the CLI (`cli/`), the app template (`template/`), the skill for agents building apps (`skills/netjes/`) |
-| `tests/Netjes.Tests/` | xUnit tests for the library: endpoints, rendering, typegen golden files, sidecar lifecycle, and the packaging (`Packaging/`: the build targets, the template's and the examples' Docker images and the template's Compose files) |
+| `tests/Netjes.Tests/` | xUnit tests for the library: endpoints, rendering, typegen golden files, sidecar lifecycle, and the packaging (`Packaging/`: the build targets, the template's project file, the template's and the examples' Docker images and the template's Compose files) |
 | `tests/TaskBoard.Tests/`, `tests/Blog.Tests/` | The examples' server tests (TaskBoard against Postgres in Testcontainers) |
 | `examples/Blog/`, `examples/TaskBoard/` | Example apps with Vitest and Playwright suites; TaskBoard has Docker Compose for dev and production |
 | `docs/` | The tutorial, guides and reference pages ([docs/README.md](docs/README.md) lists them), architecture, decisions (ADRs), roadmap, benchmarks |
