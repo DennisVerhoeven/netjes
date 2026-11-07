@@ -23,8 +23,9 @@ public static class NetjesApplicationBuilderExtensions
     /// <c>Netjes:SecurityHeaders:Enabled</c> set to false turns that off (<see cref="NetjesOptions.SecurityHeaders"/>).
     /// Last, after routing, a <c>GET</c> or <c>HEAD</c> for a page, or for the <c>/robots.txt</c> or <c>/sitemap.xml</c>
     /// that <c>MapRobotsTxt</c> and <c>MapSitemap</c> map, in another case of its literal segments gets a 308 to its
-    /// spelling (<see cref="NetjesOptions.RedirectLiteralCase"/>), and so does one with a trailing slash under
-    /// <see cref="TrailingSlash.Never"/>, before the output cache could store it.
+    /// spelling, or a client navigation to a page a redirect payload (<see cref="NetjesOptions.RedirectLiteralCase"/>),
+    /// and so does one with a trailing slash under <see cref="TrailingSlash.Never"/>, before the output cache could
+    /// store it.
     /// </summary>
     public static IApplicationBuilder UseNetjes(this IApplicationBuilder app)
     {
