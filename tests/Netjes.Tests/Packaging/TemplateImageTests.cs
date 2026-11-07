@@ -19,6 +19,12 @@ public sealed class TemplateImageTests : IAsyncDisposable
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// On every image and container these tests make, so that what a killed test host left behind can be found:
+    /// <c>docker ps -a --filter label=netjes-test-image</c>, <c>docker images --filter label=netjes-test-image</c>.
+    /// </summary>
+    private const string Label = "netjes-test-image";
+
     private readonly string _dir = Directory.CreateTempSubdirectory("netjes-image-").FullName;
     private readonly string _tag = "netjes-test-image-" + Guid.NewGuid().ToString("N");
     private string? _container;
@@ -61,7 +67,8 @@ public sealed class TemplateImageTests : IAsyncDisposable
                 stopping.TrySetResult();
             });
             Console.WriteLine("Waiting for SIGTERM");
-            await stopping.Task;
+            // Not for ever: a container this test could not remove, its host killed, ends by itself.
+            await Task.WhenAny(stopping.Task, Task.Delay(TimeSpan.FromMinutes(2)));
             return 0;
             """);
         _container = await StartAsync();
@@ -116,8 +123,13 @@ public sealed class TemplateImageTests : IAsyncDisposable
             </Project>
             """);
         Write(Path.Combine("src", "Program.cs"), program);
-        await RunAsync(Dotnet(), ["publish", Path.Combine(_dir, "src"), "-c", "Release", "-o", Path.Combine(_dir, "build", "app")],
-            TimeSpan.FromMinutes(5), check: true, Ct);
+        // The same files from every run, which is in a folder of its own: without a .pdb, and with the paths the
+        // compiler writes into the assembly made the same. The image's layers are then the same too, and a later run
+        // takes them from the build cache rather than adding new ones to it.
+        await RunAsync(Dotnet(), [
+            "publish", Path.Combine(_dir, "src"), "-c", "Release", "-o", Path.Combine(_dir, "build", "app"),
+            "-p:DebugType=none", $"-p:PathMap={_dir}=/src",
+        ], TimeSpan.FromMinutes(5), check: true, Ct);
 
         // The image's health check runs it.
         var node = Write(Path.Combine("node", "usr", "local", "bin", "node"), "#!/bin/sh\nexit 0\n");
@@ -132,7 +144,7 @@ public sealed class TemplateImageTests : IAsyncDisposable
             "build", "--progress=plain", "--target", "production",
             "--build-context", "build=" + Path.Combine(_dir, "build"),
             "--build-context", "node=" + Path.Combine(_dir, "node"),
-            "-f", Path.Combine(_dir, "Dockerfile"), "-t", _tag, context,
+            "-f", Path.Combine(_dir, "Dockerfile"), "-t", _tag, "--label", Label, context,
         ], timeout: TimeSpan.FromMinutes(15));
     }
 
@@ -151,7 +163,7 @@ public sealed class TemplateImageTests : IAsyncDisposable
     /// <summary>Starts the image on one CPU, as docker-compose.prod.yml runs it, and returns the container's id.</summary>
     private async Task<string> StartAsync() =>
         (await DockerAsync([
-            "run", "-d", "--cpus", "1", "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL",
+            "run", "-d", "--label", Label, "--cpus", "1", "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", _tag,
         ])).Trim();
 
