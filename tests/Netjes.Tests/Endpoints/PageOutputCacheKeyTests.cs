@@ -982,6 +982,39 @@ public class PageOutputCacheKeyTests
         Assert.Equal(1, store.Writes - before);
     }
 
+    /// <summary>A layout loader's conventions reach the pages below it, and a page's own run after them.</summary>
+    [Fact]
+    public async Task CacheQueryKeys_OnALayoutLoader_AppliesBelowIt_UnlessThePageMakesItsOwnCall()
+    {
+        var store = new CountingStore(SharedStore());
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/docs/layout.tsx", "app/docs/inherits/page.tsx", "app/docs/own/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/docs", () => Page.Props()).CacheQueryKeys("layout");
+                a.MapPageLoader("/docs/inherits", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5));
+                a.MapPageLoader("/docs/own", () => Page.Props()).CachePage(TimeSpan.FromMinutes(5)).CacheQueryKeys("own");
+            },
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.Replace(ServiceDescriptor.Singleton<IOutputCacheStore>(store));
+            },
+            configureApp: a => a.UseOutputCache(),
+            environment: "Testing",
+            mode: NetjesMode.Development);
+        var visitor = await Visitor.ReturningAsync(app);
+        var before = store.Writes;
+
+        await visitor.DataAsync("/docs/inherits?x=1");
+        await visitor.DataAsync("/docs/own?layout=1");
+        Assert.Equal(0, store.Writes - before);
+
+        await visitor.DataAsync("/docs/inherits?layout=1");
+        await visitor.DataAsync("/docs/own?own=1");
+        Assert.Equal(2, store.Writes - before);
+    }
+
     /// <summary>Output caching decides whether a page is cached at all: without it the convention changes nothing.</summary>
     [Fact]
     public async Task CacheQueryKeys_OnAPageThatIsNotCached_ChangesNothing()
