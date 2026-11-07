@@ -152,6 +152,12 @@ public class SecurityHeadersTests
     [InlineData("script-src 'self'; frame-ancestors;", "DENY")]
     [InlineData("frame-ancestors *", "SAMEORIGIN")]
     [InlineData("frame-ancestors https:", "SAMEORIGIN")]
+    [InlineData("frame-ancestors HTTP:", "SAMEORIGIN")]
+    // Scheme sources no http(s) page can match: browsers that obey frame-ancestors refuse every frame.
+    [InlineData("frame-ancestors data:", "DENY")]
+    [InlineData("frame-ancestors blob:", "DENY")]
+    [InlineData("frame-ancestors ws:", "DENY")]
+    [InlineData("frame-ancestors chrome-extension:", "DENY")]
     // The app's own host as a host source: Netjes does not compare sources with the request's host.
     [InlineData("frame-ancestors https://localhost", "DENY")]
     [InlineData("script-src 'self';\tframe-ancestors\t'none'", "DENY")]

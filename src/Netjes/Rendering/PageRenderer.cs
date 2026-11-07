@@ -816,9 +816,9 @@ internal sealed class PageRenderer(
     private static bool MayMatchTheAppsOwnPages(string source) =>
         source == "*"
         || source.Equals("'self'", StringComparison.OrdinalIgnoreCase)
-        // A scheme source, such as https: (RFC 3986's scheme and a colon).
-        || (source.Length > 1 && source[^1] == ':' && char.IsAsciiLetter(source[0])
-            && source[1..^1].All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.'));
+        // The scheme sources an http(s) page can match, as CspChecks counts them; data:, blob: and the rest match none.
+        || source.Equals("http:", StringComparison.OrdinalIgnoreCase)
+        || source.Equals("https:", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The nonce for this document: Netjes's own policy gets one (and its header) when it has a <c>{nonce}</c> for it,
