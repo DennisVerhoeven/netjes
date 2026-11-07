@@ -16,9 +16,9 @@ export type ScriptProps = Omit<ScriptHTMLAttributes<HTMLScriptElement>, 'onLoad'
   /**
    * `afterInteractive` (default): once the page is interactive. `lazyOnload`: when the browser is idle.
    * `beforeInteractive`: in a server-rendered document, inline code runs where it stands, as the parser reaches it,
-   * and an external script runs once the shell is parsed, in order with the others, before the page's code and
-   * hydration. A component that mounts in the browser, after a client navigation for one, adds it as
-   * `afterInteractive` does.
+   * and an external script in the shell runs once the shell is parsed, in order with the others, before the page's
+   * code and hydration; one in a Suspense boundary that streams in later runs when that part of the page hydrates.
+   * A component that mounts in the browser, after a client navigation for one, adds it as `afterInteractive` does.
    */
   strategy?: ScriptStrategy;
   onLoad?: (event: Event) => void;
