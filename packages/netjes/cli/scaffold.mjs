@@ -138,10 +138,9 @@ export function fillNames(text, names) {
 }
 
 /**
- * Keeps or drops the parts of a template file that only some apps have what they name for, and removes the markers
- * around them, each on a line of its own: what is between `<!--netjes:if name-->` and `<!--netjes:else-->` or
- * `<!--netjes:end-->` stays when the app has `name`, and what is between `<!--netjes:else-->` and `<!--netjes:end-->`
- * stays when it does not.
+ * Keeps or drops the parts of a template file that apply only to some apps, and removes the markers around them, each
+ * on a line of its own: what is between `<!--netjes:if name-->` and `<!--netjes:else-->` or `<!--netjes:end-->` stays
+ * when the app has `name`, and what is between `<!--netjes:else-->` and `<!--netjes:end-->` stays when it does not.
  * @param {string} text
  * @param {{ tests: boolean; e2e: boolean }} has what the app has: a C# test project, a Playwright suite
  */
