@@ -71,7 +71,7 @@ The publish job installs npm 11, which trusted publishing needs (11.5.1 or later
 5. Check the result: both packages on nuget.org (indexing takes a few minutes), `npm view netjes@<version>`, the READMEs on the package pages of npmjs.com and nuget.org (their docs links name `v<version>`), the GitHub release, and a new app made from the published packages:
    ```bash
    npx netjes@<version> new my-app
-   cd my-app && npm test && npx netjes dev
+   cd my-app && npm test && dotnet test tests/MyApp.Tests && npx netjes dev
    ```
 
 ## When something goes wrong
