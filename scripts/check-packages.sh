@@ -223,7 +223,11 @@ status=$(curl -s -o "$work/greet" -w '%{http_code}' -b "$work/cookies" --data-ur
 [[ "$status" == 422 ]] && grep -q "Tell us your name." "$work/greet" || { echo "home.greet without a name or JavaScript: $status"; cat "$work/app.log"; exit 1; }
 
 echo "== end-to-end"
-npx playwright install --with-deps chromium
+# The app's Playwright is the newest in the template's range, not the version the repository's lockfile pins, so it can
+# need another Chromium. An install also removes every browser in the shared cache that no Playwright it knows of still
+# uses, and it knows only the folders that ran an install and are still there: without the flag, this check could remove
+# the Chromium that the examples' end-to-end suites launch.
+PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install --with-deps chromium
 CI=1 E2E_DEV_PORT="$e2e_dev_port" E2E_PROD_PORT="$e2e_prod_port" E2E_VITE_PORT="$e2e_vite_port" npm run test:e2e --silent
 
 echo "ok: Netjes $version packages build, test, publish and serve a new app"
