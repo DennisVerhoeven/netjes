@@ -88,8 +88,9 @@ A request is cached when it has no query string, or when every segment of its qu
 
 | Request | What happens |
 |---|---|
-| `/blog`, `/blog?page=2`, `/blog?page=2&page=3` | Cached, each an entry of its own |
+| `/blog`, `/blog?page=2` | Cached, each an entry of its own |
 | `/blog?PAGE=2`, `/blog?p%61ge=2` | Cached, each an entry of its own, apart from `?page=2`: the key is still the query string as sent |
+| `/blog?page=2&page=3` | Every segment names `page`, so the list keeps it, but the `int? page` above cannot take two values: ASP.NET Core answers 400, which is not stored. Where the loader binds `page` as a string or an array, or does not bind it, the page renders and is cached as an entry of its own |
 | `/blog?utm_source=feed`, `/blog?page=2&utm_source=feed` | Not cached: another key |
 | `/blog?`, `/blog?&`, `/blog?page=2&`, `/blog?&page=2`, `/blog?page=2&&page=3` | Not cached: an empty segment, which `Request.Query` leaves out but which makes another query string |
 | `/blog?=2` | Not cached: a segment without a name |
@@ -97,18 +98,18 @@ A request is cached when it has no query string, or when every segment of its qu
 A request that is not cached:
 
 - runs the loaders and renders the page for itself. No stored entry answers it, the entry for `/blog` included, nothing is stored for it, and it does not wait for another request's render.
-- goes out `Cache-Control: no-store, private`. A `Cache-Control` the page sets itself is kept, as on any page the output cache does not store.
+- goes out `Cache-Control: no-store, private` when the page renders. A `Cache-Control` the page sets itself is kept, as on any page the output cache does not store. A loader's redirect is not stored either, and carries no `Cache-Control`, as on any page.
 - keeps its query string. The payload's URL is the URL as sent, so the address bar still shows `?utm_source=feed` and the page's scripts can read it. Nothing is redirected or removed.
-- keeps its antiforgery token under output caching other than `CachePage`, like any response the output cache will not store. Under `CachePage` it has none, as always.
-- logs no cookie warning when it reads a cookie, since no other visitor gets that render.
+- keeps its antiforgery token under output caching other than `CachePage`, like any response the output cache will not store. When it is a visitor's first page, it sets the antiforgery cookie and goes out with ASP.NET Core's `no-cache, no-store` instead ([what browsers keep](#what-browsers-keep-by-default)). Under `CachePage` it has none, as always.
+- logs no cookie warning when it reads a cookie, in a loader or in shared props, since no other visitor gets that render.
 
 Three things to weigh:
 
 - A page with many visits through tagged links renders once for each of those visits, where it rendered once per tagged URL before. Data that is slow to load is cached in the service that loads it.
-- A key in the list still stores an entry for each value and each repetition (`?page=1`, `?page=2`, `?page=1&page=1`), bounded by `SizeLimit`.
+- A key in the list still stores an entry for each value (`?page=1`, `?page=2`), and for each repetition (`?page=1&page=1`) where the loader takes it, bounded by `SizeLimit`.
 - A key the page reads and the list leaves out, as a loader parameter or through `useSearchParams()`, still reaches the page, but those requests are not cached, and nothing warns about it.
 
-It takes effect wherever the page rules apply: on a page under any output caching, conventions on `MapPages()` included, and on an endpoint `CachePage` is put on, such as a minimal API returning `Page.Render`. A JSON endpoint under `CachePage` follows the same rule for its entries, and gets no `Cache-Control` from Netjes. It does not turn caching on: a page that nothing output-caches is unchanged, and in the Development environment no page is stored anyway. On an endpoint the page rules do not apply to, it does nothing and does not throw, since a route group can mix pages and APIs; such an endpoint narrows its key with `SetVaryByQuery` ([Keys and the query string](#keys-and-the-query-string)). Of two calls on one endpoint, the last decides, and on a layout loader it applies to each page below the layout unless the page makes its own call. ([ADR 0047](../decisions/0047-cached-pages-name-the-query-keys-they-read.md) explains why it works this way.)
+It takes effect wherever the page rules apply: on a page under any output caching, conventions on `MapPages()` included, and on an endpoint `CachePage` is put on, such as a minimal API returning `Page.Render`. A JSON endpoint under `CachePage` follows the same rule for its entries, and gets no `Cache-Control` from Netjes. It does not turn caching on: a page that nothing output-caches is unchanged, and in the Development environment no page is stored anyway. On an endpoint the page rules do not apply to, it does nothing and does not throw, since a route group can mix pages and APIs; such an endpoint narrows its key with `SetVaryByQuery` ([Keys and the query string](#keys-and-the-query-string)). Of two calls on one endpoint, the last decides. On a layout loader it applies to each page below the layout, unless a later call replaces it there: the page's own, or, for a page without a loader, one on `MapPages()`, whose conventions run after the layouts'. ([ADR 0047](../decisions/0047-cached-pages-name-the-query-keys-they-read.md) explains why it works this way.)
 
 ### What a stored page leaves out
 

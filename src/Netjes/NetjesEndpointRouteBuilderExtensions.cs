@@ -273,13 +273,15 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// to the output cache. A request is cached as usual, keyed on its query string as sent, when it has no query string
     /// or when every segment of that query string names one of <paramref name="keys"/>, compared without regard to case.
     /// Any other query string, one with another key, an empty segment (<c>?page=2&amp;</c>) or a segment without a name
-    /// (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored in it. Such a
-    /// page goes out <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c>, and its payload
-    /// keeps the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules
-    /// apply: on a page under any output caching, and on an endpoint <c>CachePage</c> is put on. It does not make a page
-    /// cached, and elsewhere it does nothing, so a route group can mix pages and APIs: an endpoint outside the page rules
-    /// narrows its key with <c>SetVaryByQuery</c>. Of two calls on one endpoint, the last decides, and on a layout loader
-    /// it applies to each page below the layout unless the page makes its own call.
+    /// (<c>?=1</c>), is rendered for that request and is neither served from the output cache nor stored in it. The page
+    /// rendered for it goes out <c>Cache-Control: no-store, private</c> unless it sets its own <c>Cache-Control</c> (or
+    /// gets antiforgery's, on a visitor's first page under a policy other than <c>CachePage</c>), and its payload keeps
+    /// the URL as sent. With no keys, every query string is treated so. It takes effect wherever the page rules apply: on
+    /// a page under any output caching, and on an endpoint <c>CachePage</c> is put on. It does not make a page cached, and
+    /// elsewhere it does nothing, so a route group can mix pages and APIs: an endpoint outside the page rules narrows its
+    /// key with <c>SetVaryByQuery</c>. Of two calls on one endpoint, the last decides. On a layout loader it applies to
+    /// each page below the layout, unless a later call replaces it there: the page's own, or, for a page without a
+    /// loader, one on <c>MapPages()</c>.
     /// </summary>
     /// <param name="builder">The endpoint or group the convention is put on.</param>
     /// <param name="keys">The names the page reads from the query string, decoded, as a loader or component reads them.</param>
