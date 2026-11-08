@@ -187,6 +187,15 @@ public class PagePackageTypesTests
     }
 
     [Fact]
+    public async Task Development_WithTypesFileNull_WritesNoPackagesFileEither()
+    {
+        // What a test host sets, so that a test run rewrites no committed file.
+        await using var app = await StartAsync(["app/page.tsx"], mount: WithTypes(), configure: o => o.TypesFile = null);
+
+        Assert.False(File.Exists(PackageTypesPath(app)));
+    }
+
+    [Fact]
     public async Task GenerateCommand_WritesTheAppsFileAndThePackagesFile()
     {
         int? exit = null;

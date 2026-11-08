@@ -72,12 +72,14 @@ internal sealed class TypeGenHostedService(
             return;
         }
 
-        if (context.Mode != NetjesMode.Development)
+        // TypesFile null turns generation off, the page packages' files included: a test host sets it so that a test run
+        // rewrites no committed file.
+        if (context.Mode != NetjesMode.Development || context.TypesFilePath is not { } appFile)
         {
             return;
         }
 
-        foreach (var (path, generate) in Files(context.TypesFilePath))
+        foreach (var (path, generate) in Files(appFile))
         {
             try
             {
