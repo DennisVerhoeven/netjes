@@ -289,7 +289,7 @@ describe('the Node.js check', () => {
   });
 });
 
-/** The version ranges the C# version checks of page packages read too (VersionRangeTests). */
+/** The version ranges the C# version checks of page packages read too (PagePackageVersionTests). */
 const ranges = JSON.parse(await readFile(new URL('./fixtures/version-ranges.json', import.meta.url), 'utf8')) as {
   ranges: { range: string; in: string[]; out: string[] }[];
   invalid: string[];
@@ -313,7 +313,8 @@ describe('version ranges', () => {
   });
 
   it.each(ranges.invalidVersions)('"%s" is no version, which satisfies no range in strict mode, and every range otherwise', (version) => {
-    expect(satisfies(version, '*', { strict: true })).toBe(false);
+    // A range that would hold each of them, read loosely.
+    expect(satisfies(version, '* || >=1.2.3-0', { strict: true })).toBe(false);
     expect(satisfies(version, '^1.2.3')).toBe(true);
   });
 });

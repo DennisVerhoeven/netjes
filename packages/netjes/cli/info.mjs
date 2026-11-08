@@ -63,11 +63,14 @@ const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
  * @typedef {{ op: '<' | '<=' | '>' | '>=' | '='; version: SemVer }} Comparator
  */
 
-const PRERELEASE = '(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?';
+/** A number in a version: no leading zeros. */
+const NUMBER = '0|[1-9]\\d*';
+const IDENTIFIER = `(?:${NUMBER}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
+const PRERELEASE = `(?:-(${IDENTIFIER}(?:\\.${IDENTIFIER})*))?`;
 const BUILD = '(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?';
-const SEMVER = new RegExp(`^v?(\\d+)\\.(\\d+)\\.(\\d+)${PRERELEASE}${BUILD}$`);
+const SEMVER = new RegExp(`^v?(${NUMBER})\\.(${NUMBER})\\.(${NUMBER})${PRERELEASE}${BUILD}$`);
 /** A version in a range, which may leave out its minor and patch, or write them as x, X or *. */
-const PARTIAL = new RegExp(`^v?(\\d+|[xX*])(?:\\.(\\d+|[xX*])(?:\\.(\\d+|[xX*])${PRERELEASE}${BUILD})?)?$`);
+const PARTIAL = new RegExp(`^v?(${NUMBER}|[xX*])(?:\\.(${NUMBER}|[xX*])(?:\\.(${NUMBER}|[xX*])${PRERELEASE}${BUILD})?)?$`);
 const OPERATOR = /^(<=|>=|<|>|=|\^|~>|~)?/;
 
 /** @param {string} pre @returns {(string | number)[]} */
