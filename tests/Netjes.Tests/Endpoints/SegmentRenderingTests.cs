@@ -202,6 +202,30 @@ public class SegmentRenderingTests
     }
 
     [Theory]
+    [InlineData("/a%2Fb")]
+    [InlineData("/a%2fb")]
+    [InlineData("/a%25b")]
+    [InlineData("/a%3Fb")]
+    [InlineData("/ACME")]
+    public async Task UnknownUrlUnderAMountWithAValue_BindsTheValueAsThePackagesOwnPageDoes(string tenant)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/[tenant]/help")
+                .MapLayoutLoader("/", (string tenant) => Page.Props(new { Tenant = tenant })));
+
+        var page = await app.GetDataJsonAsync(tenant + "/help");
+        var notFound = await app.GetDataJsonAsync(tenant + "/help/nope");
+
+        Assert.Equal($"{Help}/app/page.tsx", (string?)page["page"]);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)notFound["page"]);
+        Assert.Equal((string?)page["segments"]![1]!["props"]!["tenant"], (string?)notFound["segments"]![1]!["props"]!["tenant"]);
+        Assert.Equal((string?)page["params"]!["tenant"], (string?)notFound["params"]!["tenant"]);
+        Assert.Equal((string?)page["mounts"]![Help], (string?)notFound["mounts"]![Help]);
+    }
+
+    [Theory]
     [InlineData("Development")]
     [InlineData("Production")]
     public async Task AnAppCatchAllsNotFound_UnderAMount_RendersThePackagesNotFound(string environment)
@@ -301,6 +325,8 @@ public class SegmentRenderingTests
     [InlineData("/help%2fnope", false)]
     [InlineData("//help/nope", false)]
     [InlineData("/x/help/nope", false)]
+    [InlineData("/help%5Cnope", false)]
+    [InlineData("/help.", false)]
     public async Task UnknownUrl_IsBelowTheMountOnlyWhenItsSegmentsAreTheMounts_InAnyCase(string url, bool below)
     {
         foreach (var pathBase in new string?[] { null, "/base" })
