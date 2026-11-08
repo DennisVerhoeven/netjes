@@ -153,6 +153,31 @@ public class SegmentRenderingTests
         Assert.Equal("app/not-found.tsx", (string?)(await app.GetDataJsonAsync("/nope"))["page"]);
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task UnknownUrlUnderAMountInsideAnother_RendersTheDeepestMountsNotFound(string environment)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a =>
+            {
+                a.MapPagePackage(TestPagePackage.Other, "/a");
+                a.MapPagePackage(TestPagePackage.Descriptor, "/a/(g)/b");
+            },
+            environment,
+            otherFiles: ["layout.tsx", "not-found.tsx", "page.tsx"]);
+
+        var inner = await app.GetDataJsonAsync("/a/b/nope");
+        var outer = await app.GetDataJsonAsync("/a/nope");
+
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)inner["page"]);
+        Assert.Equal(["app", "app/a", "app/a/(g)/b"], Ids(inner));
+        Assert.Equal($"{TestPagePackage.Other.Name}/app/not-found.tsx", (string?)outer["page"]);
+        Assert.Equal(["app", "app/a"], Ids(outer));
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {
