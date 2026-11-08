@@ -266,7 +266,8 @@ internal sealed partial class RouteTable
         // In ordinal order, so the same files give the same table and the same error, whichever order the file system
         // (development) or the build manifest (production) lists them in.
         var all = files.Select(f => f.Replace('\\', '/')).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        var app = BuildAppRouter(all, Prefix(appDirectory));
+        var root = appDirectory.Replace('\\', '/').Trim('/');
+        var app = BuildAppRouter(Candidates(all, root + "/"), root);
 
         var routes = new List<PageRoute>();
         var byShape = new Dictionary<string, PageRoute>(StringComparer.OrdinalIgnoreCase);
@@ -299,24 +300,24 @@ internal sealed partial class RouteTable
         IReadOnlyList<RouteSegment> RootSegments,
         IReadOnlyList<RouteIntercept>? Intercepts = null);
 
-    private static string Prefix(string directory) => directory.Replace('\\', '/').Trim('/') + "/";
+    /// <summary>A file of one source, with its folders in the merged tree and its name last.</summary>
+    private sealed record Candidate(string File, string[] Segments);
 
-    private static List<(string File, string[] Segments)> Candidates(List<string> files, string prefix) =>
+    private static List<Candidate> Candidates(List<string> files, string prefix) =>
         files
             .Where(f => f.StartsWith(prefix, StringComparison.Ordinal))
             .Where(f => !IsTestFile(f))
-            .Select(f => (File: f, Segments: f[prefix.Length..^Path.GetExtension(f).Length].Split('/')))
+            .Select(f => new Candidate(f, f[prefix.Length..^Path.GetExtension(f).Length].Split('/')))
             .ToList();
 
-    private static RouterResult BuildAppRouter(List<string> files, string prefix)
+    private static RouterResult BuildAppRouter(List<Candidate> candidates, string root)
     {
-        var root = prefix.TrimEnd('/');
         // Convention files by folder (relative to the app directory); everything else is colocated code.
         var folders = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         // Parallel routes: folder -> slot -> (pages by pattern below the slot, default).
         var slots = new Dictionary<string, Dictionary<string, (Dictionary<string, string> Pages, string? Default)>>(StringComparer.Ordinal);
         var intercepts = new List<RouteIntercept>();
-        foreach (var (file, segments) in Candidates(files, prefix))
+        foreach (var (file, segments) in candidates)
         {
             var name = segments[^1];
             var directories = segments[..^1];
@@ -346,7 +347,7 @@ internal sealed partial class RouteTable
                 }
 
                 var below = directories[(slotIndex + 1)..];
-                var slotFolder = prefix + string.Join('/', directories[..(slotIndex + 1)]);
+                var slotFolder = $"{root}/{string.Join('/', directories[..(slotIndex + 1)])}";
                 if (name == "default")
                 {
                     if (below.Length == 0)
@@ -395,7 +396,7 @@ internal sealed partial class RouteTable
 
             if (name == "global-error" && directories.Length > 0)
             {
-                throw new InvalidPageFileException($"'{file}': global-error is only supported at the app root ({prefix}global-error).");
+                throw new InvalidPageFileException($"'{file}': global-error is only supported at the app root ({root}/global-error).");
             }
 
             var key = string.Join('/', directories);
