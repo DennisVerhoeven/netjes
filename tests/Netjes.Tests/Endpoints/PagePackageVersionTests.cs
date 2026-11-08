@@ -64,7 +64,31 @@ public class PagePackageVersionTests
         Assert.Equal($"{Help} is 9.9.9 on npm and {named} is {Descriptor.Version} on NuGet: install one version of both", ex.Message);
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task APeerRangeWithoutTheRunningNetjes_StopsStartup_NamingBoth(string environment)
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => StartAsync(environment, netjes: "^99.0.0"));
+
+        Assert.Equal($"{Help} {Descriptor.Version} supports Netjes ^99.0.0; this app runs Netjes {Running}", ex.Message);
+    }
+
+    [Fact]
+    public void ThePeerRange_HoldsTheRunningNetjesByItsVersion_WithoutTheCommit()
+    {
+        var install = new Netjes.Routing.PagePackageInstall(Help, Descriptor.Version, "^0.0.4", "app", null);
+
+        PagePackageVersions.Check(Descriptor, install, netjes: "0.0.4+0123abcd");
+        var ex = Assert.Throws<NetjesStartupException>(() => PagePackageVersions.Check(Descriptor, install, netjes: "0.0.5+0123abcd"));
+
+        Assert.Equal($"{Help} {Descriptor.Version} supports Netjes ^0.0.4; this app runs Netjes 0.0.5", ex.Message);
+    }
+
     private const string Help = TestPagePackage.Name;
+
+    /// <summary>The running Netjes's version, as NuGet versions it.</summary>
+    private static string Running => PagePackage.VersionOf(typeof(PagePackage).Assembly);
 
     private static PagePackage Descriptor => TestPagePackage.Descriptor;
 

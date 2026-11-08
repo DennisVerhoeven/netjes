@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Netjes.Routing;
 
@@ -6,17 +7,31 @@ namespace Netjes;
 /// <summary>The versions of a mounted page package, which have to fit each other and the running Netjes.</summary>
 internal static partial class PagePackageVersions
 {
+    /// <summary>The running Netjes's informational version, with its <c>+</c> suffix (the commit).</summary>
+    private static readonly string Running =
+        typeof(PagePackage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ??
+        PagePackage.VersionOf(typeof(PagePackage).Assembly);
+
     /// <summary>
-    /// Stops the app when the package's halves are two versions. Its npm half is <paramref name="install"/>, read from
-    /// <c>node_modules</c> or from the client build's record.
+    /// Stops the app when the package's halves are two versions, or when its <c>peerDependencies.netjes</c> leaves out
+    /// the running Netjes. Its npm half is <paramref name="install"/>, read from <c>node_modules</c> or from the client
+    /// build's record.
     /// </summary>
-    public static void Check(PagePackage package, PagePackageInstall install)
+    /// <param name="netjes">The running Netjes's version; the assembly's informational version by default.</param>
+    public static void Check(PagePackage package, PagePackageInstall install, string? netjes = null)
     {
         var nuget = install.Nuget ?? package.AssemblyName;
         if (!SameVersion(install.Version, package.Version))
         {
             throw new NetjesStartupException(
                 $"{package.Name} is {install.Version} on npm and {nuget} is {package.Version} on NuGet: install one version of both");
+        }
+
+        netjes ??= Running;
+        if (!Satisfies(netjes, install.Netjes))
+        {
+            throw new NetjesStartupException(
+                $"{package.Name} {install.Version} supports Netjes {install.Netjes}; this app runs Netjes {netjes.Split('+')[0]}");
         }
     }
 
