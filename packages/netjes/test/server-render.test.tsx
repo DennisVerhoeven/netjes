@@ -7,6 +7,7 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { createModuleLoader } from '../src/modules.ts';
 import { Image } from '../src/image.tsx';
+import { mounted } from '../src/mounted.tsx';
 import { useNonce } from '../src/nonce.tsx';
 import { usePublicConfig } from '../src/public-config.tsx';
 import { createQueryShell } from '../src/query.tsx';
@@ -259,6 +260,55 @@ describe('server rendering', () => {
     }
     expect(z.config().jitless).not.toBe(true);
     expect(callers.filter((stack) => /node_modules[\\/]zod[\\/]/.test(stack)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("a page package's links", () => {
+  it('go below the mount of each render, when renders of two tenants run at once', async () => {
+    const help = mounted('@acme/help-center');
+    let release: () => void = () => {};
+    const both = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    function Articles(): ReactNode {
+      use(both);
+      return <help.Link href="/articles">Articles</help.Link>;
+    }
+    const tenants = createServerRenderer({
+      '/@acme/help-center/app/page.tsx': async () => ({
+        default: () => (
+          <Suspense fallback={<p>loading</p>}>
+            <Articles />
+          </Suspense>
+        ),
+      }),
+    });
+    const render = (tenant: string) =>
+      tenants.renderToStream(
+        data({
+          route: '/[tenant]/help',
+          page: '@acme/help-center/app/page.tsx',
+          segments: [],
+          params: { tenant },
+          url: `/${tenant}/help`,
+          mounts: { '@acme/help-center': `/${tenant}/help` },
+        }),
+      );
+    const text = async (stream: AsyncIterable<Buffer | string>) => {
+      let html = '';
+      for await (const chunk of stream) html += chunk.toString();
+      return html;
+    };
+
+    const [a, b] = await Promise.all([render('a'), render('b')]);
+    const documents = Promise.all([text(a), text(b)]);
+    release();
+    const [htmlA, htmlB] = await documents;
+
+    expect(htmlA).toContain('<a href="/a/help/articles">Articles</a>');
+    expect(htmlA).not.toContain('/b/help/articles');
+    expect(htmlB).toContain('<a href="/b/help/articles">Articles</a>');
+    expect(htmlB).not.toContain('/a/help/articles');
   });
 });
 

@@ -27,6 +27,14 @@ export { Image, type ImageProps } from './image.tsx';
 export { Link, type LinkProps } from './link.tsx';
 export { useLocale } from './locale.ts';
 export type { ErrorPageProps, LayoutProps } from './modules.ts';
+export {
+  type Mounted,
+  type MountedFormProps,
+  type MountedLinkProps,
+  type MountedRouter,
+  type MountedSubmitButtonProps,
+  mounted,
+} from './mounted.tsx';
 export { useNonce } from './nonce.tsx';
 export type { PageKind, Params, SeededQuery, SegmentRef } from './payload.ts';
 export { usePublicConfig } from './public-config.tsx';
