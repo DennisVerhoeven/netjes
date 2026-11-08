@@ -452,6 +452,8 @@ export default function netjes(options = {}) {
             pages: pkg.pages,
             // Each file's id, and its key in the manifest: its path from the root, as Vite names a chunk's source.
             files: Object.fromEntries((await pagePackageFiles(pkg)).map((file) => [fileId(pkg, file), normalizePath(path.relative(rootDir, filePath(pkg, file)))])),
+            // The NuGet package of its C# half, which the app names when the two halves are different versions.
+            ...(pkg.nuget === null ? {} : { nuget: pkg.nuget }),
           })),
         ),
       };

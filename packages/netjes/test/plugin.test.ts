@@ -910,7 +910,8 @@ describe('vite build with page packages', () => {
       );
     expect(record).toEqual({
       packages: [
-        { name: INSTALLED, version: '1.2.0', netjes: '>=0.0.1', pages: 'app', files: files(INSTALLED, `node_modules/${INSTALLED}`, 'app') },
+        // The NuGet package of its C# half, which the .NET app names when the two are different versions.
+        { name: INSTALLED, version: '1.2.0', netjes: '>=0.0.1', pages: 'app', files: files(INSTALLED, `node_modules/${INSTALLED}`, 'app'), nuget: 'Netjes.Test.Installed' },
         { name: LINKED, version: '0.4.0', netjes: '>=0.0.1', pages: 'pages', files: files(LINKED, linked, 'pages') },
       ],
     });
