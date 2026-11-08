@@ -6672,7 +6672,7 @@ export default defineConfig({
 });
 ```
 
-The plugin returns a list of plugins: `@vitejs/plugin-react`, the Netjes plugin itself, and `@tailwindcss/vite` unless Tailwind is off. Put any plugins of your own next to it in `plugins`.
+The plugin returns a list of plugins: `@vitejs/plugin-react`, the Netjes plugin itself, with page packages a plugin that adds them to the app's Tailwind CSS build, and `@tailwindcss/vite` unless Tailwind is off. Put any plugins of your own next to it in `plugins`.
 
 ## Options
 
@@ -6683,6 +6683,7 @@ netjes({
   tailwind: true,
   query: { defaultOptions: { queries: { staleTime: 5 * 60_000 } } },
   test: true,
+  packages: ['@netjes-examples/help-center'],
 });
 ```
 
@@ -6693,19 +6694,54 @@ netjes({
 | `tailwind` | `boolean` | `true` | Adds `@tailwindcss/vite`. Import Tailwind with `@import "tailwindcss";` in a stylesheet that a layout imports. With `false`, `tailwindcss` and `@tailwindcss/vite` need not be installed. |
 | `query` | `boolean \| { defaultOptions?: DefaultOptions }` | `true` | The built-in TanStack Query client, which loaders seed with `.WithQuery(key, data)`. `false` removes it, and TanStack Query with it, from the bundle. An object configures the client; its `defaultOptions` are merged over the Netjes defaults (`staleTime` of one minute, so seeded data is not fetched again at once). Under Vitest, unless `test` is `false`, the plugin hands the same `defaultOptions` to `createTestApp()`, which keeps all of them but `retryDelay` and the queries' `gcTime` ([Vitest defaults](#vitest-defaults)). |
 | `test` | `boolean` | `true` | Vitest defaults, below. `false` adds none. |
+| `packages` | `readonly string[]` | `[]` | The [page packages](#page-packages) the app mounts, by npm name. Each must be installed, and needs Tailwind on. |
 | `react` | `Options` of `@vitejs/plugin-react` | none | Passed to `@vitejs/plugin-react`, which the plugin includes. |
 
 `query` options are written into the browser bundle as literals, so they can be plain values only: numbers (`Infinity` too), strings, booleans, `null`, arrays and plain objects. A function, such as a `retry` callback, fails when the config loads, with an error naming the option; set those per query, as in `useQuery({ retry })`.
 
-With Tailwind on, a missing `@tailwindcss/vite` fails the config with a message saying to install it (`npm install -D tailwindcss @tailwindcss/vite`) or to pass `tailwind: false`.
+With Tailwind on, a missing `@tailwindcss/vite` fails the config with a message saying to install it (`npm install -D tailwindcss @tailwindcss/vite`) or to pass `tailwind: false`. `packages` together with `tailwind: false` fails the config too: page packages style their pages with Tailwind classes.
 
 ## What it adds
 
 ### The page module map
 
-The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`. The client entry and the server entry load pages from it by the path the server names in each payload. The module also exports `appDir` as the plugin has it, which `renderDocument` in `netjes/testing` builds a page's route and segments from ([the document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document)). Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
+The plugin provides `virtual:netjes/pages`, a map of every convention file under `appDir`: `page`, `layout`, `template`, `loading`, `error`, `not-found`, `forbidden`, `unauthorized`, `global-error` and `default`, as `.tsx` or `.jsx`, and of every convention file of the [page packages](#page-packages) it lists. The client entry and the server entry load pages from it by the file id the server names in each payload, under the key `/` and that id: `/app/blog/page.tsx`, `/@netjes-examples/help-center/app/page.tsx`. The module also exports `appDir` as the plugin has it, which `renderDocument` in `netjes/testing` builds a page's route and segments from ([the document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document)), and `packages`, each listed package's name and folder of pages (`[]` when there are none). Other files in `appDir` are colocated code and not routes, except a route handler, which stops the build ([Builds](#builds)).
 
 In development the map is rebuilt when Vite's watcher reports a page file added or removed. When the server routes a page file the map does not have yet, the Node process that renders pages asks the plugin to build the map again from the files on disk and renders once more, so a new page works on its first request.
+
+### Page packages
+
+A page package brings pages, layouts and boundaries for an app to mount at a prefix, in two halves: an npm package with the page files, and a NuGet package with their C# side, which the .NET app mounts. The npm half's `package.json` marks it with a `netjes` field and names the Netjes versions it supports in `peerDependencies`:
+
+```json
+{
+  "name": "@netjes-examples/help-center",
+  "version": "1.2.0",
+  "peerDependencies": { "netjes": "^0.0.4" },
+  "netjes": { "pages": "app", "sources": ["app", "src"], "css": "styles/help-center.css", "nuget": "Netjes.Examples.HelpCenter" }
+}
+```
+
+| Field | Default | What it is |
+|---|---|---|
+| `pages` | `'app'` | The folder of its convention files. |
+| `sources` | `pages`, and `src` when the package has it | The folders that hold its Tailwind classes. |
+| `css` | none | A stylesheet the app's Tailwind build imports, such as the package's `@theme` tokens. |
+| `nuget` | none | The NuGet package of its C# half. |
+
+Every path is relative and stays inside the package: no `..` or `.`, no leading `/`, no `\`, no drive letter. A package ships its pages as TypeScript, which the app's build compiles; the package type-checks them in its own CI, since the app's `tsc` does not see them.
+
+For each package in `packages`, the plugin:
+
+- finds it in the nearest `node_modules`, by its real path, so a package that a workspace or `npm link` links in is read where it lies;
+- adds its convention files to the page module map, each imported by its real path, under its file id: the package's name, its folder of pages and the file's path there (`@netjes-examples/help-center/app/(center)/articles/[slug]/page.tsx`). The id is the same wherever the package is installed;
+- adds an `@import` of its `css`, unless the app's stylesheet imports that file already (by `<name>/<css>` or by a relative path), and an `@source` for each of its `sources`, after the `@import "tailwindcss"` of the app's stylesheet, on the same line. Tailwind's own detection leaves out `node_modules` and every folder outside the app. Both paths are relative to the stylesheet, with `/`, so the package need not export its CSS. The import may have options, as in `@import "tailwindcss" source(none)`;
+- writes it into the client build's record ([Builds](#builds)), and stops both builds on a route handler in it, named by its file id;
+- sets up the dev server for it ([Resolution and dependencies](#resolution-and-dependencies), [The dev server](#the-dev-server)).
+
+The config fails, in one line that names the package and the fix, for a package that is not installed (`npm install <name>`), one whose `package.json` has no `netjes` field or no `peerDependencies.netjes`, a path in the field that leaves the package, a folder of pages, a `css` file or a `sources` folder the package lacks (a package whose `files` leave its pages out of what it publishes, for one), a name listed twice, and a name that equals the app's folder of pages or its first folder (`app`, or `src` for `src/app`), whose ids would look like the app's.
+
+In development, when the .NET app renders a page of an installed page package that `packages` leaves out, the render fails with `netjes: no module for <id> in this build: add '<name>' to netjes({ packages }) in vite.config.ts`, naming the app's Vite config.
 
 ### The query client
 
@@ -6716,7 +6752,22 @@ In development the map is rebuilt when Vite's watcher reports a page file added 
 `vite build` builds the client:
 
 - input: the Netjes client entry; output: `dist/client/`, emptied first;
-- a manifest in `dist/client/.vite/manifest.json`, from which the .NET app learns the routes and the assets of each page in production. The app never serves the `.vite/` folder: a request for it answers 404.
+- a manifest in `dist/client/.vite/manifest.json`, from which the .NET app learns the routes and the assets of each page in production. The app never serves the `.vite/` folder: a request for it answers 404;
+- with `packages`, a build record in `dist/client/.vite/netjes.json`, where the .NET app finds the page packages in production, which has no `node_modules` to read them from. It lists each package's name, version, `peerDependencies.netjes` and folder of pages, and maps each of its convention files' ids to the file's key in the manifest. Without packages there is no record.
+
+```json
+{
+  "packages": [
+    {
+      "name": "@netjes-examples/help-center",
+      "version": "1.2.0",
+      "netjes": "^0.0.4",
+      "pages": "app",
+      "files": { "@netjes-examples/help-center/app/page.tsx": "node_modules/@netjes-examples/help-center/app/page.tsx" }
+    }
+  ]
+}
+```
 
 `vite build --ssr` builds the server bundle:
 
@@ -6724,14 +6775,15 @@ In development the map is rebuilt when Vite's watcher reports a page file added 
 - the script of the Node process that renders pages, copied to `dist/server/netjes-sidecar.mjs`;
 - no copy of `public/`.
 
-Both builds stop on a route handler in `appDir`: a file named `route` plus one extension (`route.ts`, `route.js`; a test such as `route.test.ts` is not one), outside private folders (`_lib/`) and slots (`@modal/`). The error names the first in ordinal order, with the message the app stops with in development: route handlers are C# in Netjes, and an API is a minimal API endpoint (`app.MapGet`, `app.MapPost`; [What is not there](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#what-is-not-there)).
+Both builds stop on a route handler in `appDir` or in a page package's folder of pages: a file named `route` plus one extension (`route.ts`, `route.js`; a test such as `route.test.ts` is not one), outside private folders (`_lib/`) and slots (`@modal/`). The error names the first in ordinal order, with the message the app stops with in development: route handlers are C# in Netjes, and an API is a minimal API endpoint (`app.MapGet`, `app.MapPost`; [What is not there](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#what-is-not-there)).
 
 `netjes build` runs both, after regenerating `generated/netjes.ts`, and `dotnet publish` runs `npm run build`, which the template defines as `vite build && vite build --ssr`.
 
 ### Resolution and dependencies
 
-- `react`, `react-dom` and, with the query client, `@tanstack/react-query` are deduplicated, so the app and `netjes` share one copy even when `netjes` is linked from elsewhere (a `file:` dependency or `npm link`). Under Vitest, `@testing-library/react` is too.
+- `react`, `react-dom` and, with the query client, `@tanstack/react-query` are deduplicated, so the app and `netjes` share one copy even when `netjes` is linked from elsewhere (a `file:` dependency or `npm link`). Under Vitest, `@testing-library/react` is too. With page packages, `netjes` and `zod` are as well, which a linked package would otherwise resolve from its own folder.
 - Dependencies are pre-bundled from the page files (there is no `index.html` to scan), including `react`, `react-dom/client`, TanStack Query and, when it is installed, `web-vitals`. `netjes` itself is left out: it imports the plugin's virtual modules (the page module map and the query shell), and the app's pages and the plugin's entries must share one copy of each of its modules. For the same reasons Vite processes it for server rendering in development too (`ssr.noExternal`).
+- Page packages are left out of pre-bundling and processed for server rendering in development, as `netjes` is, so a page that imports a package by name and the package's own pages share one instance of each of its modules. Their convention files are pre-bundling entries too, and each of their CommonJS dependencies is pre-bundled through the package (`'<package> > <dependency>'`), as Vite asks for a dependency of a package it does not pre-bundle.
 - `appType` is `'custom'`: the .NET app serves the documents, and Vite serves modules.
 
 ### TypeScript setup
@@ -6764,7 +6816,8 @@ In development the .NET app starts a Node process that runs the Vite dev server 
 - It listens on port 5173, which `Netjes:ViteDevPort` changes, with `strictPort`: the browser loads modules and hot updates from that port, so when something else has it the dev server does not move to another one. The app logs that the port is in use and how to move Vite (`Netjes__ViteDevPort=5174`), in one line, and stops with exit code 1; `netjes dev` checks the port before it starts the app.
 - When it does not start for another reason, such as an error in `vite.config.ts` or a package the config imports that is not installed, the app logs what Vite reported, its code frame included, and what to do (`npm install` for a package it cannot find), in one log entry, and stops with exit code 1.
 - It binds to `localhost`. `NETJES_VITE_HOST=0.0.0.0` in the environment of `npm run dev` exposes it to the network, as the template's development container does; `NETJES_VITE_ORIGIN` sets the origin the browser uses, when it reaches the server by another address.
-- It may read files from the workspace root, unless your config sets `server.fs.allow`, and from the `netjes` package.
+- It may read files from the workspace root, unless your config sets `server.fs.allow`, from the `netjes` package, and from each page package, by its real path.
+- It watches the pages and sources of each page package that lies outside `node_modules` (linked by a workspace or `npm link`), and a page that comes or goes there rebuilds the page module map.
 
 The dev server's root is the app's folder, which also holds the .NET side, so the plugin denies these to the dev server, on top of Vite's own defaults (`.env`, `.env.*`, certificates and `.git`):
 
@@ -6772,7 +6825,7 @@ The dev server's root is the app's folder, which also holds the .NET side, so th
 - `*.cs`, `*.csproj`, `*.pdb` and `*.dll` files, `Directory.Build.*` and `global.json`;
 - dev certificates and keys (`*.pfx`, `*.p12`, `*.key`) and SQLite databases (`*.db`, `*.sqlite`, `*.sqlite3`);
 - Compose files (`compose*.yml`, `docker-compose*.yml`, and `.yaml`);
-- the `bin/`, `obj/` and `dist/server/` folders below the workspace root.
+- the `bin/`, `obj/` and `dist/server/` folders below the workspace root, and below each page package, wherever it lies: a package linked from outside the workspace holds its C# half's build output there.
 
 A `server.fs.deny` of your own is added to that list. Everything else under the allowed folders is readable by anyone who can reach the port, which is why the server binds to localhost: expose it only on a network you trust.
 
@@ -7520,6 +7573,10 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Added
+
+- `netjes({ packages })` in `vite.config.ts` lists page packages: npm packages whose `package.json` has a `netjes` field (`pages`, `sources`, `css`, `nuget`) and a `netjes` peer range. Their convention files join the page module map under file ids such as `@netjes-examples/help-center/app/page.tsx`, both builds compile them, their sources and stylesheet join the app's Tailwind CSS build, and the client build writes `dist/client/.vite/netjes.json`, which lists them for the .NET app. In development the dev server may read each package by its real path, denies its `bin/`, `obj/` and `dist/server/` folders, and watches a linked one. A package that is not installed or is no page package, a path that leaves the package, and `tailwind: false` stop the config in one line ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#page-packages)). An app that lists none sees no change, except that `virtual:netjes/pages` also exports `packages`, `[]`.
 
 ## [0.0.3] - 2026-11-07
 

@@ -4,6 +4,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Added
+
+- `netjes({ packages })` in `vite.config.ts` lists page packages: npm packages whose `package.json` has a `netjes` field (`pages`, `sources`, `css`, `nuget`) and a `netjes` peer range. Their convention files join the page module map under file ids such as `@netjes-examples/help-center/app/page.tsx`, both builds compile them, their sources and stylesheet join the app's Tailwind CSS build, and the client build writes `dist/client/.vite/netjes.json`, which lists them for the .NET app. In development the dev server may read each package by its real path, denies its `bin/`, `obj/` and `dist/server/` folders, and watches a linked one. A package that is not installed or is no page package, a path that leaves the package, and `tailwind: false` stop the config in one line ([Vite plugin](docs/reference/vite-plugin.md#page-packages)). An app that lists none sees no change, except that `virtual:netjes/pages` also exports `packages`, `[]`.
+
 ## [0.0.3] - 2026-11-07
 
 ### Added

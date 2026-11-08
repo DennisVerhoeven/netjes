@@ -1,10 +1,23 @@
 // @ts-check
-import { copyFile, mkdir, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { normalizePath, searchForWorkspaceRoot } from 'vite';
+import { findPackage } from '../cli/packages.mjs';
+import {
+  CONVENTION_EXTENSIONS,
+  CONVENTION_FILES,
+  commonJsDependencies,
+  fileId,
+  filePath,
+  isConventionFile,
+  isPackageName,
+  pagePackageFiles,
+  resolvePagePackages,
+  withPackageStyles,
+} from './packages.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 // The compiled modules the package exports (npm run build writes them), so the app runs the code it type-checked, and
@@ -22,6 +35,13 @@ const PAGES_ID = 'virtual:netjes/pages';
 const RESOLVED_PAGES_ID = `\0${PAGES_ID}`;
 const QUERY_ID = 'virtual:netjes/query';
 const RESOLVED_QUERY_ID = `\0${QUERY_ID}`;
+/**
+ * A module @tailwindcss/vite builds, by its rule: a `.css` file, unless it is imported as text, as a URL or as a worker,
+ * which by the time a plugin transforms it is a JavaScript module that exports the text.
+ * @param {string} id
+ */
+const isTailwindStylesheet = (id) =>
+  !/[?&](?:worker|sharedworker|raw|url)\b|\?commonjs-proxy/.test(id) && !id.includes('/.vite/') && (id.split('?')[0] ?? id).endsWith('.css');
 /** The URL the .NET dev asset resolver points browsers at. */
 const DEV_CLIENT_ENTRY_URL = '/@netjes/client-entry';
 
@@ -40,9 +60,23 @@ const BACKEND_DIRS = ['bin', 'obj', 'dist/server'];
  * @param {string} workspaceRoot
  */
 function backendDeny(workspaceRoot) {
-  const root = normalizePath(workspaceRoot).replace(/[()[\]{}!+@*?\\]/g, '\\$&');
-  return [...BACKEND_FILES, ...BACKEND_DIRS.map((dir) => `${root}/**/${dir}/**`)];
+  return [...BACKEND_FILES, ...backendDirs(workspaceRoot)];
 }
+
+/**
+ * The backend folders below a folder, such as a page package's own `bin/` and `obj/`.
+ * @param {string} dir
+ */
+function backendDirs(dir) {
+  const root = normalizePath(dir).replace(/[()[\]{}!+@*?\\]/g, '\\$&');
+  return BACKEND_DIRS.map((folder) => `${root}/**/${folder}/**`);
+}
+
+/**
+ * A path as a glob that matches it alone: the characters a glob reads, escaped as Vite's glob (tinyglobby) escapes them.
+ * @param {string} file With `/` separators.
+ */
+const literalGlob = (file) => file.replace(/[()[\]{}*?|]|[!+@](?=\()/g, '\\$&');
 
 /** Loads @tailwindcss/vite only when Tailwind is on, so apps that turn it off need not install it. */
 async function tailwind() {
@@ -161,7 +195,11 @@ async function findRouteHandler(root, appDir) {
 export default function netjes(options = {}) {
   const appDir = (options.appDir ?? 'app').replace(/^\/+|\/+$/g, '');
   // Only the convention files are routes; everything else in app/ is colocated code.
-  const appFiles = `/${appDir}/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}`;
+  const appFiles = `/${appDir}/**/{${CONVENTION_FILES.join(',')}}.{${CONVENTION_EXTENSIONS.map((ext) => ext.slice(1)).join(',')}}`;
+  const packageNames = options.packages ?? [];
+  if (packageNames.length > 0 && options.tailwind === false) {
+    throw new Error('netjes: page packages style their pages with Tailwind CSS, which netjes({ tailwind: false }) turns off: turn it on, or list no packages');
+  }
   const basePath = (options.basePath ?? '').replace(/\/+$/, '');
   const query = options.query === false ? null : options.query === true || options.query === undefined ? {} : options.query;
   // Fail when the config loads, not in the browser.
@@ -174,6 +212,47 @@ export default function netjes(options = {}) {
   let outDir = '';
   /** @type {import('vite').ViteDevServer | undefined} */
   let devServer;
+  /** The page packages the app lists, read when the config is. @type {import('./packages.mjs').PagePackage[]} */
+  let packages = [];
+
+  /**
+   * Has the next render, and the next page the browser loads, build the page module map again from the files on disk,
+   * as Vite does once its watcher reports a page file added or removed.
+   */
+  function rescanPages() {
+    const timestamp = Date.now();
+    for (const { moduleGraph } of Object.values(devServer?.environments ?? {})) {
+      const pages = moduleGraph.getModuleById(RESOLVED_PAGES_ID);
+      if (pages) moduleGraph.invalidateModule(pages, new Set(), timestamp, true);
+    }
+  }
+
+  /**
+   * The listed package a file id is of, with the file's path in its folder of pages.
+   * @param {string} id
+   */
+  function packageFile(id) {
+    for (const pkg of packages) {
+      const prefix = `${pkg.name}/${pkg.pages}/`;
+      if (id.startsWith(prefix)) return { pkg, file: id.slice(prefix.length) };
+    }
+    return null;
+  }
+
+  /**
+   * The name of the installed package whose file a file id names, when the app does not list it in netjes({ packages }):
+   * the .NET app mounts it, and the page module map does not have it.
+   * @param {string} id
+   * @returns {string | null}
+   */
+  function unlistedPackage(id) {
+    if (id.startsWith(`${appDir}/`) || packageFile(id)) return null;
+    const segments = id.split('/');
+    const length = id.startsWith('@') ? 2 : 1;
+    if (segments.length <= length) return null;
+    const name = segments.slice(0, length).join('/');
+    return isPackageName(name) && findPackage(rootDir, name) ? name : null;
+  }
 
   /** @type {import('vite').Plugin} */
   const plugin = {
@@ -185,6 +264,8 @@ export default function netjes(options = {}) {
       const userTest = /** @type {{ test?: Record<string, unknown> }} */ (/** @type {unknown} */ (config)).test;
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
+      packages = resolvePagePackages(root, packageNames, appDir);
+      const listed = packages.map((pkg) => pkg.name);
       const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
       const base = env.command === 'build' && basePath ? { base: `${basePath}/` } : {};
@@ -200,21 +281,30 @@ export default function netjes(options = {}) {
             ...(query ? ['@tanstack/react-query'] : []),
             // The test setup's cleanup must unmount what the app's tests rendered.
             ...(env.mode === 'test' ? ['@testing-library/react'] : []),
+            // A page package's pages import netjes and zod, which a linked package would otherwise resolve from its own
+            // folder: a second copy, or none at all for one linked from outside the workspace.
+            ...(packages.length > 0 ? ['netjes', ...(canResolve(root, 'zod') ? ['zod'] : [])] : []),
           ],
         },
         // netjes serves its own modules (client entry, runtime) and, for their source maps, its sources; a linked
-        // package lives outside the app. The workspace root keeps Vite's default, but only when the app did not narrow
-        // fs.allow itself: Vite concatenates arrays. The dev root is the .NET content root, so deny the backend's files.
-        // A configured deny list replaces Vite's defaults, which are repeated here.
+        // package lives outside the app, and so does a page package linked from elsewhere. The workspace root keeps
+        // Vite's default, but only when the app did not narrow fs.allow itself: Vite concatenates arrays. The dev root is
+        // the .NET content root, so deny the backend's files, and a page package's backend folders wherever it is (its
+        // C# half's build output, in a checkout linked from outside the workspace). A configured deny list replaces
+        // Vite's defaults, which are repeated here.
         server: {
           fs: {
-            allow: [...(config.server?.fs?.allow ? [] : [workspaceRoot]), PACKAGE_ROOT],
-            deny: [...VITE_DENY, ...backendDeny(workspaceRoot)],
+            allow: [...(config.server?.fs?.allow ? [] : [workspaceRoot]), PACKAGE_ROOT, ...packages.map((pkg) => pkg.root)],
+            deny: [...VITE_DENY, ...backendDeny(workspaceRoot), ...packages.flatMap((pkg) => backendDirs(pkg.root))],
           },
         },
         optimizeDeps: {
-          // There is no index.html to scan; start from the pages so dependencies are pre-bundled up front.
-          entries: [appFiles.slice(1)],
+          // There is no index.html to scan; start from the pages so dependencies are pre-bundled up front, a page
+          // package's included: Vite globs these from the root, in node_modules and outside the root too.
+          entries: [
+            appFiles.slice(1),
+            ...packages.map((pkg) => `${literalGlob(normalizePath(path.relative(root, `${pkg.root}/${pkg.pages}`)))}/${appFiles.slice(appDir.length + 2)}`),
+          ],
           include: [
             'react',
             'react-dom',
@@ -222,14 +312,19 @@ export default function netjes(options = {}) {
             ...(query ? ['@tanstack/react-query'] : []),
             // Imported from inside netjes (netjes/vitals), which the dependency scan skips: found late, it would reload the page.
             ...(canResolve(root, 'web-vitals') ? ['web-vitals'] : []),
+            // A page package is not pre-bundled (below), so its CommonJS dependencies are, through it, as Vite asks.
+            ...packages.flatMap((pkg) => commonJsDependencies(pkg).map((dependency) => `${pkg.name} > ${dependency}`)),
           ],
           // netjes imports the virtual modules below, which pre-bundling cannot resolve, and the plugin loads its query
           // shell by path: a pre-bundled copy of netjes would hold a second router, whose contexts the app's pages miss.
-          exclude: ['netjes'],
+          // A page package's pages are loaded by path, so a pre-bundled copy of it would be a second one of each of its
+          // modules too.
+          exclude: ['netjes', ...listed],
         },
         // netjes imports the plugin's virtual modules and must share its module instances with the app's pages, so Vite
-        // processes it in development as well; production bundles everything for the sidecar.
-        ssr: { noExternal: env.command === 'build' ? true : ['netjes'] },
+        // processes it in development as well, and a page package's TypeScript sources with it; production bundles
+        // everything for the sidecar.
+        ssr: { noExternal: env.command === 'build' ? true : ['netjes', ...listed] },
         build: isSsrBuild
           ? {
               outDir: 'dist/server',
@@ -254,27 +349,52 @@ export default function netjes(options = {}) {
     // takes only the convention files, so it would leave one out without a word: it stops on it too, saying the same.
     async buildStart() {
       if (!isBuild) return;
-      const handler = await findRouteHandler(rootDir, appDir);
+      let handler = await findRouteHandler(rootDir, appDir);
+      // A package's, by its file id, as the route table names it.
+      for (const pkg of packages) {
+        if (handler) break;
+        const found = await findRouteHandler(pkg.root, pkg.pages);
+        if (found) handler = `${pkg.name}/${found}`;
+      }
       if (handler) {
         this.error(`'${handler}': route handlers are C# in Netjes. Map a minimal API endpoint instead (app.MapGet, app.MapPost, ...).`);
       }
     },
     configureServer(server) {
       devServer = server;
+      // Vite watches the root only, so a linked package's files, which can change while the app runs, are added. The
+      // map imports a package's files one by one, so a page that comes or goes builds it again, as the glob would.
+      const linked = packages.filter((pkg) => pkg.linked);
+      if (linked.length === 0) return;
+      server.watcher.add([...new Set(linked.flatMap((pkg) => [pkg.pages, ...pkg.sources].map((dir) => `${pkg.root}/${dir}`)))]);
+      /** @param {string} file */
+      const pageAddedOrRemoved = (file) => {
+        const name = normalizePath(file);
+        if (isConventionFile(path.posix.basename(name)) && linked.some((pkg) => name.startsWith(`${pkg.root}/${pkg.pages}/`))) rescanPages();
+      };
+      server.watcher.on('add', pageAddedOrRemoved);
+      server.watcher.on('unlink', pageAddedOrRemoved);
     },
     // For the development sidecar, which finds this plugin in its dev server's config.
     api: {
       /**
-       * Has the next render, and the next page the browser loads, build the page module map again from the files on
-       * disk, as Vite does once its watcher reports a page file added or removed.
+       * The URL the dev server loads a file by, from the file's id in a payload: `/app/...` for the app's, and for a
+       * listed package's the URL of its real path (`/node_modules/...` inside the root, `/@fs/...` outside it). Null for
+       * a file of an installed package that netjes({ packages }) does not list, which the page module map lacks.
+       * @param {string} id
+       * @returns {string | null}
        */
-      rescanPages() {
-        const timestamp = Date.now();
-        for (const { moduleGraph } of Object.values(devServer?.environments ?? {})) {
-          const pages = moduleGraph.getModuleById(RESOLVED_PAGES_ID);
-          if (pages) moduleGraph.invalidateModule(pages, new Set(), timestamp, true);
-        }
+      pageUrl(id) {
+        const owned = packageFile(id);
+        if (!owned) return unlistedPackage(id) ? null : `/${id}`;
+        const file = filePath(owned.pkg, owned.file);
+        const relative = path.posix.relative(normalizePath(rootDir), file);
+        return relative.startsWith('../') || path.isAbsolute(relative) ? `/@fs/${file.replace(/^\//, '')}` : `/${relative}`;
       },
+      unlistedPackage,
+      /** The page packages the app lists. */
+      packages: () => packages,
+      rescanPages,
     },
     resolveId(id) {
       if (id === PAGES_ID) return RESOLVED_PAGES_ID;
@@ -282,22 +402,69 @@ export default function netjes(options = {}) {
       if (id === DEV_CLIENT_ENTRY_URL) return CLIENT_ENTRY;
       return undefined;
     },
-    load(id) {
+    async load(id) {
       if (id === RESOLVED_QUERY_ID) {
         if (!query) return 'export const QueryShell = undefined;\n';
         return `import { createQueryShell } from ${JSON.stringify(QUERY_MODULE)};\nexport const QueryShell = createQueryShell(${queryLiteral});\n`;
       }
       if (id !== RESOLVED_PAGES_ID) return undefined;
-      const glob = JSON.stringify([appFiles]);
+      const glob = `import.meta.glob(${JSON.stringify([appFiles])})`;
+      // A package's files are imported one by one, by their real paths: a glob leaves out node_modules, and would name a
+      // linked package's files by their paths through the link. Listed again each time, as the glob is.
+      const imported = (
+        await Promise.all(
+          packages.map(async (pkg) =>
+            (await pagePackageFiles(pkg)).map((file) => `${JSON.stringify(`/${fileId(pkg, file)}`)}: () => import(${JSON.stringify(filePath(pkg, file))})`),
+          ),
+        )
+      ).flat();
+      const pages = packages.length === 0 ? glob : `{ ...${glob}, ${imported.join(', ')} }`;
       // The folder the keys start with: renderDocument (netjes/testing) builds routes and segment ids from it.
-      return `export const pages = import.meta.glob(${glob});\nexport const appDir = ${JSON.stringify(appDir)};\n`;
+      return (
+        `export const pages = ${pages};\nexport const appDir = ${JSON.stringify(appDir)};\n` +
+        `export const packages = ${JSON.stringify(packages.map(({ name, pages }) => ({ name, pages })))};\n`
+      );
     },
     async writeBundle() {
-      if (!isSsrBuild) return;
-      await mkdir(outDir, { recursive: true });
-      await copyFile(SIDECAR, path.join(outDir, 'netjes-sidecar.mjs'));
+      if (isSsrBuild) {
+        await mkdir(outDir, { recursive: true });
+        await copyFile(SIDECAR, path.join(outDir, 'netjes-sidecar.mjs'));
+        return;
+      }
+      if (packages.length === 0) return;
+      // Where the .NET app finds the packages in production, next to the manifest: no node_modules there to read them
+      // from, and a manifest key alone does not say which package a file is of.
+      const record = {
+        packages: await Promise.all(
+          packages.map(async (pkg) => ({
+            name: pkg.name,
+            version: pkg.version,
+            netjes: pkg.netjes,
+            pages: pkg.pages,
+            // Each file's id, and its key in the manifest: its path from the root, as Vite names a chunk's source.
+            files: Object.fromEntries((await pagePackageFiles(pkg)).map((file) => [fileId(pkg, file), normalizePath(path.relative(rootDir, filePath(pkg, file)))])),
+          })),
+        ),
+      };
+      await mkdir(path.join(outDir, '.vite'), { recursive: true });
+      await writeFile(path.join(outDir, '.vite', 'netjes.json'), `${JSON.stringify(record, null, 2)}\n`);
     },
   };
 
-  return [react(options.react), plugin, options.tailwind === false ? null : tailwind()];
+  /**
+   * Adds each page package's stylesheet and source folders to the app's Tailwind CSS build. Before @tailwindcss/vite,
+   * whose plugins run before the others too (`enforce: 'pre'`), so the order in the list decides.
+   * @type {import('vite').Plugin}
+   */
+  const packageStyles = {
+    name: 'netjes:package-styles',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!isTailwindStylesheet(id)) return undefined;
+      const css = withPackageStyles(code, id.split('?')[0] ?? id, packages);
+      return css === code ? undefined : { code: css, map: null };
+    },
+  };
+
+  return [react(options.react), plugin, packageNames.length > 0 ? packageStyles : null, options.tailwind === false ? null : tailwind()];
 }
