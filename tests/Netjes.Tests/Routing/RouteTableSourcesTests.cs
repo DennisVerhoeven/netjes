@@ -289,6 +289,33 @@ public class RouteTableSourcesTests
         Assert.Equal("app/help/(site)/Contact/page.tsx", route.File);
     }
 
+    // The package's loader still serves the URL, and the layout loaders of the folders around the package's page
+    // protect it, so the app's page cannot leave them.
+    [Theory]
+    [InlineData("app/help/contact/page.tsx", "app/help/(center)")]
+    [InlineData("app/help/(site)/contact/page.tsx", "app/help/(center)")]
+    [InlineData("app/(site)/help/contact/page.tsx", "app/help")]
+    public void AnOverride_Throws_WhenTheAppsPageLeavesAFolderThatWrapsThePackagesPage(string appFile, string folder)
+    {
+        var ex = Assert.Throws<RouteConflictException>(() => RouteTable.Build(
+            [App(appFile), Package("/help", "layout.tsx", "(center)/layout.tsx", "(center)/contact/page.tsx")], ["/help/contact"]));
+
+        Assert.Equal(
+            $".Override(\"/help/contact\"): '{appFile}' is not inside {folder}, whose files wrap '{Help}/app/(center)/contact/page.tsx'. " +
+            "Move the app's page to app/help/(center)/contact/page.tsx.",
+            ex.Message);
+    }
+
+    [Fact]
+    public void AnOverride_InARouteGroupInsideTheFoldersThatWrapThePackagesPage_IsAccepted()
+    {
+        var table = RouteTable.Build(
+            [App("app/help/(center)/(site)/contact/page.tsx"), Package("/help", "layout.tsx", "(center)/layout.tsx", "(center)/contact/page.tsx")],
+            ["/help/contact"]);
+
+        Assert.Equal("app/help/(center)/(site)/contact/page.tsx", Assert.Single(table.Pages).File);
+    }
+
     [Fact]
     public void WithoutAnOverride_PagesLeftAloneHaveNone()
     {

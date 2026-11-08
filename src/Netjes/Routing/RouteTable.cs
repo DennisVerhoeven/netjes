@@ -348,6 +348,15 @@ internal sealed partial class RouteTable
                     "their parameters alike, since the app's page renders with the package's loader.");
             }
 
+            // The package's loader keeps serving the URL, protected by the layout loaders of the folders around the
+            // package's page, so the app's page stays inside each of them.
+            if (package.Segments.FirstOrDefault(s => !page.Segments.Any(p => p.Id == s.Id)) is { } left)
+            {
+                throw new RouteConflictException(
+                    $".Override(\"{pattern}\"): '{page.File}' is not inside {left.Id}, whose files wrap '{package.File}'. Move the " +
+                    $"app's page to {FolderOf(sources, package)}/page.tsx.");
+            }
+
             overridden.Add(ShapeOf(pattern));
         }
 
