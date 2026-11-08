@@ -386,6 +386,39 @@ public class TypeGenHostedServiceTests
     }
 
     [Fact]
+    public async Task RoutesCommand_ListsTheMountedPackages_WithTheirVersionsPrefixAndOverrides()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/(marketing)/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx", "faq/page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/(marketing)/help").Override("/help/contact"));
+
+        var package = Assert.Single(report["packages"]!.AsArray())!;
+        Assert.Equal(TestPagePackage.Name, (string?)package["name"]);
+        Assert.Equal(TestPagePackage.Descriptor.Version, (string?)package["version"]);
+        // The npm half names no NuGet package, so its C# half goes by its assembly's name.
+        Assert.Equal("Netjes.Tests", (string?)package["nuget"]);
+        Assert.Equal(TestPagePackage.Descriptor.Version, (string?)package["nugetVersion"]);
+        Assert.Equal("/(marketing)/help", (string?)package["prefix"]);
+        Assert.Equal("/help", (string?)package["pattern"]);
+        Assert.Equal(["/help/contact"], package["overrides"]!.AsArray().Select(o => (string?)o));
+    }
+
+    [Fact]
+    public async Task RoutesCommand_WithNothingMounted_ListsNoPackages()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new CommandExit(_ => { })));
+
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        Assert.Empty(report["packages"]!.AsArray());
+    }
+
+    [Fact]
     public async Task GenerateCommand_InProduction_ScansPageFilesInsteadOfTheBuildManifest()
     {
         int? exitCode = null;

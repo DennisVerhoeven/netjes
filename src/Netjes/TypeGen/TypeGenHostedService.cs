@@ -191,6 +191,18 @@ internal sealed class TypeGenHostedService(
                 }))
                 .OrderBy(e => e.Route, StringComparer.Ordinal)
                 .ThenBy(e => e.Method, StringComparer.Ordinal),
+            // The page packages mounted, in the order of their mounts: the npm half's version and the NuGet half's, which the
+            // version checks have held to one, and the app-absolute patterns where the app's page replaces one of theirs.
+            Packages = sources.Mounts.Select(mounted => new
+            {
+                mounted.Name,
+                mounted.Install.Version,
+                Nuget = mounted.Install.Nuget ?? mounted.Mount.Package.AssemblyName,
+                NugetVersion = mounted.Mount.Package.Version,
+                Prefix = mounted.Mount.Prefix.ToString(),
+                mounted.Mount.Pattern,
+                Overrides = table.Pages.Where(p => p.Overrides is not null && sources.PackageOf(p) == mounted).Select(p => p.Pattern),
+            }),
             // Logged at startup otherwise; here the CLI prints them.
             Warnings = services.GetRequiredService<RouteDiagnostics>().Check().Select(w => new { w.Kind, w.Message, w.Files }),
         };
