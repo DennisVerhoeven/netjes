@@ -6,7 +6,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 
 | Import | What it holds |
 |---|---|
-| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
+| [`netjes`](#netjes) | Components, hooks and functions for pages: links, forms, server actions, images, scripts, metadata types, a page package's links below its mount, and the hashes a Content-Security-Policy lists for Netjes's inline scripts |
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
 | [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests, and `renderDocument()` and `inlineScriptHashes()` for a page's whole document |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
@@ -499,6 +499,35 @@ function isRouteHref(value: string, patterns: readonly string[]): boolean;
 
 Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or an `http(s):`, `mailto:` or `tel:` URL. `//host` and `/\host` are not, and neither is any URL that holds an ASCII control character or starts or ends with a space: browsers drop those characters, so `/\t/evil.example` goes to `evil.example`. The generated `isHref()` and `Href` schema call it. A root-relative URL has to match a pattern, which a C# `Netjes.Href`, checked for its shape only, does not ask.
 
+#### `isHrefShape`
+
+```ts
+function isHrefShape(value: string): boolean;
+```
+
+Whether a URL has the shape of a link, by the rules of a C# `Netjes.Href`: [`isRouteHref`](#isroutehref) without the match against the app's patterns. A root-relative URL (`/…`, but not `//…` or `/\…`), a link within the page (`?…`, `#…`) and an `http(s):`, `mailto:` or `tel:` URL pass, with no ASCII control character and no space at either end. A page package's generated file, which cannot know the app's pages, checks its `Href` schema with it.
+
+### Page packages
+
+#### `mounted`
+
+```ts
+function mounted<THref extends string = string>(name: string): Mounted<THref>;
+
+type Mounted<THref extends string> = {
+  Link: (props: MountedLinkProps<THref>) => ReactNode;                 // LinkProps with href: THref
+  Form: (props: MountedFormProps<THref>) => ReactNode;                 // FormProps with action?: THref | FormAction
+  SubmitButton: (props: MountedSubmitButtonProps<THref>) => ReactNode; // SubmitButtonProps with formAction?: THref | ...
+  useRouter: () => MountedRouter<THref>;                               // Router whose push, replace and prefetch take THref
+  usePathname: () => string;
+  useHref: (href: THref) => string;
+};
+```
+
+The links, forms and router hooks of the page package `name`, its npm name, bound to where the app mounted it with `MapPagePackage` ([C# API](csharp-api.md#pagepackagemount)). A package's generated file calls it once, `export const { Link, Form, SubmitButton, useRouter, usePathname, useHref } = mounted<MountHref>('@netjes-examples/help-center')`, and the package's pages link to its own pages as if it were mounted at the root. Each reads the package's URL for the page on screen from the payload's `mounts` and puts it in front of the href, then the base path as the core components do: `/articles` goes to `/help/articles`, or `/acme/help/articles` under `/[tenant]/help` for the tenant `acme`, and `/` to the mount itself. A link within the page on screen, `?page=2` or `#top`, passes through as it is. It reads the mount from the page being rendered, so two renders at once, of two tenants, each link below their own. `usePathname` gives the path below the mount, `/articles` for `/help/articles` and `/` for the mount itself (a page outside the mount gets its whole path), and `useHref` gives an href below the mount, under the base path, for a plain `<a>`, another attribute or a `fetch` of a mount-relative `endpointUrl()`. `aria-current` works as on the core `<Link>`.
+
+A mounted href that does not start with one `/`, `?` or `#` throws `netjes: '<href>' is no link below the mount of '<name>'`: another host (`//host`, `/\host`), a scheme (`https:`, `javascript:`), a relative URL, and an href with a control character, a space at either end, or a `.` or `..` segment in its path, also written `%2e` or after a `\`, which would climb out of the mount. Link to another site, or to the app's own pages, with the core `Link`, as for the app-absolute hrefs a C# loader sends. On a page that has no value for one of the prefix's parameters, a page outside a `/[tenant]/help` mount for instance, the components and hooks other than `usePathname` throw `netjes: '<name>' is mounted at a prefix with a value, and this page has none for it`, and in an app that did not mount the package, `netjes: the page package '<name>' is not mounted`.
+
 ### Payload types
 
 #### `Params`
@@ -605,6 +634,7 @@ type TestAppOptions = {
   queryClient?: QueryClient;        // use this client, as it is, instead of a new one
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
+  mounts?: Record<string, string | null>;  // each mounted page package's URL, as the payload's mounts: { '@acme/help-center': '/help' }
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
 };
 
@@ -641,7 +671,7 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)).
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)). `mounts` gives each mounted page package's URL for the page, by npm name and without the base path, as the server sends it, for the components and hooks of [`mounted`](#mounted).
 
 #### `renderDocument`
 
@@ -658,14 +688,17 @@ type RenderDocumentOptions = {
   nonce?: string;                                    // the CSP nonce on every script and stylesheet
   lang?: string;                                     // <html lang>, default 'en'
   publicConfig?: Record<string, unknown>;            // what usePublicConfig() reads
-  modules?: Record<string, () => Promise<unknown>>;  // the pages map, keyed '/app/...'; default the app's from netjes()
+  mounts?: Record<string, string>;                   // page packages by npm name, at their prefix as MapPagePackage takes it
+  modules?: Record<string, () => Promise<unknown>>;  // the pages map, keyed '/app/...' and '/<package>/app/...'; default netjes()'s
   signal?: AbortSignal;                              // stops the render, which rejects with its reason
 };
 ```
 
 Renders the document of `page`, a file of the pages map named from the app's root (`'app/blog/[slug]/page.tsx'`), as the Node sidecar renders it for a crawler, and resolves with its HTML, from `<!DOCTYPE html>` to `</html>`: the page inside the layouts the server wraps it in, with the head, Netjes's inline scripts and the payload. It builds the payload's route and segments from the pages map by the server's rules, and takes everything else from `options`; no C# runs. It waits for every Suspense boundary, and a Promise in the props or a layout's props is a `Page.Defer` value: rendered in place once it resolves, left as its Suspense fallback when it rejects, and waited for while it is pending, until `signal` aborts. What the server adds and `options` cannot set is left out: the build's stylesheets and scripts, development styles, the query entries a loader seeds with `.WithQuery`, metadata from C#, an antiforgery token, the locale, draft mode, the base path and the image optimiser's settings.
 
-It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. A boundary file renders inside the layouts down to its own folder, as the server renders it in place of a page in or below that folder, but with a `null` route in the payload, and a section's own `forbidden` or `unauthorized` file inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization. It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map, the app's folder and the query shell, also when `modules` is given ([the document](../guides/testing.md#the-document)).
+It renders a page file and the `not-found`, `error`, `forbidden`, `unauthorized` and `global-error` files, with the status the server gives them (404, 500, 403, 401 and 500) unless `status` sets another, and their props as given. A boundary file renders inside the layouts down to its own folder, as the server renders it in place of a page in or below that folder, but with a `null` route in the payload, and a section's own `forbidden` or `unauthorized` file inside the section's layout, which the server leaves out for a user who fails the section's layout loader's authorization. With `mounts`, such as `{ '@acme/help-center': '/(marketing)/help' }`, the files of each page package in the pages map go into the app's folders under the prefix, by the server's rule: an app page in `app/(marketing)/help/(center)/` renders inside the package's layouts there, and a package's page, named by its id (`'@acme/help-center/app/contact/page.tsx'`), inside the app's layouts above the mount. The payload's `mounts` holds each prefix's URL for `params`, `null` where they lack a value; `url` stays `'/'` unless it is given. A package's pages folder is the one `netjes({ packages })` lists, or `app`. It rejects a file of a package that `mounts` leaves out, a prefix `MapPagePackage` refuses, and segment files of two sources in one folder, as the server does.
+
+It rejects a file that is not in the pages map (naming the files it can render), any other file, a page in or below a folder with a parallel route slot, props for a layout the page does not have, and a DOM environment: run it under `// @vitest-environment node`, with the `netjes()` plugin, which provides the pages map, the app's folder and the query shell, also when `modules` is given ([the document](../guides/testing.md#the-document)).
 
 #### `inlineScriptHashes`
 
