@@ -27,8 +27,10 @@ public sealed class PageRouteMetadata
     }
 
     /// <summary>
-    /// The page's URL as its file names it, such as <c>/blog/[slug]</c>. It leaves out the prefix of a route group the
-    /// endpoint is mapped in, which the endpoint's route pattern includes.
+    /// The page's URL as its file names it, such as <c>/blog/[slug]</c>, and for a page package's page the URL where the
+    /// package is mounted, its prefix included (<c>/help/articles/[slug]</c>): the merged route table's pattern, which
+    /// <c>netjes routes</c> lists too. It leaves out the prefix of a route group the endpoint is mapped in, which the
+    /// endpoint's route pattern includes.
     /// </summary>
     public string Pattern { get; }
 
