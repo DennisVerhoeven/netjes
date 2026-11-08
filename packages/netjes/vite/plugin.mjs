@@ -34,8 +34,13 @@ const PAGES_ID = 'virtual:netjes/pages';
 const RESOLVED_PAGES_ID = `\0${PAGES_ID}`;
 const QUERY_ID = 'virtual:netjes/query';
 const RESOLVED_QUERY_ID = `\0${QUERY_ID}`;
-/** Stylesheets, by extension, as Vite recognises them. */
-const CSS_FILE = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/;
+/**
+ * A module @tailwindcss/vite builds, by its rule: a `.css` file, unless it is imported as text, as a URL or as a worker,
+ * which by the time a plugin transforms it is a JavaScript module that exports the text.
+ * @param {string} id
+ */
+const isTailwindStylesheet = (id) =>
+  !/[?&](?:worker|sharedworker|raw|url)\b|\?commonjs-proxy/.test(id) && !id.includes('/.vite/') && (id.split('?')[0] ?? id).endsWith('.css');
 /** The URL the .NET dev asset resolver points browsers at. */
 const DEV_CLIENT_ENTRY_URL = '/@netjes/client-entry';
 
@@ -454,9 +459,8 @@ export default function netjes(options = {}) {
     name: 'netjes:package-styles',
     enforce: 'pre',
     transform(code, id) {
-      const file = id.split('?')[0] ?? id;
-      if (!CSS_FILE.test(file)) return undefined;
-      const css = withPackageStyles(code, file, packages);
+      if (!isTailwindStylesheet(id)) return undefined;
+      const css = withPackageStyles(code, id.split('?')[0] ?? id, packages);
       return css === code ? undefined : { code: css, map: null };
     },
   };

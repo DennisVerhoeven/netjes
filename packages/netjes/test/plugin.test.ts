@@ -477,6 +477,16 @@ describe("page packages in the app's Tailwind CSS", () => {
     expect((await flatten(netjes())).map((p) => p.name)).not.toContain('netjes:package-styles');
   });
 
+  it('leaves alone a stylesheet that is imported as text or as a URL, which Tailwind does not build', async () => {
+    const { styles } = await stylesPlugin([INSTALLED]);
+    // By the time a plugin transforms it, Vite has made such an import a module that exports the text or the URL.
+    const asText = `export default ${JSON.stringify("@import 'tailwindcss';\n")}`;
+
+    for (const query of ['?raw', '?url', '?worker', '?import&raw']) {
+      expect(await transform(styles, asText, `${globals()}${query}`), query).toBe(asText);
+    }
+  });
+
   it("runs before Tailwind's plugins, which run before the others too, so the order in the list decides", async () => {
     const { plugins } = await stylesPlugin([INSTALLED]);
     const names = plugins.map((p) => p.name);
