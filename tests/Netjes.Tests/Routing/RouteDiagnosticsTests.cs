@@ -972,6 +972,63 @@ public class RouteDiagnosticsTests
         Assert.Contains("at / render inside app/layout.tsx", Assert.Single(warnings));
     }
 
+    /// <summary>A page package whose pages stream.</summary>
+    private static readonly PagePackage StreamingPackage = new(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { RequiresNonce = true };
+
+    [Fact]
+    public async Task PackageNonce_APackageThatStreams_UnderAPolicyWithoutANonce_IsWarned()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], StreamingPackage,
+            configure: o => o.ContentSecurityPolicy = $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'");
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"'{TestPagePackage.Name}'", warning);
+        Assert.Contains("NetjesOptions.ContentSecurityPolicy has no {nonce}", warning);
+        Assert.Contains("'nonce-{nonce}'", warning);
+    }
+
+    [Theory]
+    [InlineData(true, "script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'")]
+    // No policy of Netjes's: nothing it sends refuses the streamed scripts.
+    [InlineData(true, null)]
+    [InlineData(false, "script-src 'self'")]
+    public async Task PackageNonce_APolicyWithANonce_NoPolicy_OrAPackageThatDoesNotStream_IsNotWarned(bool streams, string? policy)
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], streams ? StreamingPackage : TestPagePackage.Descriptor,
+            configure: o => o.ContentSecurityPolicy = policy);
+
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ReportsThePackageWarnings_WithTheirKinds_AndBracesAsTheLogWritesThem()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        var package = new PagePackage(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { DrawsItsOwnShell = true, RequiresNonce = true };
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapPagePackage(package, "/help"),
+            configure: o =>
+            {
+                o.ContentSecurityPolicy = "script-src 'self'";
+                o.Command = new NetjesCommandOptions { Name = "routes", Output = output };
+            },
+            services: s => s.AddSingleton(new Netjes.TypeGen.CommandExit(_ => { })));
+
+        var report = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        var warnings = report["warnings"]!.AsArray();
+
+        Assert.Equal(["package-shell", "package-nonce"], warnings.Select(w => (string?)w!["kind"]));
+        Assert.Equal(["app/layout.tsx"], warnings[0]!["files"]!.AsArray().Select(f => (string?)f));
+        Assert.Empty(warnings[1]!["files"]!.AsArray());
+        Assert.Contains("has no {nonce}", (string?)warnings[1]!["message"]);
+        Assert.Contains("'nonce-{nonce}' in the policy's script-src", (string?)warnings[1]!["message"]);
+    }
+
     private static Delegate NearName(string name) => name switch
     {
         "slg" => (string slg, int page) => Props(slg + page),

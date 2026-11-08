@@ -41,6 +41,13 @@ public sealed class PagePackage
     /// </summary>
     public bool DrawsItsOwnShell { get; init; }
 
+    /// <summary>
+    /// Whether the package's pages stream (<c>Page.Defer</c>, or a Suspense boundary still waiting when the shell goes
+    /// out), which a Content-Security-Policy allows only with a nonce. Netjes then warns (<c>package-nonce</c>) when
+    /// <c>NetjesOptions.ContentSecurityPolicy</c> is a policy without <c>{nonce}</c>.
+    /// </summary>
+    public bool RequiresNonce { get; init; }
+
     /// <summary>The name of the package's assembly, which errors give for its NuGet half when its npm half names none.</summary>
     internal string AssemblyName { get; }
 

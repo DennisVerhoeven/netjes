@@ -190,6 +190,7 @@ public sealed class Netjes.PagePackage
   public PagePackage(string name, System.Reflection.Assembly assembly)
   public bool DrawsItsOwnShell { get; init; }
   public string Name { get; }
+  public bool RequiresNonce { get; init; }
   public string Version { get; }
 public sealed class Netjes.PagePackageMount
   public string Folder { get; }
