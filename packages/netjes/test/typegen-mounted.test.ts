@@ -26,7 +26,22 @@ describe("a page package's generated file", () => {
   });
 
   it('refuses a URL that leaves the app or is no link', () => {
-    for (const url of ['//x', '//evil.example/help', '/\\evil.example', 'javascript:alert(1)', 'data:text/html,x', ' /help', '/help\n', 'help']) {
+    // Other hosts, also written with a backslash, which browsers read as a slash, or a tab, which they drop; scripts; and
+    // what is no link at all.
+    for (const url of [
+      '//x',
+      '//evil.example/help',
+      '/\\evil.example',
+      '\\\\evil.example',
+      '/\t/evil.example',
+      'javascript:alert(1)',
+      'JavaScript:alert(1)',
+      'data:text/html,x',
+      ' /help',
+      '/help\n',
+      'help',
+      '',
+    ]) {
       expect(isHref(url), url).toBe(false);
       expect(Href.safeParse(url).success, url).toBe(false);
     }
