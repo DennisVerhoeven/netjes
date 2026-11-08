@@ -275,6 +275,35 @@ describe('page packages', () => {
     expect(report('add', 'lib/page.tsx')).toEqual([]);
     expect(report('change', 'pages/page.tsx')).toEqual([]);
   });
+
+  it("gives the development sidecar each file's URL on the dev server, and the packages it read", async () => {
+    const { plugin } = await listing([INSTALLED, LINKED]);
+    const hook = plugin.configResolved;
+    await (typeof hook === 'function' ? hook : hook?.handler)?.call({} as never, { root: normalizePath(app.root), build: { outDir: 'dist/client' } } as never);
+    const api = plugin.api as {
+      pageUrl(id: string): string | null;
+      unlistedPackage(id: string): string | null;
+      packages(): Array<{ name: string; version: string; pages: string; root: string }>;
+    };
+
+    expect(api.pageUrl('app/page.tsx')).toBe('/app/page.tsx');
+    // Inside the root by its path from there; outside it by its real path.
+    expect(api.pageUrl(`${INSTALLED}/app/page.tsx`)).toBe(`/node_modules/${INSTALLED}/app/page.tsx`);
+    expect(api.pageUrl(`${LINKED}/pages/(center)/articles/[slug]/page.tsx`)).toBe(
+      `/@fs/${normalizePath(app.linked).replace(/^\//, '')}/pages/(center)/articles/[slug]/page.tsx`,
+    );
+    // A file of an installed package the app does not list: the render says to list it.
+    expect(api.pageUrl('@netjes-test/unlisted/app/page.tsx')).toBeNull();
+    expect(api.unlistedPackage('@netjes-test/unlisted/app/page.tsx')).toBe('@netjes-test/unlisted');
+    for (const id of ['app/page.tsx', `${INSTALLED}/app/page.tsx`, 'elsewhere/page.tsx', '@netjes-test/missing/app/page.tsx', '@netjes-test']) {
+      expect(api.unlistedPackage(id), id).toBeNull();
+    }
+    expect(api.pageUrl('elsewhere/page.tsx')).toBe('/elsewhere/page.tsx');
+    expect(api.packages().map(({ name, version, pages, root }) => ({ name, version, pages, root }))).toEqual([
+      { name: INSTALLED, version: '1.2.0', pages: 'app', root: normalizePath(app.installed) },
+      { name: LINKED, version: '0.4.0', pages: 'pages', root: normalizePath(app.linked) },
+    ]);
+  });
 });
 
 describe('page packages that cannot be read', () => {
