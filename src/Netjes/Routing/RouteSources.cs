@@ -135,8 +135,10 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
     /// <summary>The app directory as the ids of its files start: <c>app</c>, <c>src/app</c>.</summary>
     public string AppDirectory => context.AppDirectory.Replace('\\', '/').Trim('/');
 
-    /// <summary>App-absolute URL patterns where the app's page replaces a package's page.</summary>
-    public IReadOnlyCollection<string> Overrides { get; } = [];
+    private IReadOnlyList<string> _overrides = [];
+
+    /// <summary>App-absolute URL patterns where the app's page replaces a package's page (<c>.Override()</c>).</summary>
+    public IReadOnlyCollection<string> Overrides => Volatile.Read(ref _overrides);
 
     /// <summary>Whether <c>MapPages()</c> has run: the mounts are complete, and a page conflict left pending is one.</summary>
     public bool PagesMapped { get; private set; }
@@ -173,6 +175,25 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
         lock (_gate)
         {
             Volatile.Write(ref _mounts, [.. _mounts.Where(m => m != mounted)]);
+            Interlocked.Increment(ref _version);
+        }
+    }
+
+    public void AddOverride(string pattern)
+    {
+        lock (_gate)
+        {
+            Volatile.Write(ref _overrides, [.. _overrides, pattern]);
+            Interlocked.Increment(ref _version);
+        }
+    }
+
+    public void RemoveOverride(string pattern)
+    {
+        lock (_gate)
+        {
+            var at = _overrides.ToList().LastIndexOf(pattern);
+            Volatile.Write(ref _overrides, [.. _overrides.Where((_, i) => i != at)]);
             Interlocked.Increment(ref _version);
         }
     }

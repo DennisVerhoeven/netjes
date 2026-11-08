@@ -424,4 +424,123 @@ public class PagePackageLoaderTests
         Assert.Equal("pong", await (await app.Client.PostAsync("/help/ping", null, Ct)).Content.ReadAsStringAsync(Ct));
         Assert.NotEqual(HttpStatusCode.OK, (await app.Client.PostAsync("/ping", null, Ct)).StatusCode);
     }
+
+    [Theory]
+    [InlineData("Development", "/help/contact", false)]
+    [InlineData("Production", "/help/contact", false)]
+    [InlineData("Development", "/HELP/Contact/", false)]
+    [InlineData("Development", "/help/contact", true)]
+    public async Task AnOverride_RendersTheAppsFile_WithThePackagesLoader_AndPostsReachThePackagesPageAction(
+        string environment, string pattern, bool overrideFirst)
+    {
+        var posted = 0;
+        await using var app = await StartAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            environment: environment,
+            mount: m =>
+            {
+                if (overrideFirst) m.Override(pattern);
+                m.MapPageLoader("/contact", () => Page.Props(new { Email = "help@site.example" }));
+                m.MapPageAction("/contact", () =>
+                {
+                    posted++;
+                    return Page.Redirect("/help");
+                }).DisableAntiforgery();
+                if (!overrideFirst) m.Override(pattern);
+            });
+
+        var payload = await app.GetDataJsonAsync("/help/contact");
+        var post = await app.Client.PostAsync("/help/contact", new FormUrlEncodedContent([]), Ct);
+
+        Assert.Equal("app/help/contact/page.tsx", (string?)payload["page"]);
+        Assert.Equal("help@site.example", (string?)payload["props"]!["email"]);
+        Assert.Equal(HttpStatusCode.SeeOther, post.StatusCode);
+        Assert.Equal(1, posted);
+        Assert.Equal($"{Help}/app/page.tsx", (string?)(await app.GetDataJsonAsync("/help"))["page"]);
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnOverriddenFilePage_KeepsTheMountsConventions(string environment)
+    {
+        await using var app = await StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            environment: environment,
+            mount: m => m.Override("/help/contact").RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        await AssertUnauthorizedAsync(app, "/help/contact");
+        await AssertUnauthorizedAsync(app, "/Help/CONTACT");
+    }
+
+    public static TheoryData<string, string[], string, Type, string[]> RefusedOverrides => new()
+    {
+        { "no package page", [], "/help/nope", typeof(RouteConflictException), ["no page package has a page at '/help/nope'"] },
+        { "an app page only", ["app/help/faq/page.tsx"], "/help/faq", typeof(RouteConflictException), ["no page package has a page at '/help/faq'"] },
+        { "a package page with no app file", [], "/help/contact", typeof(RouteConflictException), ["the app has no page at '/help/contact'", "app/help/contact/page.tsx"] },
+        { "other parameter names", ["app/help/articles/[id]/page.tsx"], "/help/articles/[id]", typeof(RouteConflictException), ["must name their parameters alike"] },
+        { "a parent folder", [], "/help/../account/x", typeof(ArgumentException), ["'..'"] },
+        { "an encoded parent folder", [], "/help/%2e%2e/x", typeof(ArgumentException), ["'%'"] },
+        { "a backslash", [], "/help\\contact", typeof(ArgumentException), ["'\\'"] },
+        { "an empty segment", [], "/help//contact", typeof(ArgumentException), ["empty segment"] },
+        { "no leading slash", [], "help/contact", typeof(ArgumentException), ["starts with '/'"] },
+        { "outside the mount", ["app/other/contact/page.tsx"], "/other/contact", typeof(ArgumentException), ["not below the mount of '@acme/help-center' at /help"] },
+        { "the mount's prefix only in part", ["app/helpdesk/contact/page.tsx"], "/helpdesk/contact", typeof(ArgumentException), ["not below the mount"] },
+        { "another package's page", ["app/help/status/page.tsx"], "/help/status", typeof(RouteConflictException), ["'@acme/status/app/page.tsx'", "a page of '@acme/status', mounted at /help/status"] },
+    };
+
+    [Theory]
+    [MemberData(nameof(RefusedOverrides))]
+    public async Task AnOverride_ThatFitsNoPageOfThePackage_IsRefused_SayingWhy(string what, string[] appFiles, string pattern, Type error, string[] message)
+    {
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => TestApp.StartAsync(
+            ["app/page.tsx", .. appFiles],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, ["page.tsx", "contact/page.tsx", "articles/[slug]/page.tsx"]);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                a.MapPagePackage(TestPagePackage.Other, "/help/status");
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help").Override(pattern);
+            },
+            pages: _ => Assert.Fail("MapPages() ran.")));
+
+        Assert.IsType(error, ex);
+        Assert.All(message, part => Assert.Contains(part, ex.Message));
+        Assert.Contains(nameof(PagePackageBuilder.Override), ex.StackTrace);
+        Assert.NotNull(what);
+    }
+
+    [Fact]
+    public async Task TheAppsLoaderForAnOverriddenPage_IsRefused()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["contact/page.tsx"],
+            mount: m => m.Override("/help/contact"),
+            after: a => a.MapPageLoader("/help/contact", () => Page.Props())));
+
+        Assert.Contains("'app/help/contact/page.tsx' replaces '@acme/help-center/app/contact/page.tsx'", ex.Message);
+        Assert.Contains("renders with the package's loader and page action", ex.Message);
+    }
+
+    [Fact]
+    public async Task AnOverride_AfterMapPages_Throws()
+    {
+        PagePackageBuilder? mount = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["contact/page.tsx"],
+            mount: m => mount = m.Override("/help/contact"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => mount!.Override("/help/contact"));
+
+        Assert.Contains("after MapPages()", ex.Message);
+    }
 }

@@ -272,6 +272,10 @@ internal sealed partial class RouteTable
 
     public PageRoute? Find(string pattern) => _byPattern.GetValueOrDefault(pattern);
 
+    /// <summary>The page whose URL has the shape of <paramref name="pattern"/>, whatever its parameters are called and literals in any case.</summary>
+    public PageRoute? FindByShape(string pattern) =>
+        Pages.FirstOrDefault(p => string.Equals(ShapeOf(p.Pattern), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// App pages of the same shape as a page package's page, in order of the URL. The package's page is in the table;
     /// <c>MapPages()</c> throws the first conflict left, unless the mount's <c>.Override()</c> resolved it.
