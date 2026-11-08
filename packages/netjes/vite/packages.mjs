@@ -148,6 +148,14 @@ function readPagePackage(root, name) {
   if (css !== null && !isFile(path.join(dir, css))) {
     throw new Error(`netjes: '${name}' has "css": "${css}" in the "netjes" field of its package.json, which is no file in the package`);
   }
+  // A package published without it (its `files` leave it out) would otherwise bring no pages, without a word.
+  if (!isDirectory(path.join(dir, pages))) {
+    throw new Error(
+      options.pages === undefined
+        ? `netjes: '${name}' has no app folder, where a page package's pages are unless "pages" in the "netjes" field of its package.json names another`
+        : `netjes: '${name}' has "pages": "${pages}" in the "netjes" field of its package.json, which is no folder in the package`,
+    );
+  }
   const nuget = typeof options.nuget === 'string' ? options.nuget : null;
   const dependencies = typeof manifest.dependencies === 'object' && manifest.dependencies !== null ? Object.keys(manifest.dependencies) : [];
   return {

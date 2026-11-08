@@ -236,6 +236,7 @@ describe('page packages', () => {
         dependencies: { 'netjes-test-cjs': '1', 'netjes-test-esm': '1', 'netjes-test-exports': '1', 'netjes-test-module': '1', netjes: '*', 'netjes-test-gone': '1' },
       }),
     );
+    await app.write('node_modules/@netjes-test/deps/app/page.tsx', 'export default function Page() { return null; }\n');
 
     const include = (await listing(['@netjes-test/deps'])).config?.optimizeDeps?.include ?? [];
 
@@ -388,6 +389,17 @@ describe('page packages that cannot be read', () => {
     expect(await configError(['gaps'], { 'gaps/package.json': manifest('gaps', { netjes: { sources: ['lib'] } }) })).toBe(
       'netjes: \'gaps\' lists "lib" in "sources" in the "netjes" field of its package.json, which is no folder in the package',
     );
+  });
+
+  it('names a folder of pages that the package does not have, such as one its files leave out of the published package', async () => {
+    expect(await configError(['no-pages'], { 'no-pages/package.json': manifest('no-pages', { netjes: { pages: 'screens' } }) })).toBe(
+      'netjes: \'no-pages\' has "pages": "screens" in the "netjes" field of its package.json, which is no folder in the package',
+    );
+    expect(await configError(['no-app'], { 'no-app/package.json': manifest('no-app') })).toBe(
+      'netjes: \'no-app\' has no app folder, where a page package\'s pages are unless "pages" in the "netjes" field of its package.json names another',
+    );
+    // A folder without pages yet is a package with no pages.
+    expect(await configError(['empty'], { 'empty/package.json': manifest('empty'), 'empty/app/README.md': 'Pages go here.\n' })).toBe('no error');
   });
 
   it('refuses a name that is no npm package name, a name listed twice, and one named like the app\'s folder of pages', async () => {
