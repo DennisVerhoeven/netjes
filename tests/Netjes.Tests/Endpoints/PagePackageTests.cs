@@ -419,4 +419,101 @@ public class PagePackageTests
 
         Assert.Equal($"'{Help}' is mounted, but it is not a page package: its package.json has no \"netjes\" field.", ex.Message);
     }
+
+    [Fact]
+    public async Task Development_WithoutAnAppFolder_ThePackagesPagesAreRouted()
+    {
+        await using var app = await TestApp.StartAsync(
+            [],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/"));
+
+        Assert.Equal($"{Help}/app/page.tsx", (string?)(await app.GetDataJsonAsync("/"))["page"]);
+    }
+
+    [Theory]
+    [InlineData("Development", "/support/(desk)/help", "/support/help/contact", "support/(desk)/help", "/support/help")]
+    [InlineData("Production", "/support/(desk)/help", "/support/help/contact", "support/(desk)/help", "/support/help")]
+    [InlineData("Development", "/[tenant]/help", "/acme/help/contact", "[tenant]/help", "/[tenant]/help")]
+    [InlineData("Production", "/[tenant]/help", "/acme/help/contact", "[tenant]/help", "/[tenant]/help")]
+    public async Task APrefixWithAGroupOrAValue_MountsThePackageThere(string environment, string prefix, string url, string folder, string pattern)
+    {
+        PagePackageMount? mount = null;
+        await using var app = await StartWithPackageAsync(environment, ["app/page.tsx"], ["contact/page.tsx"], prefix: prefix, mount: m => mount = m.Mount);
+
+        var payload = await app.GetDataJsonAsync(url);
+
+        Assert.Equal($"{Help}/app/contact/page.tsx", (string?)payload["page"]);
+        Assert.Equal(folder, mount!.Folder);
+        Assert.Equal(pattern, mount.Pattern);
+        Assert.Same(TestPagePackage.Descriptor, mount.Package);
+        if (pattern.Contains("[tenant]"))
+        {
+            Assert.Equal("acme", (string?)payload["params"]!["tenant"]);
+        }
+    }
+
+    [Fact]
+    public async Task PagePackageMounts_ListsTheMounts_ForAPackagesServices()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, ["page.tsx"]);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                a.MapPagePackage(TestPagePackage.Other, "/(site)/status");
+            });
+
+        var mounts = app.App.Services.GetRequiredService<PagePackageMounts>();
+
+        Assert.Equal([Help, TestPagePackage.Other.Name], mounts.All.Select(m => m.Package.Name));
+        Assert.Equal("/status", mounts.Get(TestPagePackage.Other.Name).Pattern);
+        var ex = Assert.Throws<InvalidOperationException>(() => mounts.Get("@acme/nope"));
+        Assert.Contains("'@acme/nope' is not mounted", ex.Message);
+    }
+
+    [Fact]
+    public void PagePackage_IsVersionedByItsAssemblysInformationalVersion_WithoutTheCommit()
+    {
+        var informational = typeof(TestPagePackage).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion;
+
+        Assert.Equal(informational.Split('+')[0], TestPagePackage.Descriptor.Version);
+        Assert.DoesNotContain("+", TestPagePackage.Descriptor.Version);
+        Assert.Throws<ArgumentException>(() => new PagePackage("../help", typeof(TestPagePackage).Assembly));
+        Assert.Throws<ArgumentException>(() => new PagePackage("", typeof(TestPagePackage).Assembly));
+    }
+
+    [Theory]
+    [InlineData("Development", "api/route.ts")]
+    [InlineData("Development", "global-error.tsx")]
+    [InlineData("Production", "global-error.tsx")]
+    public async Task APackageFileTheConventionsRefuse_StopsMapPagePackage_NamingIt(string environment, string file)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidPageFileException>(() => StartWithPackageAsync(
+            environment, ["app/page.tsx"], ["page.tsx", file], pages: _ => Assert.Fail("MapPages() ran.")));
+
+        Assert.Contains($"'{Help}/app/{file}'", ex.Message);
+        Assert.Contains(nameof(NetjesEndpointRouteBuilderExtensions.MapPagePackage), ex.StackTrace);
+    }
+
+    [Theory]
+    [InlineData("help")]
+    [InlineData("/help/")]
+    [InlineData("/[...rest]")]
+    public async Task MapPagePackage_RefusesAPrefixThatIsNone(string prefix)
+    {
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, prefix)));
+
+        Assert.StartsWith($"'{prefix}' is not a mount prefix", ex.Message);
+    }
 }
