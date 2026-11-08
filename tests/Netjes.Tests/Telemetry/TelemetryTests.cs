@@ -87,6 +87,36 @@ public sealed class TelemetryTests : IDisposable
     }
 
     [Fact]
+    public async Task APagePackagesPage_TagsItsSpansWithThePackage_AndItsFileId()
+    {
+        const string help = TestPagePackage.Name;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/telemetry-help/own/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx", "form/page.tsx", "loaded/page.tsx"]),
+            map: a =>
+            {
+                a.MapPagePackage(TestPagePackage.Descriptor, "/telemetry-help");
+                a.MapPageLoader("/telemetry-help/loaded", () => Page.Props(new { }));
+                a.MapPageAction("/telemetry-help/form", () => Page.Redirect("/")).DisableAntiforgery();
+            });
+
+        await app.GetDocumentAsync("/telemetry-help");
+        await app.GetDocumentAsync("/telemetry-help/loaded");
+        await app.Client.PostAsync("/telemetry-help/form", new FormUrlEncodedContent([]), TestContext.Current.CancellationToken);
+        await app.GetDocumentAsync("/telemetry-help/own");
+
+        var render = Assert.Single(Spans("/telemetry-help"), s => s.OperationName == "netjes.render");
+        Assert.Equal($"{help}/app/page.tsx", render.GetTagItem("netjes.page"));
+        Assert.Equal(help, render.GetTagItem("netjes.package"));
+        Assert.Equal(help, Assert.Single(Spans("/telemetry-help/loaded"), s => s.OperationName == "netjes.loader").GetTagItem("netjes.package"));
+        Assert.Equal(help, Assert.Single(Spans("/telemetry-help/loaded"), s => s.OperationName == "netjes.render").GetTagItem("netjes.package"));
+        Assert.Equal(help, Assert.Single(Spans("/telemetry-help/form"), s => s.OperationName == "netjes.action").GetTagItem("netjes.package"));
+        // The app's own page under the mount is the app's, and the histograms stay as they are: one series per route.
+        Assert.Null(Assert.Single(Spans("/telemetry-help/own"), s => s.OperationName == "netjes.render").GetTagItem("netjes.package"));
+        Assert.DoesNotContain(_measurements, m => m.Tags.ContainsKey("netjes.package"));
+    }
+
+    [Fact]
     public async Task SidecarRenders_AreSpans_AndCarryTheTraceToNode()
     {
         var options = new NetjesOptions

@@ -92,7 +92,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(EndAborted)
-            .AddEndpointFilter(Traced("netjes.loader", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.loader", route))
             .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
             .ExcludeFromDescription();
@@ -119,7 +119,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .MapPost(route.Template, action)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
-            .AddEndpointFilter(Traced("netjes.action", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.action", route))
             .WithMetadata(EndpointMetadataFor(route.Pattern, action, isLoader: false))
             .WithMetadata(new PageActionMetadata(route.Pattern), new ActionFormFields(action.Method), new RequireAntiforgeryTokenAttribute())
             .AddEndpointFilter(RejectCrossSitePosts)
@@ -217,11 +217,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         }
     }
 
-    /// <summary>A span around the loader or action delegate (see <see cref="NetjesTelemetry"/>).</summary>
-    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string route) =>
+    /// <summary>
+    /// A span around the loader or action delegate of a page (see <see cref="NetjesTelemetry"/>), with the page package
+    /// whose page it is.
+    /// </summary>
+    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, PageRoute route) =>
         async (context, next) =>
         {
-            using var activity = NetjesTelemetry.StartActivity(operation, route);
+            using var activity = NetjesTelemetry.StartActivity(operation, route.Pattern).WithPackage(route.IsFromTheApp ? null : route.Source);
             try
             {
                 return await next(context);

@@ -30,6 +30,7 @@ internal sealed class PageRenderer(
     TimeProvider time,
     LayoutLoaderRegistry layoutLoaders,
     IConfiguration configuration,
+    RouteSources sources,
     ILogger<PageRenderer> logger)
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _warnedNonceCaching = new(StringComparer.Ordinal);
@@ -394,7 +395,7 @@ internal sealed class PageRenderer(
     {
         var isData = IsDataRequest(http);
         var clientRender = !isData && RendersInTheBrowser();
-        using var telemetry = NetjesTelemetry.StartRender(http, route, page, isData);
+        using var telemetry = NetjesTelemetry.StartRender(http, route, page, sources.OwnerOf(page)?.Name, isData);
         var actionState = http.Items[ServerActionResult.StateKey] as ActionStatePayload;
         if (actionState is not null && status == StatusCodes.Status200OK)
         {
