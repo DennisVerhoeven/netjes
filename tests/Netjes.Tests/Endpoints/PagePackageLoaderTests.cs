@@ -570,4 +570,44 @@ public class PagePackageLoaderTests
 
         Assert.Contains("after MapPages()", ex.Message);
     }
+
+    public static TheoryData<Action<PagePackageBuilder>, string[]> NoSuchFile => new()
+    {
+        { m => m.MapPageLoader("/nope", () => Page.Props()), ["No page of '@acme/help-center' matches '/nope' below its mount at /help", "Expected @acme/help-center/app/nope/page.tsx", "Its pages: /, /contact"] },
+        { m => m.MapPageAction("nope", () => Page.Redirect("/")), ["matches 'nope'", "Expected @acme/help-center/app/nope/page.tsx"] },
+        { m => m.MapLayoutLoader("app/nope", () => Page.Props()), ["No layout of '@acme/help-center' serves 'app/nope'", "Expected @acme/help-center/app/nope/layout.tsx"] },
+        { m => m.MapLayoutLoader("/contact", () => Page.Props()), ["No layout of '@acme/help-center' serves '/contact'", "Expected @acme/help-center/app/contact/layout.tsx"] },
+        { m => m.MapLayoutLoader("(center)", () => Page.Props()), ["starts with its pages folder, such as 'app' or 'app/(group)'"] },
+    };
+
+    [Theory]
+    [MemberData(nameof(NoSuchFile))]
+    public async Task ThroughTheMount_ALoaderForAFileThePackageLacks_FailsAtStartup_NamingThePackagesFile(Action<PagePackageBuilder> map, string[] message)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(["app/page.tsx"], ["layout.tsx", "page.tsx", "contact/page.tsx"], mount: map));
+
+        Assert.All(message, part => Assert.Contains(part, ex.Message));
+    }
+
+    [Fact]
+    public async Task Development_APackagesPageRemovedWhileItsLoaderIsMapped_IsReported_NamingThePackagesFile()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            mount: m => m.MapPageLoader("/contact", () => Page.Props()));
+        var package = Path.Combine(app.Root, "node_modules", "@acme", "help-center");
+
+        File.Delete(Path.Combine(package, "app", "contact", "page.tsx"));
+        LogEntry? error = null;
+        for (var attempt = 0; attempt < 100 && error is null; attempt++)
+        {
+            await Task.Delay(100, Ct);
+            await app.GetDataAsync("/help/contact");
+            error = app.Logs.FirstOrDefault(e => e.Level >= LogLevel.Error && e.Exception?.Message.Contains("No page file matches '/help/contact'") == true);
+        }
+
+        Assert.NotNull(error);
+        Assert.Contains("Expected @acme/help-center/app/contact/page.tsx, the page of '@acme/help-center' mounted at /help", error.Exception!.Message);
+    }
 }

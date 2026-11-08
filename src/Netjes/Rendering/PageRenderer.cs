@@ -61,7 +61,7 @@ internal sealed class PageRenderer(
     {
         var route = routes.Current.Find(pattern)
             ?? throw new InvalidOperationException(
-                $"No page file matches '{pattern}'. Expected {ExpectedFile(context, pattern)}.");
+                $"No page file matches '{pattern}'. Expected {ExpectedFiles(pattern)}.");
         var loaded = await LoadSegmentsAsync(http, route.Segments, route);
         if (loaded.Stop is { } stop)
         {
@@ -1120,6 +1120,19 @@ internal sealed class PageRenderer(
         var path = pattern.Trim('/');
         return path is "" ? $"{context.AppDirectory}/page.tsx" : $"{context.AppDirectory}/{path}/page.tsx";
     }
+
+    /// <summary>
+    /// The files that would serve <paramref name="pattern"/>: below a page package's mount, the deepest, the package's file
+    /// and the app's; elsewhere the app's.
+    /// </summary>
+    private string ExpectedFiles(string pattern) =>
+        sources.Mounts
+            .Select(mounted => (Mounted: mounted, Below: mounted.Mount.Prefix.Below(pattern)))
+            .Where(m => m.Below is not null)
+            .OrderByDescending(m => m.Mounted.Mount.Prefix.Segments.Count)
+            .FirstOrDefault() is ({ } mounted, { } below)
+            ? $"{ExpectedFile(mounted, below)}, the page of '{mounted.Name}' mounted at {mounted.Mount.Prefix}, or {ExpectedFile(context, pattern)}"
+            : ExpectedFile(context, pattern);
 
     /// <summary>The page package's file for <paramref name="below"/>, a URL pattern below its mount: <c>@acme/help-center/app/contact/page.tsx</c>.</summary>
     internal static string ExpectedFile(MountedPackage mounted, string below)
