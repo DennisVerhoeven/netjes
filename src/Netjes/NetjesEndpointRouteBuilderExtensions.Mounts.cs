@@ -42,15 +42,16 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         {
             var own = table.Pages.Where(p => sources.PackageOf(p) == mounted).Select(p => prefix.Below(p.Pattern)).OfType<string>();
             throw new InvalidOperationException(
-                $"No page of '{mounted.Name}' matches '{pattern}' below its mount at {prefix} ('{merged}'). Expected " +
-                $"{PageRenderer.ExpectedFile(mounted, pattern)}. Its pages: {string.Join(", ", own)}.");
+                $"No page of '{mounted.Name}' matches '{pattern}' below its mount at {prefix}" +
+                (pattern.StartsWith('/') ? $" ('{merged}')" : ", where a pattern starts with '/' ('/' is the mount's own page)") +
+                $". Expected {PageRenderer.ExpectedFile(mounted, pattern)}. Its pages: {string.Join(", ", own)}.");
         }
 
         if (sources.PackageOf(found) != mounted)
         {
             throw new InvalidOperationException(
-                $"{method}(\"{pattern}\") on the mount of '{mounted.Name}' at {prefix}: '{found.Pattern}' is {OwnerOf(sources.PackageOf(found))}'s " +
-                $"page '{found.File}', not one of the package's. A mount maps loaders and page actions for the package's own pages" +
+                $"{method}(\"{pattern}\") on the mount of '{mounted.Name}' at {prefix}: '{found.Pattern}' is the page '{found.File}' of " +
+                $"{OwnerOf(sources.PackageOf(found))}, not one of the package's. A mount maps loaders and page actions for the package's own pages" +
                 (sources.PackageOf(found) is null ? $"; the app maps this one with app.{method}(\"{found.Pattern}\")." : "."));
         }
 
@@ -143,8 +144,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             throw new InvalidOperationException(sources.OwnerOf(layout) is { } owner && mounted is null
                 ? $"MapLayoutLoader(\"{segment}\"): '{layout}' is a layout of the page package '{owner.Name}' mounted at " +
                   $"{owner.Mount.Prefix}, which maps its layout loaders through its mount. An app layout loader goes on a layout of the app's."
-                : $"MapLayoutLoader(\"{segment}\") on the mount of '{mounted!.Name}' at {mounted.Mount.Prefix}: '{layout}' is " +
-                  $"{OwnerOf(sources.OwnerOf(layout))}'s layout, not one of the package's" +
+                : $"MapLayoutLoader(\"{segment}\") on the mount of '{mounted!.Name}' at {mounted.Mount.Prefix}: '{layout}' is a " +
+                  $"layout of {OwnerOf(sources.OwnerOf(layout))}, not one of the package's" +
                   (sources.OwnerOf(layout) is null ? $"; the app maps its loader with app.MapLayoutLoader(\"{matches[0].Id}\")." : "."));
         }
 

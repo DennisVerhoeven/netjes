@@ -610,4 +610,32 @@ public class PagePackageLoaderTests
         Assert.NotNull(error);
         Assert.Contains("Expected @acme/help-center/app/contact/page.tsx, the page of '@acme/help-center' mounted at /help", error.Exception!.Message);
     }
+
+    [Fact]
+    public async Task TheMount_RefusesThePagesAndLayoutsOfAPackageMountedInsideIt()
+    {
+        foreach (var map in new Action<PagePackageBuilder>[]
+                 {
+                     m => m.MapPageLoader("/status", () => Page.Props()),
+                     m => m.MapLayoutLoader("/status", () => Page.Props()),
+                 })
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+                ["app/page.tsx"],
+                prepareRoot: root =>
+                {
+                    TestPagePackage.Install(root, ["page.tsx"]);
+                    TestPagePackage.Install(root, ["layout.tsx", "page.tsx"], name: TestPagePackage.Other.Name);
+                },
+                map: a =>
+                {
+                    var help = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                    a.MapPagePackage(TestPagePackage.Other, "/help/status");
+                    map(help);
+                }));
+
+            Assert.Contains("on the mount of '@acme/help-center' at /help", ex.Message);
+            Assert.Contains("of the page package '@acme/status', not one of the package's", ex.Message);
+        }
+    }
 }
