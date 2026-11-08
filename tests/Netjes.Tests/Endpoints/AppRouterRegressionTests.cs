@@ -193,12 +193,15 @@ public class AppRouterRegressionTests
     /// <summary>
     /// The layout loader that guards an unknown URL below a page package's mount (the fallback endpoint carries no
     /// layout loader's authorization): the package's own, mapped through the mount, the app's above the mount, or the
-    /// app's root layout's.
+    /// app's root layout's; or the mount's conventions, which guard the package's files where its own layout loader
+    /// has no authorization of its own.
     /// </summary>
     public static TheoryData<string, bool> MountGuards => new()
     {
         { "the mount's", false },
         { "the mount's", true },
+        { "the mount's conventions", false },
+        { "the mount's conventions", true },
         { "the app's above the mount", false },
         { "the app's above the mount", true },
         { "the app's root", false },
@@ -238,6 +241,11 @@ public class AppRouterRegressionTests
                 if (onTheMount)
                 {
                     mount.MapLayoutLoader("/", secret).RequireAuthorization();
+                }
+
+                if (guard == "the mount's conventions")
+                {
+                    mount.RequireAuthorization().MapLayoutLoader("/", secret);
                 }
             },
             services: signedIn ? Ada : Nobody,
