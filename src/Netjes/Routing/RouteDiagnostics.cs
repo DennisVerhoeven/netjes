@@ -126,8 +126,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 StringComparer.Ordinal);
             return
             [
-                .. PageLoaderWarnings(table, endpoints, boundBySegment),
-                .. LayoutLoaderWarnings(table, layouts, boundBySegment),
+                .. PageLoaderWarnings(table, sources, endpoints, boundBySegment),
+                .. LayoutLoaderWarnings(table, sources, layouts, boundBySegment),
                 .. OverlapWarnings(table, endpoints),
                 .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
@@ -165,7 +165,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
 
     /// <param name="boundBySegment">The route parameters each layout loader binds, by segment: bound for every page below.</param>
     private static IEnumerable<RouteWarning> PageLoaderWarnings(
-        RouteTable table, Dictionary<string, RouteEndpoint> endpoints, Dictionary<string, List<string>> boundBySegment)
+        RouteTable table, RouteSources sources, Dictionary<string, RouteEndpoint> endpoints, Dictionary<string, List<string>> boundBySegment)
     {
         foreach (var page in table.Pages)
         {
@@ -178,7 +178,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             // URL is named as mapped, with the group's prefix.
             var routeParameters = endpoint.RoutePattern.Parameters.Select(p => p.Name).ToList();
             var url = endpoint.RoutePattern.RawText is { } mapped && mapped != page.Template ? mapped : page.Pattern;
-            var boundAbove = page.Segments.SelectMany(s => boundBySegment.GetValueOrDefault(s.Id) ?? []);
+            var boundAbove = page.Segments.SelectMany(s => boundBySegment.GetValueOrDefault(s.Id) ?? [])
+                .Concat(PrefixParameters(sources.PackageOf(page)));
             foreach (var warning in QueryBindings(page.File, url, endpoint.Metadata.GetMetadata<MethodInfo>()!,
                          endpoint.Metadata.OfType<IParameterBindingMetadata>(), routeParameters, boundAbove))
             {
@@ -212,7 +213,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     }
 
     private static IEnumerable<RouteWarning> LayoutLoaderWarnings(
-        RouteTable table, List<LayoutBinding> layouts, Dictionary<string, List<string>> boundBySegment)
+        RouteTable table, RouteSources sources, List<LayoutBinding> layouts, Dictionary<string, List<string>> boundBySegment)
     {
         foreach (var (loader, method, parameters) in layouts)
         {
@@ -226,7 +227,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             }
 
             // Segment ids are folders (app/[team]/[project]), so the ones above are the prefixes ending at a slash.
-            var boundAbove = boundBySegment.Where(s => segment.Id.StartsWith(s.Key + "/", StringComparison.Ordinal)).SelectMany(s => s.Value);
+            var boundAbove = boundBySegment.Where(s => segment.Id.StartsWith(s.Key + "/", StringComparison.Ordinal)).SelectMany(s => s.Value)
+                .Concat(PrefixParameters(sources.OwnerOf(segment.Layout)));
             var others = parameters.Except(meantForBelow.Select(m => m.Parameter));
             foreach (var warning in QueryBindings(segment.Layout!, segment.Pattern, method, others, segment.Parameters, boundAbove))
             {
@@ -261,6 +263,12 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .Select(b => (b.Parameter, b.Below.Route, b.Below.Pattern)),
         ];
     }
+
+    /// <summary>
+    /// The parameters of the prefix a page package is mounted at, which its loaders need not bind: the package is written
+    /// before anyone picks its prefix, so a value there is the app's to read. None for the app's own loaders.
+    /// </summary>
+    private static IReadOnlyList<string> PrefixParameters(MountedPackage? package) => package?.Mount.Prefix.Parameters ?? [];
 
     /// <summary>
     /// Loader parameters that bind from the query string while a route parameter of the pattern is bound by none, nor

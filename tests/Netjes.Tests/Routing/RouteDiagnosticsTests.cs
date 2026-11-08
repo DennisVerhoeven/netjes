@@ -1019,6 +1019,51 @@ public class RouteDiagnosticsTests
     }
 
     [Fact]
+    public async Task QueryBinding_APackagesLoaders_AreNotWarnedAboutTheMountsUnboundPrefixParameters()
+    {
+        // The package is written before anyone picks its prefix, so a value of the prefix is the app's to read.
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"],
+            ["layout.tsx", "page.tsx", "articles/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: m =>
+            {
+                m.MapPageLoader("/articles", (string? q) => Props(q));
+                m.MapLayoutLoader("app", (string? theme) => Props(theme));
+            });
+
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public async Task QueryBinding_APackagesLoader_IsStillWarnedAboutItsOwnUnboundRouteParameter_AndNotThePrefixs()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"],
+            ["articles/[slug]/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: m => m.MapPageLoader("/articles/[slug]", (string? q) => Props(q)));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("route parameter 'slug' of /[tenant]/help/articles/[slug] is bound by no parameter", warning);
+        Assert.DoesNotContain("'tenant'", warning);
+    }
+
+    [Fact]
+    public async Task QueryBinding_AnAppLoaderUnderTheMount_IsStillWarnedAboutThePrefixsParameter()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx", "app/[tenant]/help/shortcuts/page.tsx"],
+            ["page.tsx"],
+            prefix: "/[tenant]/help",
+            map: a => a.MapPageLoader("/[tenant]/help/shortcuts", (string? q) => Props(q)));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("app/[tenant]/help/shortcuts/page.tsx", warning);
+        Assert.Contains("route parameter 'tenant'", warning);
+    }
+
+    [Fact]
     public void AWarningsMessage_FillsItsHoles_AndReadsDoubledBracesAsOne_AsTheLogDoes()
     {
         var warning = new RouteWarning("package-unmounted", [], "'{Package}' is in netjes({{ packages }}), not {{nonce}}", ["@acme/x"]);
