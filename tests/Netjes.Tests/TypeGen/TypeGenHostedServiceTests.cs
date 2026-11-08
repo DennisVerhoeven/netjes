@@ -405,6 +405,28 @@ public class TypeGenHostedServiceTests
     }
 
     [Fact]
+    public async Task RoutesCommand_ReportsAuthorization_OfTheMountOnThePackagesPages_AndOfItsLayoutLoaderOnTheAppsPagesBelowIt()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx", "app/help/about/page.tsx"],
+            ["page.tsx", "(center)/layout.tsx", "(center)/faq/page.tsx"],
+            a =>
+            {
+                var help = a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization();
+                help.MapLayoutLoader("app/(center)", () => Page.Props(new HomeProps("center"))).RequireAuthorization();
+            });
+        bool? Authorized(string pattern) =>
+            (bool?)report["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == pattern)!["authorized"];
+
+        Assert.True(Authorized("/help"));
+        Assert.True(Authorized("/help/faq"));
+        // The app's page in the package's group is protected by the package's layout loader, not by the mount.
+        Assert.True(Authorized("/help/shortcuts"));
+        Assert.False(Authorized("/help/about"));
+        Assert.False(Authorized("/"));
+    }
+
+    [Fact]
     public async Task RoutesCommand_WithNothingMounted_ListsNoPackages()
     {
         var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
