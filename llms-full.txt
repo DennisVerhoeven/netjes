@@ -6711,7 +6711,7 @@ In development the map is rebuilt when Vite's watcher reports a page file added 
 
 ### Page packages
 
-A page package is an npm package that brings pages, layouts and boundaries for the app to mount at a prefix, with a C# half that the .NET app mounts. Its `package.json` marks it with a `netjes` field and names the Netjes versions it supports in `peerDependencies`:
+A page package brings pages, layouts and boundaries for an app to mount at a prefix, in two halves: an npm package with the page files, and a NuGet package with their C# side, which the .NET app mounts. The npm half's `package.json` marks it with a `netjes` field and names the Netjes versions it supports in `peerDependencies`:
 
 ```json
 {
