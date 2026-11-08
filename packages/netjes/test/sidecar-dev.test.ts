@@ -428,6 +428,17 @@ describe.each([
     expect(html).toContain('<a href="/"');
   });
 
+  it("gives the browser a page module map that loads the package's pages from the dev server", async () => {
+    const map = await browserPages();
+
+    // The key is the file id, and the import the URL of the file's real path, which the dev server serves.
+    const entry = new RegExp(`"/${id('page.tsx').replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}":\\s*\\(\\)\\s*=>\\s*import\\("([^"]+)"\\)`).exec(map);
+    expect(entry, map).not.toBeNull();
+    const own = normalizePath(path.join(dir(), pages, 'page.tsx'));
+    expect(entry?.[1]?.split('?')[0]).toBe(own.startsWith(`${normalizePath(root)}/`) ? own.slice(normalizePath(root).length) : `/@fs/${own.replace(/^\//, '')}`);
+    expect(await browserModule(entry?.[1] ?? '')).toContain(pages === 'app' ? 'InstalledHome' : 'LinkedHome');
+  });
+
   it("inlines the CSS that the package's page imports", async () => {
     const response = await mounted('styled/page.tsx');
 
