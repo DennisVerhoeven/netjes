@@ -25,17 +25,28 @@ function matches(pattern: readonly string[], path: readonly string[]): boolean {
 }
 
 /**
- * Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or another
- * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data. A URL with an ASCII
- * control character, or with a space at either end, is none of these.
+ * Whether a URL has the shape of a link, as a C# `Href` checks it: root-relative (`/…`, but not `//…` or `/\…`, which
+ * browsers read as another host), a link within the page (`?…`, `#…`), or an `http:`, `https:`, `mailto:` or `tel:`
+ * URL, with no ASCII control character and no space at either end. It does not ask which page a path names: a page
+ * package's generated file, which cannot know the app's pages, checks its `Href` with this.
  */
-export function isRouteHref(value: string, patterns: readonly string[]): boolean {
+export function isHrefShape(value: string): boolean {
   // Browsers drop tabs and newlines anywhere in a URL, and control characters and spaces at either end: `/\t/host`
   // would be `//host`. A C# Href refuses the same.
   if (/[\u0000-\u001F\u007F]/.test(value) || value.startsWith(' ') || value.endsWith(' ')) return false;
   if (/^(https?:|mailto:|tel:)/i.test(value) || value.startsWith('?') || value.startsWith('#')) return true;
   // "//host" and "/\host" are other hosts as far as browsers are concerned.
-  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return false;
+  return value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\');
+}
+
+/**
+ * Whether a URL is one of the app's pages (by route pattern), a link within the page (`?…`, `#…`), or another
+ * site. The generated `isHref()` and `Href` schema call this to check URLs that come from data. A URL with an ASCII
+ * control character, or with a space at either end, is none of these.
+ */
+export function isRouteHref(value: string, patterns: readonly string[]): boolean {
+  if (!isHrefShape(value)) return false;
+  if (!value.startsWith('/')) return true;
   const path = (value.split(/[?#]/, 1)[0] ?? '').split('/').filter(Boolean);
   return patterns.some((pattern) => matches(pattern.split('/').filter(Boolean), path));
 }

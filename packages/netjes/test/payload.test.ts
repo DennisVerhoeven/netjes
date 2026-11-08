@@ -52,6 +52,40 @@ describe('parseNavigationPayload', () => {
     expect(parsed.kind === 'page' && parsed.intercepts?.[0]?.params).toEqual({ photoId: '7' });
   });
 
+  it("keeps each mounted page package's URL, and null for one this page has no value for", () => {
+    const mounts = { '@acme/help-center': '/acme/help', '@acme/status': null, '@acme/root': '/' };
+    expect(parseNavigationPayload({ ...page, mounts })).toEqual({ ...page, mounts });
+    expect(parseNavigationPayload(page)).not.toHaveProperty('mounts');
+  });
+
+  // (security) The mounted components put a mount's URL in front of their hrefs: one that names another host, a
+  // scheme or a dot segment would take every link of the package there.
+  it.each([
+    ['//evil.example'],
+    ['/\\evil.example'],
+    ['https://evil.example'],
+    ['javascript:alert(1)'],
+    ['help'],
+    [''],
+    ['/help/'],
+    ['/help?x'],
+    ['/help#x'],
+    ['/help/../admin'],
+    ['/./help'],
+    ['/a//help'],
+    ['/%2e%2e/help'],
+    ['/%2E/help'],
+    ['/.%2e/help'],
+    ['/\thelp'],
+    [42],
+  ])('rejects the mount URL %j', (url) => {
+    expect(() => parseNavigationPayload({ ...page, mounts: { '@acme/help-center': url } })).toThrow(PayloadError);
+  });
+
+  it('rejects mounts that are not an object', () => {
+    expect(() => parseNavigationPayload({ ...page, mounts: ['/help'] })).toThrow(PayloadError);
+  });
+
   it('accepts built-in special pages without a page module', () => {
     expect(parseNavigationPayload({ ...page, route: null, page: null, status: 404 }).kind).toBe('page');
   });

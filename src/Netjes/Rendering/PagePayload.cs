@@ -26,6 +26,8 @@ internal sealed record PagePayload(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool DraftMode,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BasePath,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Locale,
+    // Each mounted page package's URL for this request, by npm name (a JsonObject, which no DictionaryKeyPolicy renames).
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonObject? Mounts,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DocumentPayload? Document)
 {
     public string Kind => "page";

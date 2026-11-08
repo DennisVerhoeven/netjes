@@ -26,6 +26,12 @@ export type TestAppOptions = {
   params?: Params;
   /** What the server would send as `SharedProps`. */
   shared?: unknown;
+  /**
+   * Each mounted page package's URL for the page, by npm name, as the server sends it: `{ '@acme/help-center': '/help' }`,
+   * without the base path, or `null` for a prefix whose value the page has none for. The links, forms and router hooks
+   * of the package's generated file go below it.
+   */
+  mounts?: Record<string, string | null>;
   /** Seeded into the QueryClient the way `PageResult.WithQuery` seeds it, as of now. */
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>;
   /**
@@ -183,6 +189,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         ...(antiforgery ? { antiforgery } : {}),
         ...(options.draftMode ? { draftMode: true } : {}),
         ...(options.locale ? { locale: options.locale } : {}),
+        ...(options.mounts ? { mounts: options.mounts } : {}),
       }),
       [url],
     );

@@ -290,10 +290,15 @@ public sealed class PagePackageMount
     public PagePackage Package { get; }
     public string Folder { get; }
     public string Pattern { get; }
+    public Href Url(string path, RouteValueDictionary? values = null);
 }
 ```
 
 Where a package is mounted. `Folder` is the prefix's folders, relative to the app directory (`support/(desk)/help`); `Pattern` is its URL pattern without groups (`/support/help`, `/[tenant]/help`).
+
+`Url(path, values)` is the app's URL of `path`, a URL below the mount, for a package's services that write links in C#, such as an email or a cookie's path. `/articles` is `/help/articles` for a package mounted at `/help`, `/` is the mount itself (`/help`), and a query or fragment stays where it is (`/?page=2` is `/help?page=2`). Like every [`Href`](#href), it has no base path. `values` holds the values of the prefix's parameters, such as the request's route values (`http.Request.RouteValues`); others are ignored. Each value is encoded as one segment, so a `/`, `?`, `#` or `%` in it stays in its segment: `acme/x` gives `/acme%2Fx/help/articles` under `/[tenant]/help`. A `path` that does not start with one `/` (another host as in `//host` or `/\host`, a scheme, a relative URL, a query or fragment on its own, or one with a control character or a space at either end), or that has a `.` or `..` segment, also written `%2e` or after a `\`, which would climb out of the mount once a browser resolves it, throws `ArgumentException`, and so does a missing value of the prefix, an empty one, `.` and `..`, which a browser would resolve away.
+
+Each page payload carries, in `mounts`, every mounted package's URL for the request, by npm name: `/help`, `/acme/help`, or `null` when the request has no value for one of the prefix's parameters, or one that is empty, `.` or `..`. The package's links in the browser go below it ([`mounted`](react-api.md#mounted)). An app that mounts nothing sends no `mounts`.
 
 ### PagePackageMounts
 

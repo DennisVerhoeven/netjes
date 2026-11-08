@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Netjes.Routing;
 
 namespace Netjes;
@@ -22,6 +23,46 @@ public sealed class PagePackageMount
     public string Pattern => Prefix.Pattern;
 
     internal MountPrefix Prefix { get; }
+
+    /// <summary>
+    /// The app's URL of <paramref name="path"/>, a URL below the mount: <c>/articles</c> is <c>/help/articles</c> for a
+    /// package mounted at <c>/help</c>, and <c>/</c> is the mount itself. Like every <see cref="Netjes.Href"/>, it has no
+    /// base path.
+    /// </summary>
+    /// <param name="path">The path below the mount, starting with <c>/</c>, with its query and fragment if any.</param>
+    /// <param name="values">
+    /// The values of the prefix's parameters, such as the request's route values; others are ignored. Each one is
+    /// encoded as one segment of the URL.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="path"/> is not a link that starts with one <c>/</c> (another host, a scheme, a relative URL, or a
+    /// query or fragment on its own) or has a <c>.</c> or <c>..</c> segment, or <paramref name="values"/> has no value for
+    /// one of the prefix's parameters, an empty one, or <c>.</c> or <c>..</c>.
+    /// </exception>
+    public Href Url(string path, RouteValueDictionary? values = null)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (!Href.TryCreate(path, out _) || path[0] != '/' || HasADotSegment(path))
+        {
+            throw new ArgumentException(
+                $"'{path}' is no path below the mount of '{Package.Name}': start it with '/' (but not '//' or '/\\'), as in '/' for " +
+                "the mount itself, with no '.' or '..' segment, and leave out control characters and spaces at either end.",
+                nameof(path));
+        }
+
+        var prefix = Prefix.Url(values ?? [], out var unfilled) ?? throw new ArgumentException(
+            $"'{Package.Name}' is mounted at {Pattern}, and the values have no '{unfilled}' for it: a value is not empty, '.' or '..'.",
+            nameof(values));
+        return new Href(prefix == "/" ? path : path == "/" || path[1] is '?' or '#' ? prefix + path[1..] : prefix + path);
+    }
+
+    /// <summary>
+    /// Whether the path in <paramref name="url"/>, before its query or fragment, has a segment a browser resolves away and
+    /// would climb out of the mount with: <c>.</c> or <c>..</c>, also written with <c>%2e</c>, or after a <c>\</c>, which
+    /// browsers read as a <c>/</c>.
+    /// </summary>
+    private static bool HasADotSegment(string url) =>
+        url.Split('?', '#')[0].Split('/', '\\').Any(segment => segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..");
 
     /// <summary>The conventions put on the mount, which its own endpoints get: its file pages among them.</summary>
     internal List<Action<EndpointBuilder>> Conventions { get; } = [];

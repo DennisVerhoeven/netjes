@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEndpointUrl, buildHref, isRouteHref } from '../src/href.ts';
+import { buildEndpointUrl, buildHref, isHrefShape, isRouteHref } from '../src/href.ts';
 
 describe('isRouteHref', () => {
   const patterns = ['/', '/about', '/blog/[slug]', '/docs/[...path]', '/shop/[[...filters]]'];
@@ -51,6 +51,20 @@ describe('isRouteHref', () => {
     expect(isRouteHref('/llms.txt', ['/', '/docs/[...path]'])).toBe(false);
     expect(isRouteHref('/docs/blog/x', ['/blog/[slug]'])).toBe(false);
     expect(isRouteHref('/blog/x', ['/blog/[slug]'])).toBe(true);
+  });
+});
+
+describe('isHrefShape', () => {
+  it("accepts what a C# Href holds, whatever page it names: a page package's file cannot know the app's pages", () => {
+    for (const href of ['/', '/help/articles', '/llms.txt', '/a b', '?page=2', '#top', 'https://example.com', 'HTTP://x', 'mailto:a@b.c', 'tel:1']) {
+      expect(isHrefShape(href), href).toBe(true);
+    }
+  });
+
+  it('refuses other hosts, other schemes and relative URLs, as a C# Href does', () => {
+    const refused = ['//x', '/\\x', 'javascript:alert(1)', 'data:text/html,x', 'about', '', ' /x', '/x ', '/\t/evil.example', '/a\u007Fb', '#top\n'];
+
+    expect(refused.filter((href) => isHrefShape(href))).toEqual([]);
   });
 });
 

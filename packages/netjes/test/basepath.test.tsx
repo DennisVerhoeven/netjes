@@ -5,6 +5,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Form, SubmitButton } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
+import { mounted } from '../src/mounted.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
 import { RouterProvider, useHref, useNavigation, usePathname, useRouter } from '../src/router.tsx';
@@ -37,7 +38,34 @@ function Page(props: Record<string, unknown>) {
   );
 }
 
-const modules = { '/app/page/page.tsx': async () => ({ default: Page }) };
+const help = mounted('@acme/help-center');
+
+/** A page package's page, mounted at /help: its links, forms and router go below the mount, under the base path. */
+function HelpPage(props: Record<string, unknown>) {
+  const router = help.useRouter();
+  return (
+    <main>
+      <h1>{`${String(props.title)} at ${help.usePathname()}`}</h1>
+      <help.Link href="/articles">Articles</help.Link>
+      <a href={help.useHref('/feed.xml')}>Feed</a>
+      <button type="button" onClick={() => router.prefetch('/contact')}>
+        warm
+      </button>
+      <button type="button" onClick={() => void router.push('/contact')}>
+        contact
+      </button>
+      <help.Form method="post" action="/feedback">
+        <button type="submit">Send</button>
+        <help.SubmitButton formAction="/feedback/delete">Delete</help.SubmitButton>
+      </help.Form>
+    </main>
+  );
+}
+
+const modules = {
+  '/app/page/page.tsx': async () => ({ default: Page }),
+  '/@acme/help-center/app/page.tsx': async () => ({ default: HelpPage }),
+};
 
 function payload(url: string, title: string): PagePayload {
   return {
@@ -52,6 +80,15 @@ function payload(url: string, title: string): PagePayload {
     url: `/base${url}`,
     version: 'v1',
     basePath: '/base',
+  };
+}
+
+/** A page of the package mounted at /help, under the base path. */
+function helpPayload(path: string, title: string): PagePayload {
+  return {
+    ...payload(`/help${path === '/' ? '' : path}`, title),
+    page: '@acme/help-center/app/page.tsx',
+    mounts: { '@acme/help-center': '/help' },
   };
 }
 
@@ -178,5 +215,46 @@ describe('a base path', () => {
 
     expect(await screen.findByRole('heading', { name: 'Signed at /guestbook' })).toBeDefined();
     expect(posted).toHaveBeenCalledTimes(1);
+  });
+
+  it("is added in front of a page package's mount, to its links, router, hrefs and forms", async () => {
+    const fetched = vi.fn();
+    const posted = vi.fn();
+    server.use(
+      http.get(`${origin}/base/help/articles`, () => HttpResponse.json(helpPayload('/articles', 'Articles'))),
+      http.get(`${origin}/base/help/contact`, () => {
+        fetched();
+        return HttpResponse.json(helpPayload('/contact', 'Contact'));
+      }),
+      http.post(`${origin}/base/help/feedback`, () => {
+        posted('send');
+        return HttpResponse.json(helpPayload('/feedback', 'Sent'));
+      }),
+      http.post(`${origin}/base/help/feedback/delete`, () => {
+        posted('delete');
+        return HttpResponse.json(helpPayload('/feedback', 'Deleted'));
+      }),
+    );
+    const user = await renderApp(helpPayload('/', 'Help'));
+
+    expect(screen.getByRole('heading', { name: 'Help at /' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Articles' }).getAttribute('href')).toBe('/base/help/articles');
+    expect(screen.getByRole('link', { name: 'Feed' }).getAttribute('href')).toBe('/base/help/feed.xml');
+    expect(screen.getByRole('button', { name: 'Send' }).closest('form')?.getAttribute('action')).toBe('/base/help/feedback');
+    expect(screen.getByRole('button', { name: 'Delete' }).getAttribute('formaction')).toBe('/base/help/feedback/delete');
+
+    await user.click(screen.getByRole('link', { name: 'Articles' }));
+    expect(await screen.findByRole('heading', { name: 'Articles at /articles' })).toBeDefined();
+    expect(window.location.pathname).toBe('/base/help/articles');
+    await user.click(screen.getByRole('button', { name: 'warm' }));
+    await vi.waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: 'contact' }));
+    expect(await screen.findByRole('heading', { name: 'Contact at /contact' })).toBeDefined();
+    expect(window.location.pathname).toBe('/base/help/contact');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('heading', { name: 'Sent at /feedback' })).toBeDefined();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByRole('heading', { name: 'Deleted at /feedback' })).toBeDefined();
+    expect(posted.mock.calls).toEqual([['send'], ['delete']]);
   });
 });
