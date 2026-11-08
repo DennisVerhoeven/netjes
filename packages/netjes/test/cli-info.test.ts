@@ -256,10 +256,12 @@ describe('netjes info', () => {
     nuget,
     listed = true,
     name = HELP,
-  }: { version?: string; peer?: string | null; nuget?: string; listed?: boolean; name?: string } = {}) {
+    dev = false,
+  }: { version?: string; peer?: string | null; nuget?: string; listed?: boolean; name?: string; dev?: boolean } = {}) {
     const manifestPath = path.join(app, 'package.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-    manifest.dependencies[name] = packageVersion;
+    const deps = dev ? 'devDependencies' : 'dependencies';
+    manifest[deps] = { ...manifest[deps], [name]: packageVersion };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
     await mkdir(path.join(app, 'node_modules', name), { recursive: true });
     const pkg = {
@@ -293,6 +295,18 @@ describe('netjes info', () => {
     expect(out).not.toMatch(/^[✗!]/m);
     expect(code).toBe(0);
     expect(out).toContain(`✓ page packages: ${HELP} 1.2.0, @acme/status 0.3.1`);
+  });
+
+  it('names a page package the app lists in devDependencies, and checks it', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ dev: true, peer: '>=99.0.0' });
+
+    const { code, out } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✓ page packages: ${HELP} 1.2.0`);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 supports Netjes >=99.0.0`);
   });
 
   it('shows no page packages when the app depends on none', async () => {
