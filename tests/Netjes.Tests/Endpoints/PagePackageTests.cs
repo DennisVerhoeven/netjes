@@ -334,7 +334,15 @@ public class PagePackageTests
         {
             var response = await app.GetDataAsync(url);
             Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
-            Assert.DoesNotContain(Help, await response.Content.ReadAsStringAsync(Ct));
+            var body = await response.Content.ReadAsStringAsync(Ct);
+            // Every page payload names the mounted packages in its mounts; nothing else in it names the package.
+            if (response.Content.Headers.ContentType?.MediaType == "application/json" && JsonNode.Parse(body) is JsonObject payload)
+            {
+                Assert.True(payload.Remove("mounts"));
+                body = payload.ToJsonString();
+            }
+
+            Assert.DoesNotContain(Help, body);
         }
 
         // The app's own page in the package's folder is the app's to protect: the scope the guide documents.

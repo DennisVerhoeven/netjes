@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using System.Security.Cryptography;
@@ -446,6 +447,7 @@ internal sealed class PageRenderer(
             DraftMode: draftMode,
             BasePath: http.Request.PathBase.HasValue ? http.Request.PathBase.Value : null,
             Locale: locale,
+            Mounts: MountsFor(http),
             Document: documentAssets is null
                 ? null
                 : new DocumentPayload(
@@ -1078,6 +1080,27 @@ internal sealed class PageRenderer(
         }
 
         return result.Count > 0 ? new Dictionary<string, IReadOnlyDictionary<string, object?>>(result, StringComparer.Ordinal) : null;
+    }
+
+    /// <summary>
+    /// Each mounted page package's URL for this request, by npm name, which its links in the browser go below: null for
+    /// a prefix whose value the request has none for (or an empty one, <c>.</c> or <c>..</c>). Null when nothing is
+    /// mounted, which leaves the payload as it was.
+    /// </summary>
+    private JsonObject? MountsFor(HttpContext http)
+    {
+        if (sources.Mounts is not { Count: > 0 } mounts)
+        {
+            return null;
+        }
+
+        var result = new JsonObject();
+        foreach (var mounted in mounts)
+        {
+            result[mounted.Name] = mounted.Mount.Prefix.Url(http.Request.RouteValues, out _);
+        }
+
+        return result;
     }
 
     private static IReadOnlyDictionary<string, object?>? ParamsOrNull(Dictionary<string, object?>? values) => values is { Count: > 0 } ? values : null;
