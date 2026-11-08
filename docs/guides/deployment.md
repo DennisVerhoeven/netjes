@@ -198,9 +198,9 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route` |
-| `netjes.action` | A page action | `netjes.route` |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page`, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.

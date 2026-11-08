@@ -26,6 +26,10 @@ public class ModeTests
         Directory.CreateDirectory(Path.Combine(client, ".vite"));
         Directory.CreateDirectory(Path.Combine(client, "assets"));
         File.WriteAllText(Path.Combine(client, ".vite", "manifest.json"), Manifest);
+        // The record of the page packages the build holds; the app mounts none of them.
+        File.WriteAllText(
+            Path.Combine(client, ".vite", "netjes.json"),
+            """{ "packages": [{ "name": "@acme/help-center", "version": "1.0.0", "netjes": "*", "pages": "app", "files": {} }] }""");
         File.WriteAllText(Path.Combine(client, "assets", "index-CCC.js"), "export {}");
         File.WriteAllText(Path.Combine(client, "favicon.svg"), "<svg/>");
     }
@@ -81,6 +85,10 @@ public class ModeTests
     [InlineData("http://localhost///.vite/manifest.json")]
     [InlineData("/%5C.vite/manifest.json")]
     [InlineData("/.vite%5Cmanifest.json")]
+    [InlineData("/.vite/netjes.json")]
+    [InlineData("/%2evite/netjes.json")]
+    [InlineData("/.VITE/NETJES.JSON")]
+    [InlineData("/.vite%5Cnetjes.json")]
     public async Task Production_DoesNotServeTheViteManifest(string path)
     {
         await using var app = await TestApp.StartAsync([], environment: "Production", prepareRoot: WriteProductionBuild);
@@ -88,7 +96,9 @@ public class ModeTests
         var response = await app.GetDocumentAsync(path);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.DoesNotContain("client-entry", await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.DoesNotContain("client-entry", body);
+        Assert.DoesNotContain("help-center", body);
     }
 
     [Fact]

@@ -40,9 +40,23 @@ public static class NetjesTelemetry
         return activity;
     }
 
-    /// <summary>Times one page response: a <c>netjes.render</c> span and the <c>netjes.render.duration</c> histogram.</summary>
-    internal static RenderScope StartRender(Microsoft.AspNetCore.Http.HttpContext http, string? route, string? page, bool isData) =>
-        new(http, route, page, isData ? "data" : "document");
+    /// <summary>
+    /// Times one page response: a <c>netjes.render</c> span and the <c>netjes.render.duration</c> histogram. The span
+    /// carries the page's file id, and the page package it is of; the histogram carries neither.
+    /// </summary>
+    internal static RenderScope StartRender(Microsoft.AspNetCore.Http.HttpContext http, string? route, string? page, string? package, bool isData) =>
+        new(http, route, page, package, isData ? "data" : "document");
+
+    /// <summary>Tags a span with the page package whose page it is about (<c>netjes.package</c>); nothing for the app's own.</summary>
+    internal static Activity? WithPackage(this Activity? activity, string? package)
+    {
+        if (package is not null)
+        {
+            activity?.SetTag("netjes.package", package);
+        }
+
+        return activity;
+    }
 
     internal sealed class RenderScope : IDisposable
     {
@@ -52,12 +66,12 @@ public static class NetjesTelemetry
         private readonly Activity? _activity;
         private readonly long _started = Stopwatch.GetTimestamp();
 
-        internal RenderScope(Microsoft.AspNetCore.Http.HttpContext http, string? route, string? page, string response)
+        internal RenderScope(Microsoft.AspNetCore.Http.HttpContext http, string? route, string? page, string? package, string response)
         {
             _http = http;
             _route = route;
             _response = response;
-            _activity = StartActivity("netjes.render", route);
+            _activity = StartActivity("netjes.render", route).WithPackage(package);
             _activity?.SetTag("netjes.page", page);
             _activity?.SetTag("netjes.response", response);
         }

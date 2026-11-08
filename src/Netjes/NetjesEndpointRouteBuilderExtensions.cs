@@ -24,7 +24,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         // Fail at startup on a route conflict or a file name the conventions do not allow. Production builds the table
         // from the manifest when it is first read, and the matcher reads the pages' endpoints for every request: left
         // to then, every request would answer 500, /healthz and unknown URLs too.
-        _ = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
+        var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
+        // An app page and a page package's page of one shape: the mounts are all in, and no override resolved it.
+        if (table.PendingConflicts is [var conflict, ..])
+        {
+            throw conflict.ToException();
+        }
+
+        endpoints.ServiceProvider.GetRequiredService<RouteSources>().MarkPagesMapped();
         var dataSource = endpoints.ServiceProvider.GetRequiredService<PagesEndpointDataSource>();
         if (!endpoints.DataSources.Contains(dataSource))
         {
@@ -85,7 +92,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(EndAborted)
-            .AddEndpointFilter(Traced("netjes.loader", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.loader", route))
             .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
             .ExcludeFromDescription();
@@ -112,7 +119,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .MapPost(route.Template, action)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
-            .AddEndpointFilter(Traced("netjes.action", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.action", route))
             .WithMetadata(EndpointMetadataFor(route.Pattern, action, isLoader: false))
             .WithMetadata(new PageActionMetadata(route.Pattern), new ActionFormFields(action.Method), new RequireAntiforgeryTokenAttribute())
             .AddEndpointFilter(RejectCrossSitePosts)
@@ -150,6 +157,11 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         if (matches.Count == 0)
         {
             var pattern = normalized.Length == 0 ? "/" : normalized;
+            if (table.PendingConflictFor(pattern) is { } conflict)
+            {
+                throw conflict.ToException();
+            }
+
             matches = [.. layouts.Where(s => s.Pattern == pattern)];
         }
 
@@ -205,11 +217,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         }
     }
 
-    /// <summary>A span around the loader or action delegate (see <see cref="NetjesTelemetry"/>).</summary>
-    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string route) =>
+    /// <summary>
+    /// A span around the loader or action delegate of a page (see <see cref="NetjesTelemetry"/>), with the page package
+    /// whose page it is.
+    /// </summary>
+    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, PageRoute route) =>
         async (context, next) =>
         {
-            using var activity = NetjesTelemetry.StartActivity(operation, route);
+            using var activity = NetjesTelemetry.StartActivity(operation, route.Pattern).WithPackage(route.IsFromTheApp ? null : route.Source);
             try
             {
                 return await next(context);
@@ -489,6 +504,12 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     {
         var context = endpoints.ServiceProvider.GetRequiredService<NetjesContext>();
         var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
+        // The page's file is contested: that is the error to fix, whoever owns the loader.
+        if (table.PendingConflictFor(pattern) is { } conflict)
+        {
+            throw conflict.ToException();
+        }
+
         return table.Find(pattern) ?? throw new InvalidOperationException(
             $"No page file matches '{pattern}'. Expected {PageRenderer.ExpectedFile(context, pattern)}. " +
             $"Known pages: {string.Join(", ", table.Pages.Select(p => p.Pattern))}.");

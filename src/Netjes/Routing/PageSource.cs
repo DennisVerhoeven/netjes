@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Netjes.Routing;
 
 /// <summary>
@@ -14,7 +16,7 @@ namespace Netjes.Routing;
 /// the pages folder for a package (<c>@acme/help-center/app/</c>).
 /// </param>
 /// <param name="Files">The source's files by id. The app's may hold other files, which are left out.</param>
-internal sealed record PageSource(string Name, string Folder, string IdPrefix, IReadOnlyList<string> Files)
+internal sealed partial record PageSource(string Name, string Folder, string IdPrefix, IReadOnlyList<string> Files)
 {
     public const string AppName = "app";
 
@@ -30,4 +32,11 @@ internal sealed record PageSource(string Name, string Folder, string IdPrefix, I
     /// <param name="files">The package's files by id: <c>@acme/help-center/app/page.tsx</c>.</param>
     public static PageSource Package(string name, string pages, MountPrefix prefix, IEnumerable<string> files) =>
         new(name, prefix.Folder, $"{name}/{pages}/", [.. files]);
+
+    /// <summary>Whether <paramref name="name"/> is an npm package name, which is what a page package goes by.</summary>
+    public static bool IsNpmName(string name) => NpmNameRegex().IsMatch(name);
+
+    // npm's rules, with the capitals that older names have.
+    [GeneratedRegex("^(?:@[A-Za-z0-9~-][A-Za-z0-9._~-]*/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$")]
+    private static partial Regex NpmNameRegex();
 }

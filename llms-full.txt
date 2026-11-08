@@ -4626,9 +4626,9 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route` |
-| `netjes.action` | A page action | `netjes.route` |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page`, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
@@ -5545,7 +5545,7 @@ The extension methods belong to these static classes, which app code never names
 |---|---|---|
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
-| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `CacheQueryKeys` |
+| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapPagePackage`, `MapAction`, `CachePage`, `CacheQueryKeys` |
 | `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
@@ -5578,7 +5578,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages, the file pages of mounted [page packages](#page-packages) too, after their mount's. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there, and so does an app page of the same shape as a mounted package's page ([Route errors](#route-errors)). Mount page packages before it.
 
 ### AddNetjes (health checks)
 
@@ -5750,6 +5750,78 @@ A link in props, to one of the app's pages or to another site: a root-relative U
 - Two values are equal when their URLs are the same, character by character. `Value` and `ToString()` return the URL, and an `Href` converts to `string` wherever one is expected.
 
 The name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `Href` gets CS0104 for it. Qualify one of the two, or give one an alias (`using SiteHref = MyCms.Href;`).
+
+## Page packages
+
+A page package is a NuGet package and an npm package of one version that bring pages, layouts and boundaries, which an app mounts at a prefix. The npm half is listed in `netjes({ packages })` in `vite.config.ts` ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#page-packages)); the C# half holds a `PagePackage` and an extension that mounts it.
+
+### MapPagePackage
+
+```csharp
+public static PagePackageBuilder MapPagePackage(this IEndpointRouteBuilder endpoints, PagePackage package, string prefix)
+```
+
+Mounts the package's pages folder at `prefix`, written in folder syntax: `/help`, `/(marketing)/help`, `/support/(desk)/help`, `/[tenant]/help` or `/`. Its segments are literal URL segments, `[name]` values and `(group)` route groups; a catch-all, an `@slot`, a `_private` folder, an intercepting folder, `.`, `..`, `%`, `\` and an empty segment throw `ArgumentException`. The package's files merge into the app's route table by folder, under the prefix's folders: its `layout.tsx` at the mount wraps the app's own pages in that folder too, and its route group `(center)` wraps the app's pages in `app/help/(center)/`. The URLs leave out the groups, as for the app's own folders. Each of its files has an id of its npm name, its pages folder and its path there, such as `@netjes-examples/help-center/app/contact/page.tsx`, which is what the payload's `page`, errors, `netjes routes` and telemetry name.
+
+In development and in the `generate` and `routes` commands, the package is found in `node_modules` of the app or a folder above it, with a workspace link resolved, and a file added to it is routed without a restart. In production it comes from the client build's record, `dist/client/.vite/netjes.json`, which names each file's chunk in the manifest; the record is published with the manifest and, like it, never served or exported. These stop the app in one line (`NetjesStartupException`):
+
+- `'@netjes-examples/help-center' is mounted but not installed: npm install @netjes-examples/help-center@1.2.0`, with the version of the C# half;
+- `'@netjes-examples/help-center' is mounted but not in the client build: add it to netjes({ packages }) in vite.config.ts and build again`;
+- a package whose `package.json` is not JSON or has no `netjes` field or no `peerDependencies.netjes`, whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`), or that has no pages folder (`app`, unless `pages` names another), as the Vite plugin refuses them;
+- a file in the record without a chunk in the manifest.
+
+A file of the package that the conventions refuse, such as a `global-error` or a `route.ts`, and a conflict with another package or between two packages' layouts in one folder, throw here ([Route errors](#route-errors)). An app page of the same shape as one of the package's pages is held until `MapPages()`, which throws it, and so do `MapPageLoader` and `MapLayoutLoader` for that page's URL. Call it on the app, before `MapPages()` and once per package: inside a `MapGroup`, after `MapPages()` and for a package mounted already, it throws `InvalidOperationException`.
+
+### PagePackageBuilder
+
+```csharp
+namespace Netjes.Routing;
+
+public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConventionBuilder
+{
+    public PagePackageMount Mount { get; }
+}
+```
+
+What `MapPagePackage` returns, for the package's extension to map through. A minimal API endpoint mapped on it (`MapGet`, `MapPost`) maps below the mount's URL. Conventions on it, such as `RequireAuthorization()`, apply to the package's own endpoints: its file pages and the endpoints mapped through it. They do not reach the app's own pages under the prefix; an app layout loader above those protects them, and an app layout loader above the mount protects the package's pages as well.
+
+### PagePackage
+
+```csharp
+public sealed class PagePackage
+{
+    public PagePackage(string name, System.Reflection.Assembly assembly);
+    public string Name { get; }
+    public string Version { get; }
+}
+```
+
+The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix. A name that is not an npm package name throws `ArgumentException`.
+
+### PagePackageMount
+
+```csharp
+public sealed class PagePackageMount
+{
+    public PagePackage Package { get; }
+    public string Folder { get; }
+    public string Pattern { get; }
+}
+```
+
+Where a package is mounted. `Folder` is the prefix's folders, relative to the app directory (`support/(desk)/help`); `Pattern` is its URL pattern without groups (`/support/help`, `/[tenant]/help`).
+
+### PagePackageMounts
+
+```csharp
+public sealed class PagePackageMounts
+{
+    public IReadOnlyList<PagePackageMount> All { get; }
+    public PagePackageMount Get(string name);
+}
+```
+
+A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted.
 
 ## Metadata, sitemap and robots
 
@@ -6152,7 +6224,7 @@ public sealed class InvalidPageFileException(string message) : Exception;
 
 Netjes throws these when the files in `app/` break the file conventions. The message names the files and what to change.
 
-- `RouteConflictException`: two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, or two files for one convention in one folder, such as `page.tsx` and `page.jsx`. Pages that only overlap, such as `[id]` next to `[...rest]`, get a [route warning](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#two-pages-that-match-the-same-urls) instead.
+- `RouteConflictException`: two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, or two files for one convention in one folder, such as `page.tsx` and `page.jsx`. Pages that only overlap, such as `[id]` next to `[...rest]`, get a [route warning](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#two-pages-that-match-the-same-urls) instead. With [page packages](#page-packages) mounted, it is also an app page of the same shape as a package's page (thrown by `MapPages()`), two packages' pages of one shape, two sources' files for one convention in one folder, and folders of two sources that differ only in case.
 - `InvalidPageFileException`: a file name the conventions do not allow, such as a catch-all that is not the last segment, a `global-error` file below the app root, or a `route.ts` file. `UseNetjes` also throws it for page files in a `pages/` folder, which Netjes does not route ([Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#what-is-not-there)).
 
 `MapPages` reads the routes as the app starts, from `app/` in development and from the client build's manifest in production, so either exception stops the app there, and a test that starts the app can catch it by type. When a file changes while the development server runs, Netjes logs the error instead and keeps the previous routes.
@@ -7577,6 +7649,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 ### Added
 
 - `netjes({ packages })` in `vite.config.ts` lists page packages: npm packages whose `package.json` has a `netjes` field (`pages`, `sources`, `css`, `nuget`) and a `netjes` peer range. Their convention files join the page module map under file ids such as `@netjes-examples/help-center/app/page.tsx`, both builds compile them, their sources and stylesheet join the app's Tailwind CSS build, and the client build writes `dist/client/.vite/netjes.json`, which lists them for the .NET app. In development the dev server may read each package by its real path, denies its `bin/`, `obj/` and `dist/server/` folders, and watches a linked one. A package that is not installed or is no page package, a path that leaves the package, and `tailwind: false` stop the config in one line ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#page-packages)). An app that lists none sees no change, except that `virtual:netjes/pages` also exports `packages`, `[]`.
+- `app.MapPagePackage(package, prefix)` mounts a page package, described in C# by a `PagePackage` (its npm name and its assembly's version), at a prefix in folder syntax: `/help`, `/(marketing)/help`, `/[tenant]/help`. Its pages, layouts and boundaries merge into the route table by folder, so its layout at the mount wraps the app's own pages in that folder too. They come from `node_modules` in development, where a file added to the package is routed without a restart, and from `dist/client/.vite/netjes.json` in production. Conventions on the returned `PagePackageBuilder`, such as `RequireAuthorization()`, apply to the package's file pages and to what is mapped through it, not to the app's pages under the prefix; `MapPages()`'s conventions apply to the package's file pages after them. `PagePackageMounts` lists the mounts for a package's services. A package that is not installed, not in the client build or not a page package stops the app in one line; an app page of the same shape as a package's page stops `MapPages()`; `MapPagePackage` inside a `MapGroup`, after `MapPages()` or twice for one package throws. The render, loader and action spans of a package's pages carry `netjes.package` ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#page-packages)). An app that mounts nothing sees no change.
 
 ## [0.0.3] - 2026-11-07
 

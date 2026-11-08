@@ -8,9 +8,11 @@ namespace Netjes.Routing;
 
 /// <summary>
 /// One endpoint per page file that has no explicit loader, plus a lowest-priority fallback that renders the 404 page.
-/// Rebuilt whenever the route table changes, so pages added in development are routable without a restart.
+/// Rebuilt whenever the route table changes, so pages added in development are routable without a restart. A page gets
+/// the conventions of the layout loaders above it, a page package's page those of its mount, then those of MapPages().
 /// </summary>
-internal sealed class PagesEndpointDataSource(IRouteTableProvider routes, PageLoaderRegistry loaders, LayoutLoaderRegistry layouts)
+internal sealed class PagesEndpointDataSource(
+    IRouteTableProvider routes, PageLoaderRegistry loaders, LayoutLoaderRegistry layouts, RouteSources sources)
     : EndpointDataSource, IEndpointConventionBuilder
 {
     private static readonly HttpMethodMetadata ReadMethods = new([HttpMethods.Get, HttpMethods.Head]);
@@ -59,6 +61,13 @@ internal sealed class PagesEndpointDataSource(IRouteTableProvider routes, PageLo
             builder.Metadata.Add(new PageEndpointMetadata(route.Pattern));
             builder.Metadata.Add(new PageRouteMetadata(route.Pattern, isLoader: false));
             layouts.ApplyConventions(route, builder);
+            // A package's file pages are its own endpoints, so its mount's conventions apply, before MapPages()'s.
+            if (!route.IsFromTheApp && sources.Find(route.Source) is { } mounted)
+            {
+                mounted.Mount.Conventions.ForEach(convention => convention(builder));
+                mounted.Mount.FinallyConventions.ForEach(convention => convention(builder));
+            }
+
             _conventions.ForEach(convention => convention(builder));
             _finallyConventions.ForEach(convention => convention(builder));
             endpoints.Add(builder.Build());

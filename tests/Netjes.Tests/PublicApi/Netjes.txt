@@ -10,6 +10,7 @@ public static class Microsoft.AspNetCore.Builder.NetjesEndpointRouteBuilderExten
   public static Netjes.Routing.LayoutLoaderBuilder MapLayoutLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string segment, Delegate loader)
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageAction(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate action)
   public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapPageLoader(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string pattern, Delegate loader)
+  public static Netjes.Routing.PagePackageBuilder MapPagePackage(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, Netjes.PagePackage package, string prefix)
   public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapPages(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints)
 public static class Microsoft.AspNetCore.Builder.NetjesLocalizationApplicationBuilderExtensions
   public static Microsoft.AspNetCore.Builder.IEndpointConventionBuilder MapLocaleRedirect(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints)
@@ -185,6 +186,17 @@ public sealed record Netjes.PageMetadataTwitter : IEquatable<Netjes.PageMetadata
   public string? Creator { get; init; }
   public System.Collections.Generic.IReadOnlyList<Netjes.PageMetadataImage>? Images { get; init; }
   public string? Site { get; init; }
+public sealed class Netjes.PagePackage
+  public PagePackage(string name, System.Reflection.Assembly assembly)
+  public string Name { get; }
+  public string Version { get; }
+public sealed class Netjes.PagePackageMount
+  public string Folder { get; }
+  public Netjes.PagePackage Package { get; }
+  public string Pattern { get; }
+public sealed class Netjes.PagePackageMounts
+  public System.Collections.Generic.IReadOnlyList<Netjes.PagePackageMount> All { get; }
+  public Netjes.PagePackageMount Get(string name)
 public sealed class Netjes.PageResult : Microsoft.AspNetCore.Http.IResult
   public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)
   public Netjes.PageResult WithMetadata(Netjes.PageMetadata metadata)
@@ -274,6 +286,8 @@ public sealed class Netjes.Routing.InvalidPageFileException : Exception
 public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder
   public void Add(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> convention)
   public void Finally(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> finallyConvention)
+public sealed class Netjes.Routing.PagePackageBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
+  public Netjes.PagePackageMount Mount { get; }
 public sealed class Netjes.Routing.PageRouteMetadata
   public bool IsLoader { get; }
   public string Pattern { get; }
