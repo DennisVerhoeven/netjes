@@ -15,7 +15,7 @@ namespace Netjes.Routing;
 internal sealed record PagePackageInstall(string Name, string Version, string Netjes, string Pages, string? Nuget)
 {
     /// <summary>The real path of the package's folder, links resolved; null in production.</summary>
-    public string? Directory { get; init; }
+    public string? Root { get; init; }
 
     /// <summary>Production: the id of each of its convention files, and that file's key in the client build's manifest.</summary>
     public IReadOnlyDictionary<string, string>? Files { get; init; }
@@ -82,7 +82,7 @@ internal sealed record PagePackageInstall(string Name, string Version, string Ne
             pages,
             Text(field, "nuget"))
         {
-            Directory = directory,
+            Root = directory,
         };
     }
 

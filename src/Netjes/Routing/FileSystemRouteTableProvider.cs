@@ -153,7 +153,7 @@ internal sealed class FileSystemRouteTableProvider : IRouteTableProvider, IDispo
             _sources.Overrides);
     }
 
-    private static string PagesFolder(MountedPackage mounted) => Path.Combine(mounted.Install.Directory!, mounted.Install.Pages);
+    private static string PagesFolder(MountedPackage mounted) => Path.Combine(mounted.Install.Root!, mounted.Install.Pages);
 
     // As the Vite plugin lists them: leaving out node_modules and hidden folders.
     private static IEnumerable<string> PackageFiles(MountedPackage mounted)
