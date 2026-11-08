@@ -372,6 +372,25 @@ async function checkPackages(cwd, cliVersion) {
   return { checks, netjes: netjes?.version };
 }
 
+/** @param {string} text */
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The project file's PackageReference of the NuGet package `name`, in any case as NuGet compares ids: the Version it
+ * gives, and that version when it is an exact one, 1.2.3 or [1.2.3]. A range, a floating version or an MSBuild property
+ * such as $(NetjesVersion) is resolved by NuGet and MSBuild, which this does not repeat, so it has no exact version.
+ * Null when the project does not reference the package.
+ * @param {string} text
+ * @param {string} name
+ * @returns {{ reference: string | undefined; version: string | undefined } | null}
+ */
+function packageReference(text, name) {
+  const element = new RegExp(`<PackageReference\\s+[^>]*Include="${escapeRegExp(name)}"[^>]*>`, 'i').exec(text)?.[0];
+  if (!element) return null;
+  const reference = /\sVersion="([^"]*)"/i.exec(element)?.[1];
+  return { reference, version: /^\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?$/.exec(reference?.trim() ?? '')?.[1] };
+}
+
 /**
  * How the project file references Netjes, and whether that is the version of the npm package.
  * @param {string} cwd
@@ -389,17 +408,14 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
       ? ok(`${csproj} references the Netjes checkout at ${file}`)
       : fail(`${csproj} references Netjes at ${file}, which does not exist`, 'Point its ProjectReference (and the Netjes.targets import) at src/Netjes in a Netjes checkout');
   }
-  const element = /<PackageReference\s+[^>]*Include="Netjes"[^>]*>/i.exec(text)?.[0];
-  if (!element) {
+  const found = packageReference(text, 'Netjes');
+  if (!found) {
     return warn(
       `${csproj} does not reference the Netjes package`,
       `Add <PackageReference Include="Netjes" Version="[${npmVersion ?? cliVersion}]" />, unless a Directory.Packages.props does`,
     );
   }
-  const reference = /\sVersion="([^"]*)"/i.exec(element)?.[1];
-  // Only an exact version, 1.2.3 or [1.2.3], is compared: a range, a floating version or an MSBuild property such as
-  // $(NetjesVersion) is resolved by NuGet and MSBuild, which this does not repeat.
-  const version = /^\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?$/.exec(reference?.trim() ?? '')?.[1];
+  const { reference, version } = found;
   const shown = version ?? reference;
   if (!version || !npmVersion) return ok(`${csproj} references Netjes${shown ? ` ${shown}` : ''}`);
   return version === npmVersion
