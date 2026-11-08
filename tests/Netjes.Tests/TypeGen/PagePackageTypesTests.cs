@@ -251,6 +251,99 @@ public class PagePackageTypesTests
         Assert.Equal(state == "missing", !File.Exists(PackageTypesPath(app)));
     }
 
+    public sealed record ContactProps(string Email);
+
+    [Fact]
+    public async Task AnOverriddenPage_IsTyped_InThePackagesFile_WhoseLoaderItRendersWith()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.MapPageLoader("/contact", () => Page.Props(new ContactProps("help@example.com")));
+                m.Override("/help/contact");
+            });
+
+        var package = PackageFile(app);
+        var appFile = AppFile(app);
+
+        Assert.Contains("  \"/contact\": ContactProps,\n", package);
+        Assert.DoesNotContain("ContactProps", appFile);
+        Assert.Contains("export const pages = {\n  \"/\": z.object({}),\n} as const;", appFile);
+        Assert.Contains("\"/help/contact\": Record<string, never>;", appFile);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("generated/netjes.ts")]
+    [InlineData("./generated/../generated/netjes.ts")]
+    [InlineData("GENERATED/netjes.ts")]
+    public async Task WriteTypes_RefusesNoPathAndTheAppsOwnFile(string path)
+    {
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() => StartAsync(["app/page.tsx"], mount: m => m.WriteTypes(path)));
+
+        Assert.Equal("path", failure.ParamName);
+        Assert.Contains("WriteTypes", failure.Message);
+        Assert.Contains("'@acme/help-center'", failure.Message);
+        Assert.Contains(path.Trim().Length == 0 ? "needs the path of a file" : "the app's own generated file", failure.Message);
+    }
+
+    [Fact]
+    public async Task WriteTypes_RefusesTheFileOfAnotherPackage()
+    {
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, ["page.tsx"]);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help").WriteTypes("types/netjes.ts");
+                a.MapPagePackage(TestPagePackage.Other, "/status").WriteTypes("types/../types/netjes.ts");
+            }));
+
+        Assert.Contains("on the mount of '@acme/status' names the generated file of '@acme/help-center'", failure.Message);
+    }
+
+    [Fact]
+    public async Task WriteTypes_RefusesNull()
+    {
+        await Assert.ThrowsAsync<ArgumentNullException>(() => StartAsync(["app/page.tsx"], mount: m => m.WriteTypes(null!)));
+    }
+
+    /// <summary>Types named like the exports of a page package's file, which an app's file does not have.</summary>
+    public static class Named
+    {
+        public sealed record Link(string Title);
+
+        public sealed record MountHref(string Url);
+
+        public sealed record LinksProps(Link Link, MountHref Next);
+    }
+
+    [Fact]
+    public async Task ThePackagesFile_RenamesATypeNamedLikeOneOfItsExports_AndTheAppsFileDoesNot()
+    {
+        await using var app = await StartAsync(
+            ["app/links/page.tsx"],
+            map: a => a.MapPageLoader("/links", () => Page.Props(new Named.LinksProps(new("Home"), new("/")))),
+            mount: m => m.MapPageLoader("/contact", () => Page.Props(new Named.LinksProps(new("Help"), new("/")))));
+
+        var package = PackageFile(app);
+        var appFile = AppFile(app);
+
+        Assert.Contains("export const NamedLink = z.object({", package);
+        Assert.Contains("export const NamedMountHref = z.object({", package);
+        Assert.DoesNotContain("export const Link = z", package);
+        Assert.Contains("export const { Link, Form, SubmitButton, useRouter, usePathname, useHref } = mounted<MountHref>(", package);
+        Assert.Contains("export const Link = z.object({", appFile);
+        Assert.Contains("export const MountHref = z.object({", appFile);
+    }
+
     /// <summary>The app's own type of the same name as one of the package's.</summary>
     public static class AppTypes
     {
