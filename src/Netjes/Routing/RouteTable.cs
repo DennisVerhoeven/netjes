@@ -302,11 +302,11 @@ internal sealed partial class RouteTable
     /// <param name="overrides">App-absolute URL patterns where the app's page replaces a package's page.</param>
     public static RouteTable Build(IReadOnlyList<PageSource> sources, IReadOnlyCollection<string> overrides)
     {
-        var appSource = sources.Single(s => s.IsApp);
-        var root = appSource.IdPrefix.TrimEnd('/');
+        RequireValid(sources);
+        var root = sources.Single(s => s.IsApp).IdPrefix.TrimEnd('/');
         // In ordinal order, so the same files give the same table and the same error, whichever order the file system
         // (development) or the build manifest (production) lists them in, and whichever order the sources come in.
-        var candidates = sources.SelectMany(Candidates).OrderBy(c => c.File, StringComparer.Ordinal).ToList();
+        var candidates = sources.OrderBy(s => s.Name, StringComparer.Ordinal).SelectMany(Candidates).OrderBy(c => c.File, StringComparer.Ordinal).ToList();
         var app = BuildAppRouter(candidates, root);
 
         // Pages of one shape match the same URLs. Within one source, or between two packages, that stops the table.
@@ -389,6 +389,71 @@ internal sealed partial class RouteTable
         };
     }
 
+    // The sources' names and id prefixes keep every file id unique and tell the app's files from a package's.
+    private static void RequireValid(IReadOnlyList<PageSource> sources)
+    {
+        var apps = sources.Where(s => s.IsApp).ToList();
+        if (apps is not [var app])
+        {
+            throw new ArgumentException($"A route table has one source for the app's own pages, not {apps.Count}.", nameof(sources));
+        }
+
+        if (app.Folder.Length > 0)
+        {
+            throw new ArgumentException($"The app's pages are not mounted at a prefix ('{app.Folder}').", nameof(sources));
+        }
+
+        var appDirectory = app.IdPrefix.TrimEnd('/');
+        foreach (var source in sources.Where(s => !s.IsApp).OrderBy(s => s.Name, StringComparer.Ordinal))
+        {
+            if (!NpmNameRegex().IsMatch(source.Name))
+            {
+                throw new ArgumentException($"'{source.Name}' is not an npm package name, which is what a page package goes by.", nameof(sources));
+            }
+
+            if (source.Name.Equals(PageSource.AppName, StringComparison.OrdinalIgnoreCase)
+                || source.Name.Equals(appDirectory, StringComparison.OrdinalIgnoreCase)
+                || appDirectory.StartsWith(source.Name + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    $"A page package cannot be named '{source.Name}': its file ids would read as the app's files, which are in " +
+                    $"'{appDirectory}'.", nameof(sources));
+            }
+
+            var pages = source.IdPrefix.StartsWith(source.Name + "/", StringComparison.Ordinal) && source.IdPrefix.EndsWith('/')
+                ? source.IdPrefix[(source.Name.Length + 1)..^1]
+                : "";
+            if (!IsPathInside(pages))
+            {
+                throw new ArgumentException(
+                    $"'{source.IdPrefix}' is not the id prefix of the page package '{source.Name}': its name, then its pages " +
+                    "folder, a relative path inside the package without '.', '..' or empty segments, '\\' or ':', then '/'.",
+                    nameof(sources));
+            }
+
+            MountPrefix.Parse("/" + source.Folder);
+        }
+
+        if (sources.GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
+        {
+            throw new ArgumentException($"'{twice.Key}' is in the route table more than once.", nameof(sources));
+        }
+    }
+
+    // A file id of a package is its id prefix and a path inside its pages folder.
+    private static void RequireInside(PageSource source, string file)
+    {
+        if (!file.StartsWith(source.IdPrefix, StringComparison.Ordinal) || !IsPathInside(file[source.IdPrefix.Length..]))
+        {
+            throw new InvalidPageFileException(
+                $"'{file}' is no file of the page package '{source.Name}': a file id is '{source.IdPrefix}' followed by a " +
+                "path inside the package's pages folder, without '.', '..' or empty segments, '\\' or ':'.");
+        }
+    }
+
+    private static bool IsPathInside(string path) =>
+        path.Split('/').All(segment => segment is not ("" or "." or "..") && segment.IndexOfAny(['\\', ':']) < 0);
+
     /// <summary>The merged folder of a package's page, as the app's directory spells it: <c>app/help/contact</c>.</summary>
     private static string FolderOf(IReadOnlyList<PageSource> sources, PageRoute route)
     {
@@ -398,13 +463,7 @@ internal sealed partial class RouteTable
         return string.Join('/', new[] { app, source.Folder, file.Contains('/') ? file[..file.LastIndexOf('/')] : "" }.Where(p => p.Length > 0));
     }
 
-    private static IEnumerable<string> ParameterNames(string pattern) =>
-        pattern.Split('/')
-            .Select(segment => OptionalCatchAllRegex().Match(segment) is { Success: true } o ? o.Groups[1].Value
-                : CatchAllRegex().Match(segment) is { Success: true } c ? c.Groups[1].Value
-                : SingleRegex().Match(segment) is { Success: true } p ? p.Groups[1].Value
-                : null)
-            .OfType<string>();
+    private static IEnumerable<string> ParameterNames(string pattern) => pattern.Split('/').Select(ParameterName).OfType<string>();
 
     private sealed record RouterResult(
         List<PageRoute> Routes,
@@ -419,6 +478,14 @@ internal sealed partial class RouteTable
 
     private static IEnumerable<Candidate> Candidates(PageSource source)
     {
+        if (!source.IsApp)
+        {
+            foreach (var file in source.Files.Order(StringComparer.Ordinal))
+            {
+                RequireInside(source, file);
+            }
+        }
+
         var files = source.IsApp ? source.Files.Select(f => f.Replace('\\', '/')) : source.Files;
         string[] folder = source.Folder.Length == 0 ? [] : source.Folder.Split('/');
         return files
@@ -439,6 +506,8 @@ internal sealed partial class RouteTable
         var pages = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         // The source of each file.
         var sources = new Dictionary<string, string>(StringComparer.Ordinal);
+        // The folders of each source's convention files, and the folders above them.
+        var spelled = new HashSet<(string Folder, string Source)>();
         foreach (var (file, segments, source) in candidates)
         {
             sources[file] = source.Name;
@@ -447,6 +516,23 @@ internal sealed partial class RouteTable
             if (IsPrivate(directories))
             {
                 continue;
+            }
+
+            // A file the table routes: its folders merge with the other sources' folders, and a package's must not
+            // name the mount prefix's parameters again.
+            void Accept()
+            {
+                for (var depth = 1; depth <= directories.Length; depth++)
+                {
+                    spelled.Add((string.Join('/', directories[..depth]), source.Name));
+                }
+
+                if (!source.IsApp && ReusedPrefixParameter(source, directories) is { } reused)
+                {
+                    throw new InvalidPageFileException(
+                        $"'{file}': parameter '{reused}' is used more than once: the mount prefix '/{source.Folder}' has it too. " +
+                        "Give the prefix's parameter another name.");
+                }
             }
 
             var slotIndex = Array.FindIndex(directories, d => d.Length > 1 && d[0] == '@');
@@ -463,6 +549,7 @@ internal sealed partial class RouteTable
                     slots[parent] = bySlot = new(StringComparer.Ordinal);
                 }
 
+                Accept();
                 var slotName = directories[slotIndex][1..];
                 if (!bySlot.TryGetValue(slotName, out var slot))
                 {
@@ -487,6 +574,18 @@ internal sealed partial class RouteTable
                 {
                     // (.) the slot's own level, (..) one up, (...) the root: the URL this page intercepts.
                     var baseUrl = directories[..slotIndex].Where(d => !IsGroup(d) && !(d.Length > 1 && d[0] == '@')).ToList();
+                    if (!source.IsApp)
+                    {
+                        // A package intercepts only its own URLs, below the mount, wherever the app mounts it.
+                        var mounted = source.Folder.Split('/', StringSplitOptions.RemoveEmptyEntries).Count(d => !IsGroup(d));
+                        if (levels == int.MaxValue ? mounted > 0 : levels > baseUrl.Count - mounted)
+                        {
+                            throw new InvalidPageFileException(
+                                $"'{file}': this intercepting route climbs above the mount prefix '/{source.Folder}'. A page " +
+                                "package can intercept only the URLs below its mount.");
+                        }
+                    }
+
                     var kept = levels == int.MaxValue ? [] : baseUrl.Take(Math.Max(0, baseUrl.Count - levels)).ToList();
                     var target = "/" + string.Join('/', kept.Append(rest).Concat(below[1..].Where(d => !IsGroup(d))).Where(d => d.Length > 0));
                     intercepts.Add(new RouteIntercept(SegmentOf(root, directories[..slotIndex]).Id, slotName, file, target));
@@ -517,11 +616,19 @@ internal sealed partial class RouteTable
                 continue;
             }
 
+            if (name == "global-error" && !source.IsApp)
+            {
+                throw new InvalidPageFileException(
+                    $"'{file}': a page package cannot have a global-error file. The app's own ({root}/global-error) renders when " +
+                    "its root layout fails.");
+            }
+
             if (name == "global-error" && directories.Length > 0)
             {
                 throw new InvalidPageFileException($"'{file}': global-error is only supported at the app root ({root}/global-error).");
             }
 
+            Accept();
             var key = string.Join('/', directories);
             if (!folders.TryGetValue(key, out var conventions))
             {
@@ -550,6 +657,26 @@ internal sealed partial class RouteTable
             {
                 conventions[name] = file;
             }
+        }
+
+        // Folders of two sources that differ only in case would not merge, while their URLs match.
+        var spellings = new Dictionary<string, List<(string Folder, string Source)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (folder, source) in spelled.OrderBy(f => f.Folder, StringComparer.Ordinal).ThenBy(f => f.Source, StringComparer.Ordinal))
+        {
+            if (!spellings.TryGetValue(folder, out var seen))
+            {
+                spellings[folder] = seen = [];
+            }
+
+            if (seen.FirstOrDefault(s => s.Folder != folder && s.Source != source) is ({ } other, { } otherSource))
+            {
+                static string From(string name) => name == PageSource.AppName ? "the app" : $"'{name}'";
+                throw new RouteConflictException(
+                    $"'{root}/{other}' (from {From(otherSource)}) and '{root}/{folder}' (from {From(source)}) differ only in case, " +
+                    "so their files would not merge while their URLs match. Spell the folders alike, or mount the package at another prefix.");
+            }
+
+            seen.Add((folder, source));
         }
 
         RouteSegment? SegmentAt(string[] directories)
@@ -648,6 +775,21 @@ internal sealed partial class RouteTable
         return new RouteSegment(
             directories.Length == 0 ? root : $"{root}/{string.Join('/', directories)}", "/" + string.Join('/', url), parameters);
     }
+
+    /// <summary>A parameter of a package's folders that its mount prefix has too; null when none.</summary>
+    private static string? ReusedPrefixParameter(PageSource source, string[] directories)
+    {
+        var mounted = source.Folder.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var prefix = mounted.Select(ParameterName).OfType<string>().ToList();
+        return directories[mounted.Length..].Select(ParameterName).OfType<string>()
+            .FirstOrDefault(name => prefix.Contains(name, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static string? ParameterName(string segment) =>
+        OptionalCatchAllRegex().Match(segment) is { Success: true } o ? o.Groups[1].Value
+        : CatchAllRegex().Match(segment) is { Success: true } c ? c.Groups[1].Value
+        : SingleRegex().Match(segment) is { Success: true } p ? p.Groups[1].Value
+        : null;
 
     private static bool IsPrivate(IEnumerable<string> directories) => directories.Any(d => d.StartsWith('_'));
 
@@ -750,4 +892,8 @@ internal sealed partial class RouteTable
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex ParameterNameRegex();
+
+    // npm's rules, with the capitals that older names have.
+    [GeneratedRegex("^(?:@[A-Za-z0-9~-][A-Za-z0-9._~-]*/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$")]
+    private static partial Regex NpmNameRegex();
 }

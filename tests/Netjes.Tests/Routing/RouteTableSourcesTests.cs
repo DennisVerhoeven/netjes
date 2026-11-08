@@ -261,6 +261,246 @@ public class RouteTableSourcesTests
         Assert.Contains(reason, ex.Message);
     }
 
+    [Fact]
+    public void TheTableAndItsErrors_AreTheSameWhateverOrderTheSourcesAndFilesComeIn()
+    {
+        PageSource[] sources =
+        [
+            App("app/layout.tsx", "app/help/(center)/shortcuts/page.tsx", "app/help/contact/page.tsx", "app/page.tsx"),
+            Package("/help", "layout.tsx", "page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx", "contact/page.tsx", "not-found.tsx"),
+            NamedPackage("@acme/b", "/[tenant]/b", "layout.tsx", "page.tsx", "@modal/(.)x/page.tsx", "x/page.tsx"),
+        ];
+        var expected = Describe(Build(sources));
+
+        foreach (var order in Orders(sources))
+        {
+            Assert.Equal(expected, Describe(Build(order)));
+            Assert.Equal(expected, Describe(Build([.. order.Select(s => s with { Files = [.. s.Files.Reverse()] })])));
+        }
+
+        PageSource[] broken =
+        [
+            App("app/help/layout.tsx", "app/b/layout.tsx"),
+            Package("/help", "layout.tsx"),
+            NamedPackage("@acme/b", "/b", "layout.tsx"),
+        ];
+        var error = Assert.Throws<RouteConflictException>(() => Build(broken)).Message;
+        foreach (var order in Orders(broken))
+        {
+            Assert.Equal(error, Assert.Throws<RouteConflictException>(() => Build(order)).Message);
+        }
+
+        PageSource[] outside =
+        [
+            App(),
+            PageSource.Package("@acme/a", "app", MountPrefix.Parse("/a"), ["@acme/a/app/../y/page.tsx", "@acme/a/app/../x/page.tsx"]),
+            PageSource.Package("@acme/b", "app", MountPrefix.Parse("/b"), ["@acme/b/app/../x/page.tsx"]),
+        ];
+        var invalid = Assert.Throws<InvalidPageFileException>(() => Build(outside)).Message;
+        Assert.Contains("'@acme/a/app/../x/page.tsx'", invalid);
+        foreach (var order in Orders(outside))
+        {
+            Assert.Equal(invalid, Assert.Throws<InvalidPageFileException>(() => Build(order)).Message);
+            Assert.Equal(invalid, Assert.Throws<InvalidPageFileException>(() =>
+                Build([.. order.Select(s => s with { Files = [.. s.Files.Reverse()] })])).Message);
+        }
+    }
+
+    private static IEnumerable<PageSource[]> Orders(PageSource[] sources) => sources.Length <= 1
+        ? [sources]
+        : sources.SelectMany((source, i) => Orders([.. sources[..i], .. sources[(i + 1)..]]).Select(rest => (PageSource[])[source, .. rest]));
+
+    // A file id names the package and a path inside its pages folder; one that leaves it could pass for another
+    // package's file or the app's.
+    [Theory]
+    [InlineData("@acme/help-center/app/../../app/admin/page.tsx")]
+    [InlineData("@acme/help-center/app/../page.tsx")]
+    [InlineData("@acme/help-center/app/./page.tsx")]
+    [InlineData("@acme/help-center/app/a//page.tsx")]
+    [InlineData("@acme/help-center/app/a\\page.tsx")]
+    [InlineData("@acme/help-center/app\\page.tsx")]
+    [InlineData("/@acme/help-center/app/page.tsx")]
+    [InlineData("@acme/other/app/page.tsx")]
+    [InlineData("app/page.tsx")]
+    public void APackageFileId_OutsideItsPagesFolder_IsRefused(string file)
+    {
+        var source = PageSource.Package(Help, "app", MountPrefix.Parse("/help"), [file]);
+
+        var ex = Assert.Throws<InvalidPageFileException>(() => Build(App(), source));
+
+        Assert.Contains($"'{file}'", ex.Message);
+        Assert.Contains($"'{Help}/app/'", ex.Message);
+    }
+
+    // Its ids would read as the app's files: app/app/page.tsx, or src/app/page.tsx for an app in src/app.
+    [Theory]
+    [InlineData("app", "app")]
+    [InlineData("App", "app")]
+    [InlineData("src", "src/app")]
+    public void APackageNamedLikeTheAppDirectory_IsRefused(string name, string appDirectory)
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            RouteTable.Build([PageSource.App([], appDirectory), PageSource.Package(name, "app", MountPrefix.Parse("/help"), [$"{name}/app/page.tsx"])], []));
+
+        Assert.Contains($"'{name}'", ex.Message);
+        Assert.Contains($"'{appDirectory}'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("..")]
+    [InlineData("../x")]
+    [InlineData("@acme")]
+    [InlineData("@acme/")]
+    [InlineData("@/x")]
+    [InlineData("@acme/x/y")]
+    [InlineData("x/y")]
+    [InlineData("x\\y")]
+    [InlineData(".x")]
+    [InlineData("_x")]
+    [InlineData("x y")]
+    [InlineData("C:x")]
+    public void APackageWhoseNameIsNoNpmName_IsRefused(string name)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Build(App(), PageSource.Package(name, "app", MountPrefix.Parse("/help"), [])));
+
+        Assert.Contains($"'{name}'", ex.Message);
+        Assert.Contains("npm", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../x")]
+    [InlineData("a/../b")]
+    [InlineData("a/./b")]
+    [InlineData("/app")]
+    [InlineData("app/")]
+    [InlineData("a//b")]
+    [InlineData("a\\b")]
+    [InlineData("C:/app")]
+    public void APackageWhosePagesFolderLeavesThePackage_IsRefused(string pages)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Build(App(), PageSource.Package(Help, pages, MountPrefix.Parse("/help"), [])));
+
+        Assert.Contains($"'{Help}/{pages}/'", ex.Message);
+    }
+
+    [Fact]
+    public void ASourceWhoseFolderIsNoMountPrefix_IsRefused()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Build(App(), new PageSource(Help, "../x", $"{Help}/app/", [])));
+
+        Assert.Contains("'/../x' is not a mount prefix", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("@acme/help-center")]
+    [InlineData("@ACME/Help-Center")]
+    public void TwoSourcesOfOneName_AreRefused(string another)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Build(App(), Package("/help"), NamedPackage(another, "/other")));
+
+        Assert.Contains("more than once", ex.Message);
+    }
+
+    [Fact]
+    public void ATableWithoutTheAppsSourceOrWithTwo_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => Build(Package("/help")));
+        Assert.Throws<ArgumentException>(() => Build(App(), App()));
+    }
+
+    [Theory]
+    [InlineData("global-error.tsx")]
+    [InlineData("(center)/global-error.tsx")]
+    public void AGlobalErrorInAPackage_IsRefused(string file)
+    {
+        var ex = Assert.Throws<InvalidPageFileException>(() => Build(App(), Package("/help", file)));
+
+        Assert.Equal(
+            $"'{Help}/app/{file}': a page package cannot have a global-error file. The app's own (app/global-error) renders " +
+            "when its root layout fails.",
+            ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/help", "@modal/(...)photo/page.tsx")]
+    [InlineData("/help", "@modal/(..)photo/page.tsx")]
+    [InlineData("/help", "a/@modal/(..)(..)photo/page.tsx")]
+    [InlineData("/help", "(center)/@modal/(..)photo/page.tsx")]
+    [InlineData("/support/(desk)/help", "a/(g)/@modal/(..)(..)photo/page.tsx")]
+    public void AnInterceptingRouteThatClimbsAboveTheMount_IsRefused(string prefix, string file)
+    {
+        var ex = Assert.Throws<InvalidPageFileException>(() => Build(App(), Package(prefix, file)));
+
+        Assert.Contains($"'{Help}/app/{file}'", ex.Message);
+        Assert.Contains($"above the mount prefix '{prefix}'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/help", "@modal/(.)photo/page.tsx", "/help/photo")]
+    [InlineData("/help", "a/@modal/(..)photo/page.tsx", "/help/photo")]
+    [InlineData("/help", "a/(g)/b/@modal/(..)(..)photo/page.tsx", "/help/photo")]
+    [InlineData("/", "@modal/(...)photo/page.tsx", "/photo")]
+    [InlineData("/(g)", "a/@modal/(...)photo/page.tsx", "/photo")]
+    public void AnInterceptingRouteInsideTheMount_IsKept(string prefix, string file, string pattern)
+    {
+        var table = Build(App(), Package(prefix, file));
+
+        Assert.Equal(pattern, Assert.Single(table.Intercepts).Pattern);
+    }
+
+    [Theory]
+    [InlineData("[tenant]/page.tsx")]
+    [InlineData("[Tenant]/page.tsx")]
+    [InlineData("docs/[...tenant]/page.tsx")]
+    [InlineData("docs/[[...tenant]]/page.tsx")]
+    [InlineData("[tenant]/layout.tsx")]
+    [InlineData("@modal/[tenant]/page.tsx")]
+    public void APackageFileThatUsesAPrefixParameterAgain_IsRefused(string file)
+    {
+        var ex = Assert.Throws<InvalidPageFileException>(() => Build(App(), Package("/[tenant]/help", file)));
+
+        Assert.Contains($"'{Help}/app/{file}'", ex.Message);
+        Assert.Contains("'/[tenant]/help'", ex.Message);
+    }
+
+    [Fact]
+    public void AColocatedFileInAFolderNamedLikeAPrefixParameter_IsLeftAlone()
+    {
+        var table = Build(App(), Package("/[tenant]/help", "page.tsx", "[tenant]/Card.tsx", "_lib/[tenant]/page.tsx"));
+
+        Assert.Equal(["/[tenant]/help"], table.Pages.Select(p => p.Pattern));
+    }
+
+    // The folders would differ, so the package's layouts would not wrap the app's pages there, nor the app's the
+    // package's, while the URLs match whatever their case.
+    [Theory]
+    [InlineData("/Help", "app/help/shortcuts/page.tsx", "page.tsx", "app/Help", "app/help")]
+    [InlineData("/help", "app/Help/shortcuts/page.tsx", "page.tsx", "app/Help", "app/help")]
+    [InlineData("/(Marketing)/help", "app/(marketing)/page.tsx", "page.tsx", "app/(Marketing)", "app/(marketing)")]
+    [InlineData("/[Tenant]/help", "app/[tenant]/page.tsx", "page.tsx", "app/[Tenant]", "app/[tenant]")]
+    [InlineData("/help", "app/help/(center)/shortcuts/page.tsx", "(Center)/layout.tsx", "app/help/(Center)", "app/help/(center)")]
+    public void AFolderThatMatchesAnotherSourcesOnlyWhenCaseIsIgnored_IsRefused(
+        string prefix, string appFile, string packageFile, string one, string another)
+    {
+        var ex = Assert.Throws<RouteConflictException>(() => Build(App(appFile), Package(prefix, packageFile)));
+
+        Assert.Contains($"'{one}'", ex.Message);
+        Assert.Contains($"'{another}'", ex.Message);
+        Assert.Contains("differ only in case", ex.Message);
+    }
+
+    [Fact]
+    public void FoldersOfOneSourceThatDifferOnlyInCase_AreLeftAsTheyAre()
+    {
+        var table = Build(App("app/About/layout.tsx", "app/about/page.tsx"), Package("/help", "page.tsx"));
+
+        Assert.Equal(["/about", "/help"], table.Pages.Select(p => p.Pattern));
+    }
+
     private static string Describe(RouteTable table) => string.Join("\n", [
         .. table.Pages.Select(p =>
             $"{p.Pattern} {p.Template} {p.File} {p.Source} {p.Overrides} [{string.Join(",", p.Parameters)}] " +
