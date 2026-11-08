@@ -401,7 +401,8 @@ describe('renderDocument', () => {
         `netjes: renderDocument cannot render ${file}, a file of the page package '@acme/help-center', which it does not mount: ` +
           "pass its prefix as MapPagePackage takes it, as in mounts: { '@acme/help-center': '/help' }.",
       );
-      for (const prefix of ['help', '/help/', '//help', '/../help', '/[...rest]', '/@modal', '/_private', '/(.)help', '/%2e%2e', '/a\\b']) {
+      const refused = ['help', '/help/', '//help', '/../help', '/[...rest]', '/@modal', '/_private', '/(.)help', '/%2e%2e', '/a\\b'];
+      for (const prefix of [...refused, '/[tenant]/x/[tenant]', '/[tenant]/x/[Tenant]', '/[1x]']) {
         await expect(render(file, { modules: withHelp, mounts: { '@acme/help-center': prefix } }), prefix).rejects.toThrow(
           `netjes: renderDocument cannot mount '@acme/help-center' at '${prefix}'`,
         );

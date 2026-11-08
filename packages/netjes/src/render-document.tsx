@@ -91,7 +91,9 @@ function mountsOf(mounts: Readonly<Record<string, string>> | undefined, packages
   return Object.entries(mounts ?? {}).map(([name, prefix]) => {
     const folders = prefix === '/' ? [] : prefix.split('/').slice(1);
     const refused = (folder: string) => folder === '.' || folder === '..' || isPrivate(folder) || !PREFIX_SEGMENT.test(folder);
-    if (!prefix.startsWith('/') || folders.some(refused)) {
+    // A parameter used twice, in any case, as MapPagePackage refuses it.
+    const parameters = folders.filter((folder) => folder.startsWith('[')).map((folder) => folder.toLowerCase());
+    if (!prefix.startsWith('/') || folders.some(refused) || new Set(parameters).size < parameters.length) {
       throw new Error(
         `netjes: renderDocument cannot mount '${name}' at '${prefix}': write the prefix as MapPagePackage takes it, ` +
           "such as '/help', '/(marketing)/help' or '/[tenant]/help'.",
