@@ -46,6 +46,35 @@ public class SitemapTests
             xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Sitemap_WithAPagePackageExcludedOnItsMount_ListsNoneOfItsPages_ButTheAppsOwnUnderItsUrl(bool excluded)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx", "(center)/layout.tsx", "contact/page.tsx", "articles/[slug]/page.tsx"]),
+            map: a =>
+            {
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                mount.MapPageLoader("/articles/[slug]", (string slug) => Page.Props()).StaticParams(_ => [new { slug = "first" }]);
+                if (excluded)
+                {
+                    mount.ExcludeFromSitemap();
+                }
+
+                a.MapSitemap(new Uri("https://site.example/"));
+            });
+
+        var xml = XDocument.Parse(await app.Client.GetStringAsync("/sitemap.xml", Ct));
+
+        Assert.Equal(
+            excluded
+                ? ["https://site.example/", "https://site.example/help/shortcuts"]
+                : ["https://site.example/", "https://site.example/help", "https://site.example/help/articles/first", "https://site.example/help/contact", "https://site.example/help/shortcuts"],
+            xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
+    }
+
     [Fact]
     public async Task Sitemap_OutsideAnExport_StillListsPagesExcludedFromExport()
     {

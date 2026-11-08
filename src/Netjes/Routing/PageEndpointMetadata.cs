@@ -27,8 +27,10 @@ public sealed class PageRouteMetadata
     }
 
     /// <summary>
-    /// The page's URL as its file names it, such as <c>/blog/[slug]</c>. It leaves out the prefix of a route group the
-    /// endpoint is mapped in, which the endpoint's route pattern includes.
+    /// The page's URL as its file names it, such as <c>/blog/[slug]</c>, and for a page package's page the URL where the
+    /// package is mounted, its prefix included (<c>/help/articles/[slug]</c>): the merged route table's pattern, which
+    /// <c>netjes routes</c> lists too. It leaves out the prefix of a route group the endpoint is mapped in, which the
+    /// endpoint's route pattern includes.
     /// </summary>
     public string Pattern { get; }
 
@@ -99,17 +101,31 @@ internal sealed class PageLoaderRegistry
     }
 }
 
-/// <summary>The names of mapped server actions, so a typo'd duplicate fails at startup.</summary>
+/// <summary>
+/// The names of mapped server actions and who mapped each, so a duplicate fails at startup. Names are compared ignoring
+/// case: routing matches the literal <c>/_netjes/actions/{name}</c> in any case, so two names that differ only in case
+/// would both match every call to either.
+/// </summary>
 internal sealed class ServerActionRegistry
 {
-    private readonly HashSet<string> _names = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, MappedAction> _actions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _gate = new();
 
-    public bool Add(string name)
+    /// <param name="Package">The page package whose mount mapped it; null for the app.</param>
+    public sealed record MappedAction(string Name, string? Package);
+
+    /// <summary>Adds an action; when one of that name is mapped already, in any case, returns it instead.</summary>
+    public MappedAction? Add(string name, string? package)
     {
         lock (_gate)
         {
-            return _names.Add(name);
+            if (_actions.TryGetValue(name, out var existing))
+            {
+                return existing;
+            }
+
+            _actions[name] = new MappedAction(name, package);
+            return null;
         }
     }
 
@@ -119,7 +135,7 @@ internal sealed class ServerActionRegistry
         {
             lock (_gate)
             {
-                return [.. _names];
+                return [.. _actions.Values.Select(a => a.Name)];
             }
         }
     }

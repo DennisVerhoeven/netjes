@@ -61,8 +61,9 @@ internal sealed class PagesEndpointDataSource(
             builder.Metadata.Add(new PageEndpointMetadata(route.Pattern));
             builder.Metadata.Add(new PageRouteMetadata(route.Pattern, isLoader: false));
             layouts.ApplyConventions(route, builder);
-            // A package's file pages are its own endpoints, so its mount's conventions apply, before MapPages()'s.
-            if (!route.IsFromTheApp && sources.Find(route.Source) is { } mounted)
+            // A package's file pages are its own endpoints, so its mount's conventions apply, before MapPages()'s; so do
+            // the app's pages that replace one of them (.Override()), which answer the package's URL.
+            if (sources.PackageOf(route) is { } mounted)
             {
                 mounted.Mount.Conventions.ForEach(convention => convention(builder));
                 mounted.Mount.FinallyConventions.ForEach(convention => convention(builder));

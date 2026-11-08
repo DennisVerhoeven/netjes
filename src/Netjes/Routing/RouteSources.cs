@@ -132,8 +132,13 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
 
     public int Version => Volatile.Read(ref _version);
 
-    /// <summary>App-absolute URL patterns where the app's page replaces a package's page.</summary>
-    public IReadOnlyCollection<string> Overrides { get; } = [];
+    /// <summary>The app directory as the ids of its files start: <c>app</c>, <c>src/app</c>.</summary>
+    public string AppDirectory => context.AppDirectory.Replace('\\', '/').Trim('/');
+
+    private IReadOnlyList<string> _overrides = [];
+
+    /// <summary>App-absolute URL patterns where the app's page replaces a package's page (<c>.Override()</c>).</summary>
+    public IReadOnlyCollection<string> Overrides => Volatile.Read(ref _overrides);
 
     /// <summary>Whether <c>MapPages()</c> has run: the mounts are complete, and a page conflict left pending is one.</summary>
     public bool PagesMapped { get; private set; }
@@ -145,6 +150,12 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
     /// <summary>The mounted package a file id is of; null for the app's own files.</summary>
     public MountedPackage? OwnerOf(string? file) =>
         file is null ? null : Mounts.FirstOrDefault(m => file.StartsWith(m.Name + "/", StringComparison.Ordinal));
+
+    /// <summary>
+    /// The mounted package whose page <paramref name="route"/> is, also when the app's file replaces the package's
+    /// (<c>.Override()</c>) and renders with its loader; null for the app's own pages.
+    /// </summary>
+    public MountedPackage? PackageOf(PageRoute route) => route.IsFromTheApp ? OwnerOf(route.Overrides) : Find(route.Source);
 
     /// <summary>Mounts a package, finding its npm half first: a package that is not there stops the app in one line.</summary>
     public MountedPackage Add(PagePackageMount mount)
@@ -167,6 +178,46 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
             Interlocked.Increment(ref _version);
         }
     }
+
+    public void AddOverride(string pattern)
+    {
+        lock (_gate)
+        {
+            Volatile.Write(ref _overrides, [.. _overrides, pattern]);
+            Interlocked.Increment(ref _version);
+        }
+    }
+
+    public void RemoveOverride(string pattern)
+    {
+        lock (_gate)
+        {
+            var at = _overrides.ToList().LastIndexOf(pattern);
+            Volatile.Write(ref _overrides, [.. _overrides.Where((_, i) => i != at)]);
+            Interlocked.Increment(ref _version);
+        }
+    }
+
+    private IReadOnlyList<(string Pattern, string Method)> _appMapped = [];
+
+    /// <summary>
+    /// Notes that the app maps a loader or page action (<paramref name="method"/>) for its own page at
+    /// <paramref name="pattern"/>, which an override mapped later must not replace: the page would then render with the
+    /// app's loader, in place of the package's and without the mount's conventions.
+    /// </summary>
+    public void MappedByTheApp(string pattern, string method)
+    {
+        lock (_gate)
+        {
+            Volatile.Write(ref _appMapped, [.. _appMapped, (pattern, method)]);
+        }
+    }
+
+    /// <summary>The first loader or page action the app maps for its page at <paramref name="pattern"/>, in any case; null when none.</summary>
+    public (string Pattern, string Method)? AppMappingFor(string pattern) =>
+        Volatile.Read(ref _appMapped).FirstOrDefault(m => string.Equals(m.Pattern, pattern, StringComparison.OrdinalIgnoreCase)) is { Method: not null } found
+            ? found
+            : null;
 
     private PagePackageInstall Find(PagePackage package)
     {
