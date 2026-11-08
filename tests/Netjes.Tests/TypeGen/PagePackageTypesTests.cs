@@ -210,6 +210,24 @@ public class PagePackageTypesTests
         Assert.Equal(PackageFile(app), await File.ReadAllTextAsync(PackageTypesPath(app), Ct));
     }
 
+    [Fact]
+    public async Task GenerateCommand_WithTypesFileNull_WritesNoPackagesFile_AndExits2()
+    {
+        int? exit = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: WithTypes(),
+            configure: o =>
+            {
+                o.TypesFile = null;
+                o.Command = new NetjesCommandOptions { Name = "generate" };
+            },
+            services: s => s.AddSingleton(new CommandExit(code => exit = code)));
+
+        Assert.Equal(2, exit);
+        Assert.False(File.Exists(PackageTypesPath(app)));
+    }
+
     /// <summary>The app's file and the package's, as the generator writes them.</summary>
     private static async Task<(string App, string Package)> CurrentFilesAsync()
     {

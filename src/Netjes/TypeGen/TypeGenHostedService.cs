@@ -99,18 +99,13 @@ internal sealed class TypeGenHostedService(
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
-    /// The generated files, each with how to write it: the app's at <paramref name="appFile"/> (none when null), then the
-    /// file of each mounted page package that the app writes (<c>WriteTypes</c> on its mount), in the order they were mounted.
+    /// The generated files, each with how to write it: the app's at <paramref name="appFile"/>, then the file of each
+    /// mounted page package that the app writes (<c>WriteTypes</c> on its mount), in the order they were mounted.
     /// </summary>
-    private List<(string Path, Func<string> Generate)> Files(string? appFile)
+    private List<(string Path, Func<string> Generate)> Files(string appFile)
     {
         var generator = services.GetRequiredService<TypeScriptGenerator>();
-        var files = new List<(string Path, Func<string> Generate)>();
-        if (appFile is not null)
-        {
-            files.Add((appFile, generator.Generate));
-        }
-
+        var files = new List<(string Path, Func<string> Generate)> { (appFile, generator.Generate) };
         foreach (var mounted in services.GetRequiredService<RouteSources>().Mounts)
         {
             if (mounted.Mount.TypesFile is { } path)
@@ -124,13 +119,14 @@ internal sealed class TypeGenHostedService(
 
     private async Task<int> GenerateCommandAsync(NetjesCommandOptions command, CancellationToken cancellationToken)
     {
-        var files = Files(command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath);
-        if (files.Count == 0)
+        // The page packages' files go with the app's, as at a Development start.
+        if ((command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath) is not { } appFile)
         {
             logger.LogError("NetjesOptions.TypesFile is null and no output was given; nothing to generate");
             return 2;
         }
 
+        var files = Files(appFile);
         var stale = 0;
         foreach (var (path, generate) in files)
         {
