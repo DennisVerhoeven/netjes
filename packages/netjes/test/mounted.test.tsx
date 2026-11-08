@@ -95,6 +95,17 @@ describe('mounted', () => {
     expect(screen.getByText(expected)).toBeDefined();
   });
 
+  // (security) The server encodes a value as one segment, and the link keeps it so: below its own tenant.
+  it('keeps an encoded slash, question mark, hash or percent in a value of the mount', () => {
+    for (const mount of ['/a%2Fb/help', '/a%3Fb/help', '/a%23b/help', '/100%25/help']) {
+      const { unmount } = render(<help.Link href="/x">x</help.Link>, { wrapper: createTestApp({ url: `${mount}/x`, mounts: { [NAME]: mount } }).Wrapper });
+
+      expect(screen.getByRole('link', { name: 'x' }).getAttribute('href')).toBe(`${mount}/x`);
+      expect(screen.getByRole('link', { name: 'x' }).getAttribute('aria-current')).toBe('page');
+      unmount();
+    }
+  });
+
   it("passes a link within the page on screen through, as a list's ?page=2 or a #top", () => {
     render(
       <>
