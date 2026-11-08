@@ -1120,4 +1120,11 @@ internal sealed class PageRenderer(
         var path = pattern.Trim('/');
         return path is "" ? $"{context.AppDirectory}/page.tsx" : $"{context.AppDirectory}/{path}/page.tsx";
     }
+
+    /// <summary>The page package's file for <paramref name="below"/>, a URL pattern below its mount: <c>@acme/help-center/app/contact/page.tsx</c>.</summary>
+    internal static string ExpectedFile(MountedPackage mounted, string below)
+    {
+        var path = below.Trim('/');
+        return path is "" ? $"{mounted.Name}/{mounted.Install.Pages}/page.tsx" : $"{mounted.Name}/{mounted.Install.Pages}/{path}/page.tsx";
+    }
 }

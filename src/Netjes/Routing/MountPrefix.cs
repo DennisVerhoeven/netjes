@@ -38,6 +38,37 @@ internal sealed partial class MountPrefix
 
     public override string ToString() => "/" + Folder;
 
+    /// <summary>
+    /// The part below the prefix of an app-absolute URL pattern in file syntax, <c>/articles/[slug]</c> of
+    /// <c>/help/articles/[slug]</c>, or <c>/</c> for the prefix's own URL; null when the pattern is not below the prefix.
+    /// Matched by shape: literals in any case, and a value of the prefix against any single value.
+    /// </summary>
+    public string? Below(string pattern)
+    {
+        string[] url = pattern.Trim('/') is { Length: > 0 } path ? path.Split('/') : [];
+        var prefix = Segments.Where(s => !IsGroup(s)).ToList();
+        if (url.Length < prefix.Count)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < prefix.Count; i++)
+        {
+            var matches = IsParameter(prefix[i])
+                ? IsParameter(url[i]) && !url[i].StartsWith("[.", StringComparison.Ordinal) && !url[i].StartsWith("[[", StringComparison.Ordinal)
+                : string.Equals(prefix[i], url[i], StringComparison.OrdinalIgnoreCase);
+            if (!matches)
+            {
+                return null;
+            }
+        }
+
+        return "/" + string.Join('/', url[prefix.Count..]);
+    }
+
+    /// <summary>The app-absolute URL pattern of <paramref name="below"/>, a pattern below the prefix (<c>/</c> is its own URL).</summary>
+    public string Above(string below) => Pattern == "/" ? below : below == "/" ? Pattern : Pattern + below;
+
     /// <summary>Parses a prefix, throwing <see cref="ArgumentException"/> with the reason when it is not one.</summary>
     public static MountPrefix Parse(string prefix)
     {

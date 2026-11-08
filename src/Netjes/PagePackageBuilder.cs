@@ -24,6 +24,12 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// <summary>Where the package is mounted.</summary>
     public PagePackageMount Mount { get; }
 
+    /// <summary>The app the package is mounted in, where its server actions map: at <c>/_netjes/actions/{name}</c>.</summary>
+    internal IEndpointRouteBuilder Outer => _outer;
+
+    /// <summary>The group at the mount's URL, where its loaders and page actions map, at their templates below it.</summary>
+    internal RouteGroupBuilder Group => _group;
+
     IServiceProvider IEndpointRouteBuilder.ServiceProvider => _outer.ServiceProvider;
 
     ICollection<EndpointDataSource> IEndpointRouteBuilder.DataSources => ((IEndpointRouteBuilder)_group).DataSources;

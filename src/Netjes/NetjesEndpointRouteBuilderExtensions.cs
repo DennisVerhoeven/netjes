@@ -83,16 +83,17 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <param name="loader">The loader delegate.</param>
     public static RouteHandlerBuilder MapPageLoader(this IEndpointRouteBuilder endpoints, string pattern, Delegate loader)
     {
-        var route = RequireRoute(endpoints, pattern);
+        var target = TargetFor(endpoints, pattern, nameof(MapPageLoader));
+        var route = target.Route;
         // A GET endpoint, so minimal APIs infer no body for it, as for every loader.
         LoaderBinding.RequireBindable($"The loader of {route.File} ({route.Pattern})", loader.Method, endpoints.ServiceProvider,
-            RouteParameters(endpoints, RoutePatternFactory.Parse(route.Template)), routed: true);
+            RouteParameters(endpoints, RoutePatternFactory.Parse(target.Template)), routed: true);
         endpoints.ServiceProvider.GetRequiredService<PageLoaderRegistry>().Register(route.Pattern);
-        return endpoints
-            .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
+        return target.Endpoints
+            .MapMethods(target.Template, [HttpMethods.Get, HttpMethods.Head], loader)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(EndAborted)
-            .AddEndpointFilter(Traced("netjes.loader", route))
+            .AddEndpointFilter(Traced("netjes.loader", route.Pattern, target.Package))
             .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
             .ExcludeFromDescription();
@@ -111,15 +112,16 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// </summary>
     public static RouteHandlerBuilder MapPageAction(this IEndpointRouteBuilder endpoints, string pattern, Delegate action)
     {
-        var route = RequireRoute(endpoints, pattern);
+        var target = TargetFor(endpoints, pattern, nameof(MapPageAction));
+        var route = target.Route;
         var name = $"The action of {route.File} ({route.Pattern})";
-        RequireBindable(endpoints, name, route.Template, action);
+        RequireBindable(endpoints, name, target.Template, action);
         ActionInputValidation.RequireReadable(name, action.Method);
-        return endpoints
-            .MapPost(route.Template, action)
+        return target.Endpoints
+            .MapPost(target.Template, action)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
-            .AddEndpointFilter(Traced("netjes.action", route))
+            .AddEndpointFilter(Traced("netjes.action", route.Pattern, target.Package))
             .WithMetadata(EndpointMetadataFor(route.Pattern, action, isLoader: false))
             .WithMetadata(new PageActionMetadata(route.Pattern), new ActionFormFields(action.Method), new RequireAntiforgeryTokenAttribute())
             .AddEndpointFilter(RejectCrossSitePosts)
@@ -221,10 +223,10 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// A span around the loader or action delegate of a page (see <see cref="NetjesTelemetry"/>), with the page package
     /// whose page it is.
     /// </summary>
-    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, PageRoute route) =>
+    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string pattern, string? package) =>
         async (context, next) =>
         {
-            using var activity = NetjesTelemetry.StartActivity(operation, route.Pattern).WithPackage(route.IsFromTheApp ? null : route.Source);
+            using var activity = NetjesTelemetry.StartActivity(operation, pattern).WithPackage(package);
             try
             {
                 return await next(context);
@@ -473,8 +475,20 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static List<string>? RouteParameters(IEndpointRouteBuilder endpoints, RoutePattern pattern)
     {
         var names = pattern.Parameters.Select(p => p.Name).ToList();
-        for (var builder = endpoints; builder is RouteGroupBuilder group;)
+        for (var builder = endpoints; ;)
         {
+            // A page package's mount maps at its prefix's template, with the prefix's values.
+            if (builder is PagePackageBuilder mount)
+            {
+                names.InsertRange(0, mount.Mount.Prefix.Parameters);
+                return names;
+            }
+
+            if (builder is not RouteGroupBuilder group)
+            {
+                return names;
+            }
+
             if (GroupPrefix?.GetValue(group) is not RoutePattern prefix || GroupOuter?.GetValue(group) is not IEndpointRouteBuilder outer)
             {
                 return null;
@@ -483,8 +497,6 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             names.InsertRange(0, prefix.Parameters.Select(p => p.Name));
             builder = outer;
         }
-
-        return names;
     }
 
     private static readonly System.Reflection.FieldInfo? GroupPrefix =
@@ -500,7 +512,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             ? [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader), props]
             : [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader)];
 
-    private static PageRoute RequireRoute(IEndpointRouteBuilder endpoints, string pattern)
+    private static PageRoute RequireRoute(IEndpointRouteBuilder endpoints, string pattern, string method)
     {
         var context = endpoints.ServiceProvider.GetRequiredService<NetjesContext>();
         var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
@@ -510,8 +522,10 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             throw conflict.ToException();
         }
 
-        return table.Find(pattern) ?? throw new InvalidOperationException(
+        var route = table.Find(pattern) ?? throw new InvalidOperationException(
             $"No page file matches '{pattern}'. Expected {PageRenderer.ExpectedFile(context, pattern)}. " +
             $"Known pages: {string.Join(", ", table.Pages.Select(p => p.Pattern))}.");
+        RequireTheApps(route, endpoints.ServiceProvider.GetRequiredService<RouteSources>(), method, pattern);
+        return route;
     }
 }

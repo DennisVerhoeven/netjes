@@ -132,6 +132,9 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
 
     public int Version => Volatile.Read(ref _version);
 
+    /// <summary>The app directory as the ids of its files start: <c>app</c>, <c>src/app</c>.</summary>
+    public string AppDirectory => context.AppDirectory.Replace('\\', '/').Trim('/');
+
     /// <summary>App-absolute URL patterns where the app's page replaces a package's page.</summary>
     public IReadOnlyCollection<string> Overrides { get; } = [];
 
@@ -145,6 +148,12 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
     /// <summary>The mounted package a file id is of; null for the app's own files.</summary>
     public MountedPackage? OwnerOf(string? file) =>
         file is null ? null : Mounts.FirstOrDefault(m => file.StartsWith(m.Name + "/", StringComparison.Ordinal));
+
+    /// <summary>
+    /// The mounted package whose page <paramref name="route"/> is, also when the app's file replaces the package's
+    /// (<c>.Override()</c>) and renders with its loader; null for the app's own pages.
+    /// </summary>
+    public MountedPackage? PackageOf(PageRoute route) => route.IsFromTheApp ? OwnerOf(route.Overrides) : Find(route.Source);
 
     /// <summary>Mounts a package, finding its npm half first: a package that is not there stops the app in one line.</summary>
     public MountedPackage Add(PagePackageMount mount)
