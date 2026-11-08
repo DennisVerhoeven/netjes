@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, mergeConfig, normalizePath, type ConfigEnv, type Plugin, type PluginOption, type UserConfig } from 'vite';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import netjes from '../vite/plugin.mjs';
+import { INSTALLED, LINKED, type PackagesApp, createPackagesApp } from './page-packages.ts';
 
 /** Netjes's own Vitest setup file, which the plugin names by path, like the cleanup file, and the package does not export. */
 const OWN_SETUP = normalizePath(fileURLToPath(new URL('../dist/testing-vitest.js', import.meta.url)));
@@ -61,7 +62,8 @@ describe('the page module map', () => {
 
     expect(code).toBe(
       'export const pages = import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"]);\n' +
-        'export const appDir = "app";\n',
+        'export const appDir = "app";\n' +
+        'export const packages = [];\n',
     );
   });
 
@@ -82,6 +84,166 @@ describe('the page module map', () => {
     // The folder the map's keys start with, which renderDocument needs for routes and segment ids.
     expect(code).toContain('export const appDir = "src/app";\n');
     expect(code).not.toContain('pages/');
+  });
+});
+
+describe('page packages', () => {
+  let app: PackagesApp;
+  beforeAll(async () => {
+    app = await createPackagesApp();
+  });
+  afterAll(async () => {
+    await app?.remove();
+  });
+
+  /** The netjes plugin with these packages listed, its config hook run for the app's folder. */
+  async function listing(packages: string[], options?: Parameters<typeof netjes>[0], config: UserConfig = {}, env: ConfigEnv = serve) {
+    const { plugins, plugin } = await core({ ...options, packages });
+    return { plugins, plugin, config: callConfig(plugin, { root: app.root, ...config }, env) };
+  }
+
+  /** The lazy imports a page module map adds to the glob, by key: `"<key>": () => import("<path>")`. */
+  function imports(code: string) {
+    const found: Record<string, string> = {};
+    for (const [, key = '', file = ''] of code.matchAll(/("(?:[^"\\]|\\.)*"): \(\) => import\(("(?:[^"\\]|\\.)*")\)/g)) {
+      found[JSON.parse(key) as string] = JSON.parse(file) as string;
+    }
+    return found;
+  }
+
+  it('adds their convention files to the page module map, keyed by file id and imported by their real paths', async () => {
+    const { plugin } = await listing([INSTALLED, LINKED]);
+
+    const code = await loadVirtual(plugin, 'virtual:netjes/pages');
+
+    const installed = normalizePath(app.installed);
+    const linked = normalizePath(app.linked);
+    expect(imports(code)).toEqual({
+      '/@netjes-test/installed/app/(center)/articles/[slug]/page.tsx': `${installed}/app/(center)/articles/[slug]/page.tsx`,
+      '/@netjes-test/installed/app/layout.tsx': `${installed}/app/layout.tsx`,
+      '/@netjes-test/installed/app/page.tsx': `${installed}/app/page.tsx`,
+      '/@netjes-test/installed/app/styled/page.tsx': `${installed}/app/styled/page.tsx`,
+      '/@netjes-test/linked/pages/(center)/articles/[slug]/page.tsx': `${linked}/pages/(center)/articles/[slug]/page.tsx`,
+      '/@netjes-test/linked/pages/layout.tsx': `${linked}/pages/layout.tsx`,
+      '/@netjes-test/linked/pages/page.tsx': `${linked}/pages/page.tsx`,
+      '/@netjes-test/linked/pages/styled/page.tsx': `${linked}/pages/styled/page.tsx`,
+    });
+    // The app's own files, by the glob as before, and the packages with the folder of their pages.
+    expect(code).toContain('import.meta.glob(["/app/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}"])');
+    expect(code).toContain('export const appDir = "app";\n');
+    expect(code).toContain(`export const packages = [{"name":"${INSTALLED}","pages":"app"},{"name":"${LINKED}","pages":"pages"}];\n`);
+  });
+
+  it('lists the files again each time the map is built, so a page added to a package is in the next one', async () => {
+    const { plugin } = await listing([LINKED]);
+    expect(imports(await loadVirtual(plugin, 'virtual:netjes/pages'))).not.toHaveProperty('/@netjes-test/linked/pages/added/page.tsx');
+
+    await app.write('pages/added/page.tsx', 'export default function Added() { return null; }\n', app.linked);
+
+    expect(imports(await loadVirtual(plugin, 'virtual:netjes/pages'))).toHaveProperty('/@netjes-test/linked/pages/added/page.tsx');
+    await rm(path.join(app.linked, 'pages/added'), { recursive: true });
+  });
+
+  it('leaves out what is no convention file, and what Vite leaves out of a glob', async () => {
+    const { plugin } = await listing([INSTALLED]);
+    await app.write('app/_lib/helpers.tsx', 'export const x = 1;\n', app.installed);
+    await app.write('app/page.test.tsx', 'export {};\n', app.installed);
+    await app.write('app/node_modules/x/page.tsx', 'export default function X() { return null; }\n', app.installed);
+    await app.write('app/.hidden/page.tsx', 'export default function X() { return null; }\n', app.installed);
+    await app.write('app/route.ts', 'export {};\n', app.installed);
+
+    const keys = Object.keys(imports(await loadVirtual(plugin, 'virtual:netjes/pages')));
+
+    for (const folder of ['_lib', 'node_modules', '.hidden']) await rm(path.join(app.installed, 'app', folder), { recursive: true });
+    for (const file of ['page.test.tsx', 'route.ts']) await rm(path.join(app.installed, 'app', file));
+    expect(keys).toEqual([
+      '/@netjes-test/installed/app/(center)/articles/[slug]/page.tsx',
+      '/@netjes-test/installed/app/layout.tsx',
+      '/@netjes-test/installed/app/page.tsx',
+      '/@netjes-test/installed/app/styled/page.tsx',
+    ]);
+  });
+});
+
+describe('page packages that cannot be read', () => {
+  let app: PackagesApp;
+  beforeAll(async () => {
+    app = await createPackagesApp();
+  });
+  afterAll(async () => {
+    await app?.remove();
+  });
+
+  /** The error of the config hook, which reads the packages, for an app with these files in its node_modules. */
+  async function configError(packages: string[], files: Record<string, string> = {}, options?: Parameters<typeof netjes>[0]) {
+    for (const [file, content] of Object.entries(files)) await app.write(path.join('node_modules', file), content);
+    const { plugin } = await core({ ...options, packages });
+    try {
+      callConfig(plugin, { root: app.root });
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    return 'no error';
+  }
+
+  /** A page package's package.json, with these fields over a valid one's. */
+  const manifest = (name: string, fields: Record<string, unknown> = {}) =>
+    JSON.stringify({ name, version: '1.0.0', peerDependencies: { netjes: '*' }, netjes: {}, ...fields });
+
+  it('names a package that is not installed, and how to install it', async () => {
+    expect(await configError(['@netjes-test/missing'])).toBe("netjes: '@netjes-test/missing' in netjes({ packages }) is not installed: npm install @netjes-test/missing");
+  });
+
+  it('names a package without a netjes field', async () => {
+    expect(await configError(['plain'], { 'plain/package.json': JSON.stringify({ name: 'plain', version: '1.0.0' }) })).toBe(
+      'netjes: \'plain\' in netjes({ packages }) is not a page package: its package.json has no "netjes" field',
+    );
+  });
+
+  it('names a package without a netjes peer range', async () => {
+    expect(await configError(['no-peer'], { 'no-peer/package.json': manifest('no-peer', { peerDependencies: {} }) })).toBe(
+      "netjes: 'no-peer' has no peerDependencies.netjes in its package.json: a page package names the Netjes versions it supports there",
+    );
+  });
+
+  it('refuses a path in the netjes field that leaves the package or has another spelling', async () => {
+    const refused = (key: string, value: unknown) =>
+      `netjes: 'paths' has "${key}": ${JSON.stringify(value)} in the "netjes" field of its package.json: ` +
+      'a path there is relative and stays inside the package (no "..", no leading "/", no "\\")';
+    for (const pages of ['../x', 'app/../..', '/app', 'C:/app', 'c:app', 'app\\x', '..', '.', './app', 'app/', '', 'a//b', 7]) {
+      expect(await configError(['paths'], { 'paths/package.json': manifest('paths', { netjes: { pages } }) }), String(pages)).toBe(refused('pages', pages));
+    }
+    expect(await configError(['paths'], { 'paths/package.json': manifest('paths', { netjes: { sources: ['app', '../src'] } }) })).toBe(refused('sources', '../src'));
+    expect(await configError(['paths'], { 'paths/package.json': manifest('paths', { netjes: { css: '/etc/x.css' } }) })).toBe(refused('css', '/etc/x.css'));
+  });
+
+  it('names a stylesheet or a source folder that the package does not have', async () => {
+    expect(await configError(['gaps'], { 'gaps/package.json': manifest('gaps', { netjes: { css: 'styles/none.css' } }) })).toBe(
+      'netjes: \'gaps\' has "css": "styles/none.css" in the "netjes" field of its package.json, which is no file in the package',
+    );
+    expect(await configError(['gaps'], { 'gaps/package.json': manifest('gaps', { netjes: { sources: ['lib'] } }) })).toBe(
+      'netjes: \'gaps\' lists "lib" in "sources" in the "netjes" field of its package.json, which is no folder in the package',
+    );
+  });
+
+  it('refuses a name that is no npm package name, a name listed twice, and one named like the app\'s folder of pages', async () => {
+    expect(await configError(['../../etc'])).toBe('netjes: "../../etc" in netjes({ packages }) is not the name of an npm package');
+    expect(await configError(['@scope/a/b'])).toBe('netjes: "@scope/a/b" in netjes({ packages }) is not the name of an npm package');
+    expect(await configError([INSTALLED, INSTALLED])).toBe(`netjes: '${INSTALLED}' is listed twice in netjes({ packages })`);
+    // Its file ids would start like the app's own: app/page.tsx, src/app/page.tsx.
+    expect(await configError(['app'], { 'app/package.json': manifest('app') })).toBe(
+      "netjes: 'app' in netjes({ packages }) is named like the app's folder of pages, app, so its pages would be taken for the app's",
+    );
+    expect(await configError(['src'], { 'src/package.json': manifest('src') }, { appDir: 'src/app' })).toBe(
+      "netjes: 'src' in netjes({ packages }) is named like the app's folder of pages, src/app, so its pages would be taken for the app's",
+    );
+  });
+
+  it('refuses packages with Tailwind CSS turned off, when the config loads', () => {
+    expect(() => netjes({ packages: [INSTALLED], tailwind: false })).toThrow(
+      'netjes: page packages style their pages with Tailwind CSS, which netjes({ tailwind: false }) turns off: turn it on, or list no packages',
+    );
+    expect(() => netjes({ packages: [], tailwind: false })).not.toThrow();
   });
 });
 

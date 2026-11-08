@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { normalizePath, searchForWorkspaceRoot } from 'vite';
+import { CONVENTION_EXTENSIONS, CONVENTION_FILES, fileId, filePath, pagePackageFiles, resolvePagePackages } from './packages.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 // The compiled modules the package exports (npm run build writes them), so the app runs the code it type-checked, and
@@ -161,7 +162,11 @@ async function findRouteHandler(root, appDir) {
 export default function netjes(options = {}) {
   const appDir = (options.appDir ?? 'app').replace(/^\/+|\/+$/g, '');
   // Only the convention files are routes; everything else in app/ is colocated code.
-  const appFiles = `/${appDir}/**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}`;
+  const appFiles = `/${appDir}/**/{${CONVENTION_FILES.join(',')}}.{${CONVENTION_EXTENSIONS.map((ext) => ext.slice(1)).join(',')}}`;
+  const packageNames = options.packages ?? [];
+  if (packageNames.length > 0 && options.tailwind === false) {
+    throw new Error('netjes: page packages style their pages with Tailwind CSS, which netjes({ tailwind: false }) turns off: turn it on, or list no packages');
+  }
   const basePath = (options.basePath ?? '').replace(/\/+$/, '');
   const query = options.query === false ? null : options.query === true || options.query === undefined ? {} : options.query;
   // Fail when the config loads, not in the browser.
@@ -174,6 +179,8 @@ export default function netjes(options = {}) {
   let outDir = '';
   /** @type {import('vite').ViteDevServer | undefined} */
   let devServer;
+  /** The page packages the app lists, read when the config is. @type {import('./packages.mjs').PagePackage[]} */
+  let packages = [];
 
   /** @type {import('vite').Plugin} */
   const plugin = {
@@ -185,6 +192,7 @@ export default function netjes(options = {}) {
       const userTest = /** @type {{ test?: Record<string, unknown> }} */ (/** @type {unknown} */ (config)).test;
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
+      packages = resolvePagePackages(root, packageNames, appDir);
       const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
       const base = env.command === 'build' && basePath ? { base: `${basePath}/` } : {};
@@ -282,15 +290,28 @@ export default function netjes(options = {}) {
       if (id === DEV_CLIENT_ENTRY_URL) return CLIENT_ENTRY;
       return undefined;
     },
-    load(id) {
+    async load(id) {
       if (id === RESOLVED_QUERY_ID) {
         if (!query) return 'export const QueryShell = undefined;\n';
         return `import { createQueryShell } from ${JSON.stringify(QUERY_MODULE)};\nexport const QueryShell = createQueryShell(${queryLiteral});\n`;
       }
       if (id !== RESOLVED_PAGES_ID) return undefined;
-      const glob = JSON.stringify([appFiles]);
+      const glob = `import.meta.glob(${JSON.stringify([appFiles])})`;
+      // A package's files are imported one by one, by their real paths: a glob leaves out node_modules, and would name a
+      // linked package's files by their paths through the link. Listed again each time, as the glob is.
+      const imported = (
+        await Promise.all(
+          packages.map(async (pkg) =>
+            (await pagePackageFiles(pkg)).map((file) => `${JSON.stringify(`/${fileId(pkg, file)}`)}: () => import(${JSON.stringify(filePath(pkg, file))})`),
+          ),
+        )
+      ).flat();
+      const pages = packages.length === 0 ? glob : `{ ...${glob}, ${imported.join(', ')} }`;
       // The folder the keys start with: renderDocument (netjes/testing) builds routes and segment ids from it.
-      return `export const pages = import.meta.glob(${glob});\nexport const appDir = ${JSON.stringify(appDir)};\n`;
+      return (
+        `export const pages = ${pages};\nexport const appDir = ${JSON.stringify(appDir)};\n` +
+        `export const packages = ${JSON.stringify(packages.map(({ name, pages }) => ({ name, pages })))};\n`
+      );
     },
     async writeBundle() {
       if (!isSsrBuild) return;

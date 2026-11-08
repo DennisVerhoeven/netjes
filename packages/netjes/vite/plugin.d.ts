@@ -11,6 +11,13 @@ export type NetjesPluginOptions = {
    * Built asset URLs get it; links, forms, redirects and router calls get it from the server at runtime.
    */
   basePath?: string;
+  /**
+   * Page packages, by npm name: installed packages whose `package.json` has a `netjes` field, and which the .NET app
+   * mounts at a prefix. Their convention files join the page module map and both builds, their sources and stylesheet
+   * join the app's Tailwind CSS build, and the client build records them in `dist/client/.vite/netjes.json`, where the
+   * .NET app finds them in production. Needs Tailwind CSS on.
+   */
+  packages?: readonly string[];
   /** Options for @vitejs/plugin-react, which netjes() includes. */
   react?: ReactOptions;
   /** Tailwind CSS through @tailwindcss/vite. Default true; `@import "tailwindcss"` in a CSS file a layout imports. */
