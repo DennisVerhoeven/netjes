@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Routing;
 
 namespace Netjes.Routing;
 
@@ -37,6 +39,37 @@ internal sealed partial class MountPrefix
     public IReadOnlyList<string> Parameters { get; }
 
     public override string ToString() => "/" + Folder;
+
+    /// <summary>
+    /// The prefix's URL for these route values: its literal segments as written, and each value encoded as one segment.
+    /// Null, with the parameter in <paramref name="unfilled"/>, when a value is missing or empty, or is <c>.</c> or
+    /// <c>..</c>, which a browser would resolve away.
+    /// </summary>
+    public string? Url(RouteValueDictionary values, out string? unfilled)
+    {
+        var url = new List<string>();
+        foreach (var segment in Segments.Where(s => !IsGroup(s)))
+        {
+            if (!IsParameter(segment))
+            {
+                url.Add(segment);
+                continue;
+            }
+
+            var name = segment[1..^1];
+            var value = values.TryGetValue(name, out var raw) ? Convert.ToString(raw, CultureInfo.InvariantCulture) : null;
+            if (value is null or "" or "." or "..")
+            {
+                unfilled = name;
+                return null;
+            }
+
+            url.Add(Uri.EscapeDataString(value));
+        }
+
+        unfilled = null;
+        return "/" + string.Join('/', url);
+    }
 
     /// <summary>Parses a prefix, throwing <see cref="ArgumentException"/> with the reason when it is not one.</summary>
     public static MountPrefix Parse(string prefix)
