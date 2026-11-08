@@ -12,7 +12,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ### Changed
 
-- `netjes info` reads version ranges as npm does. `^0.0.4` holds 0.0.4 alone, where it held every 0.0.x from 0.0.4 on; a prerelease such as `0.0.5-rc.1` is in a range only when the range names a prerelease of 0.0.5, where it counted as 0.0.5; comparators joined by spaces (`>=1.2.3 <2`), `<`, `<=`, `>` and hyphen ranges, which it passed unchecked, are read; and so are partial versions such as `~1` and `1.2`, as npm reads them. A peer range of `netjes` that `info` passed before can now fail: install a version inside it.
+- `netjes info` reads version ranges as npm does. `^0.0.4` holds 0.0.4 alone, where it held every 0.0.x from 0.0.4 on; a prerelease such as `0.0.5-rc.1` is in a range only when the range names a prerelease of 0.0.5, where it counted as 0.0.5; comparators joined by spaces (`>=1.2.3 <2`), `<`, `<=`, `>` and hyphen ranges, which it passed unchecked, are read; and so are partial versions such as `~1` and `1.2`, as npm reads them. A peer range of `netjes` that `info` passed before can now fail: install a version inside it. A prerelease of Node.js is placed by its version, as npm checks `engines`: `24.16.0-rc.1` still passes, and `26.0.0-rc.1`, which comes before 26.0.0, now fails as too old.
 
 ## [0.0.3] - 2026-11-07
 

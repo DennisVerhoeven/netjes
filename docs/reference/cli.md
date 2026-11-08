@@ -227,7 +227,7 @@ netjes 0.0.3 in /home/me/my-shop
 
 | Check | Fails (`✗`) when | Warns (`!`) when |
 |---|---|---|
-| Node.js | outside `^22.22.2 \|\| ^24.15.0 \|\| >=26.0.0`: older than 22.22.2, or a 24 older than 24.15.0 | an odd release line (23, 25), which falls between the supported ones |
+| Node.js | outside `^22.22.2 \|\| ^24.15.0 \|\| >=26.0.0`: older than 22.22.2, or a 24 older than 24.15.0. A prerelease is placed by its version, as npm checks `engines`: `24.16.0-rc.1` passes, and `26.0.0-rc.1`, which comes before 26.0.0, does not | an odd release line (23, 25), which falls between the supported ones |
 | .NET SDK | `dotnet` is missing, `dotnet --version` fails (often a `global.json` that asks for an SDK that is not installed), or the SDK is older than the app's `TargetFramework` (and 10.0): any .NET 10 SDK builds an app that targets `net10.0` | |
 | npm packages | `netjes`, `vite`, `react` or `react-dom` is not installed, or a version is outside the installed netjes's peer range, read as npm reads ranges: `^0.0.4` holds 0.0.4 alone, and a prerelease is in a range only when the range names a prerelease of that version | the netjes running `info` is another version than the app's (run `npx netjes info`) |
 | Netjes reference | the `.csproj` references an exact Netjes version (`x.y.z` or `[x.y.z]`) other than the npm package's, or a checkout that is not there. A range, a floating version or an MSBuild property such as `$(NetjesVersion)` is shown, not compared. | the `.csproj` references no Netjes package (fine when `Directory.Packages.props` does) |
