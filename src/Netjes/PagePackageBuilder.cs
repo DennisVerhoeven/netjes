@@ -20,6 +20,8 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
         _outer = outer;
         _group = outer.MapGroup(mount.Prefix.Template);
         Mount = mount;
+        var owner = new PagePackageEndpointMetadata(mount.Package.Name);
+        ((IEndpointConventionBuilder)this).Add(endpoint => endpoint.Metadata.Add(owner));
     }
 
     /// <summary>Where the package is mounted.</summary>
