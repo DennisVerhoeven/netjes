@@ -26,9 +26,19 @@ internal sealed record PagePackageInstall(string Name, string Version, string Ne
     /// </summary>
     public static PagePackageInstall Read(string name, string directory)
     {
-        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "package.json")));
+        JsonDocument json;
+        try
+        {
+            json = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "package.json")));
+        }
+        catch (JsonException ex)
+        {
+            throw new NetjesStartupException($"'{name}' is mounted, but its package.json is not JSON: {ex.Message}", ex);
+        }
+
+        using var _ = json;
         var manifest = json.RootElement;
-        if (!manifest.TryGetProperty("netjes", out var field) || field.ValueKind != JsonValueKind.Object)
+        if (manifest.ValueKind != JsonValueKind.Object || !manifest.TryGetProperty("netjes", out var field) || field.ValueKind != JsonValueKind.Object)
         {
             throw new NetjesStartupException($"'{name}' is mounted, but it is not a page package: its package.json has no \"netjes\" field.");
         }

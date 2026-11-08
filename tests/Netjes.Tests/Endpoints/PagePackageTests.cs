@@ -405,19 +405,19 @@ public class PagePackageTests
         Assert.StartsWith($"'{Help}' has \"{key}\": {JsonValue.Create(value).ToJsonString()} in the \"netjes\" field of its package.json", ex.Message);
     }
 
-    [Fact]
-    public async Task Development_APackageWithoutTheNetjesField_StopsStartup()
+    [Theory]
+    [InlineData("""{ "name": "@acme/help-center", "version": "1.0.0" }""", "but it is not a page package: its package.json has no \"netjes\" field.")]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": "app" }""", "but it is not a page package: its package.json has no \"netjes\" field.")]
+    [InlineData("[]", "but it is not a page package: its package.json has no \"netjes\" field.")]
+    [InlineData("{ \"name\": ", "but its package.json is not JSON: ")]
+    public async Task Development_APackageThatIsNoPagePackage_StopsStartup(string packageJson, string reason)
     {
         var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
             ["app/page.tsx"],
-            prepareRoot: root =>
-            {
-                var dir = TestPagePackage.Install(root, ["page.tsx"]);
-                File.WriteAllText(Path.Combine(dir, "package.json"), $$"""{ "name": "{{Help}}", "version": "1.0.0" }""");
-            },
+            prepareRoot: root => File.WriteAllText(Path.Combine(TestPagePackage.Install(root, ["page.tsx"]), "package.json"), packageJson),
             map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
 
-        Assert.Equal($"'{Help}' is mounted, but it is not a page package: its package.json has no \"netjes\" field.", ex.Message);
+        Assert.StartsWith($"'{Help}' is mounted, {reason}", ex.Message);
     }
 
     [Fact]
