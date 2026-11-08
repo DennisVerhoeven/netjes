@@ -152,6 +152,105 @@ public class PagePackageTypesTests
         Assert.DoesNotContain("AppHomeProps", output);
     }
 
+    private static string PackageFile(TestApp app) =>
+        app.App.Services.GetRequiredService<TypeScriptGenerator>().Generate(app.App.Services.GetRequiredService<RouteSources>().Mounts.Single());
+
+    [Fact]
+    public async Task ThePackagesFile_IsTheSameWhereverTheAppMountsThePackage()
+    {
+        var files = new List<string>();
+        foreach (var prefix in new[] { "/help", "/(marketing)/help", "/[tenant]/help", "/support/(desk)/[tenant]/help", "/" })
+        {
+            await using var app = await StartAsync(prefix == "/" ? [] : ["app/page.tsx"], prefix: prefix);
+            files.Add(PackageFile(app));
+        }
+
+        Assert.All(files, file => Assert.Equal(files[0], file));
+        Assert.DoesNotContain("tenant", files[0]);
+        Assert.Contains("\"GET /articles/{slug}/feed\": \"/articles/{slug}/feed\",", files[0]);
+    }
+
+    private static void Write(string root, string file, string content)
+    {
+        var path = Path.Combine(root, file);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    [Fact]
+    public async Task Development_RewritesAStalePackageFile()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], mount: WithTypes(), prepareRoot: root => Write(root, PackageTypes, "// stale\n"));
+
+        Assert.Equal(PackageFile(app), await File.ReadAllTextAsync(PackageTypesPath(app), Ct));
+        Assert.Contains(app.Logs, l => l.Message == "Wrote packages/help-center/generated/netjes.ts".Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    [Fact]
+    public async Task GenerateCommand_WritesTheAppsFileAndThePackagesFile()
+    {
+        int? exit = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: WithTypes(),
+            configure: o => o.Command = new NetjesCommandOptions { Name = "generate" },
+            services: s => s.AddSingleton(new CommandExit(code => exit = code)));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(AppFile(app), await File.ReadAllTextAsync(Path.Combine(app.Root, "generated", "netjes.ts"), Ct));
+        Assert.Equal(PackageFile(app), await File.ReadAllTextAsync(PackageTypesPath(app), Ct));
+    }
+
+    /// <summary>The app's file and the package's, as the generator writes them.</summary>
+    private static async Task<(string App, string Package)> CurrentFilesAsync()
+    {
+        await using var reference = await StartAsync(["app/page.tsx"], mount: WithTypes(), configure: o => o.TypesFile = null);
+        return (AppFile(reference), PackageFile(reference));
+    }
+
+    [Theory]
+    [InlineData("current", 0)]
+    [InlineData("stale", 1)]
+    [InlineData("missing", 1)]
+    public async Task GenerateCheck_ChecksThePackagesFile_NamingItWhenItIsNotCurrent(string state, int expectedExit)
+    {
+        var (appFile, packageFile) = await CurrentFilesAsync();
+        int? exit = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: WithTypes(),
+            configure: o => o.Command = new NetjesCommandOptions { Name = "generate", Check = true },
+            services: s => s.AddSingleton(new CommandExit(code => exit = code)),
+            prepareRoot: root =>
+            {
+                Write(root, "generated/netjes.ts", appFile);
+                if (state != "missing")
+                {
+                    Write(root, PackageTypes, state == "current" ? packageFile : packageFile.Replace("\"/contact\": z.object({})", "\"/contact\": z.never()"));
+                }
+            });
+
+        Assert.Equal(expectedExit, exit);
+        var errors = app.Logs.Where(l => l.Level == Microsoft.Extensions.Logging.LogLevel.Error).Select(l => l.Message).ToList();
+        if (state == "current")
+        {
+            Assert.Empty(errors);
+            return;
+        }
+
+        var error = Assert.Single(errors);
+        Assert.StartsWith(PackageTypesPath(app), error);
+        Assert.Contains(state == "stale" ? "is out of date; run `netjes generate`" : "does not exist; run `netjes generate`", error);
+        if (state == "stale")
+        {
+            Assert.Contains("+ ", error);
+            Assert.Contains("\"/contact\": z.object({})", error);
+        }
+
+        // --check writes nothing.
+        Assert.Equal(state == "missing", !File.Exists(PackageTypesPath(app)));
+    }
+
     /// <summary>The app's own type of the same name as one of the package's.</summary>
     public static class AppTypes
     {
