@@ -230,6 +230,34 @@ public class SegmentRenderingTests
         Assert.Equal(["app", "app/help", "app/help/(center)"], Ids(inside));
     }
 
+    [Theory]
+    [InlineData("/HELP/nope", true)]
+    [InlineData("/Help/nope/", true)]
+    [InlineData("/help", true)]
+    [InlineData("/helpx/nope", false)]
+    [InlineData("/help%2Fnope", false)]
+    [InlineData("/help%2fnope", false)]
+    [InlineData("//help/nope", false)]
+    [InlineData("/x/help/nope", false)]
+    public async Task UnknownUrl_IsBelowTheMountOnlyWhenItsSegmentsAreTheMounts_InAnyCase(string url, bool below)
+    {
+        foreach (var pathBase in new string?[] { null, "/base" })
+        {
+            await using var app = await MountedAsync(
+                ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+                ["layout.tsx", "not-found.tsx", "contact/page.tsx"],
+                a => a.MapPagePackage(TestPagePackage.Descriptor, "/help"),
+                pathBase: pathBase);
+
+            var response = await app.GetDataAsync(pathBase + url);
+            var payload = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(below ? $"{Help}/app/not-found.tsx" : "app/not-found.tsx", (string?)payload["page"]);
+            Assert.Equal(below ? ["app", "app/help"] : ["app"], Ids(payload));
+        }
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {
