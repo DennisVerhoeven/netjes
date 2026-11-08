@@ -30,8 +30,29 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(package);
         var parsed = MountPrefix.Parse(prefix);
+        if (endpoints is RouteGroupBuilder or PagePackageBuilder)
+        {
+            throw new InvalidOperationException(
+                $"MapPagePackage('{package.Name}') is called inside a MapGroup, whose prefix and conventions would not reach the " +
+                "package's pages: they are routed from the app's route table. Call app.MapPagePackage on the app, with the " +
+                "group's URL in the mount's prefix.");
+        }
+
         var services = endpoints.ServiceProvider;
         var sources = services.GetRequiredService<RouteSources>();
+        if (sources.PagesMapped)
+        {
+            throw new InvalidOperationException(
+                $"MapPagePackage('{package.Name}') is called after MapPages(), which has routed the pages. Mount the package " +
+                "before app.MapPages().");
+        }
+
+        if (sources.Find(package.Name) is { } existing)
+        {
+            throw new InvalidOperationException(
+                $"'{package.Name}' is mounted already, at {existing.Mount.Prefix}. A page package is mounted once.");
+        }
+
         var context = services.GetRequiredService<NetjesContext>();
         var mount = new PagePackageMount(package, parsed);
         try

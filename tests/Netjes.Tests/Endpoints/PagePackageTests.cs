@@ -245,4 +245,48 @@ public class PagePackageTests
         Assert.Contains($"'{Help}/app/contact/page.tsx' and 'app/help/contact/page.tsx'", error.Message);
         Assert.Equal($"{Help}/app/contact/page.tsx", (string?)(await app.GetDataJsonAsync("/help/contact"))["page"]);
     }
+
+    [Fact]
+    public async Task MapPagePackage_InsideAMapGroup_Throws()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapGroup("/support").MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Contains($"'{Help}'", ex.Message);
+        Assert.Contains("MapGroup", ex.Message);
+        Assert.Contains("app.MapPagePackage", ex.Message);
+    }
+
+    [Fact]
+    public async Task MapPagePackage_AfterMapPages_Throws()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a =>
+            {
+                a.MapPages();
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+            }));
+
+        Assert.Contains($"'{Help}'", ex.Message);
+        Assert.Contains("before app.MapPages()", ex.Message);
+    }
+
+    [Fact]
+    public async Task MapPagePackage_ASecondMountOfOnePackage_Throws()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a =>
+            {
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                a.MapPagePackage(TestPagePackage.Descriptor, "/support");
+            }));
+
+        Assert.Contains($"'{Help}' is mounted already, at /help", ex.Message);
+    }
 }
