@@ -516,4 +516,26 @@ public class PagePackageTests
 
         Assert.StartsWith($"'{prefix}' is not a mount prefix", ex.Message);
     }
+
+    [Fact]
+    public async Task AnEndpointMappedThroughTheMount_MapsBelowItsUrl_WithItsConventions()
+    {
+        await using var app = await StartWithPackageAsync(
+            "Development",
+            ["app/page.tsx"],
+            ["page.tsx"],
+            prefix: "/(site)/help",
+            mount: m =>
+            {
+                m.MapGet("/status", () => "up").AllowAnonymous();
+                m.MapGet("/feedback", () => "thanks");
+                m.RequireAuthorization();
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        Assert.Equal("up", await app.Client.GetStringAsync("/help/status", Ct));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.Client.GetAsync("/help/feedback", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await app.Client.GetAsync("/status", Ct)).StatusCode);
+    }
 }
