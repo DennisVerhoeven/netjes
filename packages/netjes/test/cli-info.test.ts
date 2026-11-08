@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NODE_RANGE, checkNode } from '../cli/info.mjs';
+import { NODE_RANGE, checkNode, satisfies } from '../cli/info.mjs';
 import { run } from '../cli/main.mjs';
 import { recordingIo } from './cli-io.ts';
 
@@ -286,5 +286,34 @@ describe('the Node.js check', () => {
     expect(NODE_RANGE).toBe(range);
     expect((await read('package.json')).engines).toEqual({ node: NODE_RANGE });
     expect((await read('template/package.json')).engines).toEqual({ node: NODE_RANGE });
+  });
+});
+
+/** The version ranges the C# version checks of page packages read too (VersionRangeTests). */
+const ranges = JSON.parse(await readFile(new URL('./fixtures/version-ranges.json', import.meta.url), 'utf8')) as {
+  ranges: { range: string; in: string[]; out: string[] }[];
+  invalid: string[];
+  invalidVersions: string[];
+};
+
+describe('version ranges', () => {
+  const cases = ranges.ranges.flatMap((c) => [
+    ...c.in.map((version) => ({ range: c.range, version, expected: true })),
+    ...c.out.map((version) => ({ range: c.range, version, expected: false })),
+  ]);
+
+  it.each(cases)('$version in "$range" is $expected, as npm reads it', ({ range, version, expected }) => {
+    expect(satisfies(version, range, { strict: true })).toBe(expected);
+    expect(satisfies(version, range)).toBe(expected);
+  });
+
+  it.each(ranges.invalid)('"%s" is no range, which nothing satisfies in strict mode, and everything otherwise', (range) => {
+    expect(satisfies('1.2.3', range, { strict: true })).toBe(false);
+    expect(satisfies('1.2.3', range)).toBe(true);
+  });
+
+  it.each(ranges.invalidVersions)('"%s" is no version, which satisfies no range in strict mode, and every range otherwise', (version) => {
+    expect(satisfies(version, '*', { strict: true })).toBe(false);
+    expect(satisfies(version, '^1.2.3')).toBe(true);
   });
 });

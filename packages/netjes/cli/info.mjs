@@ -58,31 +58,151 @@ function parseVersion(version) {
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 /**
- * Whether `version` is in `range`, for the forms package.json ranges usually take (^1.2.3, ~1.2.3, >=1, 1.2.3, *,
- * and || between them). A form it does not know passes: only a definite mismatch is reported.
+ * A version as npm reads one: major.minor.patch, a prerelease and build metadata, which no comparison looks at.
+ * @typedef {{ main: [number, number, number]; pre: (string | number)[] }} SemVer
+ * @typedef {{ op: '<' | '<=' | '>' | '>=' | '='; version: SemVer }} Comparator
+ */
+
+const PRERELEASE = '(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?';
+const BUILD = '(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?';
+const SEMVER = new RegExp(`^v?(\\d+)\\.(\\d+)\\.(\\d+)${PRERELEASE}${BUILD}$`);
+/** A version in a range, which may leave out its minor and patch, or write them as x, X or *. */
+const PARTIAL = new RegExp(`^v?(\\d+|[xX*])(?:\\.(\\d+|[xX*])(?:\\.(\\d+|[xX*])${PRERELEASE}${BUILD})?)?$`);
+const OPERATOR = /^(<=|>=|<|>|=|\^|~>|~)?/;
+
+/** @param {string} pre @returns {(string | number)[]} */
+const identifiers = (pre) => (pre ? pre.split('.').map((id) => (/^\d+$/.test(id) ? Number(id) : id)) : []);
+
+/** @param {string} version @returns {SemVer | null} */
+function parseSemver(version) {
+  const match = SEMVER.exec(version.trim());
+  return match ? { main: [Number(match[1]), Number(match[2]), Number(match[3])], pre: identifiers(match[4] ?? '') } : null;
+}
+
+/** @param {SemVer} a @param {SemVer} b */
+function compareSemver(a, b) {
+  const main = compare(a.main, b.main);
+  if (main !== 0) return main;
+  // A version with a prerelease comes before the version itself, and identifiers compare one by one: numbers by value,
+  // and before words.
+  if (a.pre.length === 0 || b.pre.length === 0) return b.pre.length - a.pre.length;
+  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+    const [x, y] = [a.pre[i], b.pre[i]];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    if (x === y) continue;
+    if (typeof x !== typeof y) return typeof x === 'number' ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/** @param {number} major @param {number} minor @param {number} patch @param {(string | number)[]} [pre] @returns {SemVer} */
+const semver = (major, minor, patch, pre = []) => ({ main: [major, minor, patch], pre });
+/** The lowest version above every prerelease of a release below this one: what npm's `<1.3.0-0` bounds are. */
+const before = (/** @type {number} */ major, /** @type {number} */ minor, /** @type {number} */ patch) => semver(major, minor, patch, [0]);
+
+/**
+ * The comparators one comparator of a range stands for, as npm reads it: `^1.2` is `>=1.2.0 <2.0.0-0`. Null for one
+ * that is none.
+ * @param {string} token
+ * @returns {Comparator[] | null}
+ */
+function comparators(token) {
+  const op = OPERATOR.exec(token)?.[1] ?? '';
+  const match = PARTIAL.exec(token.slice(op.length));
+  if (!match) return null;
+  const [major, minor, patch] = [match[1], match[2], match[3]].map((part) => (part === undefined || /^[xX*]$/.test(part) ? null : Number(part)));
+  const pre = identifiers(match[4] ?? '');
+  if (major === null || major === undefined) return op === '<' || op === '>' ? [{ op: '<', version: before(0, 0, 0) }] : [];
+  if (minor === null || minor === undefined) {
+    /** @type {Record<string, Comparator[]>} */
+    const byMajor = {
+      '>': [{ op: '>=', version: semver(major + 1, 0, 0) }],
+      '>=': [{ op: '>=', version: semver(major, 0, 0) }],
+      '<': [{ op: '<', version: before(major, 0, 0) }],
+      '<=': [{ op: '<', version: before(major + 1, 0, 0) }],
+    };
+    return byMajor[op] ?? [{ op: '>=', version: semver(major, 0, 0) }, { op: '<', version: before(major + 1, 0, 0) }];
+  }
+  if (patch === null || patch === undefined) {
+    /** @type {Record<string, Comparator[]>} */
+    const byMinor = {
+      '>': [{ op: '>=', version: semver(major, minor + 1, 0) }],
+      '>=': [{ op: '>=', version: semver(major, minor, 0) }],
+      '<': [{ op: '<', version: before(major, minor, 0) }],
+      '<=': [{ op: '<', version: before(major, minor + 1, 0) }],
+      '^': [{ op: '>=', version: semver(major, minor, 0) }, { op: '<', version: major > 0 ? before(major + 1, 0, 0) : before(0, minor + 1, 0) }],
+    };
+    return byMinor[op] ?? [{ op: '>=', version: semver(major, minor, 0) }, { op: '<', version: before(major, minor + 1, 0) }];
+  }
+  const version = semver(major, minor, patch, pre);
+  switch (op) {
+    case '^': {
+      // npm's caret allows the changes that keep the first non-zero part: ^0.0.4 is 0.0.4 alone, and its prereleases.
+      const upper = major > 0 ? before(major + 1, 0, 0) : minor > 0 ? before(0, minor + 1, 0) : before(0, 0, patch + 1);
+      return [{ op: '>=', version }, { op: '<', version: upper }];
+    }
+    case '~':
+    case '~>':
+      return [{ op: '>=', version }, { op: '<', version: before(major, minor + 1, 0) }];
+    case '':
+      return [{ op: '=', version }];
+    default:
+      return [{ op: /** @type {Comparator['op']} */ (op), version }];
+  }
+}
+
+/**
+ * The comparators of one part of a range, between `||`s: a hyphen range (`1.2 - 2.3.4`), or comparators that a version
+ * has to pass all of, separated by spaces. Null for a part that is none.
+ * @param {string} part
+ * @returns {Comparator[] | null}
+ */
+function comparatorSet(part) {
+  const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(part);
+  if (hyphen) {
+    // From the first version, up to and with the second: `<=2.3` is below 2.4.0, as npm reads a partial version there.
+    const [from, to] = [comparators(`>=${hyphen[1]}`), comparators(`<=${hyphen[2]}`)];
+    return from && to ? [...from, ...to] : null;
+  }
+  // `>= 1.2.3` is `>=1.2.3`.
+  const tokens = part.replace(/(<=|>=|<|>|=|\^|~>|~)\s+/g, '$1').split(/\s+/).filter(Boolean);
+  /** @type {Comparator[]} */
+  const set = [];
+  for (const token of tokens) {
+    const parsed = comparators(token);
+    if (!parsed) return null;
+    set.push(...parsed);
+  }
+  return set;
+}
+
+/** @param {SemVer} version @param {Comparator} comparator */
+function passes(version, { op, version: bound }) {
+  const order = compareSemver(version, bound);
+  return op === '<' ? order < 0 : op === '<=' ? order <= 0 : op === '>' ? order > 0 : op === '>=' ? order >= 0 : order === 0;
+}
+
+/**
+ * Whether `version` is in `range`, as npm reads ranges: `^`, `~`, `x` and partial versions, `<`, `<=`, `>`, `>=` and
+ * `=`, comparators separated by spaces, hyphen ranges and `||`. `^0.0.4` is `>=0.0.4 <0.0.5-0`, and a prerelease is in
+ * a range only when a comparator names a prerelease of the same major.minor.patch: `0.0.5-rc.1` is not in `^0.0.4`.
+ * Build metadata (`+sha`) is left out. In strict mode a range or a version that is none satisfies nothing; otherwise
+ * it passes, so that only a definite mismatch is reported.
  * @param {string | undefined} version
  * @param {string} range
+ * @param {{ strict?: boolean }} [options]
  */
-export function satisfies(version, range) {
-  const have = parseVersion(version);
-  if (!have) return true;
-  return range.split('||').some((part) => {
-    const match = /^\s*(\^|~|>=|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(part);
-    if (!match) return true;
-    /** @type {[number, number, number]} */
-    const want = [Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0)];
-    const atLeast = compare(have, want) >= 0;
-    switch (match[1]) {
-      case '>=':
-        return atLeast;
-      case '^':
-        return atLeast && (want[0] > 0 ? have[0] === want[0] : have[1] === want[1]);
-      case '~':
-        return atLeast && have[0] === want[0] && have[1] === want[1];
-      default:
-        return match[3] === undefined ? have[0] === want[0] : compare(have, want) === 0;
-    }
-  });
+export function satisfies(version, range, { strict = false } = {}) {
+  const have = parseSemver(version ?? '');
+  const sets = range.split('||').map((part) => comparatorSet(part.trim()));
+  if (!have || sets.some((set) => set === null)) return !strict;
+  return sets.some(
+    (set) =>
+      set !== null &&
+      set.every((comparator) => passes(have, comparator)) &&
+      (have.pre.length === 0 || set.some(({ version: bound }) => bound.pre.length > 0 && compare(bound.main, have.main) === 0)),
+  );
 }
 
 /** @param {string} file @returns {Promise<any>} */
