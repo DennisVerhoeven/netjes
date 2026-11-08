@@ -1,8 +1,12 @@
 using System.Net;
+using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Netjes.Routing;
 
 namespace Netjes.Tests.Endpoints;
@@ -288,5 +292,55 @@ public class PagePackageTests
             }));
 
         Assert.Contains($"'{Help}' is mounted already, at /help", ex.Message);
+    }
+
+    private static void Nobody(IServiceCollection services) =>
+        services.AddAuthorization().AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Test", null);
+
+    private sealed class NobodyHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.NoResult());
+    }
+
+    private sealed record Marker(string Name);
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task ConventionsOnTheMount_ProtectThePackagesFilePages_ButNotTheAppsPagesUnderThePrefix(string environment)
+    {
+        await using var app = await StartWithPackageAsync(
+            environment,
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            ["page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"],
+            mount: m => m.RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetDocumentAsync("/help")).StatusCode);
+        Assert.Equal("app/unauthorized.tsx", (string?)app.Renderer.LastPayload["page"]);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetDataAsync("/help/articles/x")).StatusCode);
+        // The app's own page in the package's folder is the app's to protect: the scope the guide documents.
+        Assert.Equal(HttpStatusCode.OK, (await app.GetDataAsync("/help/shortcuts")).StatusCode);
+    }
+
+    [Fact]
+    public async Task ConventionsOfMapPages_ReachThePackagesFilePages_AfterTheMounts()
+    {
+        await using var app = await StartWithPackageAsync(
+            "Development",
+            ["app/page.tsx"],
+            ["page.tsx"],
+            mount: m => m.WithMetadata(new Marker("mount")),
+            pages: p => p.WithMetadata(new Marker("pages")));
+
+        var endpoint = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Single(e => e.Metadata.GetMetadata<PageRouteMetadata>()?.Pattern == "/help");
+        var appPage = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Single(e => e.Metadata.GetMetadata<PageRouteMetadata>()?.Pattern == "/");
+
+        Assert.Equal(["mount", "pages"], endpoint.Metadata.GetOrderedMetadata<Marker>().Select(m => m.Name));
+        Assert.Equal(["pages"], appPage.Metadata.GetOrderedMetadata<Marker>().Select(m => m.Name));
     }
 }
