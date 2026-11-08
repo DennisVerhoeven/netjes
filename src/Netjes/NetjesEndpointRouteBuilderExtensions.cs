@@ -328,16 +328,34 @@ public static partial class NetjesEndpointRouteBuilderExtensions
                 $"'{name}' is not a valid action name: use letters, digits, '.', '-' and '_'.", nameof(name));
         }
 
-        var names = endpoints.ServiceProvider.GetRequiredService<ServerActionRegistry>();
-        if (!names.Add(name))
+        // On a page package's mount, it maps on the app, at the one URL the client posts to, with the mount's conventions.
+        var mount = endpoints as PagePackageBuilder;
+        if (mount is null)
         {
-            throw new InvalidOperationException($"A server action named '{name}' is already mapped.");
+            RequireOutsideAMount(endpoints, nameof(MapAction));
         }
 
-        RequireBindable(endpoints, $"The server action '{name}'", $"/_netjes/actions/{name}", action);
+        var target = mount?.Outer ?? endpoints;
+        var package = mount?.Mount.Package.Name;
+        if (endpoints.ServiceProvider.GetRequiredService<ServerActionRegistry>().Add(name, package) is { } mapped)
+        {
+            throw new InvalidOperationException(
+                $"The server action '{name}' of {OwnerOf(package)} is mapped already, as '{mapped.Name}' by {OwnerOf(mapped.Package)}. " +
+                "Routing matches /_netjes/actions/{name} in any case, so names that differ only in case are one action. " +
+                "Give one of them another name.");
+        }
+
+        RequireBindable(target, $"The server action '{name}'", $"/_netjes/actions/{name}", action);
         ActionInputValidation.RequireReadable($"The server action '{name}'", action.Method);
-        var builder = endpoints
-            .MapPost($"/_netjes/actions/{name}", action)
+        var builder = target.MapPost($"/_netjes/actions/{name}", action);
+        if (mount is not null)
+        {
+            // First, as a group's conventions come before the endpoint's own.
+            builder.Add(endpoint => mount.Mount.Conventions.ForEach(convention => convention(endpoint)));
+            builder.Finally(endpoint => mount.Mount.FinallyConventions.ForEach(convention => convention(endpoint)));
+        }
+
+        builder
             .WithMetadata(new ServerActionMetadata(name), new ActionFormFields(action.Method), new PageEndpointMetadata(null), new RequireAntiforgeryTokenAttribute());
         if (ServerActionResultMetadata.For(action) is { } result)
         {

@@ -327,4 +327,81 @@ public class PagePackageLoaderTests
         Assert.Equal(HttpStatusCode.PermanentRedirect, response.StatusCode);
         Assert.Equal(location, response.Headers.Location?.OriginalString);
     }
+
+    [Fact]
+    public async Task AServerActionThroughTheMount_MapsAtTheActionsUrl_WithTheMountsConventions()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            ["page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: m =>
+            {
+                m.MapAction("help.vote", () => ServerAction.Ok()).DisableAntiforgery();
+                m.MapAction("help.open", () => ServerAction.Ok()).DisableAntiforgery().AllowAnonymous();
+                m.RequireAuthorization();
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        var actions = Endpoints(app).Where(e => e.Metadata.GetMetadata<ServerActionMetadata>() is not null).ToList();
+        Assert.Equal(["/_netjes/actions/help.open", "/_netjes/actions/help.vote"], actions.Select(e => "/" + e.RoutePattern.RawText!.TrimStart('/')).Order());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await CallAsync(app, "/_netjes/actions/help.vote")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await CallAsync(app, "/_netjes/actions/help.open")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.OK, (await CallAsync(app, "/acme/help/_netjes/actions/help.open")).StatusCode);
+    }
+
+    /// <summary>A server action call as the client router makes it.</summary>
+    private static Task<HttpResponseMessage> CallAsync(TestApp app, string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json") };
+        request.Headers.Add(NetjesHeaders.Data, "1");
+        return app.Client.SendAsync(request, Ct);
+    }
+
+    [Theory]
+    [InlineData("help.vote", false)]
+    [InlineData("Help.Vote", false)]
+    [InlineData("HELP.VOTE", true)]
+    public async Task AServerActionOfTheApp_NamedAsOneOfThePackages_InAnyCase_FailsAtStartup_NamingBoth(string name, bool appFirst)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(
+            ["app/page.tsx"],
+            ["page.tsx"],
+            before: a =>
+            {
+                if (appFirst) a.MapAction(name, () => ServerAction.Ok());
+            },
+            mount: m => m.MapAction("help.vote", () => ServerAction.Ok()),
+            after: a =>
+            {
+                if (!appFirst) a.MapAction(name, () => ServerAction.Ok());
+            }));
+
+        Assert.Contains("the page package '@acme/help-center'", ex.Message);
+        Assert.Contains("the app", ex.Message);
+        Assert.Contains("'help.vote'", ex.Message);
+        Assert.Contains($"'{name}'", ex.Message);
+    }
+
+    public static TheoryData<string, Action<IEndpointRouteBuilder>> OnAGroupOfTheMount => new()
+    {
+        { "MapPageLoader", g => g.MapPageLoader("/", () => Page.Props()) },
+        { "MapPageAction", g => g.MapPageAction("/", () => Page.Redirect("/")) },
+        { "MapLayoutLoader", g => g.MapLayoutLoader("/", () => Page.Props()) },
+        { "MapAction", g => g.MapAction("help.vote", () => ServerAction.Ok()) },
+    };
+
+    [Theory]
+    [MemberData(nameof(OnAGroupOfTheMount))]
+    public async Task OnAMapGroupMadeFromTheMount_TheNetjesExtensionsThrow_NamingTheMount(string method, Action<IEndpointRouteBuilder> map)
+    {
+        foreach (var prefix in new[] { "", "/", "/x" })
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(
+                ["app/page.tsx"], ["layout.tsx", "page.tsx"], mount: m => map(m.MapGroup(prefix).MapGroup(""))));
+
+            Assert.StartsWith($"{method} is called on a MapGroup made from the mount of '@acme/help-center' at /help", ex.Message);
+        }
+    }
 }

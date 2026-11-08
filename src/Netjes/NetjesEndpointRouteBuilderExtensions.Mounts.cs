@@ -211,7 +211,9 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static MountedPackage MountedOf(PagePackageBuilder mount) =>
         mount.Outer.ServiceProvider.GetRequiredService<RouteSources>().Find(mount.Mount.Package.Name)!;
 
-    private static string OwnerOf(MountedPackage? package) => package is null ? "the app" : $"the page package '{package.Name}'";
+    private static string OwnerOf(MountedPackage? package) => OwnerOf(package?.Name);
+
+    private static string OwnerOf(string? package) => package is null ? "the app" : $"the page package '{package}'";
 
     /// <summary>The app's file that would replace a package's file: <c>app/help/contact/page.tsx</c> for its <c>contact/page.tsx</c>.</summary>
     private static string AppFileFor(RouteSources sources, MountedPackage owner, string file) =>
