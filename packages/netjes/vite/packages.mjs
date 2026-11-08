@@ -4,6 +4,7 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { satisfies } from '../cli/info.mjs';
 import { findPackage } from '../cli/packages.mjs';
 
 /** The names of the convention files, which the route table routes; every other file in a pages folder is colocated code. */
@@ -177,6 +178,17 @@ function readPagePackage(root, name) {
     dependencies,
     linked: !dir.split('/').includes('node_modules'),
   };
+}
+
+/**
+ * Why a package cannot run on this Netjes: its `peerDependencies.netjes`, read strictly as npm reads a range, leaves out
+ * `netjes`, the installed version. Null when it holds it. The .NET app says the same about the Netjes it runs.
+ * @param {PagePackage} pkg
+ * @param {string} netjes
+ * @returns {string | null}
+ */
+export function unsupportedNetjes(pkg, netjes) {
+  return satisfies(netjes, pkg.netjes, { strict: true }) ? null : `${pkg.name} ${pkg.version} supports Netjes ${pkg.netjes}; this app runs Netjes ${netjes}`;
 }
 
 /**

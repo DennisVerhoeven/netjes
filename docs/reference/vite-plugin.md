@@ -81,6 +81,8 @@ For each package in `packages`, the plugin:
 
 The config fails, in one line that names the package and the fix, for a package that is not installed (`npm install <name>`), one whose `package.json` has no `netjes` field or no `peerDependencies.netjes`, a path in the field that leaves the package, a folder of pages, a `css` file or a `sources` folder the package lacks (a package whose `files` leave its pages out of what it publishes, for one), a name listed twice, and a name that equals the app's folder of pages or its first folder (`app`, or `src` for `src/app`), whose ids would look like the app's.
 
+It also fails when a package's `peerDependencies.netjes` leaves out the installed `netjes`, with `netjes: @netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`. The range is read as npm reads it: `^0.0.4` holds 0.0.4 alone, a prerelease such as `0.0.5-rc.1` is in a range only when the range names a prerelease of 0.0.5, and a range that is none, such as `latest`, holds no version. `vite build` stops on it, and in development the sidecar reports it as the Vite dev server failing to start (`NETJES_FAILED {"reason":"vite-failed",...}`). The .NET app checks the same range against the Netjes it runs ([C# API](csharp-api.md#mappagepackage)).
+
 In development, when the .NET app renders a page of an installed page package that `packages` leaves out, the render fails with `netjes: no module for <id> in this build: add '<name>' to netjes({ packages }) in vite.config.ts`, naming the app's Vite config.
 
 ### The query client
@@ -93,7 +95,7 @@ In development, when the .NET app renders a page of an installed page package th
 
 - input: the Netjes client entry; output: `dist/client/`, emptied first;
 - a manifest in `dist/client/.vite/manifest.json`, from which the .NET app learns the routes and the assets of each page in production. The app never serves the `.vite/` folder: a request for it answers 404;
-- with `packages`, a build record in `dist/client/.vite/netjes.json`, where the .NET app finds the page packages in production, which has no `node_modules` to read them from. It lists each package's name, version, `peerDependencies.netjes` and folder of pages, and maps each of its convention files' ids to the file's key in the manifest. Without packages there is no record.
+- with `packages`, a build record in `dist/client/.vite/netjes.json`, where the .NET app finds the page packages in production, which has no `node_modules` to read them from. It lists each package's name, version, `peerDependencies.netjes`, folder of pages and, when its `netjes` field names one, its `nuget` package, and maps each of its convention files' ids to the file's key in the manifest. Without packages there is no record.
 
 ```json
 {
@@ -103,7 +105,8 @@ In development, when the .NET app renders a page of an installed page package th
       "version": "1.2.0",
       "netjes": "^0.0.4",
       "pages": "app",
-      "files": { "@netjes-examples/help-center/app/page.tsx": "node_modules/@netjes-examples/help-center/app/page.tsx" }
+      "files": { "@netjes-examples/help-center/app/page.tsx": "node_modules/@netjes-examples/help-center/app/page.tsx" },
+      "nuget": "Netjes.Examples.HelpCenter"
     }
   ]
 }

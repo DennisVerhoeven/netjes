@@ -237,7 +237,11 @@ In development and in the `generate` and `routes` commands, the package is found
 - `'@netjes-examples/help-center' is mounted but not installed: npm install @netjes-examples/help-center@1.2.0`, with the version of the C# half;
 - `'@netjes-examples/help-center' is mounted but not in the client build: add it to netjes({ packages }) in vite.config.ts and build again`;
 - a package whose `package.json` is not JSON or has no `netjes` field or no `peerDependencies.netjes`, whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`), or that has no pages folder (`app`, unless `pages` names another), as the Vite plugin refuses them;
-- a file in the record without a chunk in the manifest.
+- a file in the record without a chunk in the manifest;
+- `@netjes-examples/help-center is 1.2.0 on npm and Netjes.Examples.HelpCenter is 1.1.0 on NuGet: install one version of both`: the two halves are two versions. The NuGet half is named by the `nuget` in the npm half's `netjes` field, or else by its assembly;
+- `@netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`: the npm half's `peerDependencies.netjes` leaves out the running Netjes, whose informational version is compared without its `+` suffix. The range is read as npm and the Vite plugin read it: `^0.0.4` holds 0.0.4 alone, a prerelease is in a range only when the range names a prerelease of that version, and a range that is none holds no version.
+
+The checks run in that order, before the package's files are scanned. An app run as its own program (`dotnet run`, the netjes CLI) logs the line as one critical entry and exits with code 1, as for a missing build; a test host's start throws it.
 
 A file of the package that the conventions refuse, such as a `global-error` or a `route.ts`, and a conflict with another package or between two packages' layouts in one folder, throw here ([Route errors](#route-errors)). An app page of the same shape as one of the package's pages is held until `MapPages()`, which throws it, and so do `MapPageLoader` and `MapLayoutLoader` for that page's URL. Call it on the app, before `MapPages()` and once per package: inside a `MapGroup`, after `MapPages()` and for a package mounted already, it throws `InvalidOperationException`.
 
@@ -276,7 +280,7 @@ public sealed class PagePackage
 }
 ```
 
-The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix. A name that is not an npm package name throws `ArgumentException`.
+The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix, which the npm half's version has to equal. A name that is not an npm package name throws `ArgumentException`.
 
 ### PagePackageMount
 

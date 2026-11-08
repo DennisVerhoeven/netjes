@@ -157,10 +157,15 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
     /// </summary>
     public MountedPackage? PackageOf(PageRoute route) => route.IsFromTheApp ? OwnerOf(route.Overrides) : Find(route.Source);
 
-    /// <summary>Mounts a package, finding its npm half first: a package that is not there stops the app in one line.</summary>
+    /// <summary>
+    /// Mounts a package, finding its npm half first: a package that is not there, or whose versions do not fit, stops
+    /// the app in one line.
+    /// </summary>
     public MountedPackage Add(PagePackageMount mount)
     {
-        var mounted = new MountedPackage(mount, Find(mount.Package));
+        var install = Find(mount.Package);
+        PagePackageVersions.Check(mount.Package, install);
+        var mounted = new MountedPackage(mount, install);
         lock (_gate)
         {
             Volatile.Write(ref _mounts, [.. _mounts, mounted]);

@@ -10,6 +10,8 @@ import netjes from '../vite/plugin.mjs';
 import { INSTALLED, LINKED, type PackagesApp, createPackagesApp } from './page-packages.ts';
 
 /** Netjes's own Vitest setup file, which the plugin names by path, like the cleanup file, and the package does not export. */
+/** The version of this netjes, which the plugin holds a page package's peer range against. */
+const NETJES = (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 const OWN_SETUP = normalizePath(fileURLToPath(new URL('../dist/testing-vitest.js', import.meta.url)));
 
 async function flatten(options: PluginOption[]): Promise<Plugin[]> {
@@ -370,6 +372,15 @@ describe('page packages that cannot be read', () => {
     expect(await configError(['no-peer'], { 'no-peer/package.json': manifest('no-peer', { peerDependencies: {} }) })).toBe(
       "netjes: 'no-peer' has no peerDependencies.netjes in its package.json: a page package names the Netjes versions it supports there",
     );
+  });
+
+  it('stops on a package whose peer range leaves out the installed netjes, naming both versions', async () => {
+    const files = (range: string) => ({ 'old/package.json': manifest('old', { version: '1.2.0', peerDependencies: { netjes: range } }), 'old/app/page.tsx': '' });
+
+    expect(await configError(['old'], files('^9.0.0'))).toBe(`netjes: old 1.2.0 supports Netjes ^9.0.0; this app runs Netjes ${NETJES}`);
+    // A range that is none supports no version, as npm's install of the package would say too.
+    expect(await configError(['old'], files('latest'))).toBe(`netjes: old 1.2.0 supports Netjes latest; this app runs Netjes ${NETJES}`);
+    expect(await configError(['old'], files(`^${NETJES}`))).toBe('no error');
   });
 
   it('refuses a path in the netjes field that leaves the package or has another spelling', async () => {
@@ -899,7 +910,8 @@ describe('vite build with page packages', () => {
       );
     expect(record).toEqual({
       packages: [
-        { name: INSTALLED, version: '1.2.0', netjes: '>=0.0.1', pages: 'app', files: files(INSTALLED, `node_modules/${INSTALLED}`, 'app') },
+        // The NuGet package of its C# half, which the .NET app names when the two are different versions.
+        { name: INSTALLED, version: '1.2.0', netjes: '>=0.0.1', pages: 'app', files: files(INSTALLED, `node_modules/${INSTALLED}`, 'app'), nuget: 'Netjes.Test.Installed' },
         { name: LINKED, version: '0.4.0', netjes: '>=0.0.1', pages: 'pages', files: files(LINKED, linked, 'pages') },
       ],
     });
@@ -908,6 +920,15 @@ describe('vite build with page packages', () => {
     for (const key of record.packages.flatMap((pkg) => Object.values(pkg.files))) expect(manifest[key]?.src, key).toBe(key);
     // The file ends with a newline, like the files Netjes writes.
     expect(await readFile(path.join(app.root, 'dist/client/.vite/netjes.json'), 'utf8')).toMatch(/\}\n$/);
+  });
+
+  it('fails on a package whose peer range leaves out the installed netjes, in one line', async () => {
+    await app.write('node_modules/@netjes-test/old/package.json', JSON.stringify({ name: '@netjes-test/old', version: '2.0.0', peerDependencies: { netjes: '^0.0.4 <0.0.4' }, netjes: {} }));
+    await app.write('node_modules/@netjes-test/old/app/page.tsx', 'export default function Old() { return null; }\n');
+
+    await expect(buildWith([INSTALLED, '@netjes-test/old'])).rejects.toThrow(
+      new Error(`netjes: @netjes-test/old 2.0.0 supports Netjes ^0.0.4 <0.0.4; this app runs Netjes ${NETJES}`),
+    );
   });
 
   it('writes no record without packages, and none in the server build', async () => {

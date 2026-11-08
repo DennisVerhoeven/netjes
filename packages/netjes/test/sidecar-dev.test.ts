@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -18,6 +18,8 @@ import { INSTALLED, LINKED, type PackagesApp, UNLISTED, createPackagesApp } from
 const SIDECAR = fileURLToPath(new URL('../sidecar/server.mjs', import.meta.url));
 const NODE_MODULES = fileURLToPath(new URL('../../../node_modules', import.meta.url));
 const TOKEN = 'test-token';
+/** The version of this netjes. */
+const VERSION = (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 let app: PackagesApp | undefined;
 let root = '';
@@ -266,6 +268,30 @@ describe('the development sidecar', () => {
       expect(code).toBe(1);
     } finally {
       await rm(broken, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('reports in one line that a page package does not support the installed netjes, and exits', async () => {
+    // The app's node_modules holds the package; the workspace's, above it, holds netjes.
+    const base = await mkdtemp(path.join(tmpdir(), 'netjes-sidecar-peer-'));
+    const site = path.join(base, 'site');
+    try {
+      await symlink(NODE_MODULES, path.join(base, 'node_modules'), 'junction');
+      await mkdir(path.join(site, 'node_modules', 'old', 'app'), { recursive: true });
+      await writeFile(path.join(site, 'node_modules', 'old', 'package.json'), JSON.stringify({ name: 'old', version: '1.0.0', peerDependencies: { netjes: '^99.0.0' }, netjes: {} }));
+      await writeFile(path.join(site, 'node_modules', 'old', 'app', 'page.tsx'), 'export default function Old() { return null; }\n');
+      await writeFile(path.join(site, 'vite.config.mjs'), "import netjes from 'netjes/vite';\nexport default { plugins: [netjes({ packages: ['old'] })] };\n");
+
+      const { code, stdout } = await runToExit(spawnSidecar(0, site));
+
+      const [line, ...rest] = stdout.split('\n');
+      expect(rest).toEqual(['']);
+      const failed = JSON.parse((line ?? '').replace(/^NETJES_FAILED /, '')) as { reason: string; message: string };
+      expect(failed.reason).toBe('vite-failed');
+      expect(failed.message).toContain(`netjes: old 1.0.0 supports Netjes ^99.0.0; this app runs Netjes ${VERSION}`);
+      expect(code).toBe(1);
+    } finally {
+      await rm(base, { recursive: true, force: true });
     }
   }, 30_000);
 

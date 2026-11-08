@@ -5772,7 +5772,11 @@ In development and in the `generate` and `routes` commands, the package is found
 - `'@netjes-examples/help-center' is mounted but not installed: npm install @netjes-examples/help-center@1.2.0`, with the version of the C# half;
 - `'@netjes-examples/help-center' is mounted but not in the client build: add it to netjes({ packages }) in vite.config.ts and build again`;
 - a package whose `package.json` is not JSON or has no `netjes` field or no `peerDependencies.netjes`, whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`), or that has no pages folder (`app`, unless `pages` names another), as the Vite plugin refuses them;
-- a file in the record without a chunk in the manifest.
+- a file in the record without a chunk in the manifest;
+- `@netjes-examples/help-center is 1.2.0 on npm and Netjes.Examples.HelpCenter is 1.1.0 on NuGet: install one version of both`: the two halves are two versions. The NuGet half is named by the `nuget` in the npm half's `netjes` field, or else by its assembly;
+- `@netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`: the npm half's `peerDependencies.netjes` leaves out the running Netjes, whose informational version is compared without its `+` suffix. The range is read as npm and the Vite plugin read it: `^0.0.4` holds 0.0.4 alone, a prerelease is in a range only when the range names a prerelease of that version, and a range that is none holds no version.
+
+The checks run in that order, before the package's files are scanned. An app run as its own program (`dotnet run`, the netjes CLI) logs the line as one critical entry and exits with code 1, as for a missing build; a test host's start throws it.
 
 A file of the package that the conventions refuse, such as a `global-error` or a `route.ts`, and a conflict with another package or between two packages' layouts in one folder, throw here ([Route errors](#route-errors)). An app page of the same shape as one of the package's pages is held until `MapPages()`, which throws it, and so do `MapPageLoader` and `MapLayoutLoader` for that page's URL. Call it on the app, before `MapPages()` and once per package: inside a `MapGroup`, after `MapPages()` and for a package mounted already, it throws `InvalidOperationException`.
 
@@ -5811,7 +5815,7 @@ public sealed class PagePackage
 }
 ```
 
-The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix. A name that is not an npm package name throws `ArgumentException`.
+The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix, which the npm half's version has to equal. A name that is not an npm package name throws `ArgumentException`.
 
 ### PagePackageMount
 
@@ -6670,9 +6674,9 @@ netjes 0.0.3 in /home/me/my-shop
 
 | Check | Fails (`✗`) when | Warns (`!`) when |
 |---|---|---|
-| Node.js | outside `^22.22.2 \|\| ^24.15.0 \|\| >=26.0.0`: older than 22.22.2, or a 24 older than 24.15.0 | an odd release line (23, 25), which falls between the supported ones |
+| Node.js | outside `^22.22.2 \|\| ^24.15.0 \|\| >=26.0.0`: older than 22.22.2, or a 24 older than 24.15.0. A prerelease is placed by its version, as npm checks `engines`: `24.16.0-rc.1` passes, and `26.0.0-rc.1`, which comes before 26.0.0, does not | an odd release line (23, 25), which falls between the supported ones |
 | .NET SDK | `dotnet` is missing, `dotnet --version` fails (often a `global.json` that asks for an SDK that is not installed), or the SDK is older than the app's `TargetFramework` (and 10.0): any .NET 10 SDK builds an app that targets `net10.0` | |
-| npm packages | `netjes`, `vite`, `react` or `react-dom` is not installed, or a version is outside the installed netjes's peer range | the netjes running `info` is another version than the app's (run `npx netjes info`) |
+| npm packages | `netjes`, `vite`, `react` or `react-dom` is not installed, or a version is outside the installed netjes's peer range, read as npm reads ranges: `^0.0.4` holds 0.0.4 alone, and a prerelease is in a range only when the range names a prerelease of that version | the netjes running `info` is another version than the app's (run `npx netjes info`) |
 | Netjes reference | the `.csproj` references an exact Netjes version (`x.y.z` or `[x.y.z]`) other than the npm package's, or a checkout that is not there. A range, a floating version or an MSBuild property such as `$(NetjesVersion)` is shown, not compared. | the `.csproj` references no Netjes package (fine when `Directory.Packages.props` does) |
 | Vite config | there is no `vite.config.*`, or it does not use `netjes()` | |
 | `package.json` | it is missing, is not valid JSON, or has no `build` script | |
@@ -6828,6 +6832,8 @@ For each package in `packages`, the plugin:
 
 The config fails, in one line that names the package and the fix, for a package that is not installed (`npm install <name>`), one whose `package.json` has no `netjes` field or no `peerDependencies.netjes`, a path in the field that leaves the package, a folder of pages, a `css` file or a `sources` folder the package lacks (a package whose `files` leave its pages out of what it publishes, for one), a name listed twice, and a name that equals the app's folder of pages or its first folder (`app`, or `src` for `src/app`), whose ids would look like the app's.
 
+It also fails when a package's `peerDependencies.netjes` leaves out the installed `netjes`, with `netjes: @netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`. The range is read as npm reads it: `^0.0.4` holds 0.0.4 alone, a prerelease such as `0.0.5-rc.1` is in a range only when the range names a prerelease of 0.0.5, and a range that is none, such as `latest`, holds no version. `vite build` stops on it, and in development the sidecar reports it as the Vite dev server failing to start (`NETJES_FAILED {"reason":"vite-failed",...}`). The .NET app checks the same range against the Netjes it runs ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#mappagepackage)).
+
 In development, when the .NET app renders a page of an installed page package that `packages` leaves out, the render fails with `netjes: no module for <id> in this build: add '<name>' to netjes({ packages }) in vite.config.ts`, naming the app's Vite config.
 
 ### The query client
@@ -6840,7 +6846,7 @@ In development, when the .NET app renders a page of an installed page package th
 
 - input: the Netjes client entry; output: `dist/client/`, emptied first;
 - a manifest in `dist/client/.vite/manifest.json`, from which the .NET app learns the routes and the assets of each page in production. The app never serves the `.vite/` folder: a request for it answers 404;
-- with `packages`, a build record in `dist/client/.vite/netjes.json`, where the .NET app finds the page packages in production, which has no `node_modules` to read them from. It lists each package's name, version, `peerDependencies.netjes` and folder of pages, and maps each of its convention files' ids to the file's key in the manifest. Without packages there is no record.
+- with `packages`, a build record in `dist/client/.vite/netjes.json`, where the .NET app finds the page packages in production, which has no `node_modules` to read them from. It lists each package's name, version, `peerDependencies.netjes`, folder of pages and, when its `netjes` field names one, its `nuget` package, and maps each of its convention files' ids to the file's key in the manifest. Without packages there is no record.
 
 ```json
 {
@@ -6850,7 +6856,8 @@ In development, when the .NET app renders a page of an installed page package th
       "version": "1.2.0",
       "netjes": "^0.0.4",
       "pages": "app",
-      "files": { "@netjes-examples/help-center/app/page.tsx": "node_modules/@netjes-examples/help-center/app/page.tsx" }
+      "files": { "@netjes-examples/help-center/app/page.tsx": "node_modules/@netjes-examples/help-center/app/page.tsx" },
+      "nuget": "Netjes.Examples.HelpCenter"
     }
   ]
 }
@@ -7666,11 +7673,13 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `netjes({ packages })` in `vite.config.ts` lists page packages: npm packages whose `package.json` has a `netjes` field (`pages`, `sources`, `css`, `nuget`) and a `netjes` peer range. Their convention files join the page module map under file ids such as `@netjes-examples/help-center/app/page.tsx`, both builds compile them, their sources and stylesheet join the app's Tailwind CSS build, and the client build writes `dist/client/.vite/netjes.json`, which lists them for the .NET app. In development the dev server may read each package by its real path, denies its `bin/`, `obj/` and `dist/server/` folders, and watches a linked one. A package that is not installed or is no page package, a path that leaves the package, and `tailwind: false` stop the config in one line ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#page-packages)). An app that lists none sees no change, except that `virtual:netjes/pages` also exports `packages`, `[]`.
 - `app.MapPagePackage(package, prefix)` mounts a page package, described in C# by a `PagePackage` (its npm name and its assembly's version), at a prefix in folder syntax: `/help`, `/(marketing)/help`, `/[tenant]/help`. Its pages, layouts and boundaries merge into the route table by folder, so its layout at the mount wraps the app's own pages in that folder too. They come from `node_modules` in development, where a file added to the package is routed without a restart, and from `dist/client/.vite/netjes.json` in production. Conventions on the returned `PagePackageBuilder`, such as `RequireAuthorization()`, apply to the package's file pages and to what is mapped through it, not to the app's pages under the prefix; `MapPages()`'s conventions apply to the package's file pages after them. `PagePackageMounts` lists the mounts for a package's services. A package that is not installed, not in the client build or not a page package stops the app in one line; an app page of the same shape as a package's page stops `MapPages()`; `MapPagePackage` inside a `MapGroup`, after `MapPages()` or twice for one package throws. The render, loader and action spans of a package's pages carry `netjes.package` ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#page-packages)). An app that mounts nothing sees no change.
 - A page package maps its own loaders, page actions and layout loaders through the `PagePackageBuilder` that `MapPagePackage` returns, at patterns below the mount (`MapPageLoader("/articles/[slug]")`, `MapLayoutLoader("app/(center)")`), and its server actions at `/_netjes/actions/{name}`, each with the mount's conventions. `.Override("/help/contact")` on the mount renders the app's `app/help/contact/page.tsx` in place of the package's page, with the package's loader, page action and conventions. The app's `MapPageLoader`, `MapPageAction` and `MapLayoutLoader` throw for a package's page or layout, and for an overridden page, naming the mount, and `.Override()` throws for a page the app mapped a loader or page action for first; a mount throws for the app's. `PageRouteMetadata.Pattern` of a package's page is its URL where it is mounted, `/help/articles/[slug]` ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)).
+- A mounted page package whose npm and NuGet halves are two versions, or whose `peerDependencies.netjes` leaves out the running Netjes, stops the app in one line: `@netjes-examples/help-center is 1.2.0 on npm and Netjes.Examples.HelpCenter is 1.1.0 on NuGet: install one version of both`, and `@netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`. The Vite plugin stops the config on the second, for the installed `netjes`, and the build record names the package's `nuget` ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#mappagepackage), [Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#page-packages)).
 
 ### Changed
 
 - `MapAction` in a route group with a prefix, such as `app.MapGroup("/api").MapAction(...)`, throws at startup. It used to map the action below the prefix, where the client never posts: every call goes to `/_netjes/actions/{name}`. Map the action on the app, or on a group without a prefix (`MapGroup("")`), and put the group's conventions on the action ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#mapaction)).
 - Server action names that differ only in case, such as `posts.create` and `Posts.Create`, are a duplicate and stop the app at startup, naming who mapped each. Routing matches the action's URL in any case, so both used to be mapped and a call to either failed as ambiguous. Rename one of them.
+- `netjes info` reads version ranges as npm does. `^0.0.4` holds 0.0.4 alone, where it held every 0.0.x from 0.0.4 on; a prerelease such as `0.0.5-rc.1` is in a range only when the range names a prerelease of 0.0.5, where it counted as 0.0.5; comparators joined by spaces (`>=1.2.3 <2`), `<`, `<=`, `>` and hyphen ranges, which it passed unchecked, are read; and so are partial versions such as `~1` and `1.2`, as npm reads them. A peer range of `netjes` that `info` passed before can now fail: install a version inside it. A prerelease of Node.js is placed by its version, as npm checks `engines`: `24.16.0-rc.1` still passes, and `26.0.0-rc.1`, which comes before 26.0.0, now fails as too old.
 
 ## [0.0.3] - 2026-11-07
 

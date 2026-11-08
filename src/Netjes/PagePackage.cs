@@ -24,6 +24,7 @@ public sealed class PagePackage
 
         Name = name;
         Version = VersionOf(assembly);
+        AssemblyName = assembly.GetName().Name ?? name;
     }
 
     /// <summary>The npm package's name.</summary>
@@ -32,7 +33,11 @@ public sealed class PagePackage
     /// <summary>The assembly's informational version without its <c>+</c> suffix (the commit), as NuGet versions it.</summary>
     public string Version { get; }
 
-    private static string VersionOf(Assembly assembly) =>
+    /// <summary>The name of the package's assembly, which errors give for its NuGet half when its npm half names none.</summary>
+    internal string AssemblyName { get; }
+
+    /// <summary>The version of an assembly, as <see cref="Version"/> gives a package's.</summary>
+    internal static string VersionOf(Assembly assembly) =>
         assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion is { Length: > 0 } version
             ? version.Split('+')[0]
             : assembly.GetName().Version?.ToString(3) ?? "0.0.0";

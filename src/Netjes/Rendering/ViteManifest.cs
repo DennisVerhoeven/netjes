@@ -154,7 +154,8 @@ internal sealed record BuildRecordPackage(
     [property: JsonPropertyName("version")] string Version,
     [property: JsonPropertyName("netjes")] string Netjes,
     [property: JsonPropertyName("pages")] string Pages,
-    [property: JsonPropertyName("files")] IReadOnlyDictionary<string, string> Files)
+    [property: JsonPropertyName("files")] IReadOnlyDictionary<string, string> Files,
+    [property: JsonPropertyName("nuget")] string? Nuget = null)
 {
-    public Routing.PagePackageInstall ToInstall() => new(Name, Version, Netjes, Pages, null) { Files = Files };
+    public Routing.PagePackageInstall ToInstall() => new(Name, Version, Netjes, Pages, Nuget) { Files = Files };
 }
