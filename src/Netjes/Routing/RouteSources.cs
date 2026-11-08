@@ -70,6 +70,14 @@ internal sealed record PagePackageInstall(string Name, string Version, string Ne
             Inside("css", css);
         }
 
+        // A package published without it (its "files" leave it out) would otherwise bring no pages, without a word.
+        if (!Directory.Exists(Path.Combine(directory, pages)))
+        {
+            throw new NetjesStartupException(pagesValue.ValueKind == JsonValueKind.Undefined
+                ? $"'{name}' has no app folder, where a page package's pages are unless \"pages\" in the \"netjes\" field of its package.json names another."
+                : $"'{name}' has \"pages\": \"{pages}\" in the \"netjes\" field of its package.json, which is no folder in the package.");
+        }
+
         static string? Text(JsonElement element, string property) =>
             element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString()

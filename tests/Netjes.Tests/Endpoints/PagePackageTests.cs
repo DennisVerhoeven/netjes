@@ -420,6 +420,21 @@ public class PagePackageTests
         Assert.StartsWith($"'{Help}' is mounted, {reason}", ex.Message);
     }
 
+    [Theory]
+    [InlineData(null, "has no app folder, where a page package's pages are unless \"pages\" in the \"netjes\" field of its package.json names another.")]
+    [InlineData("pages", "has \"pages\": \"pages\" in the \"netjes\" field of its package.json, which is no folder in the package.")]
+    public async Task Development_APackageWithoutItsPagesFolder_StopsStartup(string? pages, string reason)
+    {
+        // Published without it (its "files" leave it out), the package would bring no pages, and the commands, which run
+        // no Vite, would write the app's generated file without them.
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, [], netjes: pages is null ? [] : new JsonObject { ["pages"] = pages }),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Equal($"'{Help}' {reason}", ex.Message);
+    }
+
     [Fact]
     public async Task Development_WithoutAnAppFolder_ThePackagesPagesAreRouted()
     {
