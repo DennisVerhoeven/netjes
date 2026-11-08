@@ -32,7 +32,17 @@ export type RenderDocumentOptions = {
   lang?: string;
   /** What `usePublicConfig()` reads, as the `Netjes:PublicConfig` section. */
   publicConfig?: Record<string, unknown>;
-  /** The page files, keyed `/app/...` as `import.meta.glob` keys them. Default: the app's, from the `netjes()` plugin. */
+  /**
+   * The page packages the app mounts, by npm name, each at its prefix as `MapPagePackage` takes it:
+   * `{ '@acme/help-center': '/(marketing)/help' }`. Their files in the pages map go into the app's folders under the
+   * prefix, so an app page in a package's folder renders inside the package's layouts, and the payload's `mounts` gives
+   * each one's URL for the page's `params`. A package that `netjes({ packages })` does not list has its pages in `app`.
+   */
+  mounts?: Record<string, string>;
+  /**
+   * The page files, keyed `/app/...` as `import.meta.glob` keys them, and a page package's `/<npm name>/<its pages
+   * folder>/...`. Default: the app's and the listed packages', from the `netjes()` plugin.
+   */
   modules?: Record<string, () => Promise<unknown>>;
   /** Stops the render, which then rejects with the signal's reason: for a page that waits on a Promise that never settles. */
   signal?: AbortSignal;
@@ -65,6 +75,63 @@ function list(items: readonly string[]): string {
   return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1) ?? ''}`;
 }
 
+/** A page package mounted at a prefix: the prefix's folders below the app directory (`''` for `/`), and its pages folder. */
+type Mount = { name: string; folder: string; pages: string };
+
+/**
+ * A file of the pages map the server routes: its id, its path in the app directory (a package's under its mount), and
+ * its source, `app` or the package's name.
+ */
+type RoutedFile = { id: string; path: string; source: string };
+
+const PREFIX_SEGMENT = /^(?:[\p{L}\p{N}._~-]+|\[[A-Za-z_][A-Za-z0-9_]*\]|\([\p{L}\p{N}_-]+\))$/u;
+
+/** The mounts of `options.mounts`, with their pages folders from the plugin's list; throws for a prefix MapPagePackage refuses. */
+function mountsOf(mounts: Readonly<Record<string, string>> | undefined, packages: readonly { name: string; pages: string }[]): Mount[] {
+  return Object.entries(mounts ?? {}).map(([name, prefix]) => {
+    const folders = prefix === '/' ? [] : prefix.split('/').slice(1);
+    const refused = (folder: string) => folder === '.' || folder === '..' || isPrivate(folder) || !PREFIX_SEGMENT.test(folder);
+    if (!prefix.startsWith('/') || folders.some(refused)) {
+      throw new Error(
+        `netjes: renderDocument cannot mount '${name}' at '${prefix}': write the prefix as MapPagePackage takes it, ` +
+          "such as '/help', '/(marketing)/help' or '/[tenant]/help'.",
+      );
+    }
+    return { name, folder: folders.join('/'), pages: packages.find((p) => p.name === name)?.pages ?? 'app' };
+  });
+}
+
+/** The files the server routes: the app's where they are, and a mounted package's under its prefix's folders. */
+function routedFiles(files: readonly string[], appDir: string, mounts: readonly Mount[]): RoutedFile[] {
+  return files.flatMap((id): RoutedFile[] => {
+    if (id.startsWith(`${appDir}/`)) return [{ id, path: id, source: 'app' }];
+    const mount = mounts.find((m) => id.startsWith(`${m.name}/${m.pages}/`));
+    if (!mount) return [];
+    const below = id.slice(mount.name.length + mount.pages.length + 2);
+    return [{ id, path: [appDir, mount.folder, below].filter(Boolean).join('/'), source: mount.name }];
+  });
+}
+
+/**
+ * Each mount's URL for these route values, as the server sends it: the literal segments as written and each value
+ * encoded as one segment, or null when a value is missing, a list, empty, `.` or `..`.
+ */
+function mountUrls(mounts: readonly Mount[], params: Params): Record<string, string | null> {
+  // As the server encodes a value (Uri.EscapeDataString), which encodeURIComponent leaves these five unencoded.
+  const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return Object.fromEntries(
+    mounts.map((mount) => {
+      const segments: string[] = [];
+      for (const folder of mount.folder.split('/').filter((f) => f && !isGroup(f))) {
+        const value = folder.startsWith('[') ? params[folder.slice(1, -1)] : folder;
+        if (typeof value !== 'string' || value === '' || value === '.' || value === '..') return [mount.name, null];
+        segments.push(folder.startsWith('[') ? encode(value) : value);
+      }
+      return [mount.name, `/${segments.join('/')}`];
+    }),
+  );
+}
+
 /** A file in the app directory: the folders below the directory and the file's name without its extension; null for any other file. */
 function parse(file: string, appDir: string): { folders: string[]; name: string } | null {
   if (!file.startsWith(`${appDir}/`) || !PAGE_EXTENSION.test(file)) return null;
@@ -75,17 +142,17 @@ function parse(file: string, appDir: string): { folders: string[]; name: string 
 
 type AppFiles = {
   /** Each folder's convention files by name, by its path below the app directory (`''` for the directory itself). */
-  folders: Map<string, Map<string, string>>;
+  folders: Map<string, Map<string, RoutedFile>>;
   /** The folders with parallel route slots, each with the first of its slots. */
   slots: Map<string, string>;
 };
 
 /** The convention files the server routes: none in private folders, and the slots that pages and defaults make. */
-function appFiles(files: readonly string[], appDir: string): AppFiles {
-  const folders = new Map<string, Map<string, string>>();
+function appFiles(files: readonly RoutedFile[], appDir: string): AppFiles {
+  const folders = new Map<string, Map<string, RoutedFile>>();
   const slots = new Map<string, string>();
-  for (const file of [...files].sort(ordinal)) {
-    const parsed = parse(file, appDir);
+  for (const file of [...files].sort((a, b) => ordinal(a.id, b.id))) {
+    const parsed = parse(file.path, appDir);
     if (!parsed || parsed.folders.some(isPrivate)) continue;
     const slot = parsed.folders.findIndex(isSlot);
     if (slot >= 0) {
@@ -98,7 +165,12 @@ function appFiles(files: readonly string[], appDir: string): AppFiles {
     const folder = parsed.folders.join('/');
     let conventions = folders.get(folder);
     if (!conventions) folders.set(folder, (conventions = new Map()));
-    if (!conventions.has(parsed.name)) conventions.set(parsed.name, file);
+    const other = conventions.get(parsed.name);
+    // As the server, which refuses two sources' segment files in one folder.
+    if (other && other.source !== file.source && parsed.name !== 'page') {
+      throw new Error(`netjes: renderDocument has two ${parsed.name} files for ${[appDir, folder].filter(Boolean).join('/')}: ${other.id} and ${file.id}.`);
+    }
+    if (!other) conventions.set(parsed.name, file);
   }
   return { folders, slots };
 }
@@ -141,7 +213,7 @@ function segmentsFor(page: string, app: AppFiles, folders: readonly string[], ap
     if (!conventions || !SEGMENT_FILES.some((name) => conventions.has(name))) continue;
     const segment: SegmentRef = { id: folder ? `${appDir}/${folder}` : appDir };
     for (const name of ['layout', 'template', 'loading', 'error'] as const) {
-      const file = conventions.get(name);
+      const file = conventions.get(name)?.id;
       if (file) segment[name] = file;
     }
     if (segment.layout) {
@@ -154,44 +226,66 @@ function segmentsFor(page: string, app: AppFiles, folders: readonly string[], ap
 }
 
 /** Every file renderDocument could render from these: the pages and the boundary files, in ordinal order. */
-function renderable(files: readonly string[], appDir: string): string[] {
+function renderable(files: readonly RoutedFile[], appDir: string): string[] {
   return files
     .filter((file) => {
-      const parsed = parse(file, appDir);
+      const parsed = parse(file.path, appDir);
       if (!parsed || parsed.folders.some((folder) => isPrivate(folder) || isSlot(folder))) return false;
-      return parsed.name === 'page' || (BOUNDARIES.has(parsed.name) && (parsed.name !== 'global-error' || parsed.folders.length === 0));
+      return parsed.name === 'page' || (BOUNDARIES.has(parsed.name) && (parsed.name !== 'global-error' || isRootGlobalError(file, parsed)));
     })
+    .map(({ id }) => id)
     .sort(ordinal);
 }
+
+/** The global error page is the app's own, in the app directory itself; the server refuses one in a package. */
+const isRootGlobalError = (file: RoutedFile, parsed: { folders: string[] }) => file.source === 'app' && parsed.folders.length === 0;
 
 /**
  * The payload the server sends with the document of `page`, a file of the pages map named without its leading slash,
  * for the values in `options`: the route, kind, status and segments by the server's rules, and a build with no
- * stylesheets or scripts. Throws for a file it cannot render: one not in `files`, a layout, or a page in a private
- * folder or under a parallel route slot.
+ * stylesheets or scripts. The files of the page packages `options.mounts` names go under their prefixes, with their
+ * pages folders from `packages`. Throws for a file it cannot render: one not in `files`, a layout, a page in a private
+ * folder or under a parallel route slot, or a file of a package it does not mount.
  */
-export function documentPayload(page: string, options: DocumentOptions, files: readonly string[], appDir: string): InitialPayload {
+export function documentPayload(
+  page: string,
+  options: DocumentOptions,
+  files: readonly string[],
+  appDir: string,
+  packages: readonly { name: string; pages: string }[] = [],
+): InitialPayload {
   const paths = files.map((file) => file.replace(/^\//, ''));
+  const mounts = mountsOf(options.mounts, packages);
+  const routed = routedFiles(paths, appDir, mounts);
   if (!paths.includes(page)) {
     const hint = page.startsWith('/') && paths.includes(page.slice(1))
       ? `; name the file without the leading slash: ${page.slice(1)}.`
-      : `. The files it can render are ${list(renderable(paths, appDir))}.`;
+      : `. The files it can render are ${list(renderable(routed, appDir))}.`;
     throw new Error(`netjes: renderDocument has no ${page} in the pages map${hint}`);
   }
-  const parsed = parse(page, appDir);
-  if (!parsed) throw new Error(`netjes: renderDocument cannot render ${page}, which is not in the app's directory, ${appDir}.`);
+  const file = routed.find((routedFile) => routedFile.id === page);
+  const parsed = file && parse(file.path, appDir);
+  if (!parsed) {
+    const unmounted = packages.find((p) => page.startsWith(`${p.name}/`))?.name;
+    throw new Error(
+      unmounted
+        ? `netjes: renderDocument cannot render ${page}, a file of the page package '${unmounted}', which it does not mount: ` +
+            `pass its prefix as MapPagePackage takes it, as in mounts: { '${unmounted}': '/help' }.`
+        : `netjes: renderDocument cannot render ${page}, which is not in the app's directory, ${appDir}, or in a mounted page package's pages.`,
+    );
+  }
   if (parsed.folders.some(isPrivate)) throw new Error(`netjes: renderDocument cannot render ${page}: a private folder is not routed.`);
   const slot = parsed.folders.findIndex(isSlot);
   if (slot >= 0) throw slotError(page, 'is in', [appDir, ...parsed.folders.slice(0, slot + 1)].join('/'));
   const boundary = BOUNDARIES.get(parsed.name);
-  if ((parsed.name !== 'page' && !boundary) || (parsed.name === 'global-error' && parsed.folders.length > 0)) {
+  if ((parsed.name !== 'page' && !boundary) || (parsed.name === 'global-error' && !isRootGlobalError(file, parsed))) {
     throw new Error(
       `netjes: renderDocument renders a page or a not-found, error, forbidden, unauthorized or global-error file, not ${page}.`,
     );
   }
 
   // The global error page renders without any layout, the others inside the segments down to their own folder.
-  const segments = parsed.name === 'global-error' ? [] : segmentsFor(page, appFiles(paths, appDir), parsed.folders, appDir, options);
+  const segments = parsed.name === 'global-error' ? [] : segmentsFor(page, appFiles(routed, appDir), parsed.folders, appDir, options);
   for (const file of Object.keys(options.layouts ?? {})) {
     if (!segments.some((segment) => segment.layout === file)) {
       const layouts = segments.flatMap((segment) => (segment.layout ? [segment.layout] : []));
@@ -216,6 +310,7 @@ export function documentPayload(page: string, options: DocumentOptions, files: r
     status: options.status ?? boundary?.status ?? 200,
     url: options.url ?? '/',
     version: 'test',
+    ...(mounts.length > 0 ? { mounts: mountUrls(mounts, options.params ?? {}) } : {}),
     document: {
       lang: options.lang ?? 'en',
       assets: { stylesheets: [], modulePreloads: [], scripts: [] },
@@ -294,7 +389,7 @@ export async function renderDocument(page: string, options: RenderDocumentOption
   signal?.throwIfAborted();
   const app = await import('virtual:netjes/pages');
   const pages = modules ?? app.pages;
-  const payload = documentPayload(page, sent, Object.keys(pages), app.appDir);
+  const payload = documentPayload(page, sent, Object.keys(pages), app.appDir, app.packages);
   // Loaded here, so that component tests, which import netjes/testing too, never load react-dom/server.
   const { createServerRenderer } = await import('./server-render.tsx');
   const stream = await createServerRenderer(pages).renderToStream(htmlSafeJson(payload), {

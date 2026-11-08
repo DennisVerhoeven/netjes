@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Builder;
 using Netjes.Tests.Endpoints;
 
 namespace Netjes.Tests.Routing;
@@ -21,7 +22,24 @@ public class SegmentFixtureTests
     public async Task TheServer_SendsTheSegmentsTheSharedFixtureExpects(string name)
     {
         var expected = Load().Single(c => c.Name == name);
-        await using var app = await TestApp.StartAsync(expected.Files, configure: o => o.AppDirectory = expected.AppDir ?? "app");
+        var packages = expected.Packages ?? [];
+        await using var app = await TestApp.StartAsync(
+            expected.Files,
+            configure: o => o.AppDirectory = expected.AppDir ?? "app",
+            prepareRoot: root =>
+            {
+                foreach (var package in packages)
+                {
+                    TestPagePackage.Install(root, package.Files, package.Name);
+                }
+            },
+            map: a =>
+            {
+                foreach (var package in packages)
+                {
+                    a.MapPagePackage(new PagePackage(package.Name, typeof(TestPagePackage).Assembly), package.Prefix);
+                }
+            });
 
         await app.GetDocumentAsync(expected.Url);
 
@@ -32,12 +50,13 @@ public class SegmentFixtureTests
         Assert.Equal(expected.Status, (int?)payload["status"]);
         AssertSameJson("params", expected.Params, payload["params"]);
         AssertSameJson("segments", expected.Segments, payload["segments"]);
+        AssertSameJson("mounts", expected.Mounts, payload["mounts"]);
     }
 
-    private static void AssertSameJson(string what, JsonNode expected, JsonNode? actual) =>
+    private static void AssertSameJson(string what, JsonNode? expected, JsonNode? actual) =>
         Assert.True(
             JsonNode.DeepEquals(expected, actual),
-            $"The fixture's {what} are {expected.ToJsonString()}; the server sent {actual?.ToJsonString() ?? "none"}.");
+            $"The fixture's {what} are {expected?.ToJsonString() ?? "none"}; the server sent {actual?.ToJsonString() ?? "none"}.");
 
     private static IReadOnlyList<SegmentCase> Load()
     {
@@ -70,5 +89,10 @@ public class SegmentFixtureTests
         string? Route,
         string? PageKind,
         int Status,
-        JsonArray Segments);
+        JsonArray Segments,
+        IReadOnlyList<PackageCase>? Packages,
+        JsonObject? Mounts);
+
+    /// <summary>A page package, installed with <paramref name="Files"/> in its <c>app</c> folder and mounted at <paramref name="Prefix"/>.</summary>
+    private sealed record PackageCase(string Name, string Prefix, IReadOnlyList<string> Files);
 }
