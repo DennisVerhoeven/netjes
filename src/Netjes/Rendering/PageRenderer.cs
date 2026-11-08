@@ -200,7 +200,7 @@ internal sealed class PageRenderer(
     /// </param>
     public async Task RenderStatusAsync(HttpContext http, int status, bool denied = false)
     {
-        var limit = denied ? await FirstDeniedSegmentAsync(http) : null;
+        var limit = denied ? await FirstDeniedSegmentAsync(http, RouteOf(http)?.Segments ?? []) : null;
         var boundary = status switch
         {
             StatusCodes.Status404NotFound => Boundary.NotFound,
@@ -212,9 +212,9 @@ internal sealed class PageRenderer(
         await RenderBoundaryAsync(http, boundary, status, props, limit, includeLimit: limit is not null);
     }
 
-    private async Task<int?> FirstDeniedSegmentAsync(HttpContext http)
+    /// <summary>The index of the first of <paramref name="segments"/> whose layout loader's authorization this user fails; null when none.</summary>
+    private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
-        var segments = RouteOf(http)?.Segments ?? [];
         for (var i = 0; i < segments.Count; i++)
         {
             if (layoutLoaders.Find(segments[i].Id) is { } loader && !await loader.AuthorizesAsync(http))
