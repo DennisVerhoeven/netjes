@@ -375,4 +375,48 @@ public class PagePackageTests
 
         Assert.Equal(0, calls);
     }
+
+    [Theory]
+    [InlineData("pages", "../app")]
+    [InlineData("pages", "app/../../x")]
+    [InlineData("pages", "/app")]
+    [InlineData("pages", "C:/app")]
+    [InlineData("pages", "app\\x")]
+    [InlineData("pages", ".")]
+    [InlineData("pages", "")]
+    [InlineData("sources", "../src")]
+    [InlineData("sources", "/src")]
+    [InlineData("sources", "C:\\src")]
+    [InlineData("sources", "src\\x")]
+    [InlineData("css", "../styles/x.css")]
+    [InlineData("css", "/styles/x.css")]
+    [InlineData("css", "D:styles/x.css")]
+    [InlineData("css", "styles\\x.css")]
+    public async Task Development_APackageWhosePathsLeaveIt_StopsStartup(string key, string value)
+    {
+        var field = new JsonObject { ["pages"] = "app" };
+        field[key] = key == "sources" ? new JsonArray("app", value) : value;
+
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"], netjes: field),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.StartsWith($"'{Help}' has \"{key}\": {JsonValue.Create(value).ToJsonString()} in the \"netjes\" field of its package.json", ex.Message);
+    }
+
+    [Fact]
+    public async Task Development_APackageWithoutTheNetjesField_StopsStartup()
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                var dir = TestPagePackage.Install(root, ["page.tsx"]);
+                File.WriteAllText(Path.Combine(dir, "package.json"), $$"""{ "name": "{{Help}}", "version": "1.0.0" }""");
+            },
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Equal($"'{Help}' is mounted, but it is not a page package: its package.json has no \"netjes\" field.", ex.Message);
+    }
 }
