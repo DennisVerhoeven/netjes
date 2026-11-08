@@ -29,6 +29,7 @@ internal sealed class NetjesContext
         ClientDist = Path.Combine(Root, Options.DistDirectory, "client");
         ServerDist = Path.Combine(Root, Options.DistDirectory, "server");
         ManifestPath = Path.Combine(ClientDist, ".vite", "manifest.json");
+        BuildRecordPath = Path.Combine(ClientDist, ".vite", "netjes.json");
         ServerEntry = Path.Combine(ServerDist, "server-entry.js");
         SidecarScript = Options.SidecarScript is { } script
             ? Path.GetFullPath(script, Root)
@@ -150,6 +151,9 @@ internal sealed class NetjesContext
     public string ClientDist { get; }
     public string ServerDist { get; }
     public string ManifestPath { get; }
+
+    /// <summary>The client build's record of the page packages it holds (<see cref="Rendering.BuildRecord"/>).</summary>
+    public string BuildRecordPath { get; }
     public string ServerEntry { get; }
     public string SidecarScript { get; }
 }

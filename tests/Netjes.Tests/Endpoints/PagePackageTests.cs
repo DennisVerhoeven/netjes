@@ -83,4 +83,22 @@ public class PagePackageTests
             Assert.Contains("\"/help/articles/[slug]\"", written);
         }
     }
+
+    [Fact]
+    public async Task Production_RoutesComeFromTheManifestAndTheRecord_AndAssetsByEachFilesManifestKey()
+    {
+        await using var app = await TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.WriteBuild(root, ["app/page.tsx"], [new(Help, ["page.tsx", "contact/page.tsx"])]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help"));
+
+        Assert.Equal($"{Help}/app/contact/page.tsx", (string?)(await app.GetDataJsonAsync("/help/contact"))["page"]);
+        Assert.Equal("app/page.tsx", (string?)(await app.GetDataJsonAsync("/"))["page"]);
+        await app.GetDocumentAsync("/help/contact");
+        var assets = app.Renderer.LastPayload["document"]!["assets"]!;
+        // The contact page's chunk is the manifest's third module.
+        Assert.Contains("/assets/module-2.js", assets["modulePreloads"]!.AsArray().Select(n => (string?)n));
+        Assert.Contains("/assets/module-2.css", assets["stylesheets"]!.AsArray().Select(n => (string?)n));
+    }
 }

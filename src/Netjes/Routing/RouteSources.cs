@@ -151,7 +151,7 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
                 : throw new NetjesStartupException($"'{package.Name}' is mounted but not installed: npm install {package.Name}@{package.Version}");
         }
 
-        _ = manifest;
-        throw new NotImplementedException();
+        return manifest.Record?.Packages.FirstOrDefault(p => p.Name == package.Name)?.ToInstall() ?? throw new NetjesStartupException(
+            $"'{package.Name}' is mounted but not in the client build: add it to netjes({{ packages }}) in vite.config.ts and build again");
     }
 }
