@@ -127,4 +127,68 @@ public class PagePackageLoaderTests
         Assert.Contains($"{Help}/app/articles/[slug]/page.tsx", ex.Message);
         Assert.Contains("'id'", ex.Message);
     }
+
+    private static readonly string[] AppPages = ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx", "app/help/faq/layout.tsx", "app/help/faq/page.tsx"];
+
+    private static readonly string[] PackagePages = ["layout.tsx", "page.tsx", "contact/page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"];
+
+    public static TheoryData<string, Action<PagePackageBuilder>, string[]> ForTheApp => new()
+    {
+        {
+            "a loader on the mount", m => m.MapPageLoader("/shortcuts", () => Page.Props()),
+            ["on the mount of '@acme/help-center' at /help", "'app/help/(center)/shortcuts/page.tsx'", "app.MapPageLoader(\"/help/shortcuts\")"]
+        },
+        {
+            "a page action on the mount", m => m.MapPageAction("/faq", () => Page.Redirect("/")),
+            ["on the mount of '@acme/help-center' at /help", "'app/help/faq/page.tsx'", "app.MapPageAction(\"/help/faq\")"]
+        },
+        {
+            "a layout loader on the mount, by folder", m => m.MapLayoutLoader("app/faq", () => Page.Props()),
+            ["on the mount of '@acme/help-center' at /help", "'app/help/faq/layout.tsx'", "app.MapLayoutLoader"]
+        },
+        {
+            "a layout loader on the mount, by URL", m => m.MapLayoutLoader("/faq", () => Page.Props()),
+            ["on the mount of '@acme/help-center' at /help", "'app/help/faq/layout.tsx'", "app.MapLayoutLoader"]
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(ForTheApp))]
+    public async Task TheMount_RefusesTheAppsPagesAndLayouts_NamingTheMount(string what, Action<PagePackageBuilder> map, string[] message)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(AppPages, PackagePages, mount: map));
+
+        Assert.All(message, part => Assert.Contains(part, ex.Message));
+        Assert.NotNull(what);
+    }
+
+    public static TheoryData<string, Action<WebApplication>, string[]> ForThePackage => new()
+    {
+        {
+            "a loader", a => a.MapPageLoader("/help/contact", () => Page.Props()),
+            ["'@acme/help-center/app/contact/page.tsx'", "the page package '@acme/help-center' mounted at /help", ".Override(\"/help/contact\")", "app/help/contact/page.tsx"]
+        },
+        {
+            "a page action", a => a.MapPageAction("/help/articles/[slug]", () => Page.Redirect("/")),
+            ["'@acme/help-center/app/(center)/articles/[slug]/page.tsx'", "the page package '@acme/help-center' mounted at /help", "app/help/(center)/articles/[slug]/page.tsx"]
+        },
+        {
+            "a layout loader, by URL", a => a.MapLayoutLoader("/help", () => Page.Props()),
+            ["'@acme/help-center/app/layout.tsx'", "the page package '@acme/help-center' mounted at /help", "through its mount"]
+        },
+        {
+            "a layout loader, by folder", a => a.MapLayoutLoader("app/help/(center)", () => Page.Props()),
+            ["'@acme/help-center/app/(center)/layout.tsx'", "the page package '@acme/help-center' mounted at /help", "through its mount"]
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(ForThePackage))]
+    public async Task TheApp_IsRefusedThePackagesPagesAndLayouts_NamingTheMount(string what, Action<WebApplication> map, string[] message)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(AppPages, PackagePages, after: map));
+
+        Assert.All(message, part => Assert.Contains(part, ex.Message));
+        Assert.NotNull(what);
+    }
 }

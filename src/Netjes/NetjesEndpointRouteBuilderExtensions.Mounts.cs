@@ -56,6 +56,106 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         return new(found, mount.Group, below, mounted.Name);
     }
 
+    /// <summary>
+    /// The layout a layout loader is for, as one match. On the app, the layout in the folder <paramref name="segment"/>
+    /// (<c>app/(shop)</c>) or at its URL (<c>/dashboard</c>); on a page package's mount, the package's layout in its folder
+    /// relative to the package (<c>app/(center)</c>) or at its URL below the mount (<c>/</c>). A layout of the other's is
+    /// refused, naming the mount.
+    /// </summary>
+    private static List<RouteSegment> LayoutsFor(IEndpointRouteBuilder endpoints, string segment)
+    {
+        var mount = endpoints as PagePackageBuilder;
+        if (mount is null)
+        {
+            RequireOutsideAMount(endpoints, nameof(MapLayoutLoader));
+        }
+
+        var services = endpoints.ServiceProvider;
+        var context = services.GetRequiredService<NetjesContext>();
+        var table = services.GetRequiredService<IRouteTableProvider>().Current;
+        var sources = services.GetRequiredService<RouteSources>();
+        var mounted = mount is null ? null : MountedOf(mount);
+        var layouts = table.Pages.SelectMany(p => p.Segments).Concat(table.RootSegments)
+            .Where(s => s.Layout is not null)
+            .DistinctBy(s => s.Id)
+            .ToList();
+        var normalized = segment.Replace('\\', '/').TrimEnd('/');
+        List<RouteSegment> matches;
+        string expected;
+        if (mounted is null)
+        {
+            matches = [.. layouts.Where(s => s.Id == normalized)];
+            var path = segment.Trim('/');
+            expected = $"{context.AppDirectory}/{(path.Length == 0 ? "" : path + "/")}layout.tsx";
+            if (matches.Count == 0)
+            {
+                var pattern = normalized.Length == 0 ? "/" : normalized;
+                if (table.PendingConflictFor(pattern) is { } conflict)
+                {
+                    throw conflict.ToException();
+                }
+
+                matches = [.. layouts.Where(s => s.Pattern == pattern)];
+            }
+        }
+        else if (segment.StartsWith('/'))
+        {
+            var pattern = mounted.Mount.Prefix.Above(normalized.Length == 0 ? "/" : normalized);
+            matches = [.. layouts.Where(s => s.Pattern == pattern)];
+            var path = segment.Trim('/');
+            expected = $"{mounted.Name}/{mounted.Install.Pages}/{(path.Length == 0 ? "" : path + "/")}layout.tsx";
+        }
+        else
+        {
+            // The package's folder, its pages folder first, is a folder of the merged tree below the mount's folders.
+            var pages = mounted.Install.Pages;
+            var inPackage = normalized == pages ? "" : normalized.StartsWith(pages + "/", StringComparison.Ordinal) ? normalized[(pages.Length + 1)..] : null;
+            var id = inPackage is null
+                ? null
+                : string.Join('/', new[] { sources.AppDirectory, mounted.Mount.Folder, inPackage }.Where(part => part.Length > 0));
+            matches = [.. layouts.Where(s => s.Id == id)];
+            expected = inPackage is null
+                ? $"a folder of '{mounted.Name}' that starts with its pages folder, such as '{pages}' or '{pages}/(group)', or a URL below the mount, such as '/'"
+                : $"{mounted.Name}/{normalized}/layout.tsx";
+        }
+
+        var own = matches.Where(s => sources.OwnerOf(s.Layout) == mounted).ToList();
+        if (own.Count == 0 && matches.Count > 0)
+        {
+            var layout = matches[0].Layout!;
+            throw new InvalidOperationException(sources.OwnerOf(layout) is { } owner && mounted is null
+                ? $"MapLayoutLoader(\"{segment}\"): '{layout}' is a layout of the page package '{owner.Name}' mounted at " +
+                  $"{owner.Mount.Prefix}, which maps its layout loaders through its mount. An app layout loader goes on a layout of the app's."
+                : $"MapLayoutLoader(\"{segment}\") on the mount of '{mounted!.Name}' at {mounted.Mount.Prefix}: '{layout}' is " +
+                  $"{OwnerOf(sources.OwnerOf(layout))}'s layout, not one of the package's" +
+                  (sources.OwnerOf(layout) is null ? $"; the app maps its loader with app.MapLayoutLoader(\"{matches[0].Id}\")." : "."));
+        }
+
+        if (own.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Several layouts serve '{segment}': {string.Join(", ", own.Select(m => $"\"{FolderIn(mounted, sources, m.Id)}\""))}. Pass the folder instead.");
+        }
+
+        return own.Count == 1
+            ? own
+            : throw new InvalidOperationException(mounted is null
+                ? $"No layout file serves '{segment}'. Expected {expected}."
+                : $"No layout of '{mounted.Name}' serves '{segment}' below its mount at {mounted.Mount.Prefix}. Expected {expected}.");
+    }
+
+    /// <summary>A merged folder as the caller names it: the app by its id, a package relative to the package (<c>app/(center)</c>).</summary>
+    private static string FolderIn(MountedPackage? mounted, RouteSources sources, string id)
+    {
+        if (mounted is null)
+        {
+            return id;
+        }
+
+        var root = string.Join('/', new[] { sources.AppDirectory, mounted.Mount.Folder }.Where(part => part.Length > 0));
+        return id == root ? mounted.Install.Pages : $"{mounted.Install.Pages}/{id[(root.Length + 1)..]}";
+    }
+
     /// <summary>Refuses a page that a page package maps for: its own, or one it renders an override of with its loader.</summary>
     private static void RequireTheApps(PageRoute route, RouteSources sources, string method, string pattern)
     {

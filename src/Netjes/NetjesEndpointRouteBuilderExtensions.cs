@@ -148,38 +148,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <param name="loader">The loader delegate.</param>
     public static LayoutLoaderBuilder MapLayoutLoader(this IEndpointRouteBuilder endpoints, string segment, Delegate loader)
     {
-        var context = endpoints.ServiceProvider.GetRequiredService<NetjesContext>();
-        var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
-        var layouts = table.Pages.SelectMany(p => p.Segments).Concat(table.RootSegments)
-            .Where(s => s.Layout is not null)
-            .DistinctBy(s => s.Id)
-            .ToList();
-        var normalized = segment.Replace('\\', '/').TrimEnd('/');
-        var matches = layouts.Where(s => s.Id == normalized).ToList();
-        if (matches.Count == 0)
-        {
-            var pattern = normalized.Length == 0 ? "/" : normalized;
-            if (table.PendingConflictFor(pattern) is { } conflict)
-            {
-                throw conflict.ToException();
-            }
-
-            matches = [.. layouts.Where(s => s.Pattern == pattern)];
-        }
-
-        if (matches.Count > 1)
-        {
-            throw new InvalidOperationException(
-                $"Several layouts serve '{segment}': {string.Join(", ", matches.Select(m => $"\"{m.Id}\""))}. Pass the folder instead.");
-        }
-
-        if (matches.Count == 0)
-        {
-            var path = segment.Trim('/');
-            throw new InvalidOperationException(
-                $"No layout file serves '{segment}'. Expected {context.AppDirectory}/{(path.Length == 0 ? "" : path + "/")}layout.tsx.");
-        }
-
+        var matches = LayoutsFor(endpoints, segment);
         if (LayoutLoader.RouteBindingsOutsideItsUrl(matches[0], loader, endpoints.ServiceProvider) is [var (parameter, route), ..])
         {
             throw new InvalidOperationException(
