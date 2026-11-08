@@ -186,6 +186,8 @@ internal sealed class TypeGenHostedService(
                     Method = method,
                     Route = e.RoutePattern.RawText,
                     Name = e.DisplayName,
+                    // Mapped through a page package's mount; null for the app's own and Netjes's.
+                    Package = e.Metadata.GetMetadata<PagePackageEndpointMetadata>()?.Package,
                 }))
                 .OrderBy(e => e.Route, StringComparer.Ordinal)
                 .ThenBy(e => e.Method, StringComparer.Ordinal),

@@ -363,6 +363,29 @@ public class TypeGenHostedServiceTests
     }
 
     [Fact]
+    public async Task RoutesCommand_NamesThePackageOfEachEndpointItMapsThroughItsMount()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx"],
+            ["page.tsx"],
+            a =>
+            {
+                var help = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                help.MapPost("/feedback", () => "thanks");
+                help.MapAction("help.vote", () => ServerAction.Ok());
+                a.MapGet("/help/status", () => "up");
+            });
+        string? Package(string method, string route) => (string?)report["endpoints"]!.AsArray()
+            .Single(e => (string?)e!["method"] == method && (string?)e["route"] == route)!["package"];
+
+        Assert.Equal(TestPagePackage.Name, Package("POST", "/help/feedback"));
+        Assert.Equal(TestPagePackage.Name, Package("POST", "/_netjes/actions/help.vote"));
+        // The app's own endpoint under the mount's URL, and Netjes's.
+        Assert.Null(Package("GET", "/help/status"));
+        Assert.Null(Package("GET", "/_netjes/antiforgery"));
+    }
+
+    [Fact]
     public async Task GenerateCommand_InProduction_ScansPageFilesInsteadOfTheBuildManifest()
     {
         int? exitCode = null;

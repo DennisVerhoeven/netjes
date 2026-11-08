@@ -75,6 +75,9 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             throw;
         }
 
-        return new PagePackageBuilder(endpoints, mount);
+        var builder = new PagePackageBuilder(endpoints, mount);
+        // Every endpoint of the package's own, as a mount convention: netjes routes names its package.
+        ((IEndpointConventionBuilder)builder).Add(endpoint => endpoint.Metadata.Add(new PagePackageEndpointMetadata(package.Name)));
+        return builder;
     }
 }
