@@ -31,19 +31,40 @@ internal static class EndpointUrls
 
     /// <param name="endpoints">Every endpoint; the app's own are kept.</param>
     /// <param name="isJson">Whether an endpoint is in the <c>api</c> map.</param>
-    public static List<Entry> Entries(IEnumerable<RouteEndpoint> endpoints, Func<RouteEndpoint, bool> isJson)
+    /// <param name="mount">
+    /// The prefix of the page package whose endpoints these are, mapped through its mount: their keys and templates are
+    /// the routes below it, and their values leave out the prefix's. Null for the app's.
+    /// </param>
+    public static List<Entry> Entries(IEnumerable<RouteEndpoint> endpoints, Func<RouteEndpoint, bool> isJson, MountPrefix? mount = null)
     {
         var entries = new List<Entry>();
         foreach (var endpoint in endpoints.Where(AppEndpoints.IsTheAppsOwn))
         {
             var methods = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods;
             var keys = isJson(endpoint) ? methods.Where(m => m != HttpMethods.Head) : methods.Where(m => m == HttpMethods.Get);
-            var template = Template(endpoint.RoutePattern);
-            var values = Values(endpoint);
-            entries.AddRange(keys.Select(method => new Entry($"{method} {endpoint.RoutePattern.RawText}", template, values)));
+            var template = TemplateBelow(endpoint.RoutePattern, mount);
+            var values = Values(endpoint, mount);
+            entries.AddRange(keys.Select(method => new Entry($"{method} {Route(endpoint.RoutePattern, mount)}", template, values)));
         }
 
         return [.. entries.DistinctBy(e => e.Key).OrderBy(e => e.Key, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// The route as written, as the keys name it; for an endpoint mapped through a page package's mount, the part below
+    /// the mount: <c>/feedback</c> of <c>/{tenant}/help/feedback</c>, and <c>/</c> for the mount's own URL.
+    /// </summary>
+    public static string Route(RoutePattern pattern, MountPrefix? mount)
+    {
+        var raw = pattern.RawText ?? "";
+        if (mount is null)
+        {
+            return raw;
+        }
+
+        // The mount's route group writes its template in front of each route.
+        var prefix = mount.Template.TrimEnd('/');
+        return raw.StartsWith(prefix + "/", StringComparison.Ordinal) ? raw[prefix.Length..] : TemplateBelow(pattern, mount);
     }
 
     /// <summary>
@@ -53,8 +74,14 @@ internal static class EndpointUrls
     /// <c>{name?}</c>, <c>{name=default}</c> (the default encoded), <c>{*name}</c> and <c>{**name}</c> without
     /// constraints; and without a trailing slash, which the matcher ignores.
     /// </summary>
-    public static string Template(RoutePattern pattern) =>
-        "/" + string.Join("/", pattern.PathSegments.Select(segment => string.Concat(segment.Parts.Select(Part))));
+    public static string Template(RoutePattern pattern) => TemplateBelow(pattern, mount: null);
+
+    /// <summary>The template of the route below a page package's mount (<see cref="Route"/>); the whole route without one.</summary>
+    private static string TemplateBelow(RoutePattern pattern, MountPrefix? mount) =>
+        "/" + string.Join("/", pattern.PathSegments.Skip(SegmentsOf(mount)).Select(segment => string.Concat(segment.Parts.Select(Part))));
+
+    /// <summary>How many segments of a route the mount's URL is.</summary>
+    private static int SegmentsOf(MountPrefix? mount) => mount is null ? 0 : RoutePatternFactory.Parse(mount.Template).PathSegments.Count;
 
     private static string Part(RoutePatternPart part) => part switch
     {
@@ -73,9 +100,10 @@ internal static class EndpointUrls
     /// The route parameters, typed from the parameter that binds each one (a string when none does), then the query
     /// string keys the handler binds (<see cref="LoaderBinding.UrlSource"/>). A route value is optional as
     /// <see cref="OptionalRouteValues"/> says. A query value is optional unless binding needs it, and a list always,
-    /// since binding gives an empty one. An MVC action reports no parameters: its route values are strings.
+    /// since binding gives an empty one. An MVC action reports no parameters: its route values are strings. Below a page
+    /// package's mount, the prefix's values are left out: the mount fills them in.
     /// </summary>
-    private static List<Value> Values(RouteEndpoint endpoint)
+    private static List<Value> Values(RouteEndpoint endpoint, MountPrefix? mount)
     {
         var pattern = endpoint.RoutePattern;
         var routeParameters = pattern.Parameters.Select(p => p.Name).ToList();
@@ -90,6 +118,11 @@ internal static class EndpointUrls
         var values = new List<Value>();
         foreach (var parameter in pattern.Parameters)
         {
+            if (mount is not null && mount.Parameters.Contains(parameter.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var binding = BindingOf(parameter);
             values.Add(new Value(parameter.Name, binding is null ? "string" : TypeOf(binding.ParameterInfo.ParameterType), optional.Contains(parameter)));
         }
@@ -187,18 +220,28 @@ internal static class EndpointUrls
         return "string";
     }
 
-    public static void Append(StringBuilder output, IReadOnlyList<Entry> entries)
+    /// <param name="package">The entries are a page package's, below its mount, for the package's own file.</param>
+    public static void Append(StringBuilder output, IReadOnlyList<Entry> entries, bool package = false)
     {
-        output.Append(
-            """
+        output.Append(package
+            ? """
 
-            /**
-             * What the app's endpoints read from their URLs, by method and route as in `api`: the route values, then the
-             * query string values the handler binds. A JSON endpoint has a key for each of its methods except HEAD, and any
-             * other endpoint one for GET, if it answers GET.
-             */
+              /**
+               * What the package's endpoints read from their URLs, by method and route below the mount as in `api`: the route
+               * values below the mount, then the query string values the handler binds. A JSON endpoint has a key for each of
+               * its methods except HEAD, and any other endpoint one for GET, if it answers GET.
+               */
 
-            """.ReplaceLineEndings("\n"));
+              """.ReplaceLineEndings("\n")
+            : """
+
+              /**
+               * What the app's endpoints read from their URLs, by method and route as in `api`: the route values, then the
+               * query string values the handler binds. A JSON endpoint has a key for each of its methods except HEAD, and any
+               * other endpoint one for GET, if it answers GET.
+               */
+
+              """.ReplaceLineEndings("\n"));
         if (entries.Count == 0)
         {
             output.Append("export type EndpointParams = Record<never, never>;\n");
@@ -233,14 +276,27 @@ internal static class EndpointUrls
             output.Append("};\n");
         }
 
+        output.Append(package
+            ? """
+
+              /**
+               * The URL below the mount of one of the package's endpoints, with its values encoded: `endpointUrl('GET /search', { q })`.
+               * The values the route does not name go in the query string, followed by the third argument. Pass it through this
+               * file's `useHref`, which puts the mount and the base path in front, for a `fetch` or an `<a href>`.
+               */
+
+              """.ReplaceLineEndings("\n")
+            : """
+
+              /**
+               * The URL of one of the app's endpoints, with its values encoded: `endpointUrl('GET /api/posts/{slug}/likes/', { slug })`.
+               * The values the route does not name go in the query string, followed by the third argument. The URL has no base
+               * path: pass it through `useHref` for a `fetch` or an `<a href>`.
+               */
+
+              """.ReplaceLineEndings("\n"));
         output.Append(
             """
-
-            /**
-             * The URL of one of the app's endpoints, with its values encoded: `endpointUrl('GET /api/posts/{slug}/likes/', { slug })`.
-             * The values the route does not name go in the query string, followed by the third argument. The URL has no base
-             * path: pass it through `useHref` for a `fetch` or an `<a href>`.
-             */
             export function endpointUrl<K extends EndpointKey>(
               key: K,
               ...args: {} extends EndpointParams[K]
