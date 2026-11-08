@@ -278,6 +278,24 @@ public class PagePackageTypesTests
         Assert.Equal(state == "missing", !File.Exists(PackageTypesPath(app)));
     }
 
+    [Fact]
+    public async Task GenerateCheck_NamesEveryFileThatIsNotCurrent()
+    {
+        int? exit = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: WithTypes(),
+            configure: o => o.Command = new NetjesCommandOptions { Name = "generate", Check = true },
+            services: s => s.AddSingleton(new CommandExit(code => exit = code)),
+            prepareRoot: root => Write(root, "generated/netjes.ts", "// stale\n"));
+
+        Assert.Equal(1, exit);
+        var errors = app.Logs.Where(l => l.Level == Microsoft.Extensions.Logging.LogLevel.Error).Select(l => l.Message).ToList();
+        Assert.Equal(2, errors.Count);
+        Assert.StartsWith($"{Path.Combine(app.Root, "generated", "netjes.ts")} is out of date", errors[0]);
+        Assert.Equal($"{PackageTypesPath(app)} does not exist; run `netjes generate`", errors[1]);
+    }
+
     public sealed record ContactProps(string Email);
 
     [Fact]
