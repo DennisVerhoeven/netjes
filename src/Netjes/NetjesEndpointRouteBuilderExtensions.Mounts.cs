@@ -9,23 +9,25 @@ namespace Microsoft.AspNetCore.Builder;
 // The extensions on a page package's mount: they map below its URL, for the package's own pages.
 public static partial class NetjesEndpointRouteBuilderExtensions
 {
-    /// <summary>The page a loader or page action is for, the builder it maps on, and its route template there.</summary>
-    /// <param name="Package">The package whose page it is, for the spans; null for the app's.</param>
-    private sealed record PageTarget(PageRoute Route, IEndpointRouteBuilder Endpoints, string Template, string? Package);
+    /// <summary>The page a loader or page action is for, and the builder it maps on, at the page's template.</summary>
+    /// <param name="Mount">The page package's mount it is mapped through, whose conventions it gets; null for the app's.</param>
+    private sealed record PageTarget(PageRoute Route, IEndpointRouteBuilder Endpoints, PagePackageBuilder? Mount)
+    {
+        public string? Package => Mount?.Mount.Package.Name;
+    }
 
     /// <summary>
-    /// On the app, the app's page at <paramref name="pattern"/>, at its template on <paramref name="endpoints"/> (a group
-    /// puts its prefix in front). On a page package's mount, the package's page at <paramref name="pattern"/> below the
-    /// mount, at its template below the mount on the mount's group, which puts the mount's URL in front and applies the
-    /// mount's conventions.
+    /// On the app, the app's page at <paramref name="pattern"/>, mapped on <paramref name="endpoints"/> (a group puts its
+    /// prefix in front). On a page package's mount, the package's page at <paramref name="pattern"/> below the mount,
+    /// mapped on the app at the page's own template, which holds the mount's URL. A group at the mount's URL would map
+    /// the mount's own page at <c>/help/</c>, where the page's template is <c>/help</c>.
     /// </summary>
     private static PageTarget TargetFor(IEndpointRouteBuilder endpoints, string pattern, string method)
     {
         if (endpoints is not PagePackageBuilder mount)
         {
             RequireOutsideAMount(endpoints, method);
-            var route = RequireRoute(endpoints, pattern, method);
-            return new(route, endpoints, route.Template, null);
+            return new(RequireRoute(endpoints, pattern, method), endpoints, null);
         }
 
         var mounted = MountedOf(mount);
@@ -52,8 +54,23 @@ public static partial class NetjesEndpointRouteBuilderExtensions
                 (sources.PackageOf(found) is null ? $"; the app maps this one with app.{method}(\"{found.Pattern}\")." : "."));
         }
 
-        var below = prefix.Template == "/" ? found.Template : found.Template[prefix.Template.Length..];
-        return new(found, mount.Group, below, mounted.Name);
+        return new(found, mount.Outer, mount);
+    }
+
+    /// <summary>
+    /// The conventions of the mount an endpoint is mapped through, on the endpoint, as a route group's would be: before
+    /// the endpoint's own, and its finally conventions after the endpoint's. Read when the endpoint is built, so the
+    /// conventions put on the mount after the call apply too.
+    /// </summary>
+    private static TBuilder WithMountConventions<TBuilder>(this TBuilder builder, PagePackageBuilder? mount) where TBuilder : IEndpointConventionBuilder
+    {
+        if (mount is not null)
+        {
+            builder.Add(endpoint => mount.Mount.Conventions.ForEach(convention => convention(endpoint)));
+            builder.Finally(endpoint => mount.Mount.FinallyConventions.ForEach(convention => convention(endpoint)));
+        }
+
+        return builder;
     }
 
     /// <summary>

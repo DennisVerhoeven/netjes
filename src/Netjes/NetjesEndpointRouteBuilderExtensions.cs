@@ -87,10 +87,11 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         var route = target.Route;
         // A GET endpoint, so minimal APIs infer no body for it, as for every loader.
         LoaderBinding.RequireBindable($"The loader of {route.File} ({route.Pattern})", loader.Method, endpoints.ServiceProvider,
-            RouteParameters(endpoints, RoutePatternFactory.Parse(target.Template)), routed: true);
+            RouteParameters(target.Endpoints, RoutePatternFactory.Parse(route.Template)), routed: true);
         endpoints.ServiceProvider.GetRequiredService<PageLoaderRegistry>().Register(route.Pattern);
         return target.Endpoints
-            .MapMethods(target.Template, [HttpMethods.Get, HttpMethods.Head], loader)
+            .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
+            .WithMountConventions(target.Mount)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(EndAborted)
             .AddEndpointFilter(Traced("netjes.loader", route.Pattern, target.Package))
@@ -115,10 +116,11 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         var target = TargetFor(endpoints, pattern, nameof(MapPageAction));
         var route = target.Route;
         var name = $"The action of {route.File} ({route.Pattern})";
-        RequireBindable(endpoints, name, target.Template, action);
+        RequireBindable(target.Endpoints, name, route.Template, action);
         ActionInputValidation.RequireReadable(name, action.Method);
         return target.Endpoints
-            .MapPost(target.Template, action)
+            .MapPost(route.Template, action)
+            .WithMountConventions(target.Mount)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
             .AddEndpointFilter(Traced("netjes.action", route.Pattern, target.Package))
@@ -348,15 +350,9 @@ public static partial class NetjesEndpointRouteBuilderExtensions
 
         RequireBindable(target, $"The server action '{name}'", $"/_netjes/actions/{name}", action);
         ActionInputValidation.RequireReadable($"The server action '{name}'", action.Method);
-        var builder = target.MapPost($"/_netjes/actions/{name}", action);
-        if (mount is not null)
-        {
-            // First, as a group's conventions come before the endpoint's own.
-            builder.Add(endpoint => mount.Mount.Conventions.ForEach(convention => convention(endpoint)));
-            builder.Finally(endpoint => mount.Mount.FinallyConventions.ForEach(convention => convention(endpoint)));
-        }
-
-        builder
+        var builder = target
+            .MapPost($"/_netjes/actions/{name}", action)
+            .WithMountConventions(mount)
             .WithMetadata(new ServerActionMetadata(name), new ActionFormFields(action.Method), new PageEndpointMetadata(null), new RequireAntiforgeryTokenAttribute());
         if (ServerActionResultMetadata.For(action) is { } result)
         {
@@ -490,20 +486,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static List<string>? RouteParameters(IEndpointRouteBuilder endpoints, RoutePattern pattern)
     {
         var names = pattern.Parameters.Select(p => p.Name).ToList();
-        for (var builder = endpoints; ;)
+        for (var builder = endpoints; builder is RouteGroupBuilder group;)
         {
-            // A page package's mount maps at its prefix's template, with the prefix's values.
-            if (builder is PagePackageBuilder mount)
-            {
-                names.InsertRange(0, mount.Mount.Prefix.Parameters);
-                return names;
-            }
-
-            if (builder is not RouteGroupBuilder group)
-            {
-                return names;
-            }
-
             if (GroupPrefix?.GetValue(group) is not RoutePattern prefix || GroupOuter?.GetValue(group) is not IEndpointRouteBuilder outer)
             {
                 return null;
@@ -512,6 +496,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             names.InsertRange(0, prefix.Parameters.Select(p => p.Name));
             builder = outer;
         }
+
+        return names;
     }
 
     private static readonly System.Reflection.FieldInfo? GroupPrefix =

@@ -88,9 +88,36 @@ public class PagePackageLoaderTests
         Assert.Equal($"{Help}/app/page.tsx", (string?)root["page"]);
         Assert.Equal("Help", (string?)root["props"]!["title"]);
         var loader = Endpoints(app).Single(e => e.Metadata.GetMetadata<PageRouteMetadata>() is { IsLoader: true, Pattern: "/help/articles/[slug]" });
-        Assert.Equal("/help/articles/{slug}", "/" + loader.RoutePattern.RawText!.TrimStart('/'));
+        Assert.Equal("/help/articles/{slug}", loader.RoutePattern.RawText);
+        Assert.Equal("/help", Endpoints(app).Single(e => e.Metadata.GetMetadata<PageRouteMetadata>() is { IsLoader: true, Pattern: "/help" }).RoutePattern.RawText);
         Assert.Equal(HttpStatusCode.NotFound, (await app.GetDataAsync("/help/help/articles/x")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await app.GetDataAsync("/articles/x")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/", "/", "/")]
+    [InlineData("/", "/articles/[slug]", "/articles/{slug}")]
+    [InlineData("/(site)", "/", "/")]
+    [InlineData("/(site)", "/articles/[slug]", "/articles/{slug}")]
+    [InlineData("/[tenant]/help", "/", "/{tenant}/help")]
+    [InlineData("/help", "/articles/[slug]", "/help/articles/{slug}")]
+    public async Task ALoaderThroughTheMount_MapsAtThePagesOwnTemplate(string prefix, string pattern, string template)
+    {
+        await using var app = await StartAsync(
+            [],
+            ["page.tsx", "articles/[slug]/page.tsx"],
+            prefix: prefix,
+            mount: m =>
+            {
+                m.MapPageLoader(pattern, () => Page.Props());
+                m.MapPageAction(pattern, () => Page.Redirect("/"));
+            });
+
+        var mapped = Endpoints(app).Where(e => e.Metadata.GetMetadata<PageRouteMetadata>() is { Pattern: var p } && p.EndsWith(pattern.TrimStart('/'), StringComparison.Ordinal)
+            && (e.Metadata.GetMetadata<PageRouteMetadata>()!.IsLoader || e.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("POST"))).ToList();
+
+        Assert.Equal(2, mapped.Count);
+        Assert.All(mapped, e => Assert.Equal(template, e.RoutePattern.RawText));
     }
 
     [Theory]

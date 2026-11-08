@@ -25,11 +25,11 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// <summary>Where the package is mounted.</summary>
     public PagePackageMount Mount { get; }
 
-    /// <summary>The app the package is mounted in, where its server actions map: at <c>/_netjes/actions/{name}</c>.</summary>
+    /// <summary>
+    /// The app the package is mounted in, where its loaders and page actions map at their pages' templates and its server
+    /// actions at <c>/_netjes/actions/{name}</c>, each with the mount's conventions.
+    /// </summary>
     internal IEndpointRouteBuilder Outer => _outer;
-
-    /// <summary>The group at the mount's URL, where its loaders and page actions map, at their templates below it.</summary>
-    internal RouteGroupBuilder Group => _group;
 
     /// <summary>
     /// Replaces the package's page at <paramref name="pattern"/> with the app's page in the same folder of the merged tree:
