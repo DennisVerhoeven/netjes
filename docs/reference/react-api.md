@@ -520,7 +520,7 @@ type Mounted<THref extends string> = {
   SubmitButton: (props: MountedSubmitButtonProps<THref>) => ReactNode; // SubmitButtonProps with formAction?: THref | ...
   useRouter: () => MountedRouter<THref>;                               // Router whose push, replace and prefetch take THref
   usePathname: () => string;
-  useHref: (href: THref) => string;
+  useHref: (href: string) => string;
 };
 ```
 

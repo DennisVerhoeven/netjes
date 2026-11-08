@@ -38,8 +38,11 @@ export type Mounted<THref extends string = string> = {
    * `/` for the mount itself. A page outside the mount gets its whole path, as the core `usePathname` gives it.
    */
   usePathname: () => string;
-  /** An href below the mount, under the base path, for a plain `<a>`, another attribute or a `fetch`. */
-  useHref: (href: THref) => string;
+  /**
+   * An href below the mount, under the base path, for a plain `<a>`, another attribute or a `fetch`: a page's, or an
+   * endpoint's from the package's `endpointUrl()`. Untyped, as the core `useHref`.
+   */
+  useHref: (href: string) => string;
 };
 
 /** The package's URL for the page on screen, from the payload: null when the page has no value for the prefix. */
@@ -139,7 +142,7 @@ export function mounted<THref extends string = string>(name: string): Mounted<TH
     return belowMount(usePathname(), useMountOrNull(name));
   }
 
-  function useMountedHref(href: THref): string {
+  function useMountedHref(href: string): string {
     return useHref(underMount(href, useMount(name), name));
   }
 
