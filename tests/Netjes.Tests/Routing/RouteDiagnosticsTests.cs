@@ -1063,6 +1063,29 @@ public class RouteDiagnosticsTests
         Assert.Contains("route parameter 'tenant'", warning);
     }
 
+    [Theory]
+    // A package update that adds settings/page.tsx takes /help/settings from the app's page, and the reverse.
+    [InlineData(new[] { "app/help/[section]/page.tsx" }, new[] { "page.tsx", "settings/page.tsx" }, $"{TestPagePackage.Name}/app/settings/page.tsx", "app/help/[section]/page.tsx")]
+    [InlineData(new[] { "app/help/settings/page.tsx" }, new[] { "page.tsx", "[section]/page.tsx" }, "app/help/settings/page.tsx", $"{TestPagePackage.Name}/app/[section]/page.tsx")]
+    public async Task Overlap_ALiteralForAParameter_FromAnotherSource_IsWarnedNamingBothFiles(string[] appFiles, string[] packageFiles, string winner, string loser)
+    {
+        var warnings = await PackageWarningsAsync(["app/page.tsx", .. appFiles], packageFiles);
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"{winner} wins over {loser} for URLs like /help/settings", warning);
+    }
+
+    [Fact]
+    public async Task Overlap_ALiteralForAParameter_InOnePackage_OrInTheAppsOverrideOfItsPage_IsNotWarned()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "settings/page.tsx", "contact/page.tsx", "[section]/page.tsx"],
+            mount: m => m.Override("/help/contact"));
+
+        Assert.Empty(warnings);
+    }
+
     [Fact]
     public void AWarningsMessage_FillsItsHoles_AndReadsDoubledBracesAsOne_AsTheLogDoes()
     {

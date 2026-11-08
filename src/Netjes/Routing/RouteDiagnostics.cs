@@ -56,8 +56,9 @@ internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> F
 /// Checks what the matcher and minimal API binding would do quietly: a loader parameter that binds from the query
 /// string while a route parameter of its pattern goes unbound, a layout loader parameter that binds from the query
 /// string though a page below has a route parameter of its name, two pages that match the same URLs, where route
-/// precedence picks one, an endpoint of the app that ties with a page, which fails each request both match, and an
-/// action's form input that form binding refuses when a checkbox is left unchecked.
+/// precedence picks one, an endpoint of the app that ties with a page, which fails each request both match, an
+/// action's form input that form binding refuses when a checkbox is left unchecked, and page packages mounted where they
+/// likely render wrong: inside the app's chrome, unmounted in a build, or streaming under a policy without a nonce.
 /// </summary>
 internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteDiagnostics> logger)
 {
@@ -128,7 +129,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             [
                 .. PageLoaderWarnings(table, sources, endpoints, boundBySegment),
                 .. LayoutLoaderWarnings(table, sources, layouts, boundBySegment),
-                .. OverlapWarnings(table, endpoints),
+                .. OverlapWarnings(table, sources, endpoints),
                 .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
                 .. PackageShellWarnings(table, sources),
@@ -320,15 +321,18 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     /// <summary>
     /// Pairs of pages that can match the same URL, except where one is the other with literals for some of its
     /// parameters (<c>/blog/new</c> next to <c>/blog/[slug]</c>): the literal winning is the convention, as in Next.js.
-    /// The winner is the endpoint the matcher prefers: lower order, then lower route precedence.
+    /// That holds within one source only. Between the app and a page package, or two packages, neither wrote the
+    /// exception: a package update that adds <c>settings/page.tsx</c> would take <c>/help/settings</c> from the app's
+    /// <c>app/help/[section]/page.tsx</c> without a word. An app page that replaces a package's (<c>.Override()</c>) counts
+    /// as the package's. The winner is the endpoint the matcher prefers: lower order, then lower route precedence.
     /// </summary>
-    private static IEnumerable<RouteWarning> OverlapWarnings(RouteTable table, Dictionary<string, RouteEndpoint> endpoints)
+    private static IEnumerable<RouteWarning> OverlapWarnings(RouteTable table, RouteSources sources, Dictionary<string, RouteEndpoint> endpoints)
     {
         var pages = table.Pages.Select(page =>
         {
             var endpoint = endpoints.GetValueOrDefault(page.Pattern);
             var rank = (endpoint?.Order ?? 0, (endpoint?.RoutePattern ?? RoutePatternFactory.Parse(page.Template)).InboundPrecedence);
-            return (page.File, Url: UrlPattern.Parse(page.Pattern), Rank: rank);
+            return (page.File, Url: UrlPattern.Parse(page.Pattern), Rank: rank, Source: sources.PackageOf(page)?.Name ?? PageSource.AppName);
         }).ToList();
 
         for (var i = 0; i < pages.Count; i++)
@@ -341,7 +345,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 }
 
                 var (winner, loser) = pages[i].Rank.CompareTo(pages[j].Rank) <= 0 ? (pages[i], pages[j]) : (pages[j], pages[i]);
-                if (UrlSegment.IsLiteralException(winner.Url, loser.Url))
+                if (winner.Source == loser.Source && UrlSegment.IsLiteralException(winner.Url, loser.Url))
                 {
                     continue;
                 }
