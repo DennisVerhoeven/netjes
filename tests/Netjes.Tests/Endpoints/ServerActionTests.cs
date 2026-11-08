@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
@@ -1818,6 +1819,55 @@ public class ServerActionTests
             }));
 
         Assert.Contains("same", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("posts.create", "Posts.Create")]
+    [InlineData("posts.create", "POSTS.CREATE")]
+    public async Task DuplicateName_InAnotherCase_FailsAtStartup_NamingBoth(string first, string second)
+    {
+        // Routing matches /_netjes/actions/{name} in any case: both would match every call to either.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                a.MapAction(first, () => ServerAction.Ok());
+                a.MapAction(second, () => ServerAction.Ok());
+            }));
+
+        Assert.Contains($"'{first}'", ex.Message);
+        Assert.Contains($"'{second}'", ex.Message);
+        Assert.Contains("in any case", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/x")]
+    [InlineData("/{tenant}")]
+    [InlineData("x")]
+    public async Task MapAction_InARouteGroupWithAPrefix_FailsAtStartup(string prefix)
+    {
+        // The client posts every server action to /_netjes/actions/{name}, never below a group's prefix.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup("").MapGroup(prefix).MapAction("posts.create", () => ServerAction.Ok())));
+
+        Assert.Contains("MapAction('posts.create')", ex.Message);
+        Assert.Contains("/_netjes/actions/posts.create", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("/")]
+    public async Task MapAction_InARouteGroupWithoutAPrefix_MapsAtTheActionsUrl_WithTheGroupsConventions(string prefix)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapGroup(prefix).WithMetadata("from the group").MapAction("posts.create", () => ServerAction.Ok()));
+
+        var endpoint = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Single(e => e.Metadata.GetMetadata<ServerActionMetadata>() is not null);
+        Assert.Equal("/_netjes/actions/posts.create", "/" + endpoint.RoutePattern.RawText!.TrimStart('/'));
+        Assert.Contains("from the group", endpoint.Metadata.OfType<string>());
     }
 
     public sealed record TagInput

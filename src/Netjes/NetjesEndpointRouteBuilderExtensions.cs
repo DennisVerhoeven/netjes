@@ -333,6 +333,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         if (mount is null)
         {
             RequireOutsideAMount(endpoints, nameof(MapAction));
+            RequireNoGroupPrefix(endpoints, name);
         }
 
         var target = mount?.Outer ?? endpoints;
@@ -371,6 +372,31 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .AddEndpointFilterFactory(ActionInputValidation.Filter)
             .WithDisplayName($"Server action {name}")
             .ExcludeFromDescription();
+    }
+
+    /// <summary>
+    /// Refuses a route group with a prefix, which would map the action below it, where the client never posts: every
+    /// call goes to <c>/_netjes/actions/{name}</c>. A group whose prefix cannot be read is let through.
+    /// </summary>
+    private static void RequireNoGroupPrefix(IEndpointRouteBuilder endpoints, string name)
+    {
+        for (var builder = endpoints; builder is RouteGroupBuilder group;)
+        {
+            if (GroupPrefix?.GetValue(group) is not RoutePattern prefix || GroupOuter?.GetValue(group) is not IEndpointRouteBuilder outer)
+            {
+                return;
+            }
+
+            if (prefix.PathSegments.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"MapAction('{name}') is called on MapGroup(\"{prefix.RawText}\"), which would map it below the group's prefix. " +
+                    $"The client posts every server action to /_netjes/actions/{name}: map it on the app, or on a group " +
+                    "without a prefix, and put the group's conventions on the action.");
+            }
+
+            builder = outer;
+        }
     }
 
     // For calls from the client router: failures come back as action responses rather than error pages.
