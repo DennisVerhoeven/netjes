@@ -122,6 +122,12 @@ export type PagePayload = {
   /** The request culture, with `AddNetjesLocalization`. */
   locale?: string;
   /**
+   * Each mounted page package's URL for this request, by npm name, without the base path: `/help`, `/acme/help`, or `/`
+   * for a package mounted at the root. Null when the request has no value for one of the prefix's parameters. Left out
+   * when the app mounts no package.
+   */
+  mounts?: Record<string, string | null>;
+  /**
    * Client only, never sent: how far the browser clock is ahead of the server's, measured when the payload arrived.
    * Server timestamps plus this offset are browser timestamps.
    */
@@ -333,11 +339,37 @@ function pagePayload(json: Json): PagePayload {
   if (json.renderedAt !== undefined && json.renderedAt !== null) payload.renderedAt = number(json.renderedAt, 'renderedAt');
   if (json.basePath !== undefined && json.basePath !== null) payload.basePath = string(json.basePath, 'basePath');
   if (json.locale !== undefined && json.locale !== null) payload.locale = string(json.locale, 'locale');
+  if (json.mounts !== undefined && json.mounts !== null) payload.mounts = mounts(json.mounts);
   if (json.draftMode !== undefined && json.draftMode !== null) {
     if (typeof json.draftMode !== 'boolean') fail('draftMode must be a boolean');
     payload.draftMode = json.draftMode;
   }
   return payload;
+}
+
+/** A segment a browser resolves away, also when encoded: `.`, `..`, `%2e`, `.%2E` and the like. */
+export function isDotSegment(segment: string): boolean {
+  return /^(?:\.|%2e){1,2}$/i.test(segment);
+}
+
+/**
+ * A mount's URL as the server writes it: `/`, or `/` and segments, none empty or a dot segment, with no query, fragment,
+ * backslash, whitespace or control character. The mounted components put it in front of their hrefs.
+ */
+function mountUrl(value: unknown, what: string): string | null {
+  if (value === null) return null;
+  const url = string(value, what);
+  if (url === '/') return url;
+  const [first, ...segments] = url.split('/');
+  const unsafe = (segment: string) => segment === '' || isDotSegment(segment) || /[?#\\\s\u0000-\u001F\u007F]/.test(segment);
+  if (first !== '' || segments.length === 0 || segments.some(unsafe)) fail(`${what} must be a path of the app, such as /help`);
+  return url;
+}
+
+function mounts(value: unknown): Record<string, string | null> {
+  const result: Record<string, string | null> = {};
+  for (const [name, url] of Object.entries(object(value, 'mounts'))) result[name] = mountUrl(url, `mounts.${name}`);
+  return result;
 }
 
 export function parseNavigationPayload(value: unknown): NavigationPayload {
