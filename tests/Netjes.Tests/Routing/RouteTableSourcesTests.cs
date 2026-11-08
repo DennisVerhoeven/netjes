@@ -313,7 +313,7 @@ public class RouteTableSourcesTests
     // A file id names the package and a path inside its pages folder; one that leaves it could pass for another
     // package's file or the app's.
     [Theory]
-    [InlineData("@acme/help-center/app/../../app/admin/page.tsx")]
+    [InlineData("@acme/help-center/app/../../app/account/page.tsx")]
     [InlineData("@acme/help-center/app/../page.tsx")]
     [InlineData("@acme/help-center/app/./page.tsx")]
     [InlineData("@acme/help-center/app/a//page.tsx")]
