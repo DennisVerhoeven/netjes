@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -163,6 +163,13 @@ describe('page packages', () => {
       '/@netjes-test/installed/app/styled/page.tsx',
     ]);
   });
+
+  it('shares one copy of netjes and zod between the app and its packages, which a linked package would resolve on its own', async () => {
+    expect((await listing([LINKED])).config?.resolve?.dedupe).toEqual(expect.arrayContaining(['react', 'react-dom', 'netjes', 'zod']));
+    // Without packages the list is as it was.
+    expect((await listing([])).config?.resolve?.dedupe).not.toContain('netjes');
+    expect((await listing([])).config?.resolve?.dedupe).not.toContain('zod');
+  });
 });
 
 describe('page packages that cannot be read', () => {
@@ -244,6 +251,106 @@ describe('page packages that cannot be read', () => {
       'netjes: page packages style their pages with Tailwind CSS, which netjes({ tailwind: false }) turns off: turn it on, or list no packages',
     );
     expect(() => netjes({ packages: [], tailwind: false })).not.toThrow();
+  });
+});
+
+describe("page packages in the app's Tailwind CSS", () => {
+  let app: PackagesApp;
+  beforeAll(async () => {
+    app = await createPackagesApp();
+  });
+  afterAll(async () => {
+    await app?.remove();
+  });
+
+  /** The plugin that adds the packages to a stylesheet, with the config read for the app's folder. */
+  async function stylesPlugin(packages: string[]) {
+    const plugins = await flatten(netjes({ packages }));
+    const netjesPlugin = plugins.find((p) => p.name === 'netjes');
+    if (!netjesPlugin) throw new Error('netjes plugin missing');
+    callConfig(netjesPlugin, { root: app.root });
+    const styles = plugins.find((p) => p.name === 'netjes:package-styles');
+    if (!styles) throw new Error('netjes:package-styles plugin missing');
+    return { plugins, styles };
+  }
+
+  async function transform(plugin: Plugin, code: string, id: string) {
+    const hook = plugin.transform;
+    const handler = typeof hook === 'function' ? hook : hook?.handler;
+    const result = (await handler?.call({} as never, code, id, {})) as string | { code: string } | null | undefined;
+    return typeof result === 'object' && result !== null ? result.code : (result ?? code);
+  }
+
+  /** What the plugin adds after the app's import of Tailwind, for a stylesheet in app/: both packages, or the installed one's sources only. */
+  function added(only?: 'installed sources') {
+    const fromApp = (target: string) => normalizePath(path.relative(path.join(app.root, 'app'), target));
+    const sources = [`@source "${fromApp(path.join(app.installed, 'app'))}";`, `@source "${fromApp(path.join(app.installed, 'src'))}";`];
+    if (only) return sources.join(' ');
+    return [
+      `@import "${fromApp(path.join(app.installed, 'styles/installed.css'))}";`,
+      ...sources,
+      `@source "${fromApp(path.join(app.linked, 'pages'))}";`,
+      `@source "${fromApp(path.join(app.linked, 'lib'))}";`,
+    ].join(' ');
+  }
+
+  const globals = () => `${normalizePath(app.root)}/app/globals.css`;
+
+  it("adds each package's stylesheet and source folders after the app's import of Tailwind, relative to the stylesheet", async () => {
+    const { styles } = await stylesPlugin([INSTALLED, LINKED]);
+
+    const css = await transform(styles, '@import "tailwindcss";\n\nbody { margin: 0; }\n', globals());
+
+    // On the line of the import, so the lines below keep their numbers.
+    expect(css).toBe(`@import "tailwindcss"; ${added()}\n\nbody { margin: 0; }\n`);
+    expect(added()).toContain('"../node_modules/@netjes-test/installed/styles/installed.css"');
+    expect(added()).not.toContain('\\');
+    // From a stylesheet above the package, a path that starts with ./, which Tailwind does not take for a package name.
+    expect(await transform(styles, '@import "tailwindcss";\n', `${normalizePath(app.root)}/globals.css`)).toContain(
+      `@import "./node_modules/${INSTALLED}/styles/installed.css"; @source "./node_modules/${INSTALLED}/app";`,
+    );
+  });
+
+  it("finds the import in either quotes, with Tailwind's import options, and in every variant of the stylesheet", async () => {
+    const { styles } = await stylesPlugin([INSTALLED, LINKED]);
+
+    expect(await transform(styles, "@import 'tailwindcss';\n", globals())).toBe(`@import 'tailwindcss'; ${added()}\n`);
+    expect(await transform(styles, '@import "tailwindcss" source(none);\n', globals())).toBe(`@import "tailwindcss" source(none); ${added()}\n`);
+    expect(await transform(styles, "@import 'tailwindcss' prefix(tw);\n", globals())).toBe(`@import 'tailwindcss' prefix(tw); ${added()}\n`);
+    expect(await transform(styles, '@import url("tailwindcss");\n', globals())).toBe(`@import url("tailwindcss"); ${added()}\n`);
+    expect(await transform(styles, '@import "tailwindcss"', globals())).toBe(`@import "tailwindcss"; ${added()}`);
+    expect(await transform(styles, '@import "tailwindcss";\n', `${globals()}?inline`)).toBe(`@import "tailwindcss"; ${added()}\n`);
+  });
+
+  it("imports a package's stylesheet once when the app's stylesheet imports it already", async () => {
+    const { styles } = await stylesPlugin([INSTALLED]);
+    const sources = added('installed sources');
+    const byName = `@import "tailwindcss";\n@import "${INSTALLED}/styles/installed.css";\n`;
+    const byPath = `@import 'tailwindcss';\n@import '../node_modules/${INSTALLED}/styles/installed.css';\n`;
+
+    expect(await transform(styles, byName, globals())).toBe(byName.replace('";\n', `"; ${sources}\n`));
+    expect(await transform(styles, byPath, globals())).toBe(byPath.replace("';\n", `'; ${sources}\n`));
+  });
+
+  it("leaves alone a stylesheet without Tailwind's import, one in a package, and other modules", async () => {
+    const { styles } = await stylesPlugin([INSTALLED]);
+
+    expect(await transform(styles, '@import "./other.css";\n', globals())).toBe('@import "./other.css";\n');
+    expect(await transform(styles, '@import "tailwindcss/theme";\n', globals())).toBe('@import "tailwindcss/theme";\n');
+    expect(await transform(styles, '@import "tailwindcss";\n', `${normalizePath(app.installed)}/styles/installed.css`)).toBe('@import "tailwindcss";\n');
+    expect(await transform(styles, 'import "tailwindcss";\n', `${normalizePath(app.root)}/app/page.tsx`)).toBe('import "tailwindcss";\n');
+    // Without packages there is no such plugin.
+    expect((await flatten(netjes())).map((p) => p.name)).not.toContain('netjes:package-styles');
+  });
+
+  it("runs before Tailwind's plugins, which run before the others too, so the order in the list decides", async () => {
+    const { plugins } = await stylesPlugin([INSTALLED]);
+    const names = plugins.map((p) => p.name);
+    const tailwind = names.filter((name) => name.startsWith('@tailwindcss/vite'));
+
+    expect(tailwind.length).toBeGreaterThan(0);
+    expect(plugins.find((p) => p.name === 'netjes:package-styles')?.enforce).toBe('pre');
+    for (const name of tailwind) expect(names.indexOf('netjes:package-styles')).toBeLessThan(names.indexOf(name));
   });
 });
 
@@ -579,5 +686,79 @@ describe('vite build', () => {
     await expect(
       buildApp(['app/page.tsx', 'app/api/route.test.ts', 'app/_lib/route.ts', 'app/@modal/route.ts', 'app/api/Route.ts', 'lib/route.ts']),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('vite build with page packages', () => {
+  let app: PackagesApp;
+  beforeAll(async () => {
+    app = await createPackagesApp();
+    await app.write('app/layout.tsx', "import './globals.css';\nexport default function Layout({ children }) { return <main>{children}</main>; }\n");
+    await app.write('app/page.tsx', 'export default function Home() { return <h1 className="text-[#3d4e5f]">Home</h1>; }\n');
+    await app.write('app/globals.css', '@import "tailwindcss";\n');
+  }, 30_000);
+  afterAll(async () => {
+    await app?.remove();
+  });
+
+  /** Builds the app with these packages listed, as `vite build` (or `vite build --ssr`) does with its config. */
+  async function buildWith(packages: string[], ssr = false) {
+    await build({ root: app.root, configFile: false, logLevel: 'silent', build: { ssr }, plugins: [netjes({ packages })] });
+  }
+
+  const readJson = async (file: string) => JSON.parse(await readFile(path.join(app.root, file), 'utf8')) as unknown;
+
+  it('records each package in dist/client/.vite/netjes.json, with the manifest key of each of its files', async () => {
+    await buildWith([INSTALLED, LINKED]);
+
+    const record = (await readJson('dist/client/.vite/netjes.json')) as { packages: Array<{ files: Record<string, string> }> };
+    const linked = normalizePath(path.relative(app.root, app.linked));
+    const files = (name: string, from: string, pages: string) =>
+      Object.fromEntries(
+        ['(center)/articles/[slug]/page.tsx', 'layout.tsx', 'page.tsx', 'styled/page.tsx'].map((file) => [`${name}/${pages}/${file}`, `${from}/${pages}/${file}`]),
+      );
+    expect(record).toEqual({
+      packages: [
+        { name: INSTALLED, version: '1.2.0', netjes: '>=0.0.1', pages: 'app', files: files(INSTALLED, `node_modules/${INSTALLED}`, 'app') },
+        { name: LINKED, version: '0.4.0', netjes: '>=0.0.1', pages: 'pages', files: files(LINKED, linked, 'pages') },
+      ],
+    });
+    // The record's value for each file is the key of its chunk in Vite's manifest, and the chunk's src.
+    const manifest = (await readJson('dist/client/.vite/manifest.json')) as Record<string, { src?: string }>;
+    for (const key of record.packages.flatMap((pkg) => Object.values(pkg.files))) expect(manifest[key]?.src, key).toBe(key);
+    // The file ends with a newline, like the files Netjes writes.
+    expect(await readFile(path.join(app.root, 'dist/client/.vite/netjes.json'), 'utf8')).toMatch(/\}\n$/);
+  });
+
+  it('writes no record without packages, and none in the server build', async () => {
+    await buildWith([]);
+    expect(await readdir(path.join(app.root, 'dist/client/.vite'))).toEqual(['manifest.json']);
+
+    await buildWith([INSTALLED], true);
+    expect(await readdir(path.join(app.root, 'dist/server'))).not.toContain('.vite');
+  });
+
+  it("builds the classes that only a package's sources use, and the package's stylesheet, into the app's CSS", async () => {
+    await buildWith([INSTALLED, LINKED]);
+
+    const assets = path.join(app.root, 'dist/client/assets');
+    const css = (await Promise.all((await readdir(assets)).filter((file) => file.endsWith('.css')).map((file) => readFile(path.join(assets, file), 'utf8')))).join('\n');
+    // The app's own class, a page's of the installed package, and one that the linked package uses outside its pages.
+    expect(css).toContain('#3d4e5f');
+    expect(css).toContain('#0a1b2c');
+    expect(css).toContain('#1c2b3a');
+    // The installed package's token, from its stylesheet, which its page uses (text-installed).
+    expect(css).toContain('--color-installed:#0b1c2d');
+  }, 30_000);
+
+  it('fails on a route handler in a package, naming it by its file id', async () => {
+    await app.write('app/api/route.ts', 'export {};\n', app.installed);
+    try {
+      await expect(buildWith([INSTALLED])).rejects.toThrow(
+        `'${INSTALLED}/app/api/route.ts': route handlers are C# in Netjes. Map a minimal API endpoint instead (app.MapGet, app.MapPost, ...).`,
+      );
+    } finally {
+      await rm(path.join(app.installed, 'app/api'), { recursive: true });
+    }
   });
 });

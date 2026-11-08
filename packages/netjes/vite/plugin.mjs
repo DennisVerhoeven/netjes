@@ -1,11 +1,11 @@
 // @ts-check
-import { copyFile, mkdir, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { normalizePath, searchForWorkspaceRoot } from 'vite';
-import { CONVENTION_EXTENSIONS, CONVENTION_FILES, fileId, filePath, pagePackageFiles, resolvePagePackages } from './packages.mjs';
+import { CONVENTION_EXTENSIONS, CONVENTION_FILES, fileId, filePath, pagePackageFiles, resolvePagePackages, withPackageStyles } from './packages.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 // The compiled modules the package exports (npm run build writes them), so the app runs the code it type-checked, and
@@ -23,6 +23,8 @@ const PAGES_ID = 'virtual:netjes/pages';
 const RESOLVED_PAGES_ID = `\0${PAGES_ID}`;
 const QUERY_ID = 'virtual:netjes/query';
 const RESOLVED_QUERY_ID = `\0${QUERY_ID}`;
+/** Stylesheets, by extension, as Vite recognises them. */
+const CSS_FILE = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/;
 /** The URL the .NET dev asset resolver points browsers at. */
 const DEV_CLIENT_ENTRY_URL = '/@netjes/client-entry';
 
@@ -208,6 +210,9 @@ export default function netjes(options = {}) {
             ...(query ? ['@tanstack/react-query'] : []),
             // The test setup's cleanup must unmount what the app's tests rendered.
             ...(env.mode === 'test' ? ['@testing-library/react'] : []),
+            // A page package's pages import netjes and zod, which a linked package would otherwise resolve from its own
+            // folder: a second copy, or none at all for one linked from outside the workspace.
+            ...(packages.length > 0 ? ['netjes', ...(canResolve(root, 'zod') ? ['zod'] : [])] : []),
           ],
         },
         // netjes serves its own modules (client entry, runtime) and, for their source maps, its sources; a linked
@@ -262,7 +267,13 @@ export default function netjes(options = {}) {
     // takes only the convention files, so it would leave one out without a word: it stops on it too, saying the same.
     async buildStart() {
       if (!isBuild) return;
-      const handler = await findRouteHandler(rootDir, appDir);
+      let handler = await findRouteHandler(rootDir, appDir);
+      // A package's, by its file id, as the route table names it.
+      for (const pkg of packages) {
+        if (handler) break;
+        const found = await findRouteHandler(pkg.root, pkg.pages);
+        if (found) handler = `${pkg.name}/${found}`;
+      }
       if (handler) {
         this.error(`'${handler}': route handlers are C# in Netjes. Map a minimal API endpoint instead (app.MapGet, app.MapPost, ...).`);
       }
@@ -314,11 +325,46 @@ export default function netjes(options = {}) {
       );
     },
     async writeBundle() {
-      if (!isSsrBuild) return;
-      await mkdir(outDir, { recursive: true });
-      await copyFile(SIDECAR, path.join(outDir, 'netjes-sidecar.mjs'));
+      if (isSsrBuild) {
+        await mkdir(outDir, { recursive: true });
+        await copyFile(SIDECAR, path.join(outDir, 'netjes-sidecar.mjs'));
+        return;
+      }
+      if (packages.length === 0) return;
+      // Where the .NET app finds the packages in production, next to the manifest: no node_modules there to read them
+      // from, and a manifest key alone does not say which package a file is of.
+      const record = {
+        packages: await Promise.all(
+          packages.map(async (pkg) => ({
+            name: pkg.name,
+            version: pkg.version,
+            netjes: pkg.netjes,
+            pages: pkg.pages,
+            // Each file's id, and its key in the manifest: its path from the root, as Vite names a chunk's source.
+            files: Object.fromEntries((await pagePackageFiles(pkg)).map((file) => [fileId(pkg, file), normalizePath(path.relative(rootDir, filePath(pkg, file)))])),
+          })),
+        ),
+      };
+      await mkdir(path.join(outDir, '.vite'), { recursive: true });
+      await writeFile(path.join(outDir, '.vite', 'netjes.json'), `${JSON.stringify(record, null, 2)}\n`);
     },
   };
 
-  return [react(options.react), plugin, options.tailwind === false ? null : tailwind()];
+  /**
+   * Adds each page package's stylesheet and source folders to the app's Tailwind CSS build. Before @tailwindcss/vite,
+   * whose plugins run before the others too (`enforce: 'pre'`), so the order in the list decides.
+   * @type {import('vite').Plugin}
+   */
+  const packageStyles = {
+    name: 'netjes:package-styles',
+    enforce: 'pre',
+    transform(code, id) {
+      const file = id.split('?')[0] ?? id;
+      if (!CSS_FILE.test(file)) return undefined;
+      const css = withPackageStyles(code, file, packages);
+      return css === code ? undefined : { code: css, map: null };
+    },
+  };
+
+  return [react(options.react), plugin, packageNames.length > 0 ? packageStyles : null, options.tailwind === false ? null : tailwind()];
 }

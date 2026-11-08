@@ -211,3 +211,65 @@ export function fileId(pkg, file) {
 export function filePath(pkg, file) {
   return `${pkg.root}/${pkg.pages}/${file}`;
 }
+
+/** The app's import of Tailwind CSS, in either quotes or as a url(), with Tailwind's import options (`source(none)`). */
+const TAILWIND_IMPORT = /@import\s+(?:url\(\s*)?(["'])tailwindcss\1\s*\)?[^;]*;?/;
+/** The file each `@import` of a stylesheet names. */
+const IMPORTS = /@import\s+(?:url\(\s*)?(["'])(.*?)\1/g;
+
+/**
+ * A path from a stylesheet's folder, as Tailwind CSS resolves `@import` and `@source`: relative, with `/` separators,
+ * starting with `./` or `../`, so that no drive letter is in it on Windows, and nothing reads it as a package name.
+ * @param {string} dir
+ * @param {string} target
+ */
+function fromStylesheet(dir, target) {
+  const relative = slashes(path.relative(dir, target));
+  return relative.startsWith('../') || path.isAbsolute(relative) ? relative : `./${relative}`;
+}
+
+/**
+ * Whether a stylesheet imports a package's own stylesheet already: by the package's name and the path in its `css`,
+ * or by a relative path to the file.
+ * @param {string} css
+ * @param {string} dir The stylesheet's folder.
+ * @param {PagePackage} pkg
+ */
+function importsPackageCss(css, dir, pkg) {
+  if (pkg.css === null) return false;
+  const own = `${pkg.root}/${pkg.css}`;
+  for (const [, , file = ''] of css.matchAll(IMPORTS)) {
+    if (file === `${pkg.name}/${pkg.css}`) return true;
+    if (!file.startsWith('./') && !file.startsWith('../')) continue;
+    try {
+      if (slashes(realpathSync.native(path.resolve(dir, file))) === own) return true;
+    } catch {
+      // A file that is not there is not the package's.
+    }
+  }
+  return false;
+}
+
+/**
+ * A stylesheet of the app with the packages added to its import of Tailwind CSS: an `@import` of each package's own
+ * stylesheet, unless it imports that already, and an `@source` for each of its source folders, which Tailwind would not
+ * scan otherwise (its automatic detection leaves out node_modules and every folder outside the app). They go on the
+ * line of the import, so the lines below keep their numbers. A stylesheet without that import, or one in a package, is
+ * returned as it is.
+ * @param {string} css
+ * @param {string} file The stylesheet's path, with `/` separators.
+ * @param {readonly PagePackage[]} packages
+ */
+export function withPackageStyles(css, file, packages) {
+  if (packages.some((pkg) => file.startsWith(`${pkg.root}/`))) return css;
+  const match = TAILWIND_IMPORT.exec(css);
+  if (!match) return css;
+  const dir = path.dirname(file);
+  const added = packages.flatMap((pkg) => [
+    ...(pkg.css !== null && !importsPackageCss(css, dir, pkg) ? [`@import ${JSON.stringify(fromStylesheet(dir, `${pkg.root}/${pkg.css}`))};`] : []),
+    ...pkg.sources.map((source) => `@source ${JSON.stringify(fromStylesheet(dir, `${pkg.root}/${source}`))};`),
+  ]);
+  const end = match.index + match[0].length;
+  const statement = match[0].endsWith(';') ? match[0] : `${match[0]};`;
+  return `${css.slice(0, match.index)}${statement} ${added.join(' ')}${css.slice(end)}`;
+}
