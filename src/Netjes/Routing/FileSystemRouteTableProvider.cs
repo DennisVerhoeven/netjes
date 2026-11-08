@@ -84,6 +84,11 @@ internal sealed class FileSystemRouteTableProvider : IRouteTableProvider, IDispo
             try
             {
                 built = new Built(Scan(_sources.Mounts), _sources.Version);
+                // MapPages() has thrown the conflicts it found; there is no override left to resolve one found now.
+                if (_sources.PagesMapped && built.Table.PendingConflicts is [var conflict, ..])
+                {
+                    throw conflict.ToException();
+                }
             }
             catch (Exception ex) when (ex is RouteConflictException or InvalidPageFileException or IOException)
             {

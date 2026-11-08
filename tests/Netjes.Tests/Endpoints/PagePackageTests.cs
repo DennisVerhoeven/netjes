@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Netjes.Routing;
 
 namespace Netjes.Tests.Endpoints;
@@ -222,5 +223,26 @@ public class PagePackageTests
         Assert.Contains("'app/help/page.tsx'", ex.Message);
         Assert.Contains($"'{Help}/app/page.tsx'", ex.Message);
         Assert.Contains(nameof(NetjesEndpointRouteBuilderExtensions.MapLayoutLoader), ex.StackTrace);
+    }
+
+    [Fact]
+    public async Task Development_AConflictWithAPackagePageAddedWhileRunning_IsLoggedAndThePreviousRoutesAnswer()
+    {
+        await using var app = await StartWithPackageAsync("Development", ["app/page.tsx", "app/help/about/page.tsx"], ["contact/page.tsx"]);
+
+        // Below a folder the watcher already follows.
+        Directory.CreateDirectory(Path.Combine(app.Root, "app", "help", "contact"));
+        await File.WriteAllTextAsync(Path.Combine(app.Root, "app", "help", "contact", "page.tsx"), "export default () => null", Ct);
+        LogEntry? error = null;
+        for (var attempt = 0; attempt < 100 && error is null; attempt++)
+        {
+            await Task.Delay(100, Ct);
+            error = app.Logs.FirstOrDefault(e => e.Category == typeof(FileSystemRouteTableProvider).FullName && e.Level == LogLevel.Error);
+        }
+
+        Assert.NotNull(error);
+        Assert.Contains("Keeping the previous routes", error.Message);
+        Assert.Contains($"'{Help}/app/contact/page.tsx' and 'app/help/contact/page.tsx'", error.Message);
+        Assert.Equal($"{Help}/app/contact/page.tsx", (string?)(await app.GetDataJsonAsync("/help/contact"))["page"]);
     }
 }
