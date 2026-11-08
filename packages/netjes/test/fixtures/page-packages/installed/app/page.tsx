@@ -1,5 +1,5 @@
 import { Link } from 'netjes';
-import { marker } from '../src/index.ts';
+import { marker } from '../src/index.js';
 
 export default function InstalledHome() {
   return (

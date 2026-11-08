@@ -16,6 +16,7 @@
 // that is not installed (message in plain text; code is the error's when it has one, such as ERR_MODULE_NOT_FOUND, or
 // MODULE_NOT_FOUND from a CommonJS config).
 import http from 'node:http';
+import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
@@ -41,6 +42,10 @@ const TERMINAL_ESCAPES = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]|\u001b[\]PX^_][^\
 const plainText = (text) => text.replace(TERMINAL_ESCAPES, '');
 
 /** @typedef {{ signal: AbortSignal, waitForAll?: boolean, deferred?: (id: string) => PromiseLike<unknown> }} RenderOptions */
+/**
+ * The netjes plugin's development API (vite/plugin.mjs).
+ * @typedef {{ rescanPages(): void, pageUrl(id: string): string | null, unlistedPackage(id: string): string | null }} NetjesDevApi
+ */
 /** @type {(data: string, options: RenderOptions) => Promise<string>} */
 let render;
 /** @type {((data: string, options: RenderOptions) => Promise<import('node:stream').Readable>) | undefined} */
@@ -94,8 +99,21 @@ if (mode === 'development') {
     }
     await viteFailed(error);
   }
-  /** The netjes plugin's development API (vite/plugin.mjs). */
-  const netjes = /** @type {{ rescanPages(): void } | undefined} */ (dev.config.plugins.find((plugin) => plugin.name === 'netjes')?.api);
+  const netjes = /** @type {NetjesDevApi | undefined} */ (dev.config.plugins.find((plugin) => plugin.name === 'netjes')?.api);
+  /** @param {unknown} error @returns {error is Error & { file: string }} */
+  const isMissingModule = (error) => error instanceof Error && error.name === 'MissingModuleError' && 'file' in error && typeof error.file === 'string';
+  /**
+   * Says what to do when the missing file is of an installed page package that the Vite config does not list.
+   * @param {Error & { file: string }} error
+   */
+  const withPackageHint = (error) => {
+    const name = netjes?.unlistedPackage(error.file);
+    if (!name) return error;
+    const message = `${error.message}: add '${name}' to netjes({ packages }) in ${path.basename(dev.config.configFile ?? 'vite.config.ts')}`;
+    error.stack = error.stack?.replace(error.message, message);
+    error.message = message;
+    return error;
+  };
   /**
    * Runs a render with the server entry. .NET routes a page file as soon as its own watcher sees it, but the page
    * module map changes only when Vite's watcher reports a page file, which for this one can be much later (a file it
@@ -108,17 +126,21 @@ if (mode === 'development') {
     try {
       return await run(await dev.ssrLoadModule('netjes/server-entry'));
     } catch (error) {
-      if (!netjes || !(error instanceof Error) || error.name !== 'MissingModuleError') throw error;
+      if (!netjes || !isMissingModule(error)) throw error;
       netjes.rescanPages();
-      return run(await dev.ssrLoadModule('netjes/server-entry'));
+      try {
+        return await run(await dev.ssrLoadModule('netjes/server-entry'));
+      } catch (again) {
+        throw isMissingModule(again) ? withPackageHint(again) : again;
+      }
     }
   };
   render = async (data, options) => {
-    const styled = await withDevStyles(dev, data);
+    const styled = await withDevStyles(dev, data, netjes);
     return withServerEntry((entry) => entry.render(styled, options));
   };
   renderToStream = async (data, options) => {
-    const styled = await withDevStyles(dev, data);
+    const styled = await withDevStyles(dev, data, netjes);
     return withServerEntry((entry) => entry.renderToStream(styled, options));
   };
 } else {
@@ -132,11 +154,14 @@ if (mode === 'development') {
  * script runs. Vite's client adopts these <style data-vite-dev-id> tags and keeps them updated through HMR: each CSS
  * module sets its tag's text to its own as it loads, before hydration. The files are found in the SSR environment,
  * which rendered the page, and their text comes from the client environment's build, which that module carries
- * (clientCss): React then hydrates the text the server rendered.
+ * (clientCss): React then hydrates the text the server rendered. A page package's files are loaded by the URLs of
+ * their real paths, which the plugin knows; a file of a package the plugin does not list is left to the render, which
+ * says what to do.
  * @param {import('vite').ViteDevServer} server
  * @param {string} data
+ * @param {NetjesDevApi | undefined} netjes
  */
-async function withDevStyles(server, data) {
+async function withDevStyles(server, data, netjes) {
   const payload = JSON.parse(data);
   /** @type {Array<Record<string, unknown>>} */
   const segments = payload.segments ?? [];
@@ -161,8 +186,10 @@ async function withDevStyles(server, data) {
   }
 
   for (const file of files) {
-    await server.ssrLoadModule(`/${file}`);
-    await collect(await environment.moduleGraph.getModuleByUrl(`/${file}`));
+    const url = netjes ? netjes.pageUrl(file) : `/${file}`;
+    if (url === null) continue;
+    await server.ssrLoadModule(url);
+    await collect(await environment.moduleGraph.getModuleByUrl(url));
   }
   if (styles.size === 0) return data;
   payload.document.devStyles = [...styles].map(([id, css]) => ({ id, css }));

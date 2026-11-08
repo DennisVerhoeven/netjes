@@ -7,8 +7,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { normalizePath } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type PackagesApp, createPackagesApp } from './page-packages.ts';
+import { INSTALLED, LINKED, type PackagesApp, UNLISTED, createPackagesApp } from './page-packages.ts';
 
 // The sidecar in development: it hosts a Vite dev server for an app in a temporary folder, with the fixture page
 // packages installed and this workspace's node_modules above it (test/page-packages.ts). Vite's watcher is off, so Vite never learns of a file the test adds: what .NET routes as soon as its own
@@ -65,8 +66,8 @@ function start(): Promise<typeof sidecar> {
   });
 }
 
-/** The payload .NET sends for a page under the root layout. */
-function render(page: string) {
+/** The payload .NET sends for a page under the root layout, or under these segments. */
+function render(page: string, segments: Array<{ id: string; layout?: string }> = [{ id: 'app', layout: 'app/layout.tsx' }]) {
   return fetch(`http://127.0.0.1:${sidecar.port}/render`, {
     method: 'POST',
     headers: { 'X-Netjes-Token': TOKEN, 'Content-Type': 'application/json' },
@@ -74,7 +75,7 @@ function render(page: string) {
       kind: 'page',
       route: null,
       page,
-      segments: [{ id: 'app', layout: 'app/layout.tsx' }],
+      segments,
       props: {},
       params: {},
       shared: null,
@@ -158,8 +159,8 @@ beforeAll(async () => {
       "const environmentMark = { name: 'environment-mark', transform(code, id) { if (id.split('?')[0].endsWith('.css')) return `${code}/* built for ${this.environment.name} */`; } };",
       // Source maps for development CSS, which an app can turn on: only the module the browser imports for a CSS file
       // carries one, at the end of its text. No watcher: nothing tells Vite about files added after it started. Its
-      // caches stay in this folder.
-      "export default { plugins: [netjes({ tailwind: false }), port, environmentMark, edits], css: { devSourcemap: true }, cacheDir: '.vite', logLevel: 'error', server: { watch: null, hotUpdateEnvironments } };",
+      // caches stay in this folder. The fixture page packages are listed, except one (@netjes-test/unlisted).
+      `export default { plugins: [netjes({ packages: ${JSON.stringify([INSTALLED, LINKED])} }), port, environmentMark, edits], css: { devSourcemap: true }, cacheDir: '.vite', logLevel: 'error', server: { watch: null, hotUpdateEnvironments } };`,
       '',
     ].join('\n'),
   );
@@ -380,5 +381,104 @@ describe('the development sidecar', () => {
 
     // The page takes the update, as Fast Refresh accepts it.
     expect(await edit('app/loaded/styles.module.css')).toEqual(['update']);
+  });
+});
+
+describe.each([
+  { name: INSTALLED, pages: 'app', dir: () => app?.installed ?? '' },
+  { name: LINKED, pages: 'pages', dir: () => app?.linked ?? '' },
+])('the development sidecar with the page package $name', ({ name, pages, dir }) => {
+  const id = (file: string) => `${name}/${pages}/${file}`;
+  /** Under the app's root layout and the package's own, as the app mounts it at /help. */
+  const mounted = (file: string) =>
+    render(id(file), [
+      { id: 'app', layout: 'app/layout.tsx' },
+      { id: 'app/help', layout: id('layout.tsx') },
+    ]);
+  /** The marker id a page renders, which names the instance of the package's module it got. */
+  const markerIn = (html: string) => /(?:installed|linked)-[a-z0-9]+/.exec(html)?.[0];
+
+  // First in this block, so the app's page imports the package before any of the package's pages has loaded it: once one
+  // has, Vite hands the import the instance it has, and only the other order shows a second one.
+  it("shares one module instance between the package's page and an app page that imports the package by name", async () => {
+    await write(`app/by-name/${pages}/page.tsx`, `import { marker } from '${name}';\nexport default function ByName() { return <p>by name {marker.id}</p>; }\n`);
+
+    const byName = markerIn(await (await render(`app/by-name/${pages}/page.tsx`)).text());
+    const byPath = markerIn(await (await mounted('page.tsx')).text());
+
+    expect(byName).toBeDefined();
+    expect(byName).toBe(byPath);
+    // In the browser too: the app's page imports the package's own module, which no pre-bundled copy stands in for.
+    const pageModule = await browserModule(`/app/by-name/${pages}/page.tsx`);
+    const imported = /from\s*["']([^"']*)["']/g;
+    const urls = [...pageModule.matchAll(imported)].map(([, url = '']) => url.split('?')[0]);
+    expect(urls).not.toContainEqual(expect.stringContaining('.vite/deps/@netjes-test'));
+    const own = normalizePath(path.join(dir(), pages === 'app' ? 'src/index.js' : 'lib/index.ts'));
+    expect(urls).toContain(own.startsWith(`${normalizePath(root)}/`) ? own.slice(normalizePath(root).length) : `/@fs/${own.replace(/^\//, '')}`);
+  });
+
+  it("renders the package's page inside its layout, with netjes and zod as the app has them", async () => {
+    const response = await mounted('page.tsx');
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toMatch(new RegExp(`<main><section data-package="${pages === 'app' ? 'installed' : 'linked'}"><div`));
+    expect(html).toContain('home');
+    // The package's Link reads the router that the server entry provides: one copy of netjes.
+    expect(html).toContain('<a href="/"');
+  });
+
+  it("inlines the CSS that the package's page imports", async () => {
+    const response = await mounted('styled/page.tsx');
+
+    expect(response.status).toBe(200);
+    const styles = [...devStyles(await response.text()).values()];
+    expect(styles).toEqual([expect.stringMatching(pages === 'app' ? /\.installed-styled\s*\{\s*color:\s*teal/ : /\.linked-styled\s*\{\s*color:\s*olive/)]);
+  });
+});
+
+describe('the development sidecar with a linked page package', () => {
+  it('renders a page added to the package after the page module map was built, without a restart', async () => {
+    const linked = app?.linked ?? '';
+    expect((await render(`${LINKED}/pages/page.tsx`)).status).toBe(200);
+
+    await app?.write('pages/fresh/page.tsx', 'export default function Fresh() { return <h1>Fresh package page</h1>; }\n', linked);
+    const response = await render(`${LINKED}/pages/fresh/page.tsx`);
+
+    expect(await response.text()).toContain('<h1>Fresh package page</h1>');
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses the C# build output and project of a package linked from outside the workspace root', async () => {
+    const linked = normalizePath(app?.linked ?? '');
+    await app?.write('obj/project.assets.json', '{"secret":true}\n', linked);
+    await app?.write('bin/Debug/net10.0/Linked.deps.json', '{"secret":true}\n', linked);
+    await app?.write('Linked.csproj', '<Project />\n', linked);
+    const status = async (url: string) => (await fetch(new URL(url, `http://localhost:${sidecar.vitePort}`))).status;
+    const fs = `/@fs/${linked.replace(/^\//, '')}`;
+    const throughLink = `/node_modules/${LINKED}`;
+
+    // Its files are served, one that no page has imported yet too: the dev server may read the package.
+    await app?.write('lib/later.ts', 'export const later = 1;\n', linked);
+    expect(await status(`${fs}/lib/later.ts`)).toBe(200);
+    expect(await status(`${fs}/pages/page.tsx`)).toBe(200);
+    for (const file of ['obj/project.assets.json', 'bin/Debug/net10.0/Linked.deps.json', 'Linked.csproj']) {
+      for (const url of [`${fs}/${file}`, `${fs}/${file}?raw`, `${fs}/${file}?import`, `${fs}/${file}?url`, `${throughLink}/${file}`, `${throughLink}/${file}?raw`]) {
+        expect(await status(url), url).toBe(403);
+      }
+      // A file name in another case, and a folder climbed back out of, are not served either.
+      expect(await status(`${fs}/${file.toUpperCase()}`), file.toUpperCase()).not.toBe(200);
+      expect(await status(`${fs}/pages/%2e%2e/${file}`), `pages/%2e%2e/${file}`).not.toBe(200);
+    }
+  });
+
+  it("names the fix for a page of an installed page package that netjes({ packages }) leaves out", async () => {
+    const response = await render(`${UNLISTED}/app/page.tsx`);
+
+    expect(response.status).toBe(500);
+    expect(((await response.json()) as { error: { message: string } }).error.message).toBe(
+      `netjes: no module for ${UNLISTED}/app/page.tsx in this build: add '${UNLISTED}' to netjes({ packages }) in vite.config.mjs`,
+    );
+    expect((await render('app/page.tsx')).status).toBe(200);
   });
 });

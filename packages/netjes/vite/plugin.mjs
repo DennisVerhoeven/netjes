@@ -5,12 +5,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { normalizePath, searchForWorkspaceRoot } from 'vite';
+import { findPackage } from '../cli/packages.mjs';
 import {
   CONVENTION_EXTENSIONS,
   CONVENTION_FILES,
   commonJsDependencies,
   fileId,
   filePath,
+  isConventionFile,
   pagePackageFiles,
   resolvePagePackages,
   withPackageStyles,
@@ -207,6 +209,45 @@ export default function netjes(options = {}) {
   /** The page packages the app lists, read when the config is. @type {import('./packages.mjs').PagePackage[]} */
   let packages = [];
 
+  /**
+   * Has the next render, and the next page the browser loads, build the page module map again from the files on disk,
+   * as Vite does once its watcher reports a page file added or removed.
+   */
+  function rescanPages() {
+    const timestamp = Date.now();
+    for (const { moduleGraph } of Object.values(devServer?.environments ?? {})) {
+      const pages = moduleGraph.getModuleById(RESOLVED_PAGES_ID);
+      if (pages) moduleGraph.invalidateModule(pages, new Set(), timestamp, true);
+    }
+  }
+
+  /**
+   * The listed package a file id is of, with the file's path in its folder of pages.
+   * @param {string} id
+   */
+  function packageFile(id) {
+    for (const pkg of packages) {
+      const prefix = `${pkg.name}/${pkg.pages}/`;
+      if (id.startsWith(prefix)) return { pkg, file: id.slice(prefix.length) };
+    }
+    return null;
+  }
+
+  /**
+   * The name of the installed package whose file a file id names, when the app does not list it in netjes({ packages }):
+   * the .NET app mounts it, and the page module map does not have it.
+   * @param {string} id
+   * @returns {string | null}
+   */
+  function unlistedPackage(id) {
+    if (id.startsWith(`${appDir}/`) || packageFile(id)) return null;
+    const segments = id.split('/');
+    const length = id.startsWith('@') ? 2 : 1;
+    if (segments.length <= length) return null;
+    const name = segments.slice(0, length).join('/');
+    return findPackage(rootDir, name) ? name : null;
+  }
+
   /** @type {import('vite').Plugin} */
   const plugin = {
     name: 'netjes',
@@ -315,20 +356,39 @@ export default function netjes(options = {}) {
     },
     configureServer(server) {
       devServer = server;
+      // Vite watches the root only, so a linked package's files, which can change while the app runs, are added. The
+      // map imports a package's files one by one, so a page that comes or goes builds it again, as the glob would.
+      const linked = packages.filter((pkg) => pkg.linked);
+      if (linked.length === 0) return;
+      server.watcher.add([...new Set(linked.flatMap((pkg) => [pkg.pages, ...pkg.sources].map((dir) => `${pkg.root}/${dir}`)))]);
+      /** @param {string} file */
+      const pageAddedOrRemoved = (file) => {
+        const name = normalizePath(file);
+        if (isConventionFile(path.posix.basename(name)) && linked.some((pkg) => name.startsWith(`${pkg.root}/${pkg.pages}/`))) rescanPages();
+      };
+      server.watcher.on('add', pageAddedOrRemoved);
+      server.watcher.on('unlink', pageAddedOrRemoved);
     },
     // For the development sidecar, which finds this plugin in its dev server's config.
     api: {
       /**
-       * Has the next render, and the next page the browser loads, build the page module map again from the files on
-       * disk, as Vite does once its watcher reports a page file added or removed.
+       * The URL the dev server loads a file by, from the file's id in a payload: `/app/...` for the app's, and for a
+       * listed package's the URL of its real path (`/node_modules/...` inside the root, `/@fs/...` outside it). Null for
+       * a file of an installed package that netjes({ packages }) does not list, which the page module map lacks.
+       * @param {string} id
+       * @returns {string | null}
        */
-      rescanPages() {
-        const timestamp = Date.now();
-        for (const { moduleGraph } of Object.values(devServer?.environments ?? {})) {
-          const pages = moduleGraph.getModuleById(RESOLVED_PAGES_ID);
-          if (pages) moduleGraph.invalidateModule(pages, new Set(), timestamp, true);
-        }
+      pageUrl(id) {
+        const owned = packageFile(id);
+        if (!owned) return unlistedPackage(id) ? null : `/${id}`;
+        const file = filePath(owned.pkg, owned.file);
+        const relative = path.posix.relative(normalizePath(rootDir), file);
+        return relative.startsWith('../') || path.isAbsolute(relative) ? `/@fs/${file.replace(/^\//, '')}` : `/${relative}`;
       },
+      unlistedPackage,
+      /** The page packages the app lists. */
+      packages: () => packages,
+      rescanPages,
     },
     resolveId(id) {
       if (id === PAGES_ID) return RESOLVED_PAGES_ID;

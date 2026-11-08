@@ -205,8 +205,11 @@ export async function pagePackageFiles(pkg) {
   return files.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-/** @param {string} name A file's name, with its extension. */
-function isConventionFile(name) {
+/**
+ * Whether a file is a convention file, by its name.
+ * @param {string} name A file's name, with its extension.
+ */
+export function isConventionFile(name) {
   const { name: base, ext } = path.parse(name);
   return CONVENTION_FILES.includes(base) && CONVENTION_EXTENSIONS.includes(ext);
 }

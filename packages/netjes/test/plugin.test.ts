@@ -241,6 +241,40 @@ describe('page packages', () => {
     expect(include).toContain('@netjes-test/deps > netjes-test-cjs');
     expect(include.filter((entry) => entry.startsWith('@netjes-test/deps >'))).toEqual(['@netjes-test/deps > netjes-test-cjs']);
   });
+
+  it("watches a linked package's pages and sources, and builds the page module map again when a page comes or goes", async () => {
+    const { plugin } = await listing([INSTALLED, LINKED]);
+    const watched: string[] = [];
+    const handlers = new Map<string, (file: string) => void>();
+    const invalidated: string[] = [];
+    const environment = (name: string) => ({
+      moduleGraph: {
+        getModuleById: (id: string) => (id === '\0virtual:netjes/pages' ? { id } : undefined),
+        invalidateModule: () => invalidated.push(name),
+      },
+    });
+    const server = {
+      watcher: { add: (paths: string | string[]) => watched.push(...[paths].flat()), on: (event: string, handler: (file: string) => void) => handlers.set(event, handler) },
+      environments: { client: environment('client'), ssr: environment('ssr') },
+    };
+    const hook = plugin.configureServer;
+    await (typeof hook === 'function' ? hook : hook?.handler)?.call({} as never, server as never);
+    const linked = normalizePath(app.linked);
+    /** Reports a file as Vite's watcher does, by its path on this system, and says whether the map was built again. */
+    const report = (event: string, file: string) => {
+      invalidated.length = 0;
+      handlers.get(event)?.(path.join(app.linked, file));
+      return [...invalidated];
+    };
+
+    // An installed package does not change while the app runs, and node_modules is not watched.
+    expect(watched).toEqual([`${linked}/pages`, `${linked}/lib`]);
+    expect(report('add', 'pages/new/page.tsx')).toEqual(['client', 'ssr']);
+    expect(report('unlink', 'pages/(center)/articles/[slug]/page.tsx')).toEqual(['client', 'ssr']);
+    expect(report('add', 'pages/new/helper.tsx')).toEqual([]);
+    expect(report('add', 'lib/page.tsx')).toEqual([]);
+    expect(report('change', 'pages/page.tsx')).toEqual([]);
+  });
 });
 
 describe('page packages that cannot be read', () => {
