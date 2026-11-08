@@ -480,6 +480,10 @@ describe('the development sidecar with a linked page package', () => {
       // A file name in another case, and a folder climbed back out of, are not served either.
       expect(await status(`${fs}/${file.toUpperCase()}`), file.toUpperCase()).not.toBe(200);
       expect(await status(`${fs}/pages/%2e%2e/${file}`), `pages/%2e%2e/${file}`).not.toBe(200);
+      // Nor by a doubled slash, or a slash or backslash that is encoded (a separator on Windows).
+      for (const url of [`${fs}//${file}`, `/@fs//${linked.replace(/^\//, '')}/${file}`, `${throughLink}//${file}`, `${fs}/${file.replace('/', '%2F')}`, `${fs}/${file.replace('/', '%5C')}`]) {
+        expect(await status(url), url).not.toBe(200);
+      }
     }
   });
 
