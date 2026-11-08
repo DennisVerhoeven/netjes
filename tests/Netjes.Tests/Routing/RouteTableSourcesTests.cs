@@ -197,6 +197,36 @@ public class RouteTableSourcesTests
         Assert.Contains($"'{Help}/app/@modal/default.tsx' and 'app/help/@modal/default.tsx'", fallback.Message);
     }
 
+    // The client shows the first intercepting route whose segment the page is in, so one source's would silently win.
+    [Fact]
+    public void TwoSourcesInterceptingOneUrlFromOneSlot_Throw_NamingBoth()
+    {
+        var ex = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/@modal/(.)photo/[id]/page.tsx"), Package("/help", "@modal/(.)photo/[slug]/page.tsx")));
+
+        Assert.Equal(
+            $"'{Help}/app/@modal/(.)photo/[slug]/page.tsx' and 'app/help/@modal/(.)photo/[id]/page.tsx' both intercept the URL " +
+            "'/help/photo/[slug]' from the pages in app/help. Remove the app's file, or mount the package at another prefix.",
+            ex.Message);
+    }
+
+    [Fact]
+    public void TwoSourcesInterceptingOneUrlFromNestedSegments_Throw()
+    {
+        var ex = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/(a)/@drawer/(.)photo/page.tsx"), Package("/help", "@modal/(.)photo/page.tsx")));
+
+        Assert.Contains("both intercept the URL '/help/photo' from the pages in app/help/(a).", ex.Message);
+    }
+
+    [Fact]
+    public void TwoSourcesInterceptingOneUrlFromSeparateSegments_AreBothKept()
+    {
+        var table = Build(App("app/(site)/@modal/(...)help/photo/page.tsx"), Package("/help", "@modal/(.)photo/page.tsx"));
+
+        Assert.Equal(["app/(site)", "app/help"], table.Intercepts.Select(i => i.Segment));
+    }
+
     [Fact]
     public void TwoAppPagesOfOneShape_StillThrowAtOnce_AlsoWhenAPackageHasOneToo()
     {

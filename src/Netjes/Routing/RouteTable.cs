@@ -588,7 +588,19 @@ internal sealed partial class RouteTable
 
                     var kept = levels == int.MaxValue ? [] : baseUrl.Take(Math.Max(0, baseUrl.Count - levels)).ToList();
                     var target = "/" + string.Join('/', kept.Append(rest).Concat(below[1..].Where(d => !IsGroup(d))).Where(d => d.Length > 0));
-                    intercepts.Add(new RouteIntercept(SegmentOf(root, directories[..slotIndex]).Id, slotName, file, target));
+                    var intercept = new RouteIntercept(SegmentOf(root, directories[..slotIndex]).Id, slotName, file, target);
+                    // The client shows the first intercepting route whose segment the page is in, so two sources'
+                    // routes for one URL on one chain of segments would leave one of them unseen.
+                    if (intercepts.FirstOrDefault(i => sources[i.Page] != source.Name
+                            && string.Equals(ShapeOf(i.Pattern), ShapeOf(target), StringComparison.OrdinalIgnoreCase)
+                            && OnOneChain(i.Segment, intercept.Segment)) is { } clash)
+                    {
+                        var first = string.CompareOrdinal(clash.Page, file) < 0 ? clash : intercept;
+                        var inner = clash.Segment.Length > intercept.Segment.Length ? clash.Segment : intercept.Segment;
+                        throw Conflict(clash.Page, sources[clash.Page], file, source.Name, $"both intercept the URL '{first.Pattern}' from the pages in {inner}");
+                    }
+
+                    intercepts.Add(intercept);
                 }
                 else
                 {
@@ -790,6 +802,10 @@ internal sealed partial class RouteTable
         : CatchAllRegex().Match(segment) is { Success: true } c ? c.Groups[1].Value
         : SingleRegex().Match(segment) is { Success: true } p ? p.Groups[1].Value
         : null;
+
+    /// <summary>Whether one segment is the other or holds it, so a page in the inner one is in both.</summary>
+    private static bool OnOneChain(string segment, string another) =>
+        segment == another || another.StartsWith(segment + "/", StringComparison.Ordinal) || segment.StartsWith(another + "/", StringComparison.Ordinal);
 
     private static bool IsPrivate(IEnumerable<string> directories) => directories.Any(d => d.StartsWith('_'));
 
