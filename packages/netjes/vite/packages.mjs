@@ -165,9 +165,30 @@ function readPagePackage(root, name) {
 }
 
 /**
- * The package's dependencies that are CommonJS, as Vite has to pre-bundle them for the browser: neither `"type":
- * "module"`, a `module` entry nor an `import` condition in its `exports`. A dependency that is not installed for the
- * package, and netjes, which Vite never pre-bundles, are left out.
+ * The files a package's `exports` names, in every condition.
+ * @param {unknown} exports
+ * @returns {string[]}
+ */
+const exportTargets = (exports) =>
+  typeof exports === 'string' ? [exports] : typeof exports === 'object' && exports !== null ? Object.values(exports).flatMap(exportTargets) : [];
+
+/**
+ * Whether a package has JavaScript for Vite to pre-bundle: a script its `exports` names, or else its `main`
+ * (`index.js` by default), as Node resolves it. A package of types or of stylesheets has none.
+ * @param {string} dir
+ * @param {Record<string, unknown>} manifest
+ */
+function hasScript(dir, manifest) {
+  if (manifest.exports !== undefined) return exportTargets(manifest.exports).some((target) => /\.c?js$/.test(target));
+  const main = typeof manifest.main === 'string' && manifest.main !== '' ? manifest.main : 'index.js';
+  if (!['', '.js', '.cjs'].includes(path.extname(main))) return false;
+  return [main, `${main}.js`, path.join(main, 'index.js')].some((file) => isFile(path.join(dir, file)));
+}
+
+/**
+ * The package's dependencies that are CommonJS, as Vite has to pre-bundle them for the browser: JavaScript with neither
+ * `"type": "module"`, a `module` entry nor an `import` condition in its `exports`. A dependency that is not installed
+ * for the package, one with no JavaScript, and netjes, which Vite never pre-bundles, are left out.
  * @param {PagePackage} pkg
  * @returns {string[]}
  */
@@ -178,7 +199,8 @@ export function commonJsDependencies(pkg) {
     if (!manifestPath) return false;
     const manifest = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(manifestPath, 'utf8')));
     if (manifest.type === 'module' || typeof manifest.module === 'string') return false;
-    return !/"import"\s*:|\.mjs"/.test(JSON.stringify(manifest.exports ?? null));
+    if (/"import"\s*:|\.mjs"/.test(JSON.stringify(manifest.exports ?? null))) return false;
+    return hasScript(path.dirname(manifestPath), manifest);
   });
 }
 

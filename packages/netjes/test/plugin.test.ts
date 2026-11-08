@@ -222,6 +222,7 @@ describe('page packages', () => {
 
   it("pre-bundles a package's CommonJS dependencies through the package, which Vite does not pre-bundle", async () => {
     await app.write('node_modules/netjes-test-cjs/package.json', JSON.stringify({ name: 'netjes-test-cjs', version: '1.0.0', main: 'index.js' }));
+    await app.write('node_modules/netjes-test-cjs/index.js', 'module.exports = {};\n');
     await app.write('node_modules/netjes-test-esm/package.json', JSON.stringify({ name: 'netjes-test-esm', version: '1.0.0', type: 'module' }));
     await app.write('node_modules/netjes-test-exports/package.json', JSON.stringify({ name: 'netjes-test-exports', exports: { import: './index.js', require: './index.cjs' } }));
     await app.write('node_modules/netjes-test-module/package.json', JSON.stringify({ name: 'netjes-test-module', main: 'index.cjs', module: 'index.js' }));
@@ -240,6 +241,28 @@ describe('page packages', () => {
 
     expect(include).toContain('@netjes-test/deps > netjes-test-cjs');
     expect(include.filter((entry) => entry.startsWith('@netjes-test/deps >'))).toEqual(['@netjes-test/deps > netjes-test-cjs']);
+  });
+
+  it('leaves out a dependency that has no JavaScript to pre-bundle, which Vite would warn about on every start', async () => {
+    // Types only, a stylesheet as its main or in its exports, and CommonJS by a main without extension or by index.js.
+    await app.write('node_modules/@types/netjes-test-types/package.json', JSON.stringify({ name: '@types/netjes-test-types', main: '', types: 'index.d.ts' }));
+    await app.write('node_modules/@types/netjes-test-types/index.d.ts', 'export {};\n');
+    await app.write('node_modules/netjes-test-font/package.json', JSON.stringify({ name: 'netjes-test-font', main: 'index.css' }));
+    await app.write('node_modules/netjes-test-theme/package.json', JSON.stringify({ name: 'netjes-test-theme', exports: { '.': { sass: './index.scss', default: './index.css' } } }));
+    await app.write('node_modules/netjes-test-bare/package.json', JSON.stringify({ name: 'netjes-test-bare', main: 'lib/index' }));
+    await app.write('node_modules/netjes-test-bare/lib/index.js', 'module.exports = {};\n');
+    await app.write('node_modules/netjes-test-index/package.json', JSON.stringify({ name: 'netjes-test-index' }));
+    await app.write('node_modules/netjes-test-index/index.js', 'module.exports = {};\n');
+    const dependencies = ['@types/netjes-test-types', 'netjes-test-font', 'netjes-test-theme', 'netjes-test-bare', 'netjes-test-index'];
+    await app.write(
+      'node_modules/@netjes-test/typed/package.json',
+      JSON.stringify({ name: '@netjes-test/typed', version: '1.0.0', peerDependencies: { netjes: '*' }, netjes: {}, dependencies: Object.fromEntries(dependencies.map((name) => [name, '1'])) }),
+    );
+    await app.write('node_modules/@netjes-test/typed/app/page.tsx', 'export default function Page() { return null; }\n');
+
+    const include = (await listing(['@netjes-test/typed'])).config?.optimizeDeps?.include ?? [];
+
+    expect(include.filter((entry) => entry.startsWith('@netjes-test/typed >'))).toEqual(['@netjes-test/typed > netjes-test-bare', '@netjes-test/typed > netjes-test-index']);
   });
 
   it("watches a linked package's pages and sources, and builds the page module map again when a page comes or goes", async () => {
