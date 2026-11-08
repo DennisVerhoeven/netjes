@@ -197,6 +197,27 @@ public class RouteTableSourcesTests
         Assert.Contains($"'{Help}/app/@modal/default.tsx' and 'app/help/@modal/default.tsx'", fallback.Message);
     }
 
+    // A slot shows the first of its pages that ranks best, so one source's would silently win.
+    [Fact]
+    public void SlotPagesOfOneShapeFromTwoSources_Throw_NamingBoth()
+    {
+        var ex = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/@modal/[id]/page.tsx"), Package("/help", "@modal/[slug]/page.tsx")));
+
+        Assert.Equal(
+            $"'{Help}/app/@modal/[slug]/page.tsx' and 'app/help/@modal/[id]/page.tsx' both match the URL '/[slug]' in " +
+            "app/help/@modal. Remove the app's file, or mount the package at another prefix.",
+            ex.Message);
+    }
+
+    [Fact]
+    public void SlotPagesOfOneShapeFromOneSource_AreLeftAsTheyAre()
+    {
+        var table = Build(App("app/page.tsx", "app/@modal/[id]/page.tsx", "app/@modal/[slug]/page.tsx"), Package("/help", "page.tsx"));
+
+        Assert.Equal(["/[id]", "/[slug]"], table.RootSegments.Single().Slots["modal"].Pages.Keys.Order(StringComparer.Ordinal));
+    }
+
     // The client shows the first intercepting route whose segment the page is in, so one source's would silently win.
     [Fact]
     public void TwoSourcesInterceptingOneUrlFromOneSlot_Throw_NamingBoth()

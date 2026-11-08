@@ -610,6 +610,15 @@ internal sealed partial class RouteTable
                         throw Conflict(other, sources[other], file, source.Name, $"both match the URL '{pattern}' in {slotFolder}");
                     }
 
+                    // Between sources by shape too: the slot shows the first of its best-ranked pages, whatever their
+                    // parameters are called.
+                    if (slot.Pages.FirstOrDefault(p => sources[p.Value] != source.Name
+                            && string.Equals(ShapeOf(p.Key), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase)) is { Value: { } shaped } same)
+                    {
+                        var url = string.CompareOrdinal(shaped, file) < 0 ? same.Key : pattern;
+                        throw Conflict(shaped, sources[shaped], file, source.Name, $"both match the URL '{url}' in {slotFolder}");
+                    }
+
                     slot.Pages[pattern] = file;
                 }
 
