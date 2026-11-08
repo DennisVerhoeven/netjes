@@ -327,6 +327,41 @@ public class TypeGenHostedServiceTests
         Assert.False(Cached("/"));
     }
 
+    /// <summary>The report of <c>netjes routes</c> for an app with a page package mounted.</summary>
+    private static async Task<JsonNode> RoutesReportAsync(string[] appFiles, string[] packageFiles, Action<WebApplication> map)
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            appFiles,
+            prepareRoot: root => TestPagePackage.Install(root, packageFiles),
+            map: map,
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new CommandExit(_ => { })));
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        return report;
+    }
+
+    [Fact]
+    public async Task RoutesCommand_NamesThePackageOfEachRoute_AndThePackagesPageAnOverrideReplaces()
+    {
+        const string help = TestPagePackage.Name;
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").Override("/help/contact"));
+        JsonNode Route(string pattern) => report["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == pattern)!;
+
+        Assert.Null((string?)Route("/")["package"]);
+        Assert.Null((string?)Route("/")["overrides"]);
+        Assert.Equal(help, (string?)Route("/help")["package"]);
+        Assert.Null((string?)Route("/help")["overrides"]);
+        // The app's file renders with the package's loader and page action: the page is still the package's.
+        Assert.Equal("app/help/contact/page.tsx", (string?)Route("/help/contact")["file"]);
+        Assert.Equal(help, (string?)Route("/help/contact")["package"]);
+        Assert.Equal($"{help}/app/contact/page.tsx", (string?)Route("/help/contact")["overrides"]);
+    }
+
     [Fact]
     public async Task GenerateCommand_InProduction_ScansPageFilesInsteadOfTheBuildManifest()
     {

@@ -149,6 +149,7 @@ internal sealed class TypeGenHostedService(
     private object DescribeRoutes()
     {
         var table = services.GetRequiredService<IRouteTableProvider>().Current;
+        var sources = services.GetRequiredService<RouteSources>();
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
 
         // A page's endpoints as an app finds them: by the public metadata, which only endpoints that serve a page carry.
@@ -166,6 +167,9 @@ internal sealed class TypeGenHostedService(
                     page.Pattern,
                     page.Template,
                     page.File,
+                    // The page package whose page it is, also where the app's file replaces the package's.
+                    Package = sources.PackageOf(page)?.Name,
+                    page.Overrides,
                     page.Layouts,
                     Loader = get?.Metadata.GetMetadata<PageRouteMetadata>()?.IsLoader ?? false,
                     Action = PageEndpoints(page.Pattern, HttpMethods.Post).Any(),
