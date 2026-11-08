@@ -1,10 +1,29 @@
 using System.Text.RegularExpressions;
+using Netjes.Routing;
 
 namespace Netjes;
 
 /// <summary>The versions of a mounted page package, which have to fit each other and the running Netjes.</summary>
 internal static partial class PagePackageVersions
 {
+    /// <summary>
+    /// Stops the app when the package's halves are two versions. Its npm half is <paramref name="install"/>, read from
+    /// <c>node_modules</c> or from the client build's record.
+    /// </summary>
+    public static void Check(PagePackage package, PagePackageInstall install)
+    {
+        var nuget = install.Nuget ?? package.AssemblyName;
+        if (!SameVersion(install.Version, package.Version))
+        {
+            throw new NetjesStartupException(
+                $"{package.Name} is {install.Version} on npm and {nuget} is {package.Version} on NuGet: install one version of both");
+        }
+    }
+
+    /// <summary>Whether two versions are one: by their parts when both are versions, build metadata left out.</summary>
+    private static bool SameVersion(string a, string b) =>
+        Parse(a) is { } x && Parse(b) is { } y ? Compare(x, y) == 0 : string.Equals(a, b, StringComparison.Ordinal);
+
     /// <summary>
     /// Whether <paramref name="version"/> is in <paramref name="range"/>, as npm reads ranges, and as <c>satisfies</c> in
     /// the netjes CLI does in strict mode: <c>^</c>, <c>~</c>, <c>x</c> and partial versions, <c>&lt;</c>, <c>&lt;=</c>,

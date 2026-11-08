@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Builder;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -49,6 +51,50 @@ public class PagePackageVersionTests
     public void Satisfies_AVersionThatIsNone_IsInNoRange(string version) =>
         // A range that would hold each of them, read loosely.
         Assert.False(PagePackageVersions.Satisfies(version, "* || >=1.2.3-0"));
+
+    [Theory]
+    [InlineData("Development", null, "Netjes.Tests")]
+    [InlineData("Development", "Acme.HelpCenter", "Acme.HelpCenter")]
+    [InlineData("Production", null, "Netjes.Tests")]
+    [InlineData("Production", "Acme.HelpCenter", "Acme.HelpCenter")]
+    public async Task HalvesOfTwoVersions_StopStartup_NamingBoth(string environment, string? nuget, string named)
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => StartAsync(environment, version: "9.9.9", nuget: nuget));
+
+        Assert.Equal($"{Help} is 9.9.9 on npm and {named} is {Descriptor.Version} on NuGet: install one version of both", ex.Message);
+    }
+
+    private const string Help = TestPagePackage.Name;
+
+    private static PagePackage Descriptor => TestPagePackage.Descriptor;
+
+    /// <summary>
+    /// The app with the package mounted at <c>/help</c>, its npm half at <paramref name="version"/> (the NuGet half's by
+    /// default) with <paramref name="netjes"/> as its peer range: installed in Development, in the client build's record
+    /// in Production.
+    /// </summary>
+    private static Task<TestApp> StartAsync(string environment, string? version = null, string? netjes = null, string? nuget = null) =>
+        TestApp.StartAsync(
+            environment == "Production" ? [] : ["app/page.tsx"],
+            environment: environment,
+            prepareRoot: root =>
+            {
+                if (environment == "Production")
+                {
+                    TestPagePackage.WriteBuild(root, ["app/page.tsx"], [new(Help, ["page.tsx"]) { Version = version, Netjes = netjes, Nuget = nuget }]);
+                }
+                else
+                {
+                    var field = new JsonObject { ["pages"] = "app" };
+                    if (nuget is not null)
+                    {
+                        field["nuget"] = nuget;
+                    }
+
+                    TestPagePackage.Install(root, ["page.tsx"], netjes: field, version: version, peerRange: netjes);
+                }
+            },
+            map: a => a.MapPagePackage(Descriptor, "/help"));
 
     private static VersionRanges LoadRanges()
     {
