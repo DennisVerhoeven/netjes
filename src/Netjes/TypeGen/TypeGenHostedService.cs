@@ -72,63 +72,92 @@ internal sealed class TypeGenHostedService(
             return;
         }
 
-        if (context.Mode != NetjesMode.Development || context.TypesFilePath is not { } path)
+        if (context.Mode != NetjesMode.Development)
         {
             return;
         }
 
-        try
+        foreach (var (path, generate) in Files(context.TypesFilePath))
         {
-            if (await WriteIfChangedAsync(path, Generate(), cancellationToken))
+            try
             {
-                logger.LogInformation("Wrote {TypesFile}", Path.GetRelativePath(context.Root, path));
+                if (await WriteIfChangedAsync(path, generate(), cancellationToken))
+                {
+                    logger.LogInformation("Wrote {TypesFile}", Path.GetRelativePath(context.Root, path));
+                }
             }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Development keeps running with the previous file; the page that needs a new type will say so.
-            logger.LogWarning(ex, "Could not generate {TypesFile}: {Message}", path, ex.Message);
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Development keeps running with the previous file; the page that needs a new type will say so.
+                logger.LogWarning(ex, "Could not generate {TypesFile}: {Message}", path, ex.Message);
+            }
         }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private string Generate() => services.GetRequiredService<TypeScriptGenerator>().Generate();
+    /// <summary>
+    /// The generated files, each with how to write it: the app's at <paramref name="appFile"/> (none when null), then the
+    /// file of each mounted page package that the app writes (<c>WriteTypes</c> on its mount), in the order they were mounted.
+    /// </summary>
+    private List<(string Path, Func<string> Generate)> Files(string? appFile)
+    {
+        var generator = services.GetRequiredService<TypeScriptGenerator>();
+        var files = new List<(string Path, Func<string> Generate)>();
+        if (appFile is not null)
+        {
+            files.Add((appFile, generator.Generate));
+        }
+
+        foreach (var mounted in services.GetRequiredService<RouteSources>().Mounts)
+        {
+            if (mounted.Mount.TypesFile is { } path)
+            {
+                files.Add((path, () => generator.Generate(mounted)));
+            }
+        }
+
+        return files;
+    }
 
     private async Task<int> GenerateCommandAsync(NetjesCommandOptions command, CancellationToken cancellationToken)
     {
-        var path = command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath;
-        if (path is null)
+        var files = Files(command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath);
+        if (files.Count == 0)
         {
             logger.LogError("NetjesOptions.TypesFile is null and no output was given; nothing to generate");
             return 2;
         }
 
-        var content = Generate();
-        if (command.Check)
+        var stale = 0;
+        foreach (var (path, generate) in files)
         {
+            var content = generate();
+            if (!command.Check)
+            {
+                await WriteIfChangedAsync(path, content, cancellationToken);
+                logger.LogInformation("Generated {TypesFile}", path);
+                continue;
+            }
+
             var current = File.Exists(path) ? await File.ReadAllTextAsync(path, cancellationToken) : null;
             if (current is not null && SameContent(current, content))
             {
                 logger.LogInformation("{TypesFile} is up to date", path);
-                return 0;
             }
-
-            if (current is null)
+            else if (current is null)
             {
                 logger.LogError("{TypesFile} does not exist; run `netjes generate`", path);
+                stale++;
             }
             else
             {
                 logger.LogError("{TypesFile} is out of date; run `netjes generate`\n{Differences}", path, Differences(current, content));
+                stale++;
             }
-
-            return 1;
         }
 
-        await WriteIfChangedAsync(path, content, cancellationToken);
-        logger.LogInformation("Generated {TypesFile}", path);
-        return 0;
+        return stale == 0 ? 0 : 1;
     }
 
     private async Task<int> RoutesCommandAsync(NetjesCommandOptions command, CancellationToken cancellationToken)

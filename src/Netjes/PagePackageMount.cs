@@ -64,6 +64,9 @@ public sealed class PagePackageMount
     private static bool HasADotSegment(string url) =>
         url.Split('?', '#')[0].Split('/', '\\').Any(segment => segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..");
 
+    /// <summary>The full path of the package's own generated file (<c>WriteTypes</c> on the mount); null when the app writes none.</summary>
+    internal string? TypesFile { get; set; }
+
     /// <summary>The conventions put on the mount, which its own endpoints get: its file pages among them.</summary>
     internal List<Action<EndpointBuilder>> Conventions { get; } = [];
 

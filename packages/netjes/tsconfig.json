@@ -17,5 +17,8 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test", "vite", "sidecar", "cli", "bin", "vitest.config.ts"]
+  "include": ["src", "test", "vite", "sidecar", "cli", "bin", "vitest.config.ts"],
+  // An app's generated file registers its routes with netjes, for every file in the program: test/typegen-mounted.test.ts
+  // type-checks that folder with configs of its own.
+  "exclude": ["test/fixtures/typegen/mounted"]
 }

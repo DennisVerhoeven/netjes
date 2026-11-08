@@ -33,10 +33,10 @@ public class PagePackageTypesTests
     public sealed record AppHomeProps(string Greeting);
 
     /// <summary>The package's pages, with a group layout around its articles.</summary>
-    private static readonly string[] PackageFiles = ["page.tsx", "contact/page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"];
+    internal static readonly string[] PackageFiles = ["page.tsx", "contact/page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"];
 
     /// <summary>What the package's own extension maps through its mount.</summary>
-    private static void MapHelpCenter(PagePackageBuilder mount)
+    internal static void MapHelpCenter(PagePackageBuilder mount)
     {
         mount.MapPageLoader("/", () => Page.Props(new HomeProps("Help")));
         mount.MapPageLoader("/articles/[slug]", (string slug) => Page.Props(new ArticleProps(slug, "An article", new Href("/"))));
@@ -44,10 +44,11 @@ public class PagePackageTypesTests
         mount.MapLayoutLoader("app/(center)", () => Page.Props(new CenterProps(["Getting started"])));
         mount.MapAction("help.vote", (Vote vote) => ServerAction.Ok(new VoteCount(1)));
         mount.MapPost("/feedback", (FeedbackNote note) => TypedResults.Ok(new FeedbackReceipt("1")));
+        mount.MapGet("/articles/{slug}/feed", (string slug, int? take) => Results.Text(slug));
     }
 
     /// <summary>The app with the package installed and mounted at <paramref name="prefix"/>.</summary>
-    private static Task<TestApp> StartAsync(
+    internal static Task<TestApp> StartAsync(
         string[] appFiles,
         string prefix = "/help",
         Action<PagePackageBuilder>? mount = null,
@@ -126,6 +127,29 @@ public class PagePackageTypesTests
 
         Assert.Contains("export const pages = {\n  \"/\": z.object({}),\n  \"/help/shortcuts\": AppHomeProps,\n} as const;", output);
         Assert.Contains("\"/help/shortcuts\": Record<string, never>;", output);
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>Where the tests write the package's file, relative to the app: a folder of the package's, as a workspace has it.</summary>
+    private const string PackageTypes = "packages/help-center/generated/netjes.ts";
+
+    private static string PackageTypesPath(TestApp app) => Path.Combine(app.Root, "packages", "help-center", "generated", "netjes.ts");
+
+    private static Action<PagePackageBuilder> WithTypes(Action<PagePackageBuilder>? mount = null) =>
+        m => (mount ?? MapHelpCenter)(m.WriteTypes(PackageTypes));
+
+    [Fact]
+    public async Task WriteTypes_InDevelopment_WritesThePackagesFile_KeyedBelowTheMount()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], mount: WithTypes());
+
+        var output = await File.ReadAllTextAsync(PackageTypesPath(app), Ct);
+
+        Assert.Contains("export const routePatterns = [\"/\", \"/articles/[slug]\", \"/contact\"] as const;", output);
+        Assert.Contains("export const pages = {\n  \"/\": HomeProps,\n  \"/articles/[slug]\": ArticleProps,\n  \"/contact\": z.object({}),\n} as const;", output);
+        Assert.DoesNotContain("declare module", output);
+        Assert.DoesNotContain("AppHomeProps", output);
     }
 
     /// <summary>The app's own type of the same name as one of the package's.</summary>

@@ -290,6 +290,7 @@ public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Bu
 public sealed class Netjes.Routing.PagePackageBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
   public Netjes.PagePackageMount Mount { get; }
   public Netjes.Routing.PagePackageBuilder Override(string pattern)
+  public Netjes.Routing.PagePackageBuilder WriteTypes(string path)
 public sealed class Netjes.Routing.PageRouteMetadata
   public bool IsLoader { get; }
   public string Pattern { get; }
