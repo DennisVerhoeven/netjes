@@ -82,6 +82,10 @@ describe('mounted', () => {
     ['/acme%20co/help/x', '/acme%20co/help', '/x'],
     ["/a'b/help/x", '/a%27b/help', '/x'],
     ['/%C3%BC/help/x', '/%c3%bc/help', '/x'],
+    // The server leaves %2F in a value as it is and encodes it again (%252F); both URLs have the same value.
+    ['/a%2Fb/help/x', '/a%252Fb/help', '/x'],
+    ['/a%252Fb/help/x', '/a%252Fb/help', '/x'],
+    ['/a/b/help/x', '/a%252Fb/help', '/a/b/help/x'],
     ['/articles', '/', '/articles'],
     ['/helpx/a', '/help', '/helpx/a'],
     ['/about', '/help', '/about'],

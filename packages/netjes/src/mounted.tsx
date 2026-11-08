@@ -62,10 +62,13 @@ function useMount(name: string): string {
   return mount;
 }
 
-/** A segment as routing compares it: decoded where it can be, in any case. */
+/**
+ * A segment as routing compares it: decoded where it can be, as the server decodes a path, which leaves `%2F` as it is
+ * (so `a%2Fb` and `a%252Fb` hold the same value), in any case.
+ */
 function comparable(segment: string): string {
   try {
-    return decodeURIComponent(segment).toLowerCase();
+    return decodeURIComponent(segment.replace(/%2F/gi, '%252F')).toLowerCase();
   } catch {
     return segment.toLowerCase();
   }
