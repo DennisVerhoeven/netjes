@@ -415,7 +415,7 @@ internal sealed partial class RouteTable
         var appDirectory = app.IdPrefix.TrimEnd('/');
         foreach (var source in sources.Where(s => !s.IsApp).OrderBy(s => s.Name, StringComparer.Ordinal))
         {
-            if (!NpmNameRegex().IsMatch(source.Name))
+            if (!PageSource.IsNpmName(source.Name))
             {
                 throw new ArgumentException($"'{source.Name}' is not an npm package name, which is what a page package goes by.", nameof(sources));
             }
@@ -926,8 +926,4 @@ internal sealed partial class RouteTable
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex ParameterNameRegex();
-
-    // npm's rules, with the capitals that older names have.
-    [GeneratedRegex("^(?:@[A-Za-z0-9~-][A-Za-z0-9._~-]*/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$")]
-    private static partial Regex NpmNameRegex();
 }
