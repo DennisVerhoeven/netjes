@@ -22,10 +22,12 @@ namespace Netjes.Routing;
 /// <c>ambiguous-endpoint</c>: an endpoint of the app ranks the same as a page or a page action for URLs both match, so
 /// ASP.NET Core answers those requests with 500.
 /// <c>form-input</c>: an action binds a <c>[FromForm]</c> positional record with a field a browser leaves out of a post.
+/// <c>package-shell</c>: a page package that draws its own shell renders inside the app's root layout, and the app has no
+/// route group layout below it for its own chrome.
 /// </param>
 /// <param name="Files">
 /// The files the warning is about: the loader's page or layout, the winning page and the other, the page an endpoint ties
-/// with, or a page action's page (none for a server action).
+/// with, a page action's page (none for a server action), or the app's root layout around a page package.
 /// </param>
 internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> Files, string Template, object?[] Arguments)
 {
@@ -86,6 +88,11 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         "{Action} binds {Type} from the form through its constructor, and form binding refuses a post without one of the constructor's fields with 400. " +
         "A browser leaves out {Fields} when nothing is checked or chosen. Give the type init properties instead, which a missing field leaves at its default.";
 
+    // {GroupLayout} is a route group layout below the app's root, such as app/(site)/layout.tsx.
+    private const string PackageShell =
+        "'{Package}' draws its own shell, and its pages at {Pattern} render inside {Layout}, the app's root layout, which wraps every page. " +
+        "Keep {Layout} to what every page needs, such as providers, and move the app's header and footer into a route group's layout, such as {GroupLayout}, with the app's own pages in that group.";
+
     /// <summary>Every warning for the current routes; never throws (a failing check is logged and skipped).</summary>
     public IReadOnlyList<RouteWarning> Check()
     {
@@ -106,6 +113,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .. OverlapWarnings(table, endpoints),
                 .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
+                .. PackageShellWarnings(table, services.GetRequiredService<RouteSources>()),
             ];
         }
         catch (Exception ex)
@@ -453,6 +461,39 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                     yield return new RouteWarning("form-input", files, FormInput, [action, type.Name, Quoted(fields)]);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Page packages that draw their own shell, mounted in an app whose root layout, which wraps every page, is its own
+    /// and has no route group layout directly below it (<c>app/(site)/layout.tsx</c>), where an app keeps its chrome so
+    /// that the package's pages render outside it. What a layout draws is not known; the folders say how it is likely
+    /// split.
+    /// </summary>
+    private static IEnumerable<RouteWarning> PackageShellWarnings(RouteTable table, RouteSources sources)
+    {
+        var shells = sources.Mounts.Where(m => m.Mount.Package.DrawsItsOwnShell).ToList();
+        if (shells.Count == 0 || table.RootLayouts.FirstOrDefault(l => sources.OwnerOf(l) is null) is not { } layout)
+        {
+            yield break;
+        }
+
+        var root = sources.AppDirectory;
+        var grouped = table.Pages.SelectMany(p => p.Segments).Any(s =>
+            s.Layout is not null
+            && sources.OwnerOf(s.Layout) is null
+            && s.Id.StartsWith(root + "/(", StringComparison.Ordinal)
+            && s.Id.EndsWith(')')
+            && !s.Id[(root.Length + 1)..].Contains('/'));
+        if (grouped)
+        {
+            yield break;
+        }
+
+        foreach (var shell in shells)
+        {
+            yield return new RouteWarning("package-shell", [layout], PackageShell,
+                [shell.Name, shell.Mount.Pattern, layout, layout, $"{root}/(site)/layout.tsx"]);
         }
     }
 

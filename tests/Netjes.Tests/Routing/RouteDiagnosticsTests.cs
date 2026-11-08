@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Netjes.Routing;
 using Netjes.Tests.Endpoints;
 
 namespace Netjes.Tests.Routing;
@@ -896,6 +897,79 @@ public class RouteDiagnosticsTests
             """{ "Logging": { "LogLevel": { "Netjes.Routing.RouteDiagnostics": "Error" } } }"""));
 
         Assert.Empty(Warnings(app));
+    }
+
+    /// <summary>A page package that draws its own shell: its own header, navigation and footer around its pages.</summary>
+    private static readonly PagePackage ShellPackage = new(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { DrawsItsOwnShell = true };
+
+    /// <summary>The warnings of an app with the page package installed in <c>node_modules</c> and mounted at <paramref name="prefix"/>.</summary>
+    private static async Task<IReadOnlyList<string>> PackageWarningsAsync(
+        string[] appFiles,
+        string[] packageFiles,
+        PagePackage? package = null,
+        string prefix = "/help",
+        Action<PagePackageBuilder>? mount = null,
+        Action<WebApplication>? map = null,
+        Action<NetjesOptions>? configure = null)
+    {
+        await using var app = await TestApp.StartAsync(
+            appFiles,
+            prepareRoot: root => TestPagePackage.Install(root, packageFiles),
+            map: a =>
+            {
+                var mounted = a.MapPagePackage(package ?? TestPagePackage.Descriptor, prefix);
+                mount?.Invoke(mounted);
+                map?.Invoke(a);
+            },
+            configure: configure);
+        return Warnings(app);
+    }
+
+    [Fact]
+    public async Task PackageShell_APackageThatDrawsItsOwnShell_UnderARootLayoutWithNoRouteGroupLayout_IsWarnedWithTheFix()
+    {
+        var warnings = await PackageWarningsAsync(["app/layout.tsx", "app/page.tsx"], ["layout.tsx", "page.tsx"], ShellPackage);
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"'{TestPagePackage.Name}' draws its own shell", warning);
+        Assert.Contains("/help", warning);
+        Assert.Contains("app/layout.tsx", warning);
+        Assert.Contains("app/(site)/layout.tsx", warning);
+    }
+
+    [Theory]
+    // The app's chrome is in a route group's layout, so the root layout is likely bare.
+    [InlineData(true, new[] { "app/layout.tsx", "app/(site)/layout.tsx", "app/(site)/page.tsx" })]
+    [InlineData(true, new[] { "app/layout.tsx", "app/(shop)/layout.tsx", "app/(shop)/cart/page.tsx", "app/about/page.tsx" })]
+    // No root layout of the app's: nothing wraps the package's pages.
+    [InlineData(true, new[] { "app/page.tsx" })]
+    // A package that does not draw its shell renders inside the app's chrome on purpose.
+    [InlineData(false, new[] { "app/layout.tsx", "app/page.tsx" })]
+    public async Task PackageShell_AnAppWithARouteGroupLayout_OrNoRootLayout_OrAPackageWithoutAShell_IsNotWarned(bool drawsItsShell, string[] appFiles)
+    {
+        var warnings = await PackageWarningsAsync(appFiles, ["layout.tsx", "page.tsx"], drawsItsShell ? ShellPackage : TestPagePackage.Descriptor);
+
+        Assert.Empty(warnings);
+    }
+
+    [Theory]
+    // A layout in a group below another folder, or below another group, holds no chrome of the whole app.
+    [InlineData("app/(site)/(inner)/layout.tsx", "app/(site)/(inner)/page.tsx")]
+    [InlineData("app/blog/(posts)/layout.tsx", "app/blog/(posts)/page.tsx")]
+    public async Task PackageShell_ARouteGroupLayoutNotDirectlyBelowTheRoot_StillWarns(string layout, string page)
+    {
+        var warnings = await PackageWarningsAsync(["app/layout.tsx", layout, page], ["layout.tsx", "page.tsx"], ShellPackage);
+
+        Assert.Contains($"'{TestPagePackage.Name}' draws its own shell", Assert.Single(warnings));
+    }
+
+    [Fact]
+    public async Task PackageShell_ARouteGroupLayoutOfAPackageMountedAtTheRoot_IsNotTheApps_AndStillWarns()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/layout.tsx", "app/about/page.tsx"], ["(center)/layout.tsx", "(center)/faq/page.tsx"], ShellPackage, prefix: "/");
+
+        Assert.Contains("at / render inside app/layout.tsx", Assert.Single(warnings));
     }
 
     private static Delegate NearName(string name) => name switch

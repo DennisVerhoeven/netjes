@@ -188,6 +188,7 @@ public sealed record Netjes.PageMetadataTwitter : IEquatable<Netjes.PageMetadata
   public string? Site { get; init; }
 public sealed class Netjes.PagePackage
   public PagePackage(string name, System.Reflection.Assembly assembly)
+  public bool DrawsItsOwnShell { get; init; }
   public string Name { get; }
   public string Version { get; }
 public sealed class Netjes.PagePackageMount
