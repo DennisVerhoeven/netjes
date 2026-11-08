@@ -175,7 +175,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
                "overrides": "@netjes-examples/help-center/app/contact/page.tsx", "layouts": ["app/layout.tsx", "@netjes-examples/help-center/app/layout.tsx"],
                "loader": true, "action": true, "props": "ContactProps", "cached": false, "authorized": false }],
   "endpoints": [{ "method": "*", "route": "/healthz", "name": "Health checks", "package": null },
-                { "method": "POST", "route": "/_netjes/actions/help.vote", "name": "help.vote", "package": "@netjes-examples/help-center" }],
+                { "method": "POST", "route": "/_netjes/actions/help.vote", "name": "Server action help.vote", "package": "@netjes-examples/help-center" }],
   "packages": [{ "name": "@netjes-examples/help-center", "version": "0.0.4", "nuget": "Netjes.Examples.HelpCenter", "nugetVersion": "0.0.4",
                  "prefix": "/help", "pattern": "/help", "overrides": ["/help/contact"] }],
   "warnings": [{ "kind": "overlap", "message": "…", "files": ["app/[id]/page.tsx", "app/[...rest]/page.tsx"] }]
@@ -184,7 +184,7 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 
 `method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does.
 
-A route's `package` is the npm name of the page package whose page it is, and `null` for the app's own. A page the app's file replaces with `.Override()` is still the package's, since it renders with the package's loader and page action: its `file` is the app's, and `overrides` the package's file it replaces (`null` for every other page). An endpoint's `package` is the package whose mount it is mapped through: a server action, a minimal API endpoint, a loader or a page action. The app's own endpoints below the mount's URL, and Netjes's, have `null`.
+A route's `package` is the npm name of the page package whose page it is, and `null` for the app's own. A page the app's file replaces with `.Override()` is still the package's, since it renders with the package's loader and page action: its `file` is the app's, and `overrides` the package's file it replaces (`null` for every other page). An endpoint's `package` is the package whose mount it is mapped through: a server action, or a minimal API endpoint such as one `MapPost` maps. The package's loaders and page actions serve its pages, so they show in `routes`, not here. The app's own endpoints below the mount's URL, and Netjes's, have `null`.
 
 `packages` lists the mounted page packages in the order of their mounts, and is empty without one: `version` is the npm half's, `nuget` and `nugetVersion` the NuGet half's (`nuget` as the npm half's `netjes` field names it, or else the assembly's name), `prefix` the mount's prefix in folder syntax as `MapPagePackage` took it (`/(marketing)/help`), `pattern` its URL pattern without route groups (`/help`), and `overrides` the URL patterns where the app's file replaces one of the package's pages.
 
@@ -198,7 +198,7 @@ A warning's `kind` names one of the [route warnings](../guides/routing.md#route-
 | `form-input` | A form input refuses a post without a checkbox. |
 | `package-shell` | A page package that draws its own shell (`PagePackage.DrawsItsOwnShell`) is mounted, and the app has a root layout of its own, which wraps every page, but no route group layout directly below it, such as `app/(site)/layout.tsx`. The fix is to keep the root layout to what every page needs and move the app's header and footer into such a group. |
 | `package-unmounted` | In production, the client build holds a page package, listed in `netjes({ packages })`, that the app does not mount, so its pages ship and no URL serves them. Development and the commands read `node_modules` and no build, so they do not report it. |
-| `package-nonce` | A page package whose pages stream (`PagePackage.RequiresNonce`) is mounted, and `NetjesOptions.ContentSecurityPolicy` is a policy without `{nonce}`, which blocks what streams. No warning without a policy. |
+| `package-nonce` | A page package whose pages stream (`PagePackage.RequiresNonce`) is mounted, and `NetjesOptions.ContentSecurityPolicy` is a policy without `{nonce}` that refuses inline scripts, as a hash-based policy does: its `script-src-elem`, else `script-src`, else `default-src` allows none, so it blocks what streams. No warning without a policy, or under one that allows inline scripts or restricts no scripts. |
 
 `files` lists the page and layout files the warning is about: for `package-shell` the app's root layout. It is empty for a server action's form input, `package-unmounted` and `package-nonce`.
 

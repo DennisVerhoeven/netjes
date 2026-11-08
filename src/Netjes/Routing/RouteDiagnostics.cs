@@ -25,7 +25,8 @@ namespace Netjes.Routing;
 /// <c>package-shell</c>: a page package that draws its own shell renders inside the app's root layout, and the app has no
 /// route group layout below it for its own chrome.
 /// <c>package-unmounted</c>: in production, the client build holds a page package that the app does not mount.
-/// <c>package-nonce</c>: a page package's pages stream, and <c>NetjesOptions.ContentSecurityPolicy</c> has no nonce.
+/// <c>package-nonce</c>: a page package's pages stream, and <c>NetjesOptions.ContentSecurityPolicy</c> refuses inline
+/// scripts and has no nonce.
 /// </param>
 /// <param name="Files">
 /// The files the warning is about: the loader's page or layout, the winning page and the other, the page an endpoint ties
