@@ -34,6 +34,13 @@ const slashes = (file) => file.replaceAll('\\', '/');
 const PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 
 /**
+ * Whether a name is one npm gives a new package, and so no path: no `.` or `..`, and no `/` but the scope's.
+ * @param {unknown} name
+ * @returns {name is string}
+ */
+export const isPackageName = (name) => typeof name === 'string' && PACKAGE_NAME.test(name);
+
+/**
  * Whether a path from a package's `netjes` field is relative and stays inside the package: no `..` or `.`, no leading
  * `/`, no `\`, no drive letter, no empty folder. The file ids of the package are built from it, so it has one spelling.
  * @param {unknown} value
@@ -79,7 +86,7 @@ export function resolvePagePackages(root, names, appDir) {
   const packages = [];
   const seen = new Set();
   for (const name of names) {
-    if (typeof name !== 'string' || !PACKAGE_NAME.test(name)) {
+    if (!isPackageName(name)) {
       throw new Error(`netjes: ${JSON.stringify(name)} in netjes({ packages }) is not the name of an npm package`);
     }
     if (seen.has(name)) throw new Error(`netjes: '${name}' is listed twice in netjes({ packages })`);
