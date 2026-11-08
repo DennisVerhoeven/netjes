@@ -232,7 +232,7 @@ In development and in the `generate` and `routes` commands, the package is found
 
 - `'@netjes-examples/help-center' is mounted but not installed: npm install @netjes-examples/help-center@1.2.0`, with the version of the C# half;
 - `'@netjes-examples/help-center' is mounted but not in the client build: add it to netjes({ packages }) in vite.config.ts and build again`;
-- a package whose `package.json` has no `netjes` field, or whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`);
+- a package whose `package.json` is not JSON or has no `netjes` field or no `peerDependencies.netjes`, whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`), or that has no pages folder (`app`, unless `pages` names another), as the Vite plugin refuses them;
 - a file in the record without a chunk in the manifest.
 
 A file of the package that the conventions refuse, such as a `global-error` or a `route.ts`, and a conflict with another package or between two packages' layouts in one folder, throw here ([Route errors](#route-errors)). An app page of the same shape as one of the package's pages is held until `MapPages()`, which throws it, and so do `MapPageLoader` and `MapLayoutLoader` for that page's URL. Call it on the app, before `MapPages()` and once per package: inside a `MapGroup`, after `MapPages()` and for a package mounted already, it throws `InvalidOperationException`.
