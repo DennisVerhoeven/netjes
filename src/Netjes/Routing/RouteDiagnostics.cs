@@ -24,6 +24,7 @@ namespace Netjes.Routing;
 /// <c>form-input</c>: an action binds a <c>[FromForm]</c> positional record with a field a browser leaves out of a post.
 /// <c>package-shell</c>: a page package that draws its own shell renders inside the app's root layout, and the app has no
 /// route group layout below it for its own chrome.
+/// <c>package-unmounted</c>: in production, the client build holds a page package that the app does not mount.
 /// <c>package-nonce</c>: a page package's pages stream, and <c>NetjesOptions.ContentSecurityPolicy</c> has no nonce.
 /// </param>
 /// <param name="Files">
@@ -100,6 +101,10 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         "'{Package}' draws its own shell, and its pages at {Pattern} render inside {Layout}, the app's root layout, which wraps every page. " +
         "Keep {Layout} to what every page needs, such as providers, and move the app's header and footer into a route group's layout, such as {GroupLayout}, with the app's own pages in that group.";
 
+    private const string PackageUnmounted =
+        "'{Package}' is in the client build, from netjes({{ packages }}) in vite.config.ts, but the app does not mount it: its pages ship in dist/client, and no URL serves them. " +
+        "Mount it with app.MapPagePackage before app.MapPages(), or take it out of netjes({{ packages }}) and build again.";
+
     private const string PackageNonce =
         "The pages of '{Package}' at {Pattern} stream, and NetjesOptions.ContentSecurityPolicy has no {{nonce}}: no hash covers the scripts that deliver Page.Defer values and reveal Suspense boundaries, so browsers refuse them and those pages do not finish loading. " +
         "Use a nonce: 'nonce-{{nonce}}' in the policy's script-src.";
@@ -111,6 +116,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         {
             var table = services.GetRequiredService<IRouteTableProvider>().Current;
             var sources = services.GetRequiredService<RouteSources>();
+            var context = services.GetRequiredService<NetjesContext>();
             var all = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
             var endpoints = PageEndpoints(all);
             var layouts = LayoutBindings();
@@ -126,7 +132,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
                 .. PackageShellWarnings(table, sources),
-                .. PackageNonceWarnings(sources, services.GetRequiredService<NetjesContext>().Options.ContentSecurityPolicy),
+                .. PackageUnmountedWarnings(sources, context),
+                .. PackageNonceWarnings(sources, context.Options.ContentSecurityPolicy),
             ];
         }
         catch (Exception ex)
@@ -509,6 +516,17 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 [shell.Name, shell.Mount.Pattern, layout, layout, $"{root}/(site)/layout.tsx"]);
         }
     }
+
+    /// <summary>
+    /// Page packages in the client build's record that the app does not mount, in production, where the route table comes
+    /// from that build. Development and the commands read <c>node_modules</c> and no build.
+    /// </summary>
+    private IEnumerable<RouteWarning> PackageUnmountedWarnings(RouteSources sources, NetjesContext context) =>
+        context.ScansPageFiles
+            ? []
+            : (services.GetRequiredService<ViteManifestProvider>().Record?.Packages ?? [])
+                .Where(p => sources.Find(p.Name) is null)
+                .Select(p => new RouteWarning("package-unmounted", [], PackageUnmounted, [p.Name]));
 
     /// <summary>
     /// Page packages whose pages stream, under a policy of Netjes's own that has no <c>{nonce}</c>: a hash-based policy,

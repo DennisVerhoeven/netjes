@@ -1003,6 +1003,44 @@ public class RouteDiagnosticsTests
     }
 
     [Fact]
+    public async Task PackageUnmounted_InProduction_APackageInTheClientBuildThatIsNotMounted_IsWarned()
+    {
+        await using var app = await TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.WriteBuild(
+                root, ["app/page.tsx"], [new(TestPagePackage.Name, ["page.tsx"]), new(TestPagePackage.Other.Name, ["page.tsx"])]),
+            map: a => a.MapPagePackage(TestPagePackage.Other, "/status"));
+
+        var warning = Assert.Single(Warnings(app));
+        Assert.Contains($"'{TestPagePackage.Name}' is in the client build", warning);
+        Assert.Contains("netjes({ packages })", warning);
+        Assert.Contains("MapPagePackage", warning);
+    }
+
+    [Fact]
+    public void AWarningsMessage_FillsItsHoles_AndReadsDoubledBracesAsOne_AsTheLogDoes()
+    {
+        var warning = new RouteWarning("package-unmounted", [], "'{Package}' is in netjes({{ packages }}), not {{nonce}}", ["@acme/x"]);
+
+        Assert.Equal("'@acme/x' is in netjes({ packages }), not {nonce}", warning.Message);
+    }
+
+    [Fact]
+    public async Task PackageUnmounted_InDevelopment_IsNotWarned_SinceNoClientBuildIsRead()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, ["page.tsx"]);
+                TestPagePackage.WriteBuild(root, ["app/page.tsx"], [new(TestPagePackage.Name, ["page.tsx"])]);
+            });
+
+        Assert.Empty(Warnings(app));
+    }
+
+    [Fact]
     public async Task RoutesCommand_ReportsThePackageWarnings_WithTheirKinds_AndBracesAsTheLogWritesThem()
     {
         var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
