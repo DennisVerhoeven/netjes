@@ -427,6 +427,80 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
 }
 
 /**
+ * The page packages the app depends on: each dependency whose package.json has a `netjes` field, as the Vite plugin
+ * reads them. One line names them with their versions, and a line follows for each one that the app would refuse to
+ * mount (no peer range, or one that leaves out the installed netjes), whose NuGet half the project references at another
+ * exact version, or that `netjes({ packages })` does not list, so that no build holds its pages. Nothing when the app
+ * depends on none.
+ * @param {string} cwd
+ * @param {{
+ *   manifest: Record<string, any> | null;
+ *   netjes: string | undefined;
+ *   csproj: { file: string; text: string } | null;
+ *   viteConfig: { file: string; text: string } | null;
+ * }} project the app's package.json, the installed netjes's version, the project file, and the Vite config that uses netjes()
+ * @returns {Promise<Check[]>}
+ */
+async function checkPagePackages(cwd, { manifest, netjes, csproj, viteConfig }) {
+  /** @param {unknown} deps */
+  const namesIn = (deps) => (typeof deps === 'object' && deps !== null ? Object.keys(deps) : []);
+  const names = [...new Set([...namesIn(manifest?.dependencies), ...namesIn(manifest?.devDependencies)])]
+    .filter((name) => name !== 'netjes')
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  /** @type {{ name: string; version: string; range: unknown; nuget: unknown }[]} */
+  const found = [];
+  for (const name of names) {
+    const file = findPackage(cwd, name);
+    const json = file ? await readJson(file) : null;
+    const field = json?.netjes;
+    if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
+    found.push({ name, version: typeof json.version === 'string' ? json.version : '?', range: json.peerDependencies?.netjes, nuget: field.nuget });
+  }
+  if (!found.length) return [];
+
+  /** @type {Check[]} */
+  const checks = [ok(`page packages: ${found.map((p) => `${p.name} ${p.version}`).join(', ')}`)];
+  for (const p of found) {
+    const named = `${p.name} ${p.version}`;
+    if (typeof p.range !== 'string' || p.range.trim() === '') {
+      checks.push(
+        fail(
+          `${named} has no peerDependencies.netjes, so the app refuses to mount it`,
+          `A page package names the Netjes versions it supports there: install a version of ${p.name} that does`,
+        ),
+      );
+    } else if (netjes && !satisfies(netjes, p.range, { strict: true })) {
+      // As the app and the Vite plugin say it; both stop on it.
+      checks.push(
+        fail(
+          `${named} supports Netjes ${p.range}; this app runs Netjes ${netjes}`,
+          `Install a version of ${p.name} that supports netjes ${netjes}, or a netjes in ${p.range}: the app stops at startup otherwise`,
+        ),
+      );
+    }
+    const reference = csproj && typeof p.nuget === 'string' ? packageReference(csproj.text, p.nuget) : null;
+    if (reference?.version && reference.version !== p.version) {
+      checks.push(
+        fail(
+          `${csproj?.file} references ${p.nuget} ${reference.version}, but node_modules has ${named}`,
+          'Use one version of both halves of the page package: change the PackageReference or package.json; the app stops at startup otherwise',
+        ),
+      );
+    }
+    // The name in quotes, so that '@acme/help-center-extra' does not list '@acme/help-center'.
+    if (viteConfig && !new RegExp(`(['"\`])${escapeRegExp(p.name)}\\1`).test(viteConfig.text)) {
+      checks.push(
+        warn(
+          `${named} is not in netjes({ packages }) in ${viteConfig.file}`,
+          `List it there to build its pages, as in netjes({ packages: ['${p.name}'] }), and mount it with app.MapPagePackage; or uninstall it`,
+        ),
+      );
+    }
+  }
+  return checks;
+}
+
+/**
  * The newest .cs file of the app's own, relative to `cwd` with / separators.
  * @param {string} cwd
  * @returns {Promise<{ file: string; mtimeMs: number } | null>}
@@ -482,14 +556,25 @@ export async function checkProject(cwd, cliVersion) {
   );
 
   const viteConfig = entries.find((e) => /^vite\.config\.(ts|mts|js|mjs)$/.test(e));
+  const viteText = viteConfig ? await readFile(path.join(cwd, viteConfig), 'utf8') : null;
   if (!viteConfig) {
     checks.push(fail('No vite.config.ts', "Add one: export default defineConfig({ plugins: [netjes()] }), with netjes from 'netjes/vite'"));
-  } else if (!(await readFile(path.join(cwd, viteConfig), 'utf8')).includes('netjes(')) {
+  } else if (!viteText?.includes('netjes(')) {
     checks.push(fail(`${viteConfig} does not use netjes() from 'netjes/vite'`, 'Add netjes() to its plugins'));
   } else checks.push(ok(`${viteConfig} uses netjes()`));
 
+  const manifest = hasManifest ? await readJson(path.join(cwd, 'package.json')) : null;
+  checks.push(
+    ...(await checkPagePackages(cwd, {
+      manifest,
+      netjes: packages.netjes,
+      csproj: csproj ? { file: csproj, text: await readFile(path.join(cwd, csproj), 'utf8') } : null,
+      // A config without netjes() is flagged above already.
+      viteConfig: viteConfig && viteText?.includes('netjes(') ? { file: viteConfig, text: viteText } : null,
+    })),
+  );
+
   if (hasManifest) {
-    const manifest = await readJson(path.join(cwd, 'package.json'));
     if (!manifest) checks.push(fail('package.json is not valid JSON', 'Fix its syntax; npm and Vite read it'));
     else if (manifest.scripts?.build) checks.push(ok('package.json has a build script (dotnet publish runs it)'));
     else {

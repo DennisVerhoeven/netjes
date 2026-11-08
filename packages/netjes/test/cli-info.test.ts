@@ -244,6 +244,140 @@ describe('netjes info', () => {
     expect(out).toContain('npx netjes info');
   });
 
+  const HELP = '@acme/help-center';
+
+  /**
+   * A page package the app depends on, installed in its node_modules, and listed in netjes({ packages }) unless
+   * `listed` is false.
+   */
+  async function installPagePackage({
+    version: packageVersion = '1.2.0',
+    peer = `^${version}` as string | null,
+    nuget,
+    listed = true,
+    name = HELP,
+  }: { version?: string; peer?: string | null; nuget?: string; listed?: boolean; name?: string } = {}) {
+    const manifestPath = path.join(app, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.dependencies[name] = packageVersion;
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await mkdir(path.join(app, 'node_modules', name), { recursive: true });
+    const pkg = {
+      name,
+      version: packageVersion,
+      ...(peer === null ? {} : { peerDependencies: { netjes: peer } }),
+      netjes: { pages: 'app', ...(nuget ? { nuget } : {}) },
+    };
+    await writeFile(path.join(app, 'node_modules', name, 'package.json'), JSON.stringify(pkg));
+    if (listed) {
+      const config = path.join(app, 'vite.config.ts');
+      const text = await readFile(config, 'utf8');
+      const listedNames = /packages: \[([^\]]*)\]/.exec(text)?.[1];
+      await writeFile(
+        config,
+        listedNames === undefined
+          ? text.replace('netjes()', `netjes({ packages: ['${name}'] })`)
+          : text.replace(`packages: [${listedNames}]`, `packages: [${listedNames}, '${name}']`),
+      );
+    }
+  }
+
+  it('names each page package the app depends on, with its version', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage();
+    await installPagePackage({ name: '@acme/status', version: '0.3.1' });
+
+    const { code, out } = await info();
+
+    expect(out).not.toMatch(/^[✗!]/m);
+    expect(code).toBe(0);
+    expect(out).toContain(`✓ page packages: ${HELP} 1.2.0, @acme/status 0.3.1`);
+  });
+
+  it('shows no page packages when the app depends on none', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+
+    expect((await info()).out).not.toContain('page package');
+  });
+
+  it('flags a page package whose peer range leaves out the installed netjes', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ peer: '>=99.0.0' });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 supports Netjes >=99.0.0; this app runs Netjes ${version}`);
+    expectFixes(lines);
+  });
+
+  it('flags a page package with no peer range, which the app refuses to mount', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ peer: null });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 has no peerDependencies.netjes`);
+    expectFixes(lines);
+  });
+
+  it('flags a page package whose NuGet half the project references at another version', async () => {
+    await newApp('--packages');
+    await install(app, INSTALLED);
+    await installPagePackage({ nuget: 'Acme.HelpCenter' });
+    const csproj = path.join(app, 'App.csproj');
+    await writeFile(
+      csproj,
+      (await readFile(csproj, 'utf8')).replace('</Project>', '  <ItemGroup><PackageReference Include="Acme.HelpCenter" Version="[1.1.0]" /></ItemGroup>\n</Project>'),
+    );
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ App.csproj references Acme.HelpCenter 1.1.0, but node_modules has ${HELP} 1.2.0`);
+    expectFixes(lines);
+  });
+
+  // NuGet and MSBuild resolve a range, a floating version or a property, which this does not repeat.
+  it.each([['1.2.0'], ['[1.2.0]'], ['$(HelpCenterVersion)'], ['1.*']])(
+    'passes a NuGet half the project references as %s',
+    async (reference) => {
+      await newApp('--packages');
+      await install(app, INSTALLED);
+      await installPagePackage({ nuget: 'Acme.HelpCenter' });
+      const csproj = path.join(app, 'App.csproj');
+      await writeFile(
+        csproj,
+        (await readFile(csproj, 'utf8')).replace('</Project>', `  <ItemGroup><PackageReference Include="Acme.HelpCenter" Version="${reference}" /></ItemGroup>\n</Project>`),
+      );
+
+      const { code, out } = await info();
+
+      expect(out).not.toMatch(/^[✗!]/m);
+      expect(code).toBe(0);
+    },
+  );
+
+  it('warns, without failing, about a page package that netjes({ packages }) does not list', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    // '@acme/help-center-extra' in the config is another package, which does not list this one.
+    await installPagePackage({ name: '@acme/help-center-extra' });
+    await installPagePackage({ listed: false });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(0);
+    expect(out).toContain(`! ${HELP} 1.2.0 is not in netjes({ packages }) in vite.config.ts`);
+    expect(out).not.toContain('! @acme/help-center-extra');
+    expectFixes(lines);
+  });
+
   it('gives a fix for everything it flags outside an app', async () => {
     await mkdir(app);
 
