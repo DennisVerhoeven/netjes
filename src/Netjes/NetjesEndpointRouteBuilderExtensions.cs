@@ -166,8 +166,10 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static RouteHandlerBuilder WithLayoutConventions(this RouteHandlerBuilder builder, IEndpointRouteBuilder endpoints, PageRoute route)
     {
         var registry = endpoints.ServiceProvider.GetRequiredService<LayoutLoaderRegistry>();
-        // Applied when endpoints are built, after every MapLayoutLoader call.
-        builder.Add(endpoint => registry.ApplyConventions(route, endpoint));
+        var routes = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>();
+        // Applied when endpoints are built, after every MapLayoutLoader call, to the page's segments then: a page package
+        // mounted after the loader was mapped can bring a layout above the page, whose loader's conventions apply too.
+        builder.Add(endpoint => registry.ApplyConventions(routes.Current.Find(route.Pattern) ?? route, endpoint));
         return builder;
     }
 

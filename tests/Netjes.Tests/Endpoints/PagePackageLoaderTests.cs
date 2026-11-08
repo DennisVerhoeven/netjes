@@ -191,4 +191,112 @@ public class PagePackageLoaderTests
         Assert.All(message, part => Assert.Contains(part, ex.Message));
         Assert.NotNull(what);
     }
+
+    private static void Nobody(IServiceCollection services) =>
+        services.AddAuthorization().AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Test", null);
+
+    private sealed class NobodyHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.NoResult());
+    }
+
+    private static async Task AssertUnauthorizedAsync(TestApp app, string url)
+    {
+        var response = await app.GetDataAsync(url);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("app/unauthorized.tsx", (string?)JsonNode.Parse(body)!["page"]);
+        Assert.DoesNotContain("s3cret", body);
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task TheMountsLayoutLoaderInAGroup_ProtectsTheAppsPageInThatGroup_BeforeEitherLoaderRuns(string environment)
+    {
+        var calls = 0;
+        await using var app = await StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            ["page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"],
+            environment: environment,
+            mount: m => m.MapLayoutLoader("app/(center)", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            after: a => a.MapPageLoader("/help/shortcuts", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        Assert.NotNull(app.App.Services.GetRequiredService<LayoutLoaderRegistry>().Find("app/help/(center)"));
+        await AssertUnauthorizedAsync(app, "/help/shortcuts");
+        await AssertUnauthorizedAsync(app, "/HELP/Shortcuts/");
+        await AssertUnauthorizedAsync(app, "/help/articles/x");
+        Assert.Equal(0, calls);
+        Assert.Equal(HttpStatusCode.OK, (await app.GetDataAsync("/help")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnAppLoaderMappedBeforeTheMount_GetsTheConventionsOfThePackagesLayoutLoaderAboveIt(string environment)
+    {
+        var calls = 0;
+        await using var app = await StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            ["(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"],
+            environment: environment,
+            before: a => a.MapPageLoader("/help/shortcuts", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            mount: m => m.MapLayoutLoader("/", () => Page.Props()).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        await AssertUnauthorizedAsync(app, "/help/shortcuts");
+        Assert.Equal(0, calls);
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnAppLayoutLoaderAboveTheMount_ProtectsThePackagesLoaderPagesAndPageActions(string environment)
+    {
+        var calls = 0;
+        await using var app = await StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/members/layout.tsx", "app/members/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            prefix: "/members/help",
+            environment: environment,
+            before: a => a.MapLayoutLoader("/members", () => Page.Props(new { Secret = "s3cret" })).RequireAuthorization(),
+            mount: m =>
+            {
+                m.MapPageLoader("/contact", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                m.MapPageAction("/contact", () =>
+                {
+                    calls++;
+                    return Page.Redirect("/");
+                }).DisableAntiforgery();
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        await AssertUnauthorizedAsync(app, "/members/help/contact");
+        await AssertUnauthorizedAsync(app, "/Members/HELP/contact");
+        var post = await app.Client.PostAsync("/members/help/contact", new FormUrlEncodedContent([]), Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, post.StatusCode);
+        Assert.Equal(0, calls);
+    }
 }
