@@ -100,6 +100,44 @@ public class StaticExportTests
         Assert.Contains(app.Renderer.Payloads, p => p.Contains("\"page\":\"app/not-found.tsx\""));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Export_WithAPagePackageExcludedOnItsMount_SkipsItsFilePagesAndLoaderPages_AndCompletes(bool excluded)
+    {
+        string[] appFiles = ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx"];
+        await using var app = await ExportAsync(
+            appFiles,
+            prepareRoot: root => TestPagePackage.WriteBuild(
+                root, appFiles, [new(TestPagePackage.Name, ["page.tsx", "(center)/layout.tsx", "articles/[slug]/page.tsx", "contact/page.tsx"])]),
+            map: a =>
+            {
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                mount.MapPageLoader("/articles/[slug]", (string slug) => Page.Props());
+                mount.MapPageAction("/contact", () => Page.Redirect("/help"));
+                if (excluded)
+                {
+                    mount.ExcludeFromExport();
+                }
+            });
+
+        if (!excluded)
+        {
+            // The package's page action needs a server, and its dynamic page a list of values.
+            Assert.Equal(1, _exitCode);
+            Assert.Contains(app.Logs, e => e.Message.Contains("/help/contact has a page action"));
+            return;
+        }
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("index.html")));
+        // The app's own page under the mount is the app's to exclude.
+        Assert.True(File.Exists(Out("help/shortcuts/index.html")));
+        Assert.False(File.Exists(Out("help/index.html")));
+        Assert.False(Directory.Exists(Out("help/contact")));
+        Assert.False(Directory.Exists(Out("help/articles")));
+    }
+
     [Fact]
     public async Task Export_WhenNodeCannotBeStarted_ExportsNothing_AndSaysWhyInOneLine()
     {

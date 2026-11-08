@@ -404,4 +404,24 @@ public class PagePackageLoaderTests
             Assert.StartsWith($"{method} is called on a MapGroup made from the mount of '@acme/help-center' at /help", ex.Message);
         }
     }
+
+    [Fact]
+    public async Task APostEndpointThroughTheMount_MapsBelowItsUrl_WithItsConventions()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            ["page.tsx"],
+            mount: m =>
+            {
+                m.MapPost("/feedback", () => "thanks");
+                m.MapPost("/ping", () => "pong").AllowAnonymous();
+                m.RequireAuthorization();
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.Client.PostAsync("/help/feedback", null, Ct)).StatusCode);
+        Assert.Equal("pong", await (await app.Client.PostAsync("/help/ping", null, Ct)).Content.ReadAsStringAsync(Ct));
+        Assert.NotEqual(HttpStatusCode.OK, (await app.Client.PostAsync("/ping", null, Ct)).StatusCode);
+    }
 }
