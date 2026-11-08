@@ -232,26 +232,64 @@ public class SegmentRenderingTests
         Assert.Equal(["app", "app/help", "app/help/(center)"], Ids(inside));
     }
 
+    [Theory]
+    [InlineData("at the mount's URL")]
+    [InlineData("below the mount's URL")]
+    public async Task AnAppPageOutsideTheMount_KeepsANotFoundOfItsOwn_AtOrBelowTheMountsUrl(string where)
+    {
+        var atTheUrl = where == "at the mount's URL";
+        await using var app = await MountedAsync(
+            atTheUrl
+                ? ["app/layout.tsx", "app/not-found.tsx", "app/(x)/layout.tsx", "app/(x)/help/not-found.tsx", "app/(x)/help/faq/page.tsx"]
+                : ["app/layout.tsx", "app/not-found.tsx", "app/blog/not-found.tsx", "app/blog/[slug]/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a =>
+            {
+                if (atTheUrl)
+                {
+                    a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                    a.MapPageLoader("/help/faq", () => Page.NotFound());
+                }
+                else
+                {
+                    a.MapPagePackage(TestPagePackage.Other, "/(site)");
+                    a.MapPageLoader("/blog/[slug]", () => Page.NotFound());
+                }
+            },
+            otherFiles: atTheUrl ? null : ["layout.tsx", "not-found.tsx", "about/page.tsx"]);
+
+        var response = await app.GetDataAsync(atTheUrl ? "/help/faq" : "/blog/missing");
+        var payload = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(atTheUrl ? "app/(x)/help/not-found.tsx" : "app/blog/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(atTheUrl ? ["app", "app/(x)", "app/(x)/help"] : ["app", "app/blog"], Ids(payload));
+    }
+
     [Fact]
-    public async Task UnknownUrl_BelowNoOtherMount_IsAMountsAtTheRootUrl()
+    public async Task UnknownUrl_BelowNoOtherMount_RendersTheRootNotFound_NotTheOneOfAMountAtTheRootUrl()
     {
         await using var app = await MountedAsync(
             ["app/layout.tsx", "app/not-found.tsx", "app/(shop)/layout.tsx", "app/(shop)/cart/page.tsx"],
             ["layout.tsx", "not-found.tsx", "page.tsx"],
             a =>
             {
-                a.MapPagePackage(TestPagePackage.Other, "/(site)");
+                a.MapPagePackage(TestPagePackage.Other, "/(site)").MapPageLoader("/about", () => Page.NotFound());
                 a.MapPagePackage(TestPagePackage.Descriptor, "/help");
             },
             otherFiles: ["layout.tsx", "not-found.tsx", "about/page.tsx"]);
 
         var anywhere = await app.GetDataJsonAsync("/nope");
         var help = await app.GetDataJsonAsync("/help/nope");
+        // The package's own page still renders the package's not-found, its nearest.
+        var about = await app.GetDataJsonAsync("/about");
 
-        Assert.Equal($"{TestPagePackage.Other.Name}/app/not-found.tsx", (string?)anywhere["page"]);
-        Assert.Equal(["app", "app/(site)"], Ids(anywhere));
+        Assert.Equal("app/not-found.tsx", (string?)anywhere["page"]);
+        Assert.Equal(["app"], Ids(anywhere));
         Assert.Equal($"{Help}/app/not-found.tsx", (string?)help["page"]);
         Assert.Equal(["app", "app/help"], Ids(help));
+        Assert.Equal($"{TestPagePackage.Other.Name}/app/not-found.tsx", (string?)about["page"]);
+        Assert.Equal(["app", "app/(site)"], Ids(about));
     }
 
     [Theory]

@@ -378,6 +378,14 @@ internal sealed class PageRenderer(
             return null;
         }
 
+        // Nor does a page outside it whose own nearest not-found is at the mount's URL or below it (app/(x)/help, or
+        // app/blog under a mount at /(site)); the root's is at the root URL, so a mount there leaves unknown URLs to it.
+        if ((route?.Segments ?? table.RootSegments).LastOrDefault(s => s.NotFound is not null) is { } nearest
+            && mounted.Mount.Prefix.Below(nearest.Pattern) is not null)
+        {
+            return null;
+        }
+
         var parameters = route is null ? new Dictionary<string, object?>(StringComparer.Ordinal) : ParamsFor(http, route);
         foreach (var (name, value) in values)
         {
