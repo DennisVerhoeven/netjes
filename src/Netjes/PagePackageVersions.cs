@@ -23,8 +23,8 @@ internal static partial class PagePackageVersions
         var nuget = install.Nuget ?? package.AssemblyName;
         if (!SameVersion(install.Version, package.Version))
         {
-            throw new NetjesStartupException(
-                $"{package.Name} is {install.Version} on npm and {nuget} is {package.Version} on NuGet: install one version of both");
+            var npm = install.Version.Length == 0 ? "has no version on npm," : $"is {install.Version} on npm";
+            throw new NetjesStartupException($"{package.Name} {npm} and {nuget} is {package.Version} on NuGet: install one version of both");
         }
 
         netjes ??= Running;

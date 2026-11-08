@@ -72,6 +72,16 @@ public class PagePackageVersionTests
     [Theory]
     [InlineData("Development")]
     [InlineData("Production")]
+    public async Task AnNpmHalfWithoutAVersion_StopsStartup_NamingTheNuGetHalfs(string environment)
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => StartAsync(environment, version: ""));
+
+        Assert.Equal($"{Help} has no version on npm, and Netjes.Tests is {Descriptor.Version} on NuGet: install one version of both", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
     public async Task APeerRangeWithoutTheRunningNetjes_StopsStartup_NamingBoth(string environment)
     {
         var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => StartAsync(environment, netjes: "^99.0.0"));
