@@ -83,7 +83,9 @@ internal sealed class FileSystemRouteTableProvider : IRouteTableProvider, IDispo
         {
             try
             {
-                built = new Built(Scan(_sources.Mounts), _sources.Version);
+                // The version first: a package mounted in between is then scanned again by the next read of Current.
+                var version = _sources.Version;
+                built = new Built(Scan(_sources.Mounts), version);
                 // MapPages() has thrown the conflicts it found; there is no override left to resolve one found now.
                 if (_sources.PagesMapped && built.Table.PendingConflicts is [var conflict, ..])
                 {
