@@ -328,6 +328,49 @@ public class PagePackageLoaderTests
     }
 
     [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task RequireAuthorizationOnTheMount_ProtectsTheLoaderPagesAndPageActionsMappedThroughIt(string environment)
+    {
+        var calls = 0;
+        await using var app = await StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            ["page.tsx", "articles/[slug]/page.tsx"],
+            prefix: "/[tenant]/help",
+            environment: environment,
+            mount: m =>
+            {
+                m.MapPageLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                m.MapPageLoader("/articles/[slug]", (string slug) =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                m.MapPageAction("/articles/[slug]", () =>
+                {
+                    calls++;
+                    return Page.Redirect("/");
+                }).DisableAntiforgery();
+                // After the calls, as a package's extension may put it on the mount it returns.
+                m.RequireAuthorization();
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        await AssertUnauthorizedAsync(app, "/acme/help");
+        await AssertUnauthorizedAsync(app, "/acme/help/articles/x");
+        await AssertUnauthorizedAsync(app, "/Acme/HELP/Articles/x/");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetDocumentAsync("/acme/help/articles/x")).StatusCode);
+        var post = await app.Client.PostAsync("/acme/help/articles/x", new FormUrlEncodedContent([]), Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, post.StatusCode);
+        Assert.Equal(0, calls);
+    }
+
+    [Theory]
     [InlineData("/help", "/HELP/Contact", "/help/contact")]
     [InlineData("/help", "/Help/Articles/X?tab=1", "/help/articles/X?tab=1")]
     [InlineData("/help", "/help/contact/", "/help/contact")]
