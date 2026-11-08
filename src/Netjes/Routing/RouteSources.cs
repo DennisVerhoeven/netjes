@@ -114,6 +114,17 @@ internal sealed record MountedPackage(PagePackageMount Mount, PagePackageInstall
 
     /// <summary>The package's source for the route table, with its files by id.</summary>
     public PageSource SourceOf(IEnumerable<string> files) => PageSource.Package(Name, Install.Pages, Mount.Prefix, files);
+
+    /// <summary>
+    /// A folder of the merged tree at or below the mount, <paramref name="id"/>, as the package names it: its pages folder
+    /// followed by the folder below the mount (<c>app/(center)</c> for <c>app/help/(center)</c>).
+    /// </summary>
+    /// <param name="appDirectory">The app directory as the ids of its folders start: <c>app</c>, <c>src/app</c>.</param>
+    public string FolderInThePackage(string id, string appDirectory)
+    {
+        var root = string.Join('/', new[] { appDirectory, Mount.Folder }.Where(part => part.Length > 0));
+        return id == root ? Install.Pages : $"{Install.Pages}/{id[(root.Length + 1)..]}";
+    }
 }
 
 /// <summary>
