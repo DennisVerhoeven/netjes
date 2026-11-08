@@ -321,6 +321,22 @@ public class PagePackageTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetDocumentAsync("/help")).StatusCode);
         Assert.Equal("app/unauthorized.tsx", (string?)app.Renderer.LastPayload["page"]);
         Assert.Equal(HttpStatusCode.Unauthorized, (await app.GetDataAsync("/help/articles/x")).StatusCode);
+        // Other spellings of the same URLs: routing matches literals in any case, and ignores a trailing slash.
+        foreach (var url in new[] { "/HELP", "/Help/Articles/x", "/help/articles/x/" })
+        {
+            var response = await app.GetDataAsync(url);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal("app/unauthorized.tsx", (string?)JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!["page"]);
+        }
+
+        // An encoded slash or a backslash is no separator, so it reaches no page of the package.
+        foreach (var url in new[] { "/help%2Farticles/x", "/help/articles%2Fx", "/help\\articles\\x" })
+        {
+            var response = await app.GetDataAsync(url);
+            Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.DoesNotContain(Help, await response.Content.ReadAsStringAsync(Ct));
+        }
+
         // The app's own page in the package's folder is the app's to protect: the scope the guide documents.
         Assert.Equal(HttpStatusCode.OK, (await app.GetDataAsync("/help/shortcuts")).StatusCode);
     }
