@@ -54,6 +54,9 @@ internal sealed class PageRenderer(
     private const string FailedSegmentKey = "Netjes.FailedSegment";
     // Layout loader results of this request, so a boundary rendered after a failure does not run them twice.
     private const string LoadedSegmentsKey = "Netjes.LoadedSegments";
+    // Set when a 404 renders on a page package's mount: the boundaries rendered after it, for a loader on that chain
+    // that fails or stops, stay on the chain.
+    private const string MountChainKey = "Netjes.MountChain";
 
     public static bool IsDataRequest(HttpContext http) => http.Request.Headers.ContainsKey(NetjesHeaders.Data);
 
@@ -261,6 +264,19 @@ internal sealed class PageRenderer(
         var route = RouteOf(http);
         var parameters = route is null ? NoParams : ParamsFor(http, route);
         var segments = route?.Segments ?? [];
+        // The page whose parallel route slots the segments show; on a mount's chain there is none, and they show their defaults.
+        var slotsOf = route;
+        var mount = http.Items[MountChainKey] as MountChain
+            ?? (boundary == Boundary.NotFound && limit is null ? await MountChainAsync(http, table, route) : null);
+        if (mount is not null)
+        {
+            (segments, parameters, slotsOf) = (mount.Segments, mount.Parameters, null);
+            if (mount.Denied is { } denied && denied < (limit ?? int.MaxValue))
+            {
+                (limit, includeLimit) = (denied, false);
+            }
+        }
+
         var kind = boundary switch
         {
             Boundary.NotFound => "notFound",
@@ -291,7 +307,7 @@ internal sealed class PageRenderer(
             }
 
             // The limit segment's own boundary renders in place of the whole segment, layout included.
-            var loaded = await LoadSegmentsAsync(http, [.. segments.Take(i < max ? i + 1 : i)], route);
+            var loaded = await LoadSegmentsAsync(http, [.. segments.Take(i < max ? i + 1 : i)], slotsOf);
             if (loaded.Stop is { } stop)
             {
                 await StopAsync(http, stop, loaded.StoppedAt);
@@ -305,7 +321,7 @@ internal sealed class PageRenderer(
                 chain[^1] = chain[^1] with { Error = null };
             }
 
-            await RenderAsync(http, route!.Pattern, file, kind, chain, props, status, parameters);
+            await RenderAsync(http, route?.Pattern, file, kind, chain, props, status, parameters);
             return;
         }
 
@@ -317,7 +333,7 @@ internal sealed class PageRenderer(
 
         var special = boundary == Boundary.NotFound ? table.NotFound : table.Error;
         var specialSegments = (special?.Segments ?? table.RootSegments).Take(max).ToList();
-        var root = await LoadSegmentsAsync(http, specialSegments, route);
+        var root = await LoadSegmentsAsync(http, specialSegments, slotsOf);
         if (root.Stop is { } rootStop)
         {
             await StopAsync(http, rootStop, root.StoppedAt);
@@ -325,6 +341,53 @@ internal sealed class PageRenderer(
         }
 
         await RenderAsync(http, route?.Pattern, special?.File, kind, root.Segments, props, status, parameters);
+    }
+
+    /// <summary>
+    /// A 404 on a page package's mount: its segments, the route values of the payload, and the index of the first segment
+    /// whose layout loader's authorization this user fails, from which down nothing loads or renders.
+    /// </summary>
+    private sealed record MountChain(IReadOnlyList<RouteSegment> Segments, IReadOnlyDictionary<string, object?> Parameters, int? Denied);
+
+    /// <summary>
+    /// The chain a 404 renders on when its URL is below a page package's mount that the request's page does not reach
+    /// (the fallback took it, or an app catch-all returned <c>Page.NotFound()</c>): the folders down to the deepest such
+    /// mount, from every source, so the package's not-found renders inside its layouts. The prefix's values go into the
+    /// route values, for the layout loaders and the payload's mounts. The fallback endpoint carries no layout loader's
+    /// authorization, so each loader on the chain is authorized here before any of them runs. Null elsewhere.
+    /// </summary>
+    private async Task<MountChain?> MountChainAsync(HttpContext http, RouteTable table, PageRoute? route)
+    {
+        var path = http.Request.Path.Value ?? "";
+        var (mounted, values) = sources.Mounts
+            .Select(m => (Mounted: m, Values: m.Mount.Prefix.Match(path)))
+            .Where(m => m.Values is not null)
+            .OrderByDescending(m => PartsOf(m.Mounted.Mount.Pattern).Length)
+            .ThenByDescending(m => m.Mounted.Mount.Prefix.Segments.Count)
+            .FirstOrDefault();
+        if (mounted is null || values is null)
+        {
+            return null;
+        }
+
+        // A page inside the mount has every segment of the chain, and its own not-found is as near as the mount's or nearer.
+        var segments = table.SegmentsAt(mounted.Mount.Folder);
+        var own = route?.Segments ?? [];
+        if (segments.Count <= own.Count && segments.Zip(own).All(pair => pair.First.Id == pair.Second.Id))
+        {
+            return null;
+        }
+
+        var parameters = route is null ? new Dictionary<string, object?>(StringComparer.Ordinal) : ParamsFor(http, route);
+        foreach (var (name, value) in values)
+        {
+            http.Request.RouteValues[name] = value;
+            parameters[name] = value;
+        }
+
+        var chain = new MountChain(segments, parameters, await FirstDeniedSegmentAsync(http, segments));
+        http.Items[MountChainKey] = chain;
+        return chain;
     }
 
     public Task RedirectAsync(HttpContext http, string location, bool permanent) =>

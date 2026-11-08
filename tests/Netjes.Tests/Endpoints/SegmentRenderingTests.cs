@@ -94,6 +94,65 @@ public class SegmentRenderingTests
         Assert.Equal(["app"], Ids(payload));
     }
 
+    private const string Help = TestPagePackage.Name;
+
+    /// <summary>
+    /// The app with <see cref="TestPagePackage.Descriptor"/>'s files (and <see cref="TestPagePackage.Other"/>'s, when
+    /// given) mounted by <paramref name="map"/>: installed in Development, built in Production.
+    /// </summary>
+    private static Task<TestApp> MountedAsync(
+        string[] appFiles,
+        string[] packageFiles,
+        Action<WebApplication> map,
+        string environment = "Development",
+        string[]? otherFiles = null,
+        string? pathBase = null) =>
+        TestApp.StartAsync(
+            environment == "Production" ? [] : appFiles,
+            environment: environment,
+            pathBase: pathBase,
+            prepareRoot: root =>
+            {
+                if (environment == "Production")
+                {
+                    TestPagePackage.WriteBuild(
+                        root, appFiles, [new(Help, packageFiles), .. otherFiles is null ? [] : new TestPagePackage.Built[] { new(TestPagePackage.Other.Name, otherFiles) }]);
+                    return;
+                }
+
+                TestPagePackage.Install(root, packageFiles);
+                if (otherFiles is not null)
+                {
+                    TestPagePackage.Install(root, otherFiles, name: TestPagePackage.Other.Name);
+                }
+            },
+            map: map);
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task UnknownUrlUnderAMount_RendersThePackagesNotFoundInsideItsLayoutAndTheRootLayout(string environment)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/help"),
+            environment);
+
+        var response = await app.GetDataAsync("/help/nope");
+        var payload = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        var document = await app.GetDocumentAsync("/help/nope/deeper");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal("notFound", (string?)payload["pageKind"]);
+        Assert.Equal(["app", "app/help"], Ids(payload));
+        Assert.Equal($"{Help}/app/layout.tsx", (string?)payload["segments"]![1]!["layout"]);
+        Assert.Equal(HttpStatusCode.NotFound, document.StatusCode);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)app.Renderer.LastPayload["page"]);
+        Assert.Equal("app/not-found.tsx", (string?)(await app.GetDataJsonAsync("/nope"))["page"]);
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {

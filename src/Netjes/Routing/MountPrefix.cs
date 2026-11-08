@@ -68,6 +68,53 @@ internal sealed partial class MountPrefix
         return "/" + string.Join('/', url[prefix.Count..]);
     }
 
+    /// <summary>
+    /// The values of the prefix's parameters when the request path <paramref name="path"/> (below the base path) is the
+    /// prefix's URL or a URL below it, matched segment by segment and literals in any case, as routing matches them;
+    /// null when it is neither. A value is the path's segment as routing reads it, so an encoded slash in it stays
+    /// encoded and never ends the segment, and it is never empty, <c>.</c> or <c>..</c>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Match(string path)
+    {
+        if (path.Length == 0)
+        {
+            path = "/";
+        }
+
+        if (path[0] != '/')
+        {
+            return null;
+        }
+
+        var parts = path.Split('/');
+        var url = Segments.Where(s => !IsGroup(s)).ToList();
+        if (parts.Length - 1 < url.Count)
+        {
+            return null;
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < url.Count; i++)
+        {
+            var part = parts[i + 1];
+            if (IsParameter(url[i]))
+            {
+                if (part is "" or "." or "..")
+                {
+                    return null;
+                }
+
+                values[url[i][1..^1]] = part;
+            }
+            else if (!string.Equals(url[i], part, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return values;
+    }
+
     /// <summary>The app-absolute URL pattern of <paramref name="below"/>, a pattern below the prefix (<c>/</c> is its own URL).</summary>
     public string Above(string below) => Pattern == "/" ? below : below == "/" ? Pattern : Pattern + below;
 
