@@ -1,0 +1,147 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Netjes.Routing;
+using Netjes.Tests.Endpoints;
+using Netjes.TypeGen;
+
+namespace Netjes.Tests.TypeGen;
+
+/// <summary>
+/// The generated files of an app that mounts a page package: the app's own, which holds the package's routes but none
+/// of its schemas, and the package's (<c>WriteTypes</c> on the mount), which holds them below the mount.
+/// </summary>
+public class PagePackageTypesTests
+{
+    public sealed record HomeProps(string Title);
+
+    public sealed record ArticleProps(string Slug, string Title, Href Back);
+
+    public sealed record Feedback(string? Comment);
+
+    public sealed record CenterProps(IReadOnlyList<string> Sections);
+
+    public sealed record Vote(string Article, bool Helpful);
+
+    public sealed record VoteCount(int Helpful);
+
+    public sealed record FeedbackNote(string Text);
+
+    public sealed record FeedbackReceipt(string Id);
+
+    public sealed record AppHomeProps(string Greeting);
+
+    /// <summary>The package's pages, with a group layout around its articles.</summary>
+    private static readonly string[] PackageFiles = ["page.tsx", "contact/page.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"];
+
+    /// <summary>What the package's own extension maps through its mount.</summary>
+    private static void MapHelpCenter(PagePackageBuilder mount)
+    {
+        mount.MapPageLoader("/", () => Page.Props(new HomeProps("Help")));
+        mount.MapPageLoader("/articles/[slug]", (string slug) => Page.Props(new ArticleProps(slug, "An article", new Href("/"))));
+        mount.MapPageAction("/articles/[slug]", ([FromForm] Feedback feedback) => Page.Redirect("/"));
+        mount.MapLayoutLoader("app/(center)", () => Page.Props(new CenterProps(["Getting started"])));
+        mount.MapAction("help.vote", (Vote vote) => ServerAction.Ok(new VoteCount(1)));
+        mount.MapPost("/feedback", (FeedbackNote note) => TypedResults.Ok(new FeedbackReceipt("1")));
+    }
+
+    /// <summary>The app with the package installed and mounted at <paramref name="prefix"/>.</summary>
+    private static Task<TestApp> StartAsync(
+        string[] appFiles,
+        string prefix = "/help",
+        Action<PagePackageBuilder>? mount = null,
+        Action<WebApplication>? map = null,
+        Action<NetjesOptions>? configure = null,
+        Action<IServiceCollection>? services = null,
+        Action<string>? prepareRoot = null) =>
+        TestApp.StartAsync(
+            appFiles,
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, PackageFiles);
+                prepareRoot?.Invoke(root);
+            },
+            map: a =>
+            {
+                map?.Invoke(a);
+                (mount ?? MapHelpCenter)(a.MapPagePackage(TestPagePackage.Descriptor, prefix));
+            },
+            configure: configure,
+            services: services);
+
+    private static string AppFile(TestApp app) => app.App.Services.GetRequiredService<TypeScriptGenerator>().Generate();
+
+    [Fact]
+    public async Task TheAppsFile_LeavesOutThePackagesSchemasFormsLayoutsActionsAndEndpoints()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], map: a => a.MapPageLoader("/", () => Page.Props(new AppHomeProps("Hi"))));
+
+        var output = AppFile(app);
+
+        Assert.Contains("export const AppHomeProps = z.object({", output);
+        foreach (var name in new[] { " HomeProps", "ArticleProps", "Feedback", "CenterProps", "Vote", "help.vote", "/help/feedback", "layouts" })
+        {
+            Assert.DoesNotContain(name, output);
+        }
+
+        Assert.Contains("export const pages = {\n  \"/\": AppHomeProps,\n} as const;", output);
+        Assert.Contains("export const forms = {} as const;", output);
+        Assert.Contains("export const api = {} as const;", output);
+        Assert.Contains("export type EndpointParams = Record<never, never>;", output);
+    }
+
+    [Fact]
+    public async Task TheAppsFile_RoutesThePackagesPages_WithThePrefixsParametersFirst()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], prefix: "/(marketing)/[tenant]/help");
+
+        var output = AppFile(app);
+
+        Assert.Contains(
+            "export const routePatterns = [\"/\", \"/[tenant]/help\", \"/[tenant]/help/articles/[slug]\", \"/[tenant]/help/contact\"] as const;",
+            output);
+        Assert.Contains(
+            """
+            export type RouteParams = {
+              "/": Record<string, never>;
+              "/[tenant]/help": { tenant: string };
+              "/[tenant]/help/articles/[slug]": { tenant: string; slug: string };
+              "/[tenant]/help/contact": { tenant: string };
+            };
+            """.ReplaceLineEndings("\n"),
+            output);
+        Assert.Contains("export type Route = '/' | `/${string}/help` | `/${string}/help/articles/${string}` | `/${string}/help/contact`;", output);
+        Assert.Contains("declare module 'netjes' {", output);
+    }
+
+    [Fact]
+    public async Task TheAppsFile_KeepsTheAppsLoaderForItsPageInsideThePackagesFolder()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            map: a => a.MapPageLoader("/help/shortcuts", () => Page.Props(new AppHomeProps("Keys"))));
+
+        var output = AppFile(app);
+
+        Assert.Contains("export const pages = {\n  \"/\": z.object({}),\n  \"/help/shortcuts\": AppHomeProps,\n} as const;", output);
+        Assert.Contains("\"/help/shortcuts\": Record<string, never>;", output);
+    }
+
+    /// <summary>The app's own type of the same name as one of the package's.</summary>
+    public static class AppTypes
+    {
+        public sealed record HomeProps(string Greeting, int Visits);
+    }
+
+    [Fact]
+    public async Task TheAppsFile_RenamesNoneOfTheAppsSchemas_ForAPackagesTypeOfTheSameName()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], map: a => a.MapPageLoader("/", () => Page.Props(new AppTypes.HomeProps("Hi", 1))));
+
+        var output = AppFile(app);
+
+        Assert.Contains("export const HomeProps = z.object({\n  greeting: z.string(),\n  visits: z.number().int(),\n});", output);
+        Assert.Contains("export const pages = {\n  \"/\": HomeProps,\n} as const;", output);
+    }
+}

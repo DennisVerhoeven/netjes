@@ -8,6 +8,13 @@ namespace Netjes.Routing;
 /// </summary>
 internal sealed record PageEndpointMetadata(string? Pattern);
 
+/// <summary>
+/// On a page package's own endpoints: its file pages, and its loaders, page actions, server actions and the endpoints
+/// mapped through its mount. The generated files tell the package's endpoints from the app's by it.
+/// </summary>
+/// <param name="Package">The package's npm name.</param>
+internal sealed record PagePackageEndpointMetadata(string Package);
+
 /// <summary>Leaves the antiforgery token out of the payload, so the response can be cached and shared.</summary>
 internal sealed class OmitAntiforgeryTokenMetadata;
 

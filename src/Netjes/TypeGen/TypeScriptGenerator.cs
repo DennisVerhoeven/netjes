@@ -19,6 +19,7 @@ internal sealed class TypeScriptGenerator(
     PageLoaderRegistry loaders,
     TypeGenRegistry registry,
     LayoutLoaderRegistry layoutLoaders,
+    RouteSources sources,
     IOptions<JsonOptions> json,
     IOptions<NetjesOptions> options)
 {
@@ -48,15 +49,21 @@ internal sealed class TypeScriptGenerator(
         var schemas = new ZodSchemas(json.Value.SerializerOptions);
         var table = routes.Current;
         var all = endpoints.Endpoints.OfType<RouteEndpoint>().ToList();
+        // A mounted page package's pages are routes of the app, but their schemas are in the package's own file.
+        var own = all.Where(e => PackageOf(e) is null).ToList();
 
         var pages = table.Pages
+            .Where(route => sources.PackageOf(route) is null)
             .Select(route => (route.Pattern, Type: PagePropsType(all, route.Pattern)))
             .ToList();
         var sharedType = options.Value.SharedPropsType;
-        var api = ApiEntries(all);
-        var forms = FormEntries(all);
-        var layouts = layoutLoaders.All.Where(l => l.PropsType is not null).Select(l => (l.Segment.Id, Type: l.PropsType!)).ToList();
-        var actions = ActionEntries(all);
+        var api = ApiEntries(own);
+        var forms = FormEntries(own);
+        var layouts = layoutLoaders.All
+            .Where(l => l.PropsType is not null && sources.OwnerOf(l.Segment.Layout) is null)
+            .Select(l => (l.Segment.Id, Type: l.PropsType!))
+            .ToList();
+        var actions = ActionEntries(own);
         var groups = registry.Snapshot();
 
         foreach (var type in pages.Select(p => p.Type).OfType<Type>()) schemas.Add(type);
@@ -109,7 +116,7 @@ internal sealed class TypeScriptGenerator(
         AppendMap(output, "api", api.Select(a => (a.Key, Slots(
             ("request", a.Request is null ? null : schemas.Reference(a.Request)),
             ("response", a.Response is null ? null : schemas.Reference(a.Response))))));
-        EndpointUrls.Append(output, EndpointUrls.Entries(all, IsInTheApiMap));
+        EndpointUrls.Append(output, EndpointUrls.Entries(own, IsInTheApiMap));
 
         output.Append("\n/** Form fields of page actions (`MapPageAction`), by page pattern. */\n");
         AppendMap(output, "forms", forms.Select(f => (f.Pattern, schemas.Reference(f.Type))));
@@ -156,6 +163,9 @@ internal sealed class TypeScriptGenerator(
         AppendRoutes(output, table);
         return output.ToString();
     }
+
+    /// <summary>The page package an endpoint is of: its file pages and what its mount maps; null for the app's.</summary>
+    private static string? PackageOf(RouteEndpoint endpoint) => endpoint.Metadata.GetMetadata<PagePackageEndpointMetadata>()?.Package;
 
     /// <param name="NoResult">It returns the untyped ServerActionResult (Ok(), Redirect(...), Invalid(...)): no result.</param>
     private sealed record ActionEntry(string Name, Type? Input, bool FormInput, Type? Result, bool NoResult);
