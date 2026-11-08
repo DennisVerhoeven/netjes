@@ -31,7 +31,10 @@ internal sealed class FileSystemRouteTableProvider : IRouteTableProvider, IDispo
         _sources = sources;
         _logger = logger;
         _files = new PhysicalFileProvider(context.Root);
-        _current = new Built(Scan(sources.Mounts), sources.Version);
+        var version = sources.Version;
+        var mounts = sources.Mounts;
+        _current = new Built(Scan(mounts), version);
+        Watch(mounts);
         _watch = ChangeToken.OnChange(
             () => _files.Watch($"{context.AppDirectory}/**/*"),
             Rescan);

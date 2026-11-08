@@ -26,4 +26,32 @@ public class PagePackageTests
         Assert.Equal("app/page.tsx", (string?)(await app.GetDataJsonAsync("/"))["page"]);
         Assert.Equal(HttpStatusCode.NotFound, (await app.GetDataAsync("/contact")).StatusCode);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Development_AFileAddedToThePackage_IsRoutableWithoutARestart(bool linked)
+    {
+        string? package = null;
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => package = linked
+                ? TestPagePackage.Link(root, ["page.tsx", "contact/page.tsx"])
+                : TestPagePackage.Install(root, ["page.tsx", "contact/page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help"));
+        Assert.Equal(HttpStatusCode.NotFound, (await app.GetDataAsync("/help/fresh")).StatusCode);
+
+        Directory.CreateDirectory(Path.Combine(package!, "app", "fresh"));
+        await File.WriteAllTextAsync(Path.Combine(package!, "app", "fresh", "page.tsx"), "export default () => null", Ct);
+
+        var status = HttpStatusCode.NotFound;
+        for (var attempt = 0; attempt < 50 && status != HttpStatusCode.OK; attempt++)
+        {
+            await Task.Delay(100, Ct);
+            status = (await app.GetDataAsync("/help/fresh")).StatusCode;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal($"{Help}/app/fresh/page.tsx", (string?)(await app.GetDataJsonAsync("/help/fresh"))["page"]);
+    }
 }
