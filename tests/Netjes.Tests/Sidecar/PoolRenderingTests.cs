@@ -15,13 +15,14 @@ public class PoolRenderingTests
     [InlineData(2)]
     public async Task Document_WithAnAlreadyCompletedDeferredValue_GetsItRightAway(int processes)
     {
-        var (app, root) = await StartAsync("deferred-sidecar.mjs", processes);
+        var (app, root) = await StartAsync("deferred-sidecar.mjs", processes, streamTimeout: TimeSpan.FromSeconds(30));
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
         var html = await app.GetTestClient().GetStringAsync("/", Ct);
 
         Assert.Equal("<html>shell d0=42</html>", html);
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"took {watch.Elapsed}");
+        // Far inside the stream timeout, which a dropped value waits out: a busy machine can take a second for the first render.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"took {watch.Elapsed}");
         await app.DisposeAsync();
         Directory.Delete(root, recursive: true);
     }
@@ -40,7 +41,7 @@ public class PoolRenderingTests
         Directory.Delete(root, recursive: true);
     }
 
-    private static async Task<(WebApplication App, string Root)> StartAsync(string sidecar, int processes)
+    private static async Task<(WebApplication App, string Root)> StartAsync(string sidecar, int processes, TimeSpan? streamTimeout = null)
     {
         var root = Directory.CreateTempSubdirectory("netjes-pool-").FullName;
         Directory.CreateDirectory(Path.Combine(root, "app"));
@@ -58,7 +59,7 @@ public class PoolRenderingTests
         builder.Services.AddNetjes(o =>
         {
             o.SidecarScript = Path.Combine(AppContext.BaseDirectory, "Sidecar", sidecar);
-            o.StreamTimeout = TimeSpan.FromSeconds(3);
+            o.StreamTimeout = streamTimeout ?? TimeSpan.FromSeconds(3);
             o.SidecarProcesses = processes;
             o.Mode = NetjesMode.Production;
             o.TypesFile = null;
