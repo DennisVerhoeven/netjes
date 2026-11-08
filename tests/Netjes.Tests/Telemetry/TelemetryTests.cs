@@ -95,9 +95,9 @@ public sealed class TelemetryTests : IDisposable
             prepareRoot: root => TestPagePackage.Install(root, ["page.tsx", "form/page.tsx", "loaded/page.tsx"]),
             map: a =>
             {
-                a.MapPagePackage(TestPagePackage.Descriptor, "/telemetry-help");
-                a.MapPageLoader("/telemetry-help/loaded", () => Page.Props(new { }));
-                a.MapPageAction("/telemetry-help/form", () => Page.Redirect("/")).DisableAntiforgery();
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/telemetry-help");
+                mount.MapPageLoader("/loaded", () => Page.Props(new { }));
+                mount.MapPageAction("/form", () => Page.Redirect("/")).DisableAntiforgery();
             });
 
         await app.GetDocumentAsync("/telemetry-help");
