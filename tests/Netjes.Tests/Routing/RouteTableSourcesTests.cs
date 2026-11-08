@@ -114,15 +114,163 @@ public class RouteTableSourcesTests
         Assert.Equal(Describe(RouteTable.Build(files)), Describe(Build(App(files))));
     }
 
+    // Held rather than thrown: the mount's .Override(), which runs after the table is built, can still resolve it, and
+    // MapPages() throws whatever is left.
+    [Theory]
+    [InlineData("app/help/contact/page.tsx", "contact/page.tsx")]
+    [InlineData("app/help/contact/page.tsx", "(center)/contact/page.tsx")]
+    [InlineData("app/help/(x)/contact/page.tsx", "contact/page.tsx")]
+    public void AnAppPageAndAPackagePageOfOneShape_AreAPendingConflict_AndThePackagesPageStays(string appFile, string packageFile)
+    {
+        var table = Build(App(appFile), Package("/help", packageFile));
+
+        var conflict = Assert.Single(table.PendingConflicts);
+        Assert.Equal("/help/contact", conflict.Pattern);
+        Assert.Equal(appFile, conflict.AppFile);
+        Assert.Equal($"{Help}/app/{packageFile}", conflict.PackageFile);
+        Assert.Equal(
+            $"'{Help}/app/{packageFile}' and '{appFile}' both match the URL '/help/contact'. Rename or remove the app's " +
+            "page, or replace the package's page with .Override(\"/help/contact\") on its mount.",
+            conflict.Message);
+        Assert.Equal($"{Help}/app/{packageFile}", Assert.Single(table.Pages).File);
+        Assert.Same(conflict, table.PendingConflictFor("/HELP/Contact"));
+        Assert.Null(table.PendingConflictFor("/help"));
+    }
+
+    [Fact]
+    public void PendingConflicts_ArePerShape_InOrderOfTheirUrl()
+    {
+        var table = Build(
+            App("app/help/page.tsx", "app/help/b/page.tsx", "app/help/[id]/page.tsx", "app/help/a/page.tsx"),
+            Package("/help", "a/page.tsx", "page.tsx", "[slug]/page.tsx", "c/page.tsx"));
+
+        Assert.Equal(["/help", "/help/[slug]", "/help/a"], table.PendingConflicts.Select(c => c.Pattern));
+        Assert.Equal(["/help", "/help/[slug]", "/help/a", "/help/b", "/help/c"], table.Pages.Select(p => p.Pattern));
+    }
+
+    [Theory]
+    [InlineData("contact/page.tsx", "contact/page.tsx")]
+    [InlineData("contact/page.tsx", "(center)/contact/page.tsx")]
+    public void TwoPackagesPagesOfOneShape_Throw_NamingBoth(string one, string another)
+    {
+        var ex = Assert.Throws<RouteConflictException>(() =>
+            Build(App(), NamedPackage("@acme/a", "/help", one), NamedPackage("@acme/b", "/help", another)));
+
+        Assert.Equal(
+            $"'@acme/a/app/{one}' and '@acme/b/app/{another}' both match the URL '/help/contact'. Mount one of them at another prefix.",
+            ex.Message);
+    }
+
+    [Theory]
+    [InlineData("layout")]
+    [InlineData("not-found")]
+    [InlineData("loading")]
+    [InlineData("template")]
+    [InlineData("error")]
+    [InlineData("forbidden")]
+    [InlineData("unauthorized")]
+    public void TwoSegmentFilesFromTwoSourcesInOneFolder_Throw_NamingBoth(string name)
+    {
+        var app = Assert.Throws<RouteConflictException>(() => Build(App($"app/help/{name}.tsx"), Package("/help", $"{name}.tsx")));
+        Assert.Equal(
+            $"'{Help}/app/{name}.tsx' and 'app/help/{name}.tsx' are both the {name} of app/help. Remove the app's file, " +
+            "or mount the package at another prefix.",
+            app.Message);
+
+        var packages = Assert.Throws<RouteConflictException>(() =>
+            Build(App(), NamedPackage("@acme/a", "/help", $"(g)/{name}.tsx"), NamedPackage("@acme/b", "/help/(g)", $"{name}.tsx")));
+        Assert.Equal(
+            $"'@acme/a/app/(g)/{name}.tsx' and '@acme/b/app/{name}.tsx' are both the {name} of app/help/(g). Mount one of " +
+            "them at another prefix.",
+            packages.Message);
+    }
+
+    [Fact]
+    public void SlotFilesFromTwoSourcesInOneSlot_Throw_NamingBoth()
+    {
+        var page = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/@modal/photo/page.tsx"), Package("/help", "@modal/photo/page.tsx")));
+        Assert.Contains($"'{Help}/app/@modal/photo/page.tsx' and 'app/help/@modal/photo/page.tsx'", page.Message);
+
+        var fallback = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/@modal/default.tsx"), Package("/help", "@modal/default.tsx")));
+        Assert.Contains($"'{Help}/app/@modal/default.tsx' and 'app/help/@modal/default.tsx'", fallback.Message);
+    }
+
+    [Fact]
+    public void TwoAppPagesOfOneShape_StillThrowAtOnce_AlsoWhenAPackageHasOneToo()
+    {
+        var ex = Assert.Throws<RouteConflictException>(() =>
+            Build(App("app/help/contact/page.tsx", "app/help/(x)/contact/page.tsx"), Package("/help", "contact/page.tsx")));
+
+        Assert.Equal(
+            "'app/help/(x)/contact/page.tsx' and 'app/help/contact/page.tsx' both match the URL '/help/contact'. Rename or remove one of them.",
+            ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/help/contact")]
+    [InlineData("/HELP/Contact")]
+    public void AnOverride_ResolvesThePendingConflict_WithTheAppsFileInThePackagesRoute(string pattern)
+    {
+        var table = RouteTable.Build(
+            [App("app/layout.tsx", "app/help/(site)/layout.tsx", "app/help/(site)/contact/page.tsx"), Package("/help", "contact/page.tsx")],
+            [pattern]);
+
+        Assert.Empty(table.PendingConflicts);
+        var route = Assert.Single(table.Pages);
+        Assert.Equal("/help/contact", route.Pattern);
+        Assert.Equal("app/help/(site)/contact/page.tsx", route.File);
+        Assert.Equal($"{Help}/app/contact/page.tsx", route.Overrides);
+        Assert.Equal("app", route.Source);
+        Assert.Equal(["app/layout.tsx", "app/help/(site)/layout.tsx"], route.Layouts);
+        Assert.Same(route, table.Find("/help/contact"));
+    }
+
+    [Fact]
+    public void AnOverride_KeepsThePackagesSpellingOfTheUrl()
+    {
+        var table = RouteTable.Build([App("app/help/(site)/Contact/page.tsx"), Package("/help", "contact/page.tsx")], ["/help/contact"]);
+
+        var route = Assert.Single(table.Pages);
+        Assert.Equal("/help/contact", route.Pattern);
+        Assert.Equal("/help/contact", route.Template);
+        Assert.Equal("app/help/(site)/Contact/page.tsx", route.File);
+    }
+
+    [Fact]
+    public void WithoutAnOverride_PagesLeftAloneHaveNone()
+    {
+        var table = Build(App("app/page.tsx"), Package("/help", "page.tsx"));
+
+        Assert.All(table.Pages, p => Assert.Null(p.Overrides));
+    }
+
+    [Theory]
+    [InlineData("/help/nope", new[] { "app/help/nope/page.tsx" }, new[] { "contact/page.tsx" }, "no page package has a page at '/help/nope'")]
+    [InlineData("/about", new[] { "app/about/page.tsx" }, new[] { "contact/page.tsx" }, "no page package has a page at '/about'")]
+    [InlineData("/help/contact", new string[0], new[] { "contact/page.tsx" }, "the app has no page at '/help/contact' (app/help/contact/page.tsx)")]
+    [InlineData("/help/contact", new string[0], new[] { "(center)/contact/page.tsx" }, "the app has no page at '/help/contact' (app/help/(center)/contact/page.tsx)")]
+    [InlineData("/help/articles/[slug]", new[] { "app/help/articles/[id]/page.tsx" }, new[] { "articles/[slug]/page.tsx" }, "name their parameters alike")]
+    [InlineData("/help/articles/[id]", new[] { "app/help/articles/[slug]/page.tsx" }, new[] { "articles/[slug]/page.tsx" }, "name their parameters alike")]
+    public void AnOverride_Throws_WhenItDoesNotFitTheFiles(string pattern, string[] appFiles, string[] packageFiles, string reason)
+    {
+        var ex = Assert.Throws<RouteConflictException>(() => RouteTable.Build([App(appFiles), Package("/help", packageFiles)], [pattern]));
+
+        Assert.Contains($".Override(\"{pattern}\")", ex.Message);
+        Assert.Contains(reason, ex.Message);
+    }
+
     private static string Describe(RouteTable table) => string.Join("\n", [
         .. table.Pages.Select(p =>
-            $"{p.Pattern} {p.Template} {p.File} {p.Source} [{string.Join(",", p.Parameters)}] " +
+            $"{p.Pattern} {p.Template} {p.File} {p.Source} {p.Overrides} [{string.Join(",", p.Parameters)}] " +
             $"[{string.Join(",", p.Segments.Select(Describe))}]"),
         $"not-found {table.NotFound?.File} [{string.Join(",", table.NotFound?.Segments.Select(Describe) ?? [])}]",
         $"error {table.Error?.File} [{string.Join(",", table.Error?.Segments.Select(Describe) ?? [])}]",
         $"global-error {table.GlobalError?.File}",
         $"root [{string.Join(",", table.RootSegments.Select(Describe))}]",
         .. table.Intercepts.Select(i => $"intercept {i}"),
+        .. table.PendingConflicts.Select(c => $"pending {c}"),
     ]);
 
     private static string Describe(RouteSegment s) =>
