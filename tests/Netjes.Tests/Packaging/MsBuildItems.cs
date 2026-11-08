@@ -7,9 +7,15 @@ namespace Netjes.Tests.Packaging;
 internal static class MsBuildItems
 {
     /// <summary>The items of the given types in <paramref name="project"/>, a project file in <paramref name="dir"/>.</summary>
-    public static List<JsonElement> Of(string dir, string project, params string[] types)
+    public static List<JsonElement> Of(string dir, string project, params string[] types) => Run(dir, [project, .. types.Select(t => "-getItem:" + t)]);
+
+    /// <summary>The items of type <paramref name="type"/> after <paramref name="target"/> ran, with the given properties.</summary>
+    public static List<JsonElement> After(string dir, string project, string target, string type, params string[] properties) =>
+        Run(dir, [project, "-t:" + target, .. properties.Select(p => "-p:" + p), "-getItem:" + type]);
+
+    private static List<JsonElement> Run(string dir, string[] msbuild)
     {
-        string[] arguments = ["msbuild", project, .. types.Select(t => "-getItem:" + t)];
+        string[] arguments = ["msbuild", .. msbuild];
         var start = new ProcessStartInfo("dotnet", arguments)
         {
             WorkingDirectory = dir,

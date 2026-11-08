@@ -134,7 +134,9 @@ public class StaticExportTests
     [Fact]
     public async Task Export_CopiesTheClientBuildWithoutTheManifest()
     {
-        await using var app = await ExportAsync();
+        // The record of the page packages the build holds sits next to the manifest, and stays out too.
+        await using var app = await ExportAsync(prepareRoot: root =>
+            File.WriteAllText(Path.Combine(root, "dist", "client", ".vite", "netjes.json"), """{ "packages": [] }"""));
 
         Assert.True(File.Exists(Out("assets/index-CCC.js")));
         Assert.True(File.Exists(Out("favicon.svg")));

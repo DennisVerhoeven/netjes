@@ -67,6 +67,25 @@ public class BuildTargetsTests : IDisposable
         Assert.Equal("Never", config.GetProperty("CopyToPublishDirectory").GetString());
     }
 
+    [Theory]
+    [InlineData("dist/client/.vite/manifest.json")]
+    [InlineData("dist/client/.vite/netjes.json")]
+    public void Publish_ShipsTheClientBuildsRecords(string file)
+    {
+        // The manifest, and the record of the page packages the build holds: production routes come from both.
+        Write("App.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+              <Import Project="{Path.Combine(RepoRoot(), "src", "Netjes", "build", "Netjes.targets")}" />
+            </Project>
+            """);
+        Write(file, "{}");
+
+        var published = MsBuildItems.After(_dir, "App.csproj", "NetjesPublishClient", "ResolvedFileToPublish", "NetjesSkipClientBuild=true");
+
+        Assert.Contains(file, published.Select(item => item.GetProperty("RelativePath").GetString()!.Replace('\\', '/')));
+    }
+
     private List<string> DefaultItems(params string[] types) =>
         MsBuildItems.Of(_dir, "App.csproj", types.Length == 0 ? ["Content", "None", "EmbeddedResource"] : types)
             .Select(item => item.Path())
