@@ -198,6 +198,27 @@ internal sealed class RouteSources(NetjesContext context, ViteManifestProvider m
         }
     }
 
+    private IReadOnlyList<(string Pattern, string Method)> _appMapped = [];
+
+    /// <summary>
+    /// Notes that the app maps a loader or page action (<paramref name="method"/>) for its own page at
+    /// <paramref name="pattern"/>, which an override mapped later must not replace: the page would then render with the
+    /// app's loader, in place of the package's and without the mount's conventions.
+    /// </summary>
+    public void MappedByTheApp(string pattern, string method)
+    {
+        lock (_gate)
+        {
+            Volatile.Write(ref _appMapped, [.. _appMapped, (pattern, method)]);
+        }
+    }
+
+    /// <summary>The first loader or page action the app maps for its page at <paramref name="pattern"/>, in any case; null when none.</summary>
+    public (string Pattern, string Method)? AppMappingFor(string pattern) =>
+        Volatile.Read(ref _appMapped).FirstOrDefault(m => string.Equals(m.Pattern, pattern, StringComparison.OrdinalIgnoreCase)) is { Method: not null } found
+            ? found
+            : null;
+
     private PagePackageInstall Find(PagePackage package)
     {
         if (context.ScansPageFiles)

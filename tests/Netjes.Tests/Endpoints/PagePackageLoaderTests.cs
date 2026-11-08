@@ -600,6 +600,36 @@ public class PagePackageLoaderTests
         Assert.Contains("renders with the package's loader and page action", ex.Message);
     }
 
+    [Theory]
+    [InlineData(nameof(NetjesEndpointRouteBuilderExtensions.MapPageLoader), "/help/contact")]
+    [InlineData(nameof(NetjesEndpointRouteBuilderExtensions.MapPageAction), "/help/contact")]
+    [InlineData(nameof(NetjesEndpointRouteBuilderExtensions.MapPageLoader), "/HELP/Contact/")]
+    public async Task TheAppsLoaderOrPageAction_MappedBeforeTheMount_ForAPageItThenOverrides_IsRefused(string method, string pattern)
+    {
+        // Mapped first, it would serve the page without the mount's conventions, in place of the package's loader.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["contact/page.tsx"],
+            before: a =>
+            {
+                if (method == nameof(NetjesEndpointRouteBuilderExtensions.MapPageLoader))
+                {
+                    a.MapPageLoader("/help/contact", () => Page.Props());
+                }
+                else
+                {
+                    a.MapPageAction("/help/contact", () => Page.Redirect("/"));
+                }
+            },
+            mount: m => m.Override(pattern)));
+
+        Assert.Contains($".Override(\"{pattern}\")", ex.Message);
+        Assert.Contains($"app.{method}(\"/help/contact\")", ex.Message);
+        Assert.Contains("'app/help/contact/page.tsx' replaces '@acme/help-center/app/contact/page.tsx'", ex.Message);
+        Assert.Contains("renders with the package's loader and page action", ex.Message);
+        Assert.Contains(nameof(PagePackageBuilder.Override), ex.StackTrace);
+    }
+
     [Fact]
     public async Task AnOverride_AfterMapPages_Throws()
     {

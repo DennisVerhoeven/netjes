@@ -27,7 +27,9 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         if (endpoints is not PagePackageBuilder mount)
         {
             RequireOutsideAMount(endpoints, method);
-            return new(RequireRoute(endpoints, pattern, method), endpoints, null);
+            var route = RequireRoute(endpoints, pattern, method);
+            endpoints.ServiceProvider.GetRequiredService<RouteSources>().MappedByTheApp(route.Pattern, method);
+            return new(route, endpoints, null);
         }
 
         var mounted = MountedOf(mount);

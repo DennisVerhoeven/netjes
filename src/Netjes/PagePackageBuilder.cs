@@ -53,7 +53,10 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// The package has no page there, the app has none there, their parameters are named otherwise, the app's page is
     /// outside a folder whose files wrap the package's, or the page there is another package's.
     /// </exception>
-    /// <exception cref="InvalidOperationException">Called after <c>MapPages()</c>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Called after <c>MapPages()</c>, or the app maps a loader or page action of its own for the page, which would serve
+    /// it in place of the package's.
+    /// </exception>
     public PagePackageBuilder Override(string pattern)
     {
         ArgumentNullException.ThrowIfNull(pattern);
@@ -87,7 +90,16 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
         try
         {
             // Builds the table with the override, so one that fits no page stops the app here.
-            _ = routes.Current;
+            var replaced = routes.Current.FindByShape(url);
+            // The app's page renders with the package's loader and page action. One the app mapped for its page before
+            // the mount would serve it in their place, without the mount's conventions.
+            if (replaced is { Overrides: { } file } && sources.AppMappingFor(replaced.Pattern) is var (mapped, method))
+            {
+                throw new InvalidOperationException(
+                    $".Override(\"{pattern}\") on the mount of '{name}': '{replaced.File}' replaces '{file}' and renders with the " +
+                    $"package's loader and page action, but the app maps app.{method}(\"{mapped}\") for it, which would serve the " +
+                    $"page in their place and without the mount's conventions. Remove the app's {method}, or the override.");
+            }
         }
         catch
         {
