@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Netjes.Routing;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -142,5 +143,84 @@ public class PagePackageTests
             map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
 
         Assert.Equal($"'{Help}' is mounted but not installed: npm install {Help}@{TestPagePackage.Descriptor.Version}", ex.Message);
+    }
+
+    /// <summary>The app with the package mounted at <paramref name="prefix"/>: installed in Development, built in Production.</summary>
+    private static Task<TestApp> StartWithPackageAsync(
+        string environment,
+        string[] appFiles,
+        string[] packageFiles,
+        string prefix = "/help",
+        Action<WebApplication>? map = null,
+        Action<PagePackageBuilder>? mount = null,
+        Action<IEndpointConventionBuilder>? pages = null,
+        Action<IServiceCollection>? services = null,
+        Action<WebApplication>? configureApp = null) =>
+        TestApp.StartAsync(
+            environment == "Production" ? [] : appFiles,
+            environment: environment,
+            prepareRoot: root =>
+            {
+                if (environment == "Production")
+                {
+                    TestPagePackage.WriteBuild(root, appFiles, [new(Help, packageFiles)]);
+                }
+                else
+                {
+                    TestPagePackage.Install(root, packageFiles);
+                }
+            },
+            map: a =>
+            {
+                var mounted = a.MapPagePackage(TestPagePackage.Descriptor, prefix);
+                mount?.Invoke(mounted);
+                map?.Invoke(a);
+            },
+            pages: pages,
+            services: services,
+            configureApp: configureApp);
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnAppPageAgainstAPackagePage_FailsAtMapPages_NamingBothAndTheOverride(string environment)
+    {
+        var ex = await Assert.ThrowsAsync<RouteConflictException>(() => StartWithPackageAsync(
+            environment, ["app/page.tsx", "app/help/contact/page.tsx"], ["page.tsx", "contact/page.tsx"]));
+
+        Assert.Contains("'app/help/contact/page.tsx'", ex.Message);
+        Assert.Contains($"'{Help}/app/contact/page.tsx'", ex.Message);
+        Assert.Contains(".Override(\"/help/contact\") on its mount", ex.Message);
+        Assert.Contains(nameof(NetjesEndpointRouteBuilderExtensions.MapPages), ex.StackTrace);
+    }
+
+    [Fact]
+    public async Task AnAppLoaderForAContestedPage_BeforeMapPages_ThrowsTheConflict()
+    {
+        var ex = await Assert.ThrowsAsync<RouteConflictException>(() => StartWithPackageAsync(
+            "Development",
+            ["app/help/contact/page.tsx"],
+            ["contact/page.tsx"],
+            map: a => a.MapPageLoader("/help/contact", () => Page.Props(new { })),
+            pages: _ => Assert.Fail("MapPages() ran.")));
+
+        Assert.Contains("'app/help/contact/page.tsx'", ex.Message);
+        Assert.Contains($"'{Help}/app/contact/page.tsx'", ex.Message);
+        Assert.Contains(nameof(NetjesEndpointRouteBuilderExtensions.MapPageLoader), ex.StackTrace);
+    }
+
+    [Fact]
+    public async Task AnAppLayoutLoaderAtAContestedPagesUrl_BeforeMapPages_ThrowsTheConflict()
+    {
+        var ex = await Assert.ThrowsAsync<RouteConflictException>(() => StartWithPackageAsync(
+            "Development",
+            ["app/help/page.tsx"],
+            ["layout.tsx", "page.tsx"],
+            map: a => a.MapLayoutLoader("/help", () => Page.Props(new { })),
+            pages: _ => Assert.Fail("MapPages() ran.")));
+
+        Assert.Contains("'app/help/page.tsx'", ex.Message);
+        Assert.Contains($"'{Help}/app/page.tsx'", ex.Message);
+        Assert.Contains(nameof(NetjesEndpointRouteBuilderExtensions.MapLayoutLoader), ex.StackTrace);
     }
 }
