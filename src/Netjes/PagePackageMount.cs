@@ -36,17 +36,17 @@ public sealed class PagePackageMount
     /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="path"/> is not a link that starts with one <c>/</c> (another host, a scheme, a relative URL, or a
-    /// query or fragment on its own), or <paramref name="values"/> has no value for one of the prefix's parameters, an
-    /// empty one, or <c>.</c> or <c>..</c>.
+    /// query or fragment on its own) or has a <c>.</c> or <c>..</c> segment, or <paramref name="values"/> has no value for
+    /// one of the prefix's parameters, an empty one, or <c>.</c> or <c>..</c>.
     /// </exception>
     public Href Url(string path, RouteValueDictionary? values = null)
     {
         ArgumentNullException.ThrowIfNull(path);
-        if (!Href.TryCreate(path, out _) || path[0] != '/')
+        if (!Href.TryCreate(path, out _) || path[0] != '/' || HasADotSegment(path))
         {
             throw new ArgumentException(
                 $"'{path}' is no path below the mount of '{Package.Name}': start it with '/' (but not '//' or '/\\'), as in '/' for " +
-                "the mount itself, and leave out control characters and spaces at either end.",
+                "the mount itself, with no '.' or '..' segment, and leave out control characters and spaces at either end.",
                 nameof(path));
         }
 
@@ -55,6 +55,14 @@ public sealed class PagePackageMount
             nameof(values));
         return new Href(prefix == "/" ? path : path == "/" || path[1] is '?' or '#' ? prefix + path[1..] : prefix + path);
     }
+
+    /// <summary>
+    /// Whether the path in <paramref name="url"/>, before its query or fragment, has a segment a browser resolves away and
+    /// would climb out of the mount with: <c>.</c> or <c>..</c>, also written with <c>%2e</c>, or after a <c>\</c>, which
+    /// browsers read as a <c>/</c>.
+    /// </summary>
+    private static bool HasADotSegment(string url) =>
+        url.Split('?', '#')[0].Split('/', '\\').Any(segment => segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..");
 
     /// <summary>The conventions put on the mount, which its own endpoints get: its file pages among them.</summary>
     internal List<Action<EndpointBuilder>> Conventions { get; } = [];

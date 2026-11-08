@@ -149,6 +149,9 @@ public class PagePackageMountTests
     [InlineData("/(marketing)/help", "/", "/help")]
     [InlineData("/", "/articles", "/articles")]
     [InlineData("/", "/", "/")]
+    [InlineData("/help", "/.well-known/x", "/help/.well-known/x")]
+    [InlineData("/help", "/a/.../b..", "/help/a/.../b..")]
+    [InlineData("/help", "/x?next=/../y#/..", "/help/x?next=/../y#/..")]
     public void Url_PutsAStaticPrefixInFrontOfTheMountRelativePath(string prefix, string path, string expected)
     {
         Assert.Equal(new Href(expected), MountAt(prefix).Url(path));
@@ -174,6 +177,7 @@ public class PagePackageMountTests
     [InlineData("100%", "/100%25/help/x")]
     [InlineData("a b", "/a%20b/help/x")]
     [InlineData("..a", "/..a/help/x")]
+    [InlineData("%2e%2e", "/%252e%252e/help/x")]
     [InlineData("ü", "/%C3%BC/help/x")]
     public void Url_EncodesEachValueAsOneSegment(string tenant, string expected)
     {
@@ -227,6 +231,30 @@ public class PagePackageMountTests
     [InlineData("/\t/evil.example")]
     [InlineData("/x\n")]
     public void Url_RefusesAnythingButAPathBelowTheMount(string path)
+    {
+        foreach (var prefix in new[] { "/help", "/" })
+        {
+            var ex = Assert.Throws<ArgumentException>(() => MountAt(prefix).Url(path));
+
+            Assert.Equal("path", ex.ParamName);
+        }
+    }
+
+    // (security) A dot segment would climb out of the mount once a browser resolves it, also encoded or after a backslash,
+    // which browsers read as a slash: /help/../account is /account. The mounted links in the browser refuse the same.
+    [Theory]
+    [InlineData("/../account")]
+    [InlineData("/a/../../account")]
+    [InlineData("/%2e%2e/account")]
+    [InlineData("/%2E%2e/account")]
+    [InlineData("/.%2e/account")]
+    [InlineData("/%2e./account")]
+    [InlineData("/./account")]
+    [InlineData("/a\\..\\..\\account")]
+    [InlineData("/..")]
+    [InlineData("/..?x")]
+    [InlineData("/..#x")]
+    public void Url_RefusesADotSegment(string path)
     {
         foreach (var prefix in new[] { "/help", "/" })
         {
