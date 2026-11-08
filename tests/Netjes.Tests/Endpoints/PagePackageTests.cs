@@ -1,5 +1,7 @@
 using System.Net;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -53,5 +55,32 @@ public class PagePackageTests
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal($"{Help}/app/fresh/page.tsx", (string?)(await app.GetDataJsonAsync("/help/fresh"))["page"]);
+    }
+
+    [Theory]
+    [InlineData("routes")]
+    [InlineData("generate")]
+    public async Task Commands_ScanTheMountedPackage_BeforeAnyBuild(string command)
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.out");
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx", "articles/[slug]/page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help"),
+            configure: o => o.Command = new NetjesCommandOptions { Name = command, Output = output },
+            services: s => s.AddSingleton(new Netjes.TypeGen.CommandExit(_ => { })));
+
+        var written = await File.ReadAllTextAsync(output, Ct);
+        File.Delete(output);
+        if (command == "routes")
+        {
+            var routes = JsonNode.Parse(written)!["routes"]!.AsArray();
+            Assert.Contains(routes, r => (string?)r!["pattern"] == "/help/articles/[slug]" && (string?)r["file"] == $"{Help}/app/articles/[slug]/page.tsx");
+        }
+        else
+        {
+            Assert.Contains("\"/help/articles/[slug]\"", written);
+        }
     }
 }
