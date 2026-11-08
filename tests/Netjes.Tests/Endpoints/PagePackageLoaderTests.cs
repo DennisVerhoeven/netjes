@@ -299,4 +299,32 @@ public class PagePackageLoaderTests
         Assert.Equal(HttpStatusCode.Unauthorized, post.StatusCode);
         Assert.Equal(0, calls);
     }
+
+    [Theory]
+    [InlineData("/help", "/HELP/Contact", "/help/contact")]
+    [InlineData("/help", "/Help/Articles/X?tab=1", "/help/articles/X?tab=1")]
+    [InlineData("/help", "/help/contact/", "/help/contact")]
+    [InlineData("/(site)/help", "/HELP/contact", "/help/contact")]
+    [InlineData("/[tenant]/help", "/Acme/HELP/Articles/X", "/Acme/help/articles/X")]
+    public async Task AnotherSpelling_OfAFilePageOrALoaderPageUnderTheMount_RedirectsToTheMountsSpelling(string prefix, string sent, string location)
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            ["contact/page.tsx", "articles/[slug]/page.tsx"],
+            prefix: prefix,
+            mount: m => m.MapPageLoader("/articles/[slug]", (string slug) => Page.Props()),
+            configure: o => o.TrailingSlash = TrailingSlash.Never,
+            // The request target, as Kestrel sets it; TestServer sets none.
+            beforeNetjes: a => a.Use((HttpContext http, RequestDelegate next) =>
+            {
+                http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget =
+                    Microsoft.AspNetCore.Http.Extensions.UriHelper.GetEncodedPathAndQuery(http.Request);
+                return next(http);
+            }));
+
+        var response = await app.GetDocumentAsync(sent);
+
+        Assert.Equal(HttpStatusCode.PermanentRedirect, response.StatusCode);
+        Assert.Equal(location, response.Headers.Location?.OriginalString);
+    }
 }
