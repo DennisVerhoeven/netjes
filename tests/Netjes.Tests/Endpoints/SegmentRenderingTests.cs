@@ -316,6 +316,21 @@ public class SegmentRenderingTests
         Assert.Equal(["app", "app/(site)"], Ids(about));
     }
 
+    [Fact]
+    public async Task UnknownUrl_InAnAppWithoutARootNotFound_RendersTheOneOfAMountAtTheRootUrl()
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Other, "/(site)"),
+            otherFiles: ["layout.tsx", "not-found.tsx", "about/page.tsx"]);
+
+        var anywhere = await app.GetDataJsonAsync("/nope");
+
+        Assert.Equal($"{TestPagePackage.Other.Name}/app/not-found.tsx", (string?)anywhere["page"]);
+        Assert.Equal(["app", "app/(site)"], Ids(anywhere));
+    }
+
     [Theory]
     [InlineData("/HELP/nope", true)]
     [InlineData("/Help/nope/", true)]
