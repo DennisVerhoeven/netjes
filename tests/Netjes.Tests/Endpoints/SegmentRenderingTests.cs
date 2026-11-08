@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -280,6 +282,33 @@ public class SegmentRenderingTests
         Assert.Equal(status, (int)response.StatusCode);
         Assert.Equal(boundary, (string?)payload["page"]);
         Assert.Equal(["app", "app/members"], Ids(payload));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnknownUrls_HaveOneFallbackEndpoint_LastInOrder_WithMountsOrWithout(bool mounted)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a =>
+            {
+                if (mounted)
+                {
+                    a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                    a.MapPagePackage(TestPagePackage.Other, "/[tenant]/status");
+                }
+            },
+            otherFiles: ["not-found.tsx", "page.tsx"]);
+
+        var endpoints = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<Netjes.Routing.PageEndpointMetadata>() is { Pattern: null })
+            .ToList();
+
+        var fallback = Assert.Single(endpoints);
+        Assert.Equal(int.MaxValue, fallback.Order);
+        Assert.Equal("{**path:nonfile}", fallback.RoutePattern.RawText);
     }
 
     [Fact]
