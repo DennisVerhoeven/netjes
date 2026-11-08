@@ -178,6 +178,27 @@ public class SegmentRenderingTests
         Assert.Equal(["app", "app/a"], Ids(outer));
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task UnknownUrlUnderAMountWithAValue_BindsThePrefixsValueInTheLayoutLoaders(string environment)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/[tenant]/help")
+                .MapLayoutLoader("/", (string tenant) => Page.Props(new { Tenant = tenant })),
+            environment);
+
+        var payload = await app.GetDataJsonAsync("/acme/help/nope");
+
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(["app", "app/[tenant]/help"], Ids(payload));
+        Assert.Equal("acme", (string?)payload["segments"]![1]!["props"]!["tenant"]);
+        Assert.Equal("acme", (string?)payload["params"]!["tenant"]);
+        Assert.Equal("/acme/help", (string?)payload["mounts"]![Help]);
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {
