@@ -199,6 +199,37 @@ public class SegmentRenderingTests
         Assert.Equal("/acme/help", (string?)payload["mounts"]![Help]);
     }
 
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnAppCatchAllsNotFound_UnderAMount_RendersThePackagesNotFound(string environment)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/(site)/layout.tsx", "app/(site)/[[...slug]]/page.tsx", "app/help/(center)/not-found.tsx", "app/help/(center)/shortcuts/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a =>
+            {
+                a.MapPageLoader("/[[...slug]]", () => Page.NotFound());
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                a.MapPageLoader("/help/shortcuts", () => Page.NotFound());
+            },
+            environment);
+
+        var response = await app.GetDataAsync("/help/nope");
+        var payload = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        var elsewhere = await app.GetDataJsonAsync("/elsewhere");
+        // A page inside the mount renders its own nearest not-found, as every page does.
+        var inside = await app.GetDataJsonAsync("/help/shortcuts");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(["app", "app/help"], Ids(payload));
+        Assert.Equal("app/not-found.tsx", (string?)elsewhere["page"]);
+        Assert.Equal(["app"], Ids(elsewhere));
+        Assert.Equal("app/help/(center)/not-found.tsx", (string?)inside["page"]);
+        Assert.Equal(["app", "app/help", "app/help/(center)"], Ids(inside));
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {
