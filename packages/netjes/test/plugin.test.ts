@@ -348,7 +348,7 @@ describe("page packages in the app's Tailwind CSS", () => {
   async function transform(plugin: Plugin, code: string, id: string) {
     const hook = plugin.transform;
     const handler = typeof hook === 'function' ? hook : hook?.handler;
-    const result = (await handler?.call({} as never, code, id, {})) as string | { code: string } | null | undefined;
+    const result = (await handler?.call({} as never, code, id, {} as never)) as string | { code: string } | null | undefined;
     return typeof result === 'object' && result !== null ? result.code : (result ?? code);
   }
 
