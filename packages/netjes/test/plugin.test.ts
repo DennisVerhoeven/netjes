@@ -319,7 +319,8 @@ describe('page packages', () => {
     // A file of an installed package the app does not list: the render says to list it.
     expect(api.pageUrl('@netjes-test/unlisted/app/page.tsx')).toBeNull();
     expect(api.unlistedPackage('@netjes-test/unlisted/app/page.tsx')).toBe('@netjes-test/unlisted');
-    for (const id of ['app/page.tsx', `${INSTALLED}/app/page.tsx`, 'elsewhere/page.tsx', '@netjes-test/missing/app/page.tsx', '@netjes-test']) {
+    // Nor an id whose first folders are no package's name, though they name a folder with a package.json: `..` is the app.
+    for (const id of ['app/page.tsx', `${INSTALLED}/app/page.tsx`, 'elsewhere/page.tsx', '@netjes-test/missing/app/page.tsx', '@netjes-test', '../site/page.tsx', '@netjes-test/../site/page.tsx']) {
       expect(api.unlistedPackage(id), id).toBeNull();
     }
     expect(api.pageUrl('elsewhere/page.tsx')).toBe('/elsewhere/page.tsx');

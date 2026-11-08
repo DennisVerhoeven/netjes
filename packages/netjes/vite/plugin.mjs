@@ -13,6 +13,7 @@ import {
   fileId,
   filePath,
   isConventionFile,
+  isPackageName,
   pagePackageFiles,
   resolvePagePackages,
   withPackageStyles,
@@ -250,7 +251,7 @@ export default function netjes(options = {}) {
     const length = id.startsWith('@') ? 2 : 1;
     if (segments.length <= length) return null;
     const name = segments.slice(0, length).join('/');
-    return findPackage(rootDir, name) ? name : null;
+    return isPackageName(name) && findPackage(rootDir, name) ? name : null;
   }
 
   /** @type {import('vite').Plugin} */
