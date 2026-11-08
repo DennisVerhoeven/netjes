@@ -79,7 +79,7 @@ For each package in `packages`, the plugin:
 - writes it into the client build's record ([Builds](#builds)), and stops both builds on a route handler in it, named by its file id;
 - sets up the dev server for it ([Resolution and dependencies](#resolution-and-dependencies), [The dev server](#the-dev-server)).
 
-The config fails, in one line that names the package and the fix, for a package that is not installed (`npm install <name>`), one whose `package.json` has no `netjes` field or no `peerDependencies.netjes`, a path in the field that leaves the package, a `css` file or a `sources` folder the package lacks, a name listed twice, and a name that equals the app's folder of pages or its first folder (`app`, or `src` for `src/app`), whose ids would look like the app's.
+The config fails, in one line that names the package and the fix, for a package that is not installed (`npm install <name>`), one whose `package.json` has no `netjes` field or no `peerDependencies.netjes`, a path in the field that leaves the package, a folder of pages, a `css` file or a `sources` folder the package lacks (a package whose `files` leave its pages out of what it publishes, for one), a name listed twice, and a name that equals the app's folder of pages or its first folder (`app`, or `src` for `src/app`), whose ids would look like the app's.
 
 In development, when the .NET app renders a page of an installed page package that `packages` leaves out, the render fails with `netjes: no module for <id> in this build: add '<name>' to netjes({ packages }) in vite.config.ts`, naming the app's Vite config.
 
