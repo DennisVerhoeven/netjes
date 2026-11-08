@@ -115,6 +115,8 @@ function comparators(token) {
   const match = PARTIAL.exec(token.slice(op.length));
   if (!match) return null;
   const [major, minor, patch] = [match[1], match[2], match[3]].map((part) => (part === undefined || /^[xX*]$/.test(part) ? null : Number(part)));
+  // A number after an x, as in `1.x.3`, makes it none.
+  if ((major === null && (minor ?? patch ?? null) !== null) || (minor === null && (patch ?? null) !== null)) return null;
   const pre = identifiers(match[4] ?? '');
   if (major === null || major === undefined) return op === '<' || op === '>' ? [{ op: '<', version: before(0, 0, 0) }] : [];
   if (minor === null || minor === undefined) {

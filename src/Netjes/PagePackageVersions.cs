@@ -126,6 +126,12 @@ internal static partial class PagePackageVersions
         }
 
         var (major, minor, patch) = (parts[0], parts[1], parts[2]);
+        // A number after an x, as in 1.x.3, makes it none.
+        if ((major is null && (minor ?? patch) is not null) || (minor is null && patch is not null))
+        {
+            return null;
+        }
+
         if (major is not { } m)
         {
             return op is "<" or ">" ? [new("<", Before(0, 0, 0))] : [];
