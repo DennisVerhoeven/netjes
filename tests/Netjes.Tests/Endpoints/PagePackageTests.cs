@@ -343,4 +343,36 @@ public class PagePackageTests
         Assert.Equal(["mount", "pages"], endpoint.Metadata.GetOrderedMetadata<Marker>().Select(m => m.Name));
         Assert.Equal(["pages"], appPage.Metadata.GetOrderedMetadata<Marker>().Select(m => m.Name));
     }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Production")]
+    public async Task AnAppLayoutLoaderAboveTheMount_ProtectsThePackagesFilePages(string environment)
+    {
+        var calls = 0;
+        await using var app = await StartWithPackageAsync(
+            environment,
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/members/layout.tsx", "app/members/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            prefix: "/members/help",
+            map: a => a.MapLayoutLoader("/members", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        foreach (var url in new[] { "/members/help", "/members/help/contact", "/MEMBERS/Help/contact" })
+        {
+            var response = await app.GetDataAsync(url);
+            var body = await response.Content.ReadAsStringAsync(Ct);
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal("app/unauthorized.tsx", (string?)JsonNode.Parse(body)!["page"]);
+            Assert.DoesNotContain("s3cret", body);
+        }
+
+        Assert.Equal(0, calls);
+    }
 }
