@@ -1,4 +1,5 @@
 // @ts-check
+import { readFileSync } from 'node:fs';
 import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -16,10 +17,13 @@ import {
   isPackageName,
   pagePackageFiles,
   resolvePagePackages,
+  unsupportedNetjes,
   withPackageStyles,
 } from './packages.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
+/** The version of this netjes, the app's: what a page package's peer range has to hold. */
+const VERSION = /** @type {{ version: string }} */ (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))).version;
 // The compiled modules the package exports (npm run build writes them), so the app runs the code it type-checked, and
 // gets one copy of each module: the same files the app's own imports of netjes resolve to. Vite names a file by its path
 // with forward slashes, on Windows too, so these are named that way.
@@ -265,6 +269,11 @@ export default function netjes(options = {}) {
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
       packages = resolvePagePackages(root, packageNames, appDir);
+      // A build stops here, and the development sidecar reports it as Vite failing to start.
+      for (const pkg of packages) {
+        const unsupported = unsupportedNetjes(pkg, VERSION);
+        if (unsupported) throw new Error(`netjes: ${unsupported}`);
+      }
       const listed = packages.map((pkg) => pkg.name);
       const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
