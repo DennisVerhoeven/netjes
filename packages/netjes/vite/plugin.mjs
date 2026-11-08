@@ -5,7 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { normalizePath, searchForWorkspaceRoot } from 'vite';
-import { CONVENTION_EXTENSIONS, CONVENTION_FILES, fileId, filePath, pagePackageFiles, resolvePagePackages, withPackageStyles } from './packages.mjs';
+import {
+  CONVENTION_EXTENSIONS,
+  CONVENTION_FILES,
+  commonJsDependencies,
+  fileId,
+  filePath,
+  pagePackageFiles,
+  resolvePagePackages,
+  withPackageStyles,
+} from './packages.mjs';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 // The compiled modules the package exports (npm run build writes them), so the app runs the code it type-checked, and
@@ -43,9 +52,23 @@ const BACKEND_DIRS = ['bin', 'obj', 'dist/server'];
  * @param {string} workspaceRoot
  */
 function backendDeny(workspaceRoot) {
-  const root = normalizePath(workspaceRoot).replace(/[()[\]{}!+@*?\\]/g, '\\$&');
-  return [...BACKEND_FILES, ...BACKEND_DIRS.map((dir) => `${root}/**/${dir}/**`)];
+  return [...BACKEND_FILES, ...backendDirs(workspaceRoot)];
 }
+
+/**
+ * The backend folders below a folder, such as a page package's own `bin/` and `obj/`.
+ * @param {string} dir
+ */
+function backendDirs(dir) {
+  const root = normalizePath(dir).replace(/[()[\]{}!+@*?\\]/g, '\\$&');
+  return BACKEND_DIRS.map((folder) => `${root}/**/${folder}/**`);
+}
+
+/**
+ * A path as a glob that matches it alone: the characters a glob reads, escaped as Vite's glob (tinyglobby) escapes them.
+ * @param {string} file With `/` separators.
+ */
+const literalGlob = (file) => file.replace(/[()[\]{}*?|]|[!+@](?=\()/g, '\\$&');
 
 /** Loads @tailwindcss/vite only when Tailwind is on, so apps that turn it off need not install it. */
 async function tailwind() {
@@ -195,6 +218,7 @@ export default function netjes(options = {}) {
       const root = path.resolve(config.root ?? process.cwd());
       const workspaceRoot = searchForWorkspaceRoot(root);
       packages = resolvePagePackages(root, packageNames, appDir);
+      const listed = packages.map((pkg) => pkg.name);
       const test = env.command === 'serve' && options.test !== false ? { test: testDefaults(userTest, root, query) } : {};
       // Built asset URLs live under the base path; in development the browser loads modules from the Vite server's root.
       const base = env.command === 'build' && basePath ? { base: `${basePath}/` } : {};
@@ -216,18 +240,24 @@ export default function netjes(options = {}) {
           ],
         },
         // netjes serves its own modules (client entry, runtime) and, for their source maps, its sources; a linked
-        // package lives outside the app. The workspace root keeps Vite's default, but only when the app did not narrow
-        // fs.allow itself: Vite concatenates arrays. The dev root is the .NET content root, so deny the backend's files.
-        // A configured deny list replaces Vite's defaults, which are repeated here.
+        // package lives outside the app, and so does a page package linked from elsewhere. The workspace root keeps
+        // Vite's default, but only when the app did not narrow fs.allow itself: Vite concatenates arrays. The dev root is
+        // the .NET content root, so deny the backend's files, and a page package's backend folders wherever it is (its
+        // C# half's build output, in a checkout linked from outside the workspace). A configured deny list replaces
+        // Vite's defaults, which are repeated here.
         server: {
           fs: {
-            allow: [...(config.server?.fs?.allow ? [] : [workspaceRoot]), PACKAGE_ROOT],
-            deny: [...VITE_DENY, ...backendDeny(workspaceRoot)],
+            allow: [...(config.server?.fs?.allow ? [] : [workspaceRoot]), PACKAGE_ROOT, ...packages.map((pkg) => pkg.root)],
+            deny: [...VITE_DENY, ...backendDeny(workspaceRoot), ...packages.flatMap((pkg) => backendDirs(pkg.root))],
           },
         },
         optimizeDeps: {
-          // There is no index.html to scan; start from the pages so dependencies are pre-bundled up front.
-          entries: [appFiles.slice(1)],
+          // There is no index.html to scan; start from the pages so dependencies are pre-bundled up front, a page
+          // package's included: Vite globs these from the root, in node_modules and outside the root too.
+          entries: [
+            appFiles.slice(1),
+            ...packages.map((pkg) => `${literalGlob(normalizePath(path.relative(root, `${pkg.root}/${pkg.pages}`)))}/${appFiles.slice(appDir.length + 2)}`),
+          ],
           include: [
             'react',
             'react-dom',
@@ -235,14 +265,19 @@ export default function netjes(options = {}) {
             ...(query ? ['@tanstack/react-query'] : []),
             // Imported from inside netjes (netjes/vitals), which the dependency scan skips: found late, it would reload the page.
             ...(canResolve(root, 'web-vitals') ? ['web-vitals'] : []),
+            // A page package is not pre-bundled (below), so its CommonJS dependencies are, through it, as Vite asks.
+            ...packages.flatMap((pkg) => commonJsDependencies(pkg).map((dependency) => `${pkg.name} > ${dependency}`)),
           ],
           // netjes imports the virtual modules below, which pre-bundling cannot resolve, and the plugin loads its query
           // shell by path: a pre-bundled copy of netjes would hold a second router, whose contexts the app's pages miss.
-          exclude: ['netjes'],
+          // A page package's pages are loaded by path, so a pre-bundled copy of it would be a second one of each of its
+          // modules too.
+          exclude: ['netjes', ...listed],
         },
         // netjes imports the plugin's virtual modules and must share its module instances with the app's pages, so Vite
-        // processes it in development as well; production bundles everything for the sidecar.
-        ssr: { noExternal: env.command === 'build' ? true : ['netjes'] },
+        // processes it in development as well, and a page package's TypeScript sources with it; production bundles
+        // everything for the sidecar.
+        ssr: { noExternal: env.command === 'build' ? true : ['netjes', ...listed] },
         build: isSsrBuild
           ? {
               outDir: 'dist/server',

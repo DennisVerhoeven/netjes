@@ -170,6 +170,77 @@ describe('page packages', () => {
     expect((await listing([])).config?.resolve?.dedupe).not.toContain('netjes');
     expect((await listing([])).config?.resolve?.dedupe).not.toContain('zod');
   });
+
+  it('lets the dev server read each package by its real path, also when the app narrowed fs.allow', async () => {
+    const allow = (await listing([INSTALLED, LINKED])).config?.server?.fs?.allow ?? [];
+    expect(allow).toEqual(expect.arrayContaining([normalizePath(app.installed), normalizePath(app.linked)]));
+
+    const narrowed = (await listing([LINKED], {}, { server: { fs: { allow: [path.join(app.root, 'app')] } } })).config?.server?.fs?.allow;
+    expect(narrowed).toEqual([fileURLToPath(new URL('..', import.meta.url)), normalizePath(app.linked)]);
+  });
+
+  it("keeps each package's backend folders out of the dev server, wherever the package is", async () => {
+    const picomatch = createRequire(import.meta.url)('picomatch') as (glob: string, options: { dot: boolean; nocase: boolean }) => (path: string) => boolean;
+    const deny = (await listing([INSTALLED, LINKED])).config?.server?.fs?.deny ?? [];
+    const denied = (file: string) => deny.some((glob) => picomatch(glob.includes('/') ? glob : `**/${glob}`, { dot: true, nocase: true })(normalizePath(file)));
+
+    // The linked package lies outside the workspace root, whose backend folders the plugin denies already.
+    for (const file of ['obj/project.assets.json', 'bin/Debug/net10.0/Linked.deps.json', 'dist/server/server-entry.js', 'Linked.csproj']) {
+      expect(denied(path.join(app.linked, file)), file).toBe(true);
+    }
+    expect(denied(path.join(app.installed, 'obj/project.assets.json'))).toBe(true);
+    expect(denied(path.join(app.linked, 'pages/page.tsx'))).toBe(false);
+    expect(denied(path.join(app.linked, 'lib/obj.ts'))).toBe(false);
+  });
+
+  it('has Vite process the packages in development, without pre-bundling them, as it does netjes', async () => {
+    const { config } = await listing([INSTALLED, LINKED]);
+    expect(config?.optimizeDeps?.exclude).toEqual(['netjes', INSTALLED, LINKED]);
+    expect(config?.ssr?.noExternal).toEqual(['netjes', INSTALLED, LINKED]);
+    // A build bundles everything for the sidecar.
+    expect((await listing([INSTALLED], {}, {}, { command: 'build', mode: 'production', isSsrBuild: true })).config?.ssr?.noExternal).toBe(true);
+    // Without packages, as before.
+    expect((await listing([])).config?.optimizeDeps?.exclude).toEqual(['netjes']);
+  });
+
+  it("pre-bundles dependencies starting from each package's convention files too", async () => {
+    const entries = (await listing([INSTALLED, LINKED])).config?.optimizeDeps?.entries as string[];
+    const files = '**/{page,layout,template,loading,error,not-found,forbidden,unauthorized,global-error,default}.{tsx,jsx}';
+    // Relative to the root, as Vite globs them, with the characters a glob reads escaped.
+    const glob = (dir: string) => `${normalizePath(path.relative(app.root, dir)).replace(/[()[\]{}*?|]|[!+@](?=\()/g, '\\$&')}/${files}`;
+    expect(entries).toEqual([`app/${files}`, glob(path.join(app.installed, 'app')), glob(path.join(app.linked, 'pages'))]);
+
+    // Vite's glob finds them: in node_modules, and outside the root.
+    const { glob: find } = createRequire(createRequire(import.meta.url).resolve('vite'))('tinyglobby') as {
+      glob: (patterns: string[], options: { cwd: string; absolute: boolean }) => Promise<string[]>;
+    };
+    const found = (await find(entries.slice(1), { cwd: app.root, absolute: true })).map((file) => normalizePath(file)).sort();
+    expect(found).toContain(normalizePath(path.join(app.installed, 'app/(center)/articles/[slug]/page.tsx')));
+    expect(found).toContain(normalizePath(path.join(app.linked, 'pages/page.tsx')));
+    expect(found).toHaveLength(8);
+  });
+
+  it("pre-bundles a package's CommonJS dependencies through the package, which Vite does not pre-bundle", async () => {
+    await app.write('node_modules/netjes-test-cjs/package.json', JSON.stringify({ name: 'netjes-test-cjs', version: '1.0.0', main: 'index.js' }));
+    await app.write('node_modules/netjes-test-esm/package.json', JSON.stringify({ name: 'netjes-test-esm', version: '1.0.0', type: 'module' }));
+    await app.write('node_modules/netjes-test-exports/package.json', JSON.stringify({ name: 'netjes-test-exports', exports: { import: './index.js', require: './index.cjs' } }));
+    await app.write('node_modules/netjes-test-module/package.json', JSON.stringify({ name: 'netjes-test-module', main: 'index.cjs', module: 'index.js' }));
+    await app.write(
+      'node_modules/@netjes-test/deps/package.json',
+      JSON.stringify({
+        name: '@netjes-test/deps',
+        version: '1.0.0',
+        peerDependencies: { netjes: '*' },
+        netjes: {},
+        dependencies: { 'netjes-test-cjs': '1', 'netjes-test-esm': '1', 'netjes-test-exports': '1', 'netjes-test-module': '1', netjes: '*', 'netjes-test-gone': '1' },
+      }),
+    );
+
+    const include = (await listing(['@netjes-test/deps'])).config?.optimizeDeps?.include ?? [];
+
+    expect(include).toContain('@netjes-test/deps > netjes-test-cjs');
+    expect(include.filter((entry) => entry.startsWith('@netjes-test/deps >'))).toEqual(['@netjes-test/deps > netjes-test-cjs']);
+  });
 });
 
 describe('page packages that cannot be read', () => {

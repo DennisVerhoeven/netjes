@@ -165,6 +165,24 @@ function readPagePackage(root, name) {
 }
 
 /**
+ * The package's dependencies that are CommonJS, as Vite has to pre-bundle them for the browser: neither `"type":
+ * "module"`, a `module` entry nor an `import` condition in its `exports`. A dependency that is not installed for the
+ * package, and netjes, which Vite never pre-bundles, are left out.
+ * @param {PagePackage} pkg
+ * @returns {string[]}
+ */
+export function commonJsDependencies(pkg) {
+  return pkg.dependencies.filter((dependency) => {
+    if (dependency === 'netjes') return false;
+    const manifestPath = findPackage(pkg.root, dependency);
+    if (!manifestPath) return false;
+    const manifest = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(manifestPath, 'utf8')));
+    if (manifest.type === 'module' || typeof manifest.module === 'string') return false;
+    return !/"import"\s*:|\.mjs"/.test(JSON.stringify(manifest.exports ?? null));
+  });
+}
+
+/**
  * A package's convention files, relative to its folder of pages, in ordinal order. Like the app's glob, this leaves out
  * node_modules and hidden folders.
  * @param {PagePackage} pkg
