@@ -43,6 +43,19 @@ internal sealed record PagePackageInstall(string Name, string Version, string Ne
             throw new NetjesStartupException($"'{name}' is mounted, but it is not a page package: its package.json has no \"netjes\" field.");
         }
 
+        static string? Text(JsonElement element, string property) =>
+            element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+
+        // The Netjes versions it supports, which the version checks hold the running Netjes against.
+        var range = manifest.TryGetProperty("peerDependencies", out var peers) ? Text(peers, "netjes") : null;
+        if (string.IsNullOrWhiteSpace(range))
+        {
+            throw new NetjesStartupException(
+                $"'{name}' has no peerDependencies.netjes in its package.json: a page package names the Netjes versions it supports there.");
+        }
+
         string Inside(string key, JsonElement value) =>
             value.ValueKind == JsonValueKind.String && IsInside(value.GetString()!)
                 ? value.GetString()!
@@ -78,15 +91,10 @@ internal sealed record PagePackageInstall(string Name, string Version, string Ne
                 : $"'{name}' has \"pages\": \"{pages}\" in the \"netjes\" field of its package.json, which is no folder in the package.");
         }
 
-        static string? Text(JsonElement element, string property) =>
-            element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
-                ? value.GetString()
-                : null;
-
         return new PagePackageInstall(
             name,
             Text(manifest, "version") ?? "",
-            manifest.TryGetProperty("peerDependencies", out var peers) ? Text(peers, "netjes") ?? "" : "",
+            range,
             pages,
             Text(field, "nuget"))
         {

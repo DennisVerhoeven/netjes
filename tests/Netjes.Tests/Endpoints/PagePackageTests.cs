@@ -421,6 +421,24 @@ public class PagePackageTests
     }
 
     [Theory]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": {} }""")]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": {}, "peerDependencies": { "react": "^19.0.0" } }""")]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": {}, "peerDependencies": { "netjes": " " } }""")]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": {}, "peerDependencies": { "netjes": 4 } }""")]
+    [InlineData("""{ "name": "@acme/help-center", "netjes": {}, "peerDependencies": "netjes" }""")]
+    public async Task Development_APackageWithoutANetjesPeerRange_StopsStartup(string packageJson)
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root => File.WriteAllText(Path.Combine(TestPagePackage.Install(root, ["page.tsx"]), "package.json"), packageJson),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Equal(
+            $"'{Help}' has no peerDependencies.netjes in its package.json: a page package names the Netjes versions it supports there.",
+            ex.Message);
+    }
+
+    [Theory]
     [InlineData(null, "has no app folder, where a page package's pages are unless \"pages\" in the \"netjes\" field of its package.json names another.")]
     [InlineData("pages", "has \"pages\": \"pages\" in the \"netjes\" field of its package.json, which is no folder in the package.")]
     public async Task Development_APackageWithoutItsPagesFolder_StopsStartup(string? pages, string reason)
