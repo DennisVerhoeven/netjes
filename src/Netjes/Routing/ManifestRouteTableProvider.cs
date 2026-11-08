@@ -44,7 +44,24 @@ internal sealed class ManifestRouteTableProvider(ViteManifestProvider manifest, 
     {
         var built = manifest.Manifest;
         return RouteTable.Build(
-            [PageSource.App(built.SourceFiles, context.AppDirectory), .. mounts.Select(m => m.SourceOf(m.Install.Files!.Keys))],
+            [PageSource.App(built.SourceFiles, context.AppDirectory), .. mounts.Select(m => m.SourceOf(BuiltFiles(built, m)))],
             sources.Overrides);
+    }
+
+    // A file the record lists but the manifest does not would be routed with no chunk to load in the browser.
+    private static IEnumerable<string> BuiltFiles(ViteManifest built, MountedPackage mounted)
+    {
+        var files = mounted.Install.Files!;
+        foreach (var (id, key) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
+        {
+            if (!built.Builds(key))
+            {
+                throw new NetjesStartupException(
+                    $"'{id}' of the page package '{mounted.Name}' is in the client build's record, but its manifest has no '{key}'. " +
+                    "The build is incomplete: build again with `npm run build`.");
+            }
+        }
+
+        return files.Keys;
     }
 }

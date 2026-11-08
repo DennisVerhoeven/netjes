@@ -101,4 +101,46 @@ public class PagePackageTests
         Assert.Contains("/assets/module-2.js", assets["modulePreloads"]!.AsArray().Select(n => (string?)n));
         Assert.Contains("/assets/module-2.css", assets["stylesheets"]!.AsArray().Select(n => (string?)n));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Production_APackageMissingFromTheRecord_StopsStartup_NamingTheFix(bool otherPackageBuilt)
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.WriteBuild(
+                root, ["app/page.tsx"], otherPackageBuilt ? [new(TestPagePackage.Other.Name, ["page.tsx"])] : []),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Equal(
+            $"'{Help}' is mounted but not in the client build: add it to netjes({{ packages }}) in vite.config.ts and build again",
+            ex.Message);
+    }
+
+    [Fact]
+    public async Task Production_AFileInTheRecordWithoutAManifestKey_StopsStartup()
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.WriteBuild(
+                root, ["app/page.tsx"], [new(Help, ["page.tsx", "contact/page.tsx"])], unbuilt: [$"{Help}/app/contact/page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Contains($"'{Help}/app/contact/page.tsx'", ex.Message);
+        Assert.Contains($"node_modules/{Help}/app/contact/page.tsx", ex.Message);
+        Assert.Contains("npm run build", ex.Message);
+    }
+
+    [Fact]
+    public async Task Development_APackageThatIsNotInstalled_StopsStartup_NamingTheVersionToInstall()
+    {
+        var ex = await Assert.ThrowsAsync<NetjesStartupException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help")));
+
+        Assert.Equal($"'{Help}' is mounted but not installed: npm install {Help}@{TestPagePackage.Descriptor.Version}", ex.Message);
+    }
 }
