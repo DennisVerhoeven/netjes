@@ -232,6 +232,28 @@ public class SegmentRenderingTests
         Assert.Equal(["app", "app/help", "app/help/(center)"], Ids(inside));
     }
 
+    [Fact]
+    public async Task UnknownUrl_BelowNoOtherMount_IsAMountsAtTheRootUrl()
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/(shop)/layout.tsx", "app/(shop)/cart/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "page.tsx"],
+            a =>
+            {
+                a.MapPagePackage(TestPagePackage.Other, "/(site)");
+                a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+            },
+            otherFiles: ["layout.tsx", "not-found.tsx", "about/page.tsx"]);
+
+        var anywhere = await app.GetDataJsonAsync("/nope");
+        var help = await app.GetDataJsonAsync("/help/nope");
+
+        Assert.Equal($"{TestPagePackage.Other.Name}/app/not-found.tsx", (string?)anywhere["page"]);
+        Assert.Equal(["app", "app/(site)"], Ids(anywhere));
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)help["page"]);
+        Assert.Equal(["app", "app/help"], Ids(help));
+    }
+
     [Theory]
     [InlineData("/HELP/nope", true)]
     [InlineData("/Help/nope/", true)]
