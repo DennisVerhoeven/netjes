@@ -106,11 +106,13 @@ const before = (/** @type {number} */ major, /** @type {number} */ minor, /** @t
 
 /**
  * The comparators one comparator of a range stands for, as npm reads it: `^1.2` is `>=1.2.0 <2.0.0-0`. Null for one
- * that is none.
+ * that is none. With `includePrerelease`, a lower bound that the range leaves to npm (`1.2` in `^1.2`, `~1.2`, `>=1.2`)
+ * is the lowest prerelease, `>=1.2.0-0`, as npm makes it.
  * @param {string} token
+ * @param {boolean} includePrerelease
  * @returns {Comparator[] | null}
  */
-function comparators(token) {
+function comparators(token, includePrerelease) {
   const op = OPERATOR.exec(token)?.[1] ?? '';
   const match = PARTIAL.exec(token.slice(op.length));
   if (!match) return null;
@@ -118,27 +120,29 @@ function comparators(token) {
   // A number after an x, as in `1.x.3`, makes it none.
   if ((major === null && (minor ?? patch ?? null) !== null) || (minor === null && (patch ?? null) !== null)) return null;
   const pre = identifiers(match[4] ?? '');
+  /** @param {number} major @param {number} minor @returns {SemVer} */
+  const lowest = (major, minor) => semver(major, minor, 0, includePrerelease ? [0] : []);
   if (major === null || major === undefined) return op === '<' || op === '>' ? [{ op: '<', version: before(0, 0, 0) }] : [];
   if (minor === null || minor === undefined) {
     /** @type {Record<string, Comparator[]>} */
     const byMajor = {
-      '>': [{ op: '>=', version: semver(major + 1, 0, 0) }],
-      '>=': [{ op: '>=', version: semver(major, 0, 0) }],
+      '>': [{ op: '>=', version: lowest(major + 1, 0) }],
+      '>=': [{ op: '>=', version: lowest(major, 0) }],
       '<': [{ op: '<', version: before(major, 0, 0) }],
       '<=': [{ op: '<', version: before(major + 1, 0, 0) }],
     };
-    return byMajor[op] ?? [{ op: '>=', version: semver(major, 0, 0) }, { op: '<', version: before(major + 1, 0, 0) }];
+    return byMajor[op] ?? [{ op: '>=', version: lowest(major, 0) }, { op: '<', version: before(major + 1, 0, 0) }];
   }
   if (patch === null || patch === undefined) {
     /** @type {Record<string, Comparator[]>} */
     const byMinor = {
-      '>': [{ op: '>=', version: semver(major, minor + 1, 0) }],
-      '>=': [{ op: '>=', version: semver(major, minor, 0) }],
+      '>': [{ op: '>=', version: lowest(major, minor + 1) }],
+      '>=': [{ op: '>=', version: lowest(major, minor) }],
       '<': [{ op: '<', version: before(major, minor, 0) }],
       '<=': [{ op: '<', version: before(major, minor + 1, 0) }],
-      '^': [{ op: '>=', version: semver(major, minor, 0) }, { op: '<', version: major > 0 ? before(major + 1, 0, 0) : before(0, minor + 1, 0) }],
+      '^': [{ op: '>=', version: lowest(major, minor) }, { op: '<', version: major > 0 ? before(major + 1, 0, 0) : before(0, minor + 1, 0) }],
     };
-    return byMinor[op] ?? [{ op: '>=', version: semver(major, minor, 0) }, { op: '<', version: before(major, minor + 1, 0) }];
+    return byMinor[op] ?? [{ op: '>=', version: lowest(major, minor) }, { op: '<', version: before(major, minor + 1, 0) }];
   }
   const version = semver(major, minor, patch, pre);
   switch (op) {
@@ -161,13 +165,18 @@ function comparators(token) {
  * The comparators of one part of a range, between `||`s: a hyphen range (`1.2 - 2.3.4`), or comparators that a version
  * has to pass all of, separated by spaces. Null for a part that is none.
  * @param {string} part
+ * @param {boolean} includePrerelease
  * @returns {Comparator[] | null}
  */
-function comparatorSet(part) {
+function comparatorSet(part, includePrerelease) {
   const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(part);
   if (hyphen) {
     // From the first version, up to and with the second: `<=2.3` is below 2.4.0, as npm reads a partial version there.
-    const [from, to] = [comparators(`>=${hyphen[1]}`), comparators(`<=${hyphen[2]}`)];
+    // With prereleases included, npm starts a hyphen range at the first version's lowest prerelease, unless it names one.
+    const from = comparators(`>=${hyphen[1]}`, includePrerelease)?.map((c) =>
+      includePrerelease && c.version.pre.length === 0 ? { ...c, version: { ...c.version, pre: [0] } } : c,
+    );
+    const to = comparators(`<=${hyphen[2]}`, includePrerelease);
     return from && to ? [...from, ...to] : null;
   }
   // `>= 1.2.3` is `>=1.2.3`.
@@ -175,7 +184,7 @@ function comparatorSet(part) {
   /** @type {Comparator[]} */
   const set = [];
   for (const token of tokens) {
-    const parsed = comparators(token);
+    const parsed = comparators(token, includePrerelease);
     if (!parsed) return null;
     set.push(...parsed);
   }
@@ -193,20 +202,21 @@ function passes(version, { op, version: bound }) {
  * `=`, comparators separated by spaces, hyphen ranges and `||`. `^0.0.4` is `>=0.0.4 <0.0.5-0`, and a prerelease is in
  * a range only when a comparator names a prerelease of the same major.minor.patch: `0.0.5-rc.1` is not in `^0.0.4`.
  * Build metadata (`+sha`) is left out. In strict mode a range or a version that is none satisfies nothing; otherwise
- * it passes, so that only a definite mismatch is reported.
+ * it passes, so that only a definite mismatch is reported. With `includePrerelease`, as npm checks `engines`, a
+ * prerelease is in a range by its place in the order alone: `24.16.0-rc.1` is in `^24.15.0`.
  * @param {string | undefined} version
  * @param {string} range
- * @param {{ strict?: boolean }} [options]
+ * @param {{ strict?: boolean; includePrerelease?: boolean }} [options]
  */
-export function satisfies(version, range, { strict = false } = {}) {
+export function satisfies(version, range, { strict = false, includePrerelease = false } = {}) {
   const have = parseSemver(version ?? '');
-  const sets = range.split('||').map((part) => comparatorSet(part.trim()));
+  const sets = range.split('||').map((part) => comparatorSet(part.trim(), includePrerelease));
   if (!have || sets.some((set) => set === null)) return !strict;
   return sets.some(
     (set) =>
       set !== null &&
       set.every((comparator) => passes(have, comparator)) &&
-      (have.pre.length === 0 || set.some(({ version: bound }) => bound.pre.length > 0 && compare(bound.main, have.main) === 0)),
+      (includePrerelease || have.pre.length === 0 || set.some(({ version: bound }) => bound.pre.length > 0 && compare(bound.main, have.main) === 0)),
   );
 }
 
@@ -224,7 +234,8 @@ async function readJson(file) {
  * @returns {Check}
  */
 export function checkNode(version) {
-  if (satisfies(version, NODE_RANGE)) return ok(`Node.js ${version}`);
+  // A prerelease of Node.js is checked by its place in the order, as npm checks a package's engines.
+  if (satisfies(version, NODE_RANGE, { includePrerelease: true })) return ok(`Node.js ${version}`);
   const major = parseVersion(version)?.[0] ?? 0;
   const fix = `Install a Node.js release that matches ${NODE_RANGE}: ${NODE_DOWNLOAD}`;
   // The odd release lines between the supported ones (23, 25) are short-lived; they may work, but are not supported.

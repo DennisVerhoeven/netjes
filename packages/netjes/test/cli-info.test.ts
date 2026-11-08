@@ -264,7 +264,13 @@ describe('the Node.js check', () => {
     expect(check).toEqual({ status: 'ok', text: `Node.js ${node}` });
   });
 
-  it.each(['20.18.1', '21.7.3', '22.0.0', '22.12.0', '22.22.1', '24.0.0', '24.14.1'])('Node.js %s is too old', (node) => {
+  it.each(['24.16.0-rc.1', '26.1.0-nightly20261101abcdef'])('Node.js %s, a prerelease inside the range, passes, as npm checks engines', (node) => {
+    const check = checkNode(node);
+
+    expect(check).toEqual({ status: 'ok', text: `Node.js ${node}` });
+  });
+
+  it.each(['20.18.1', '21.7.3', '22.0.0', '22.12.0', '22.22.1', '24.0.0', '24.14.1', '24.15.0-rc.1', '26.0.0-rc.1'])('Node.js %s is too old', (node) => {
     const check = checkNode(node);
 
     expect(check.status).toBe('fail');
@@ -305,6 +311,27 @@ describe('version ranges', () => {
   it.each(cases)('$version in "$range" is $expected, as npm reads it', ({ range, version, expected }) => {
     expect(satisfies(version, range, { strict: true })).toBe(expected);
     expect(satisfies(version, range)).toBe(expected);
+  });
+
+  // As npm's satisfies(version, range, { includePrerelease: true }), which npm checks engines with: a prerelease is in a
+  // range by its order alone, and a range's lower bound that npm fills in is the lowest prerelease, -0.
+  it.each([
+    ['~1.2', '1.2.0-rc.1', true],
+    ['1.2.x', '1.2.0-rc.1', true],
+    ['^1', '1.0.0-rc.1', true],
+    ['>=1.2', '1.2.0-0', true],
+    ['>1.2', '1.3.0-rc.1', true],
+    ['1.2.3 - 2', '1.2.3-rc.1', true],
+    ['1.2 - 2', '1.2.0-rc.1', true],
+    ['1.2.3 - 2.3.4', '2.3.4-rc.1', true],
+    ['^1.2.3', '1.5.0-rc.1', true],
+    ['*', '1.0.0-rc.1', true],
+    ['^1.2.3', '1.2.3-rc.1', false],
+    ['~1.2.3', '1.2.3-rc.1', false],
+    ['>=1.2.3', '1.2.3-rc.1', false],
+    ['<1.2', '1.2.0-rc.1', false],
+  ] as const)('with prereleases included, %s holds %s: %s, as npm reads it', (range, version, expected) => {
+    expect(satisfies(version, range, { strict: true, includePrerelease: true })).toBe(expected);
   });
 
   it.each(ranges.invalid)('"%s" is no range, which nothing satisfies in strict mode, and everything otherwise', (range) => {
