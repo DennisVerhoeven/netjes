@@ -258,6 +258,30 @@ public class SegmentRenderingTests
         }
     }
 
+    [Theory]
+    [InlineData("throws", 500, "app/members/error.tsx")]
+    [InlineData("not found", 404, "app/members/not-found.tsx")]
+    [InlineData("forbidden", 403, "app/members/forbidden.tsx")]
+    public async Task ALayoutLoaderOnTheMountsChain_ThatStops_RendersTheBoundaryAboveItOnTheChain(string stops, int status, string boundary)
+    {
+        await using var app = await MountedAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/members/layout.tsx", "app/members/not-found.tsx", "app/members/error.tsx", "app/members/forbidden.tsx", "app/members/page.tsx"],
+            ["layout.tsx", "not-found.tsx", "error.tsx", "page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/members/help").MapLayoutLoader("/", PageResult () => stops switch
+            {
+                "throws" => throw new InvalidOperationException("down"),
+                "not found" => Page.NotFound(),
+                _ => Page.Forbidden(),
+            }));
+
+        var response = await app.GetDataAsync("/members/help/nope");
+        var payload = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.Equal(boundary, (string?)payload["page"]);
+        Assert.Equal(["app", "app/members"], Ids(payload));
+    }
+
     [Fact]
     public async Task LoaderException_RendersTheNearestErrorBoundaryOutsideItsOwnSegment()
     {
