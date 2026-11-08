@@ -1,22 +1,24 @@
 // @vitest-environment node
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { type PackagesApp, createPackagesApp } from './page-packages.ts';
 
-// The sidecar in development: it hosts a Vite dev server for an app in a temporary folder, whose node_modules is this
-// workspace's. Vite's watcher is off, so Vite never learns of a file the test adds: what .NET routes as soon as its own
+// The sidecar in development: it hosts a Vite dev server for an app in a temporary folder, with the fixture page
+// packages installed and this workspace's node_modules above it (test/page-packages.ts). Vite's watcher is off, so Vite never learns of a file the test adds: what .NET routes as soon as its own
 // watcher sees the file, Vite reports later, much later (a file it missed, once something else in its folder changes)
 // or never (a folder it ignores).
 const SIDECAR = fileURLToPath(new URL('../sidecar/server.mjs', import.meta.url));
 const NODE_MODULES = fileURLToPath(new URL('../../../node_modules', import.meta.url));
 const TOKEN = 'test-token';
 
+let app: PackagesApp | undefined;
 let root = '';
 /** The spawned process, kept from the moment it starts: `sidecar` is unset when startup times out, and the child must still die. */
 let child: ChildProcess | undefined;
@@ -126,11 +128,9 @@ async function browserPages() {
 }
 
 beforeAll(async () => {
-  // By its real path, as Vite resolves the modules in it: on macOS the temporary folder is under a symlink (/var is
-  // /private/var), and on Windows it can be named by an 8.3 short name (RUNNER~1).
-  root = await realpath(await mkdtemp(path.join(tmpdir(), 'netjes-sidecar-dev-')));
-  // A junction on Windows, which needs no administrator rights or developer mode as a directory symlink does.
-  await symlink(NODE_MODULES, path.join(root, 'node_modules'), 'junction');
+  // By their real paths, as Vite resolves the modules in them.
+  app = await createPackagesApp();
+  root = app.root;
   await write(
     'vite.config.mjs',
     [
@@ -175,7 +175,7 @@ afterAll(async () => {
     child.kill();
     await exited;
   }
-  if (root) await rm(root, { recursive: true, force: true });
+  await app?.remove();
 });
 
 describe('the development sidecar', () => {
