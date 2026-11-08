@@ -254,6 +254,7 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
 {
     public PagePackageMount Mount { get; }
     public PagePackageBuilder Override(string pattern);
+    public PagePackageBuilder WriteTypes(string path);
 }
 ```
 
@@ -268,6 +269,8 @@ On a `MapGroup` made from the mount, these four throw, naming the mount. The app
 Conventions on it, such as `RequireAuthorization()`, `ExcludeFromExport()` and `ExcludeFromSitemap()`, apply to the package's own endpoints: its file pages, its loaders, page actions and server actions, and the endpoints mapped through it. They do not reach the app's own pages under the prefix, nor the pages below a layout loader mapped through the mount, which get that loader's conventions; an app layout loader above the app's pages protects them, and an app layout loader above the mount protects the package's pages as well.
 
 `Override(pattern)` replaces the package's page at `pattern` with the app's page in the same folder of the merged tree: `.Override("/help/contact")` renders `app/help/contact/page.tsx` in place of the package's `contact/page.tsx`. `pattern` is the page's URL as the app links to it, below the mount; it is matched by shape, literals in any case and one trailing slash left out (`/HELP/Contact/` is `/help/contact`), and it names the parameters as both pages do. The app's page renders with the package's loader and page action, and keeps the conventions of the mount and of the layout loaders above the package's page; the app maps no loader or page action of its own for it: `MapPageLoader` and `MapPageAction` on the app throw for it, and `Override` throws when the app mapped one of them for the page before the mount. Call it before `MapPages()`, before or after the package's extension has mapped the page's loader. It throws `ArgumentException` for a pattern that is no URL pattern (no leading `/`, a `\`, a `%`, `.`, `..` or an empty segment) or is not below the mount, `RouteConflictException` when the package has no page there, the app has none there, their parameters are named otherwise, the app's page is outside a folder whose files wrap the package's, or the page is another package's, and `InvalidOperationException` after `MapPages()` and for a page the app maps a loader or page action for. Without an override, an app page of the same shape as a package's page stops `MapPages()`.
+
+`WriteTypes(path)` writes the package's own generated file at `path`, relative to the app's root as `TypesFile` is: `.WriteTypes("../HelpCenter/generated/netjes.ts")`, in the app the package is developed in. The file holds the zod schemas of what the package maps through its mount (its loaders, page actions, layout loaders, server actions and endpoints) and its typed routes, all below the mount and without the prefix's parameters, so it is the same wherever an app mounts the package, and the package ships it ([The generated module](react-api.md#a-page-packages-file)). It is written when the app starts in Development and by `netjes generate`, and `netjes generate --check` checks it, next to the app's own file ([netjes generate](cli.md#netjes-generate)). The app's own file routes the package's pages but holds none of its schemas. An empty `path`, the app's own file and another package's file throw `ArgumentException`.
 
 ### PagePackage
 

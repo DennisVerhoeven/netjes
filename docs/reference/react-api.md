@@ -778,4 +778,24 @@ The route announcer is public in the same way. After a client navigation to anot
 | `isHref(value)` | Whether a string is an `Href`, by the rules of [`isRouteHref`](#isroutehref). |
 | `RouteParams`, `RoutePattern`, `routePatterns` | The parameters per pattern, the patterns as a type, and as an array. |
 
+In an app that mounts page packages, the routes (`routePatterns`, `RouteParams`, `Route`, `route()`, `Href`) hold every page, the packages' included, at the URLs where they are mounted and with the prefix's parameters first: `route('/[tenant]/help/articles/[slug]', { tenant, slug })`. The maps (`pages`, `forms`, `layouts`, `api`, `EndpointParams`, `serverActions`) hold only what the app maps itself, its own pages under a prefix included, so a package adds no schema to the app's file and renames none of the app's. A page the app replaces with `.Override()` renders with the package's loader, so its props schema is in the package's file.
+
 TanStack Query's hooks (`useQuery`, `useMutation`, `useQueryClient` and the rest) come straight from `@tanstack/react-query`; Netjes provides the client ([Server state](../guides/data-loading.md#server-state-with-tanstack-query)).
+
+### A page package's file
+
+A page package has a generated file of its own, which the app it is developed in writes with `.WriteTypes(path)` on its mount ([C# API](csharp-api.md#pagepackagebuilder)) and the package ships. It is the same wherever an app mounts the package. It has the exports above, with these differences:
+
+| Export | In a page package's file |
+|---|---|
+| `pages`, `forms`, `RouteParams`, `routePatterns`, `Route`, `route()` | The package's own pages, by their URL below the mount (`/articles/[slug]`, `/` for the mount's own page), without the prefix's parameters. `route()` returns a `MountHref`. |
+| `layouts` | The package's layout loaders, by their folder in the package: its pages folder, then the folder below the mount (`app/(center)`). |
+| `api`, `EndpointParams`, `endpointUrl()` | The endpoints mapped through the mount, by method and route below it (`POST /feedback`), without the prefix's values. `endpointUrl()` gives a URL below the mount: pass it through the file's `useHref`. |
+| `serverActions` | The server actions mapped through the mount, by name. |
+| `sharedProps` | `z.unknown()`: a package does not know the app's shared props. |
+| `MountHref` | What the file's `Link`, `Form`, `SubmitButton` and `useRouter` take: the package's routes below the mount, with a query or fragment, `?…` and `#…`. |
+| `Link`, `Form`, `SubmitButton`, `useRouter`, `usePathname`, `useHref` | [`mounted`](#mounted)`<MountHref>(name)` for the package, which put the mount in front of each href. |
+| `Href`, `isHref` | The core [`Href`](#href) type, which is the app's once the app's file has registered it, and a check of the shape alone, by the rules of [`isHrefShape`](#ishrefshape): a URL from the C# side is one of the app's, the mount in it. Pass it to the core `Link`. |
+
+The file declares no `module 'netjes'`, so it and the app's file type-check in one program. Its names `MountHref`, `Link`, `Form`, `SubmitButton`, `useRouter`, `usePathname`, `useHref`, `mounted` and `isHrefShape` are taken in it alone: a C# type named so gets another name in the package's file only.
+
