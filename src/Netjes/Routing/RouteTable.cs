@@ -175,7 +175,10 @@ internal sealed record RouteIntercept(string Segment, string Slot, string Page, 
 /// <summary>A page file and the URL it serves.</summary>
 /// <param name="Pattern">URL pattern in file-name syntax, e.g. <c>/blog/[slug]</c>. Route groups are removed.</param>
 /// <param name="Template">The equivalent ASP.NET Core route template, e.g. <c>/blog/{slug}</c>.</param>
-/// <param name="File">Module path relative to the app root, e.g. <c>app/blog/[slug]/page.tsx</c>.</param>
+/// <param name="File">
+/// The file's id: its module path relative to the app root, e.g. <c>app/blog/[slug]/page.tsx</c>, or for a page
+/// package's file its npm name and its path in the package, e.g. <c>@acme/help-center/app/page.tsx</c>.
+/// </param>
 /// <param name="Segments">The folders with segment files wrapping the page, outermost first.</param>
 internal sealed record PageRoute(
     string Pattern,
@@ -186,6 +189,9 @@ internal sealed record PageRoute(
 {
     /// <summary>Layout modules wrapping the page, outermost first.</summary>
     public IReadOnlyList<string> Layouts { get; } = [.. Segments.Where(s => s.Layout is not null).Select(s => s.Layout!)];
+
+    /// <summary>Where <see cref="File"/> comes from: <c>app</c>, or the npm name of a page package.</summary>
+    public string Source { get; init; } = PageSource.AppName;
 }
 
 /// <summary>A page that is rendered for a condition rather than a URL (404, error).</summary>
@@ -261,13 +267,24 @@ internal sealed partial class RouteTable
     public IReadOnlyList<RouteIntercept> InterceptsFor(string pattern) =>
         [.. Intercepts.Where(i => string.Equals(ShapeOf(i.Pattern), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase))];
 
-    public static RouteTable Build(IEnumerable<string> files, string appDirectory = "app")
+    public static RouteTable Build(IEnumerable<string> files, string appDirectory = "app") =>
+        Build([PageSource.App(files, appDirectory)], []);
+
+    /// <summary>
+    /// Merges the app's directory and the page packages mounted in it into one table, by folder: a package's files go
+    /// under its prefix's folders, so its layout at the mount wraps the app's pages in that folder too, and a package's
+    /// route group wraps the app's pages in a folder of that group.
+    /// </summary>
+    /// <param name="sources">The app's source and one per mounted package, in any order.</param>
+    /// <param name="overrides">App-absolute URL patterns where the app's page replaces a package's page.</param>
+    public static RouteTable Build(IReadOnlyList<PageSource> sources, IReadOnlyCollection<string> overrides)
     {
+        var appSource = sources.Single(s => s.IsApp);
+        var root = appSource.IdPrefix.TrimEnd('/');
         // In ordinal order, so the same files give the same table and the same error, whichever order the file system
-        // (development) or the build manifest (production) lists them in.
-        var all = files.Select(f => f.Replace('\\', '/')).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        var root = appDirectory.Replace('\\', '/').Trim('/');
-        var app = BuildAppRouter(Candidates(all, root + "/"), root);
+        // (development) or the build manifest (production) lists them in, and whichever order the sources come in.
+        var candidates = sources.SelectMany(Candidates).OrderBy(c => c.File, StringComparer.Ordinal).ToList();
+        var app = BuildAppRouter(candidates, root);
 
         var routes = new List<PageRoute>();
         var byShape = new Dictionary<string, PageRoute>(StringComparer.OrdinalIgnoreCase);
@@ -301,14 +318,18 @@ internal sealed partial class RouteTable
         IReadOnlyList<RouteIntercept>? Intercepts = null);
 
     /// <summary>A file of one source, with its folders in the merged tree and its name last.</summary>
-    private sealed record Candidate(string File, string[] Segments);
+    private sealed record Candidate(string File, string[] Segments, PageSource Source);
 
-    private static List<Candidate> Candidates(List<string> files, string prefix) =>
-        files
-            .Where(f => f.StartsWith(prefix, StringComparison.Ordinal))
+    private static IEnumerable<Candidate> Candidates(PageSource source)
+    {
+        var files = source.IsApp ? source.Files.Select(f => f.Replace('\\', '/')) : source.Files;
+        string[] folder = source.Folder.Length == 0 ? [] : source.Folder.Split('/');
+        return files
+            .Distinct(StringComparer.Ordinal)
+            .Where(f => f.StartsWith(source.IdPrefix, StringComparison.Ordinal))
             .Where(f => !IsTestFile(f))
-            .Select(f => new Candidate(f, f[prefix.Length..^Path.GetExtension(f).Length].Split('/')))
-            .ToList();
+            .Select(f => new Candidate(f, [.. folder, .. f[source.IdPrefix.Length..^Path.GetExtension(f).Length].Split('/')], source));
+    }
 
     private static RouterResult BuildAppRouter(List<Candidate> candidates, string root)
     {
@@ -317,7 +338,9 @@ internal sealed partial class RouteTable
         // Parallel routes: folder -> slot -> (pages by pattern below the slot, default).
         var slots = new Dictionary<string, Dictionary<string, (Dictionary<string, string> Pages, string? Default)>>(StringComparer.Ordinal);
         var intercepts = new List<RouteIntercept>();
-        foreach (var (file, segments) in candidates)
+        // The source of each page file.
+        var sources = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (file, segments, source) in candidates)
         {
             var name = segments[^1];
             var directories = segments[..^1];
@@ -411,6 +434,7 @@ internal sealed partial class RouteTable
             }
 
             conventions[name] = file;
+            sources[file] = source.Name;
         }
 
         RouteSegment? SegmentAt(string[] directories)
@@ -446,7 +470,7 @@ internal sealed partial class RouteTable
             if (conventions.TryGetValue("page", out var page))
             {
                 var directories = folder.Length == 0 ? [] : folder.Split('/');
-                routes.Add(ParseRoute(page, [.. directories], SegmentsFor(directories)));
+                routes.Add(ParseRoute(page, [.. directories], SegmentsFor(directories)) with { Source = sources[page] });
             }
         }
 
