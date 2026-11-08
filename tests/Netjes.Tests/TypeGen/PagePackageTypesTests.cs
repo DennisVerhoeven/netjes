@@ -354,6 +354,48 @@ public class PagePackageTypesTests
         Assert.Contains("on the mount of '@acme/status' names the generated file of '@acme/help-center'", failure.Message);
     }
 
+    public sealed record AppShellProps(string Site);
+
+    public sealed record SaveInput(string Text);
+
+    public sealed record StatusProps(bool Up);
+
+    public sealed record Ping(string At);
+
+    [Fact]
+    public async Task ThePackagesFile_HoldsNoneOfTheAppsOrAnotherPackagesPagesSchemasLayoutsActionsOrEndpoints()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, PackageFiles);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () => Page.Props(new AppShellProps("Shop")));
+                a.MapPageLoader("/", () => Page.Props(new AppHomeProps("Hi")));
+                a.MapAction("app.save", (SaveInput input) => ServerAction.Ok());
+                // The app's own endpoint at a URL below the package's mount.
+                a.MapGet("/help/status", () => TypedResults.Ok(new Ping("now")));
+                MapHelpCenter(a.MapPagePackage(TestPagePackage.Descriptor, "/help"));
+                var status = a.MapPagePackage(TestPagePackage.Other, "/status");
+                status.MapPageLoader("/", () => Page.Props(new StatusProps(true)));
+                status.MapAction("status.check", () => ServerAction.Ok());
+                status.MapGet("/ping", () => TypedResults.Ok(new Ping("now")));
+            });
+        var help = app.App.Services.GetRequiredService<RouteSources>().Mounts.Single(m => m.Name == TestPagePackage.Name);
+
+        var package = app.App.Services.GetRequiredService<TypeScriptGenerator>().Generate(help);
+
+        Assert.Contains("export const routePatterns = [\"/\", \"/articles/[slug]\", \"/contact\"] as const;", package);
+        foreach (var name in new[] { "AppShellProps", "AppHomeProps", "SaveInput", "StatusProps", "Ping", "app.save", "status.check", "/status", "/ping", "\"app\"" })
+        {
+            Assert.DoesNotContain(name, package);
+        }
+    }
+
     [Fact]
     public async Task WriteTypes_RefusesNull()
     {
