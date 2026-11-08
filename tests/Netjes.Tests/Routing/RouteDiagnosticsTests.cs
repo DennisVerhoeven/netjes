@@ -989,9 +989,30 @@ public class RouteDiagnosticsTests
     }
 
     [Theory]
+    // Scripts follow script-src-elem, else script-src, else default-src.
+    [InlineData("default-src 'self'")]
+    [InlineData("script-src-elem 'self'; script-src 'self' 'unsafe-inline'")]
+    // Next to a hash or a nonce, browsers ignore 'unsafe-inline', and a nonce of the app's own is on no script Netjes streams.
+    [InlineData("script-src 'self' 'unsafe-inline' 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='")]
+    [InlineData("script-src 'self' 'nonce-fixed'")]
+    // Browsers enforce each policy of a list.
+    [InlineData("frame-ancestors 'none', script-src 'self'")]
+    public async Task PackageNonce_APackageThatStreams_UnderAnyPolicyThatRefusesInlineScripts_IsWarned(string policy)
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], StreamingPackage, configure: o => o.ContentSecurityPolicy = policy);
+
+        Assert.Contains("has no {nonce}", Assert.Single(warnings));
+    }
+
+    [Theory]
     [InlineData(true, "script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'")]
     // No policy of Netjes's: nothing it sends refuses the streamed scripts.
     [InlineData(true, null)]
+    // A policy that leaves scripts alone, or allows inline ones, refuses nothing that streams.
+    [InlineData(true, "frame-ancestors 'none'; base-uri 'self'")]
+    [InlineData(true, "script-src 'self' 'unsafe-inline'")]
+    [InlineData(true, "default-src 'self' 'unsafe-inline'; img-src *")]
     [InlineData(false, "script-src 'self'")]
     public async Task PackageNonce_APolicyWithANonce_NoPolicy_OrAPackageThatDoesNotStream_IsNotWarned(bool streams, string? policy)
     {

@@ -43,8 +43,9 @@ public sealed class PagePackage
 
     /// <summary>
     /// Whether the package's pages stream (<c>Page.Defer</c>, or a Suspense boundary still waiting when the shell goes
-    /// out), which a Content-Security-Policy allows only with a nonce. Netjes then warns (<c>package-nonce</c>) when
-    /// <c>NetjesOptions.ContentSecurityPolicy</c> is a policy without <c>{nonce}</c>.
+    /// out), which a Content-Security-Policy that refuses inline scripts allows only with a nonce. Netjes then warns
+    /// (<c>package-nonce</c>) when <c>NetjesOptions.ContentSecurityPolicy</c> is such a policy without <c>{nonce}</c>, as a
+    /// hash-based policy is.
     /// </summary>
     public bool RequiresNonce { get; init; }
 

@@ -541,11 +541,12 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .Select(p => new RouteWarning("package-unmounted", [], PackageUnmounted, [p.Name]));
 
     /// <summary>
-    /// Page packages whose pages stream, under a policy of Netjes's own that has no <c>{nonce}</c>: a hash-based policy,
-    /// which blocks what streams after the shell. A policy the app sends itself is not seen, and no policy blocks nothing.
+    /// Page packages whose pages stream, under a policy of Netjes's own that has no <c>{nonce}</c> and refuses inline
+    /// scripts, as a hash-based policy does: it blocks what streams after the shell. A policy the app sends itself is not
+    /// seen, and no policy, or one that allows inline scripts or leaves scripts alone, blocks nothing.
     /// </summary>
     private static IEnumerable<RouteWarning> PackageNonceWarnings(RouteSources sources, string? policy) =>
-        policy is null || policy.Contains("{nonce}", StringComparison.Ordinal)
+        policy is null || policy.Contains("{nonce}", StringComparison.Ordinal) || !CspChecks.RefusesInlineScripts(policy)
             ? []
             : sources.Mounts.Where(m => m.Mount.Package.RequiresNonce)
                 .Select(m => new RouteWarning("package-nonce", [], PackageNonce, [m.Name, m.Mount.Pattern]));
