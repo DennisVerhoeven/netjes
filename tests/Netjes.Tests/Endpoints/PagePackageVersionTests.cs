@@ -1,5 +1,10 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 
 namespace Netjes.Tests.Endpoints;
@@ -85,7 +90,44 @@ public class PagePackageVersionTests
         Assert.Equal($"{Help} {Descriptor.Version} supports Netjes ^0.0.4; this app runs Netjes 0.0.5", ex.Message);
     }
 
+    [Fact]
+    public async Task AsItsOwnProgram_TheAppSaysSoInOneLine_AndExitsWithCode1()
+    {
+        // A program of its own (dotnet run, as the netjes CLI runs an app), mounting a package whose halves are two
+        // versions. Its C# half is the program's assembly, versioned 1.0.0.
+        var root = Directory.CreateTempSubdirectory("netjes-test-").FullName;
+        try
+        {
+            TestPagePackage.Install(root, ["page.tsx"], version: "9.9.9");
+            Directory.CreateDirectory(Path.Combine(root, "app"));
+            var program = Path.Combine(root, "program", "app.cs");
+            Directory.CreateDirectory(Path.GetDirectoryName(program)!);
+            await File.WriteAllTextAsync(program, $$"""
+                #:sdk Microsoft.NET.Sdk.Web
+                #:project {{Path.Combine(RepoRoot(), "src", "Netjes", "Netjes.csproj")}}
+                var builder = WebApplication.CreateBuilder(args);
+                builder.Services.AddNetjes();
+                var app = builder.Build();
+                app.UseNetjes();
+                app.MapPagePackage(new Netjes.PagePackage("{{Help}}", typeof(Program).Assembly), "/help");
+                app.MapPages();
+                app.Run();
+                """, Ct);
+
+            var (code, output) = await RunAsync(program, root);
+
+            AssertOneLine(output, $"{Help} is 9.9.9 on npm and app is 1.0.0 on NuGet: install one version of both");
+            Assert.True(code == 1, $"Exit code {code}:\n{output}");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private const string Help = TestPagePackage.Name;
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>The running Netjes's version, as NuGet versions it.</summary>
     private static string Running => PagePackage.VersionOf(typeof(PagePackage).Assembly);
@@ -119,6 +161,78 @@ public class PagePackageVersionTests
                 }
             },
             map: a => a.MapPagePackage(Descriptor, "/help"));
+
+    /// <summary>
+    /// The one error the program logged, at Critical and as the last thing it logged, is <paramref name="message"/>, with
+    /// no exception or stack.
+    /// </summary>
+    private static void AssertOneLine(string output, string message)
+    {
+        var lines = output.Split('\n');
+        var entries = lines.Select((line, i) => (line, i)).Where(l => Regex.IsMatch(l.line, "^(trce|dbug|info|warn|fail|crit): ")).ToList();
+        var (header, index) = Assert.Single(entries, e => e.line.StartsWith("fail: ") || e.line.StartsWith("crit: "));
+        Assert.StartsWith("crit: ", header);
+        Assert.Equal(message, lines[index + 1].Trim());
+        Assert.Equal(index, entries[^1].i);
+        Assert.DoesNotContain("Unhandled exception", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, line => line.TrimStart().StartsWith("at ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Builds and runs a file-based app, with the configuration this assembly was built in so that Netjes is not built
+    /// again, and its build output in <paramref name="root"/>, until it exits.
+    /// </summary>
+    private static async Task<(int Code, string Output)> RunAsync(string program, string root)
+    {
+        var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
+            ? host
+            : Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet"));
+        var configuration = typeof(PagePackageVersionTests).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration ?? "Release";
+        var start = new ProcessStartInfo(dotnet)
+        {
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in new[] { "run", "--file", program, "-c", configuration, "--artifacts-path", Path.Combine(root, "artifacts") })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+        start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
+        start.Environment["Netjes__Root"] = root;
+        start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+
+        var output = new ConcurrentQueue<string>();
+        using var process = new Process { StartInfo = start };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null) output.Enqueue(e.Data);
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null) output.Enqueue(e.Data);
+        };
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        try
+        {
+            await process.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(120), Ct);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+
+        // WaitForExitAsync waits for the output to end too.
+        return (process.ExitCode, string.Join('\n', output));
+    }
 
     private static VersionRanges LoadRanges()
     {
