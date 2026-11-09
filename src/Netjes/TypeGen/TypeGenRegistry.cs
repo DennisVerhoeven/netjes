@@ -66,8 +66,22 @@ internal sealed class TypeGenRegistry
                 $"The TypeScript export '{group}' cannot have an entry '{key}': an object literal takes that key for its prototype.", nameof(key));
         }
 
+        // A JSON string writes half a surrogate pair as U+FFFD, so two such keys would be one key twice in the object literal.
+        if (!IsUnicodeText(key))
+        {
+            throw new ArgumentException(
+                $"An entry of the TypeScript export '{group}' has a key with half a surrogate pair, which the generated file cannot write.", nameof(key));
+        }
+
         foreach (var (name, type) in slots)
         {
+            if (!IsUnicodeText(name))
+            {
+                throw new ArgumentException(
+                    $"A slot of '{key}' in the TypeScript export '{group}' has a name with half a surrogate pair, which the generated file cannot write.",
+                    nameof(slots));
+            }
+
             if (name == Prototype)
             {
                 throw new ArgumentException(
@@ -117,6 +131,24 @@ internal sealed class TypeGenRegistry
 
     private static bool IsIdentifier(string name) =>
         name.Length > 0 && !char.IsAsciiDigit(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '$');
+
+    /// <summary>Whether every surrogate in the text is half of a pair.</summary>
+    private static bool IsUnicodeText(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static string Who(string? owner) => owner is null ? "the app" : $"'{owner}'";
 

@@ -173,6 +173,47 @@ public class TypeGenRegistryTests
         Assert.Empty(registry.Snapshot());
     }
 
+    /// <summary>
+    /// A key or slot name with half a surrogate pair is written as U+FFFD, the one character a JSON string takes for it, so
+    /// two such names, or one and U+FFFD itself, would be one key twice: tsc refuses that object literal (TS1117), and at run
+    /// time the last entry would replace the first.
+    /// </summary>
+    /// <remarks>Built in code: an attribute's string is UTF-8 in the assembly, which turns half a pair into U+FFFD.</remarks>
+    public static TheoryData<string> NamesWithHalfAPair() =>
+    [
+        new string([(char)0xD800]),
+        "hero" + (char)0xDC00,
+        new string([(char)0xDC00, (char)0xD800]),
+    ];
+
+    [Theory]
+    [MemberData(nameof(NamesWithHalfAPair))]
+    public void AKeyOrSlotNameThatIsNoUnicodeText_Throws(string name)
+    {
+        var registry = new TypeGenRegistry();
+
+        var key = Assert.Throws<ArgumentException>(() => registry.Add("blocks", name, Props(typeof(Hero)), owner: "@acme/blocks"));
+        var slot = Assert.Throws<ArgumentException>(() => registry.Add("blocks", "hero", new Dictionary<string, Type> { [name] = typeof(Hero) }, owner: "@acme/blocks"));
+
+        Assert.Equal("key", key.ParamName);
+        Assert.StartsWith("An entry of the TypeScript export 'blocks' has a key with half a surrogate pair, which the generated file cannot write.", key.Message);
+        Assert.Equal("slots", slot.ParamName);
+        Assert.StartsWith("A slot of 'hero' in the TypeScript export 'blocks' has a name with half a surrogate pair, which the generated file cannot write.", slot.Message);
+        Assert.Empty(registry.Snapshot());
+    }
+
+    [Fact]
+    public void AKeyOrSlotNameWithAWholeSurrogatePair_IsAdded()
+    {
+        var registry = new TypeGenRegistry();
+
+        registry.Add("blocks", "hero😀", new Dictionary<string, Type> { ["😀"] = typeof(Hero) }, owner: "@acme/blocks");
+
+        var entry = Assert.Single(Assert.Single(registry.Snapshot()).Entries);
+        Assert.Equal("hero😀", entry.Key);
+        Assert.Equal("😀", Assert.Single(entry.Slots).Key);
+    }
+
     [Fact]
     public void NullForAGroupKeySlotsOrASlotsType_Throws()
     {

@@ -167,13 +167,13 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// and none of the names a generated file declares or imports (<c>pages</c>, <c>Href</c>, <c>Link</c>, <c>z</c>, ...).
     /// A C# type of that name gets another name in both files.
     /// </param>
-    /// <param name="key">The entry's key in the export, once per export; any text but <c>__proto__</c>.</param>
-    /// <param name="slots">The entry's types by name, each written as its zod schema; any name but <c>__proto__</c>.</param>
+    /// <param name="key">The entry's key in the export, once per export; any text but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="slots">The entry's types by name, each written as its zod schema; any name but <c>__proto__</c> and half a surrogate pair.</param>
     /// <returns>The mount, for more calls.</returns>
     /// <exception cref="ArgumentException">
     /// <paramref name="group"/> is no identifier, a reserved word or a name of the generated file, <paramref name="key"/>
-    /// or a slot's name is <c>__proto__</c>, or a slot has no type or one no value has (an open generic type, a by-ref
-    /// type, a pointer, <c>void</c>).
+    /// or a slot's name is <c>__proto__</c> or holds half a surrogate pair, or a slot has no type or one no value has (an
+    /// open generic type, a by-ref type, a pointer, <c>void</c>).
     /// </exception>
     /// <exception cref="InvalidOperationException">
     /// The export has an entry of that key already, or the app or another package added the export.
