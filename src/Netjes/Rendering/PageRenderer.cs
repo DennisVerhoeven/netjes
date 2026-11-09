@@ -399,8 +399,9 @@ internal sealed class PageRenderer(
             return null;
         }
 
-        // Nor does a page outside it whose own nearest not-found is at the mount's URL or below it (app/(x)/help, or
-        // app/blog under a mount at /(site)); the root's is at the root URL, so a mount there leaves unknown URLs to it.
+        // A page outside it keeps its own nearest not-found too when that one is at the mount's URL or below it
+        // (app/(x)/help/not-found.tsx, or app/blog/not-found.tsx under a mount at /(site)). The root's is at the root
+        // URL, so a mount there leaves unknown URLs to it.
         if ((route?.Segments ?? table.RootSegments).LastOrDefault(s => s.NotFound is not null) is { } nearest
             && mounted.Mount.Prefix.Below(nearest.Pattern) is not null)
         {
