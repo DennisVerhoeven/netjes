@@ -359,30 +359,11 @@ const { navigation } = useSharedProps(sharedProps);
 - Build the URL as `route()` builds one: root-relative, in the file's spelling, with each value encoded (`new Href($"/blog/{Uri.EscapeDataString(slug)}")`), and without the base path, which the router adds as it does for every link. The props parse compares the literal segments with their case, so `new Href("/About")` fails it for `app/about/page.tsx`, although the server redirects `/About` to `/about` ([One URL per page](routing.md#one-url-per-page)). `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so pass them `pathBase: PathString.Empty`.
 - No query value or route value binds to an `Href`, also through `[AsParameters]`. A URL from the request, such as a `returnUrl`, stays a `string`, checked with `Page.IsLocalUrl` ([What a loader returns](#what-a-loader-returns)). An action input reads an `Href` from JSON, as a server action called with an object sends it, checked for its shape only. Form binding fills one only from a field named after the constructor's parameter (`next.url` for a property `Next`), also checked for its shape only, and never from the field `next` that a form posts: that leaves an `init` property `null` and fails a positional record's post with 400. So a `[FromForm]` input takes a `string` and makes the `Href` with `Href.TryCreate`.
 
-### Exports of a page package
+### Page packages
 
-A page package has a generated file of its own, and the app's file holds none of the package's schemas ([C# API](../reference/csharp-api.md#pagepackagebuilder)). Schemas that the app's code reads too, such as the props of each kind of block a package stores and the app's own pages render, go in an export of the package's, which its extension adds through the mount:
+A [page package](page-packages.md) mounted in the app adds its pages to the app's routes: `routePatterns`, `Route`, `RouteParams`, `route()` and `Href` hold each of them at its URL where it is mounted, with the prefix's values first (`route('/[tenant]/help/articles/[slug]', { tenant, slug })`), so the app links to them as to its own. The maps (`pages`, `layouts`, `forms`, `api`, `EndpointParams`, `serverActions`) hold only what the app maps itself, its own pages under the prefix included. A package's loaders, actions and endpoints are typed in the package's own generated file, which the package ships: keyed below the mount, so it is the same wherever an app mounts the package, and written by the app the package is developed in, with `.WriteTypes(path)` on the mount ([A page package's file](../reference/react-api.md#a-page-packages-file)). A page the app replaces with `.Override` renders with the package's loader, so it reads its props schema from the package's file: `import { pages } from '@acme/help-center/generated'`.
 
-```csharp
-public static PagePackageBuilder MapHelpCenter(this IEndpointRouteBuilder app, string prefix = "/help")
-{
-    var mount = app.MapPagePackage(Package, prefix);
-    mount.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) });
-    mount.AddTypeScriptExport("blocks", "quote", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
-    return mount;
-}
-```
-
-Both files, the app's and the package's, then hold the schemas of `HeroBlock` and `QuoteBlock`, and the export:
-
-```ts
-export const blocks = {
-  "hero": { "props": HeroBlock },
-  "quote": { "props": QuoteBlock },
-} as const;
-```
-
-The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs. `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it (`WriteTypes`), so run `netjes generate` after updating the package.
+After updating a package, run `npx netjes generate`: the app's file lists the package's pages, so a release that adds or renames one changes it. Schemas that both the app's code and a package's read, by key, are an export the package adds through its mount, which both files hold ([Schemas the app reads too](page-packages.md#schemas-the-app-reads-too)).
 
 ## JSON endpoints
 
@@ -443,6 +424,7 @@ endpointUrl('GET /api/search', { q: 'net core', take: 10 }, { ref: 'nav' });    
 - `null` and `undefined` leave a value out, and `''` leaves out a route value, while a query value of `''` is written empty (`?q=`), as in `route()`. An optional route value left out drops its segment, or its part of a segment with the `.` before it (`{name}.{ext?}`), and a query value left out its key. A route value with a default is filled in with the default, unless it is a whole segment at the end of the URL, which is left out. A required route value throws `netjes: endpoint '<key>' needs the route value '<name>'` instead, and so does an optional one left out before a value that is given: for `/a/{x?}/{y?}`, `y` alone would be read as `x`.
 - Route values are encoded with `encodeURIComponent`, except that a `{**path}` value keeps its slashes; a `{*path}` value has them encoded. The query string is written by `URLSearchParams`, which writes a space as `+`. The URL routes to the same endpoint as the one `LinkGenerator` writes, but it is not always the same text: a value equal to its default is kept, for example.
 - The URL is root-relative and has no base path. Pass it through `useHref` for a `fetch` or an `<a href>`, as above, so that it works under `UsePathBase` ([Base path](routing.md#base-path)). `<Link>` refuses it as a type error: an endpoint is not a page, and a client navigation to it asks the server for a page first ([Endpoints next to pages](routing.md#endpoints-next-to-pages)).
+- The endpoints a [page package](page-packages.md) maps through its mount have no keys in the app's file, which holds the app's own endpoints only, below a mount's URL too. The package's own file has them, keyed by their route below the mount (`POST /messages`), and its `endpointUrl()` gives a URL below the mount, without the prefix's values: pass it through the `useHref` that file exports, which puts the mount and the base path in front (`/help/messages`).
 - Netjes's own endpoints have no keys: `/_netjes/image`, `/_netjes/antiforgery` and the vitals beacon, which `MapPages()` maps, and the locale redirect (`MapLocaleRedirect`). Nor do server actions and page actions, which `serverActions` and `<Form>` call, endpoints that name no HTTP method (`app.Map`, `MapHealthChecks`, `MapFallback`), static assets (`MapStaticAssets`) or MVC conventional routes, whose actions share one route. `MapSitemap` and `MapRobotsTxt` have keys (`GET /sitemap.xml`, `GET /robots.txt`), and so does an endpoint marked `ExcludeFromDescription`, which leaves it out of OpenAPI only. An MVC attribute route has a key, with its route values as strings and no query values: MVC reports no binding for an action's parameters.
 - The keys and types follow the C# side when the file is generated: run `npx netjes generate` after changing an endpoint, and a renamed route or parameter is a type error where the old one is used. The templates are in the generated file. Once any component calls `endpointUrl`, all of them reach the browser in the chunk that holds the file, which pages share, also those that never call it ([Security](security.md#errors-and-configuration)).
 
