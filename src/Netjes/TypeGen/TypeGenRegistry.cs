@@ -29,10 +29,18 @@ internal sealed class TypeGenRegistry
                 _groups[group] = entries = new Group(owner, new SortedDictionary<string, IReadOnlyList<KeyValuePair<string, Type>>>(StringComparer.Ordinal));
             }
 
+            if (entries.Entries.ContainsKey(key))
+            {
+                throw new InvalidOperationException(
+                    $"The TypeScript export '{group}' has an entry '{key}' already, which {Who(entries.Owner)} added. Give each entry a key of its own.");
+            }
+
             // A copy in ordinal order: the file is the same in every process, whatever order the dictionary keeps.
             entries.Entries[key] = [.. slots.OrderBy(s => s.Key, StringComparer.Ordinal)];
         }
     }
+
+    private static string Who(string? owner) => owner is null ? "the app" : $"'{owner}'";
 
     /// <summary>The groups in ordinal order, each with its owner (null for the app's) and its entries by key.</summary>
     public IReadOnlyList<(string Group, string? Owner, IReadOnlyList<(string Key, IReadOnlyList<KeyValuePair<string, Type>> Slots)> Entries)> Snapshot()
