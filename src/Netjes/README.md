@@ -37,6 +37,8 @@ public sealed record GreetInput { public string? Name { get; init; } }
 public sealed record Greeting(string Text);
 ```
 
+A page package, a NuGet package and an npm package of one version that bring pages, layouts, loaders and actions, is mounted with the extension it provides, which calls `MapPagePackage`: `app.MapHelpCenter("/help")` before `app.MapPages()`, with the npm half in `netjes({ packages })` ([Page packages](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/page-packages.md)). Its pages merge into the app's folders under the prefix, and the app stops at startup when the two halves, or the package and Netjes, are versions that do not fit.
+
 The package adds build targets to the project: `using Netjes` when implicit usings are on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. The app needs the .NET 10 SDK and, at build time and in production, Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer).
 
 ## Documentation

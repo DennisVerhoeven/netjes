@@ -31,11 +31,13 @@ export default defineConfig({ plugins: [netjes()] });
 
 Tailwind CSS and the TanStack Query client are on by default; `netjes({ tailwind: false, query: false })` turns them off, and then they need not be installed. `vitest`, `jsdom`, `@testing-library/react` and `web-vitals` are optional peers, used when installed. Use the version of `netjes` that matches the app's `Netjes` NuGet package; `npx netjes info` checks it.
 
+A page package, an npm package that brings pages for the app to mount at a prefix, is listed in the plugin's options, `netjes({ packages: ['@acme/help-center'] })`, so the app's build compiles its pages and its Tailwind classes, with Tailwind on ([Page packages](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/page-packages.md)).
+
 ## Entry points
 
 | Import | What it holds |
 |---|---|
-| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest, and `CSP_SCRIPT_HASHES`, the hashes of Netjes's inline scripts for a Content-Security-Policy without a nonce |
+| `netjes` | Components and hooks: `Link`, `Form`, `Image`, `Script`, `definePage`, `useAction`, `useRouter` and the rest, `mounted`, which a page package's generated file calls for links below its mount, and `CSP_SCRIPT_HASHES`, the hashes of Netjes's inline scripts for a Content-Security-Policy without a nonce |
 | `netjes/vite` | The Vite plugin |
 | `netjes/testing` | `createTestApp()`, for rendering pages and components in Vitest, and `renderDocument()` and `inlineScriptHashes()`, for a page's whole document and the inline scripts in it |
 | `netjes/vitals` | `useReportWebVitals` and `<WebVitals />` |

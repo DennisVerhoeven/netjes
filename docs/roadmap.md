@@ -5,6 +5,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 ## Now
 
 - **The releases after 0.0.3.** More 0.0.x releases of the packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. They take up the items under Next, among them what 0.0.3 left open: a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and exported files written to match `TrailingSlash`, with a `TrailingSlash.Always`. What each release changed is in the [changelog](../CHANGELOG.md).
+- **Page packages.** An npm package and a NuGet package of one version that bring pages, layouts, boundaries, loaders, actions and endpoints, which an app mounts at a prefix with one C# call and one entry in `netjes({ packages })`. They are in `main` for the next release, with the [guide](guides/page-packages.md) and the [help center example](../examples/HelpCenter/README.md); until then their API can still change.
 
 ## Next
 
