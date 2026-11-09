@@ -511,6 +511,96 @@ public class AppRouterRegressionTests
         Assert.Equal(visitor == "Ada" && !adminMount ? 6 : 0, calls);
     }
 
+    /// <summary>
+    /// The boundaries Netjes renders for an endpoint that serves no page, whose chain nothing has authorized, with the
+    /// status each gets: the status pages for a server action's empty 401, for the fallback policy's on an unknown URL
+    /// and for an empty 403 or 429 a middleware sets on one; the not-found and forbidden pages a minimal API asks for;
+    /// and the error pages for an exception on an unknown URL, in a server action, and in the render of a 404.
+    /// </summary>
+    public static TheoryData<string, int, bool> NonPageBoundaries => new()
+    {
+        { "a server action's 401", 401, false },
+        { "the fallback policy's 401", 401, false },
+        { "a middleware's 403", 403, false },
+        { "a middleware's 403", 403, true },
+        { "a middleware's 429", 429, false },
+        { "Page.NotFound() from a minimal API", 404, false },
+        { "Page.NotFound() from a minimal API", 404, true },
+        { "Page.Forbidden() from a minimal API", 403, false },
+        { "an exception on an unknown URL", 500, false },
+        { "an exception on an unknown URL", 500, true },
+        { "an exception in a server action", 500, false },
+        { "a failed render of an unknown URL's 404", 500, false },
+        { "a failed render of an unknown URL's 404", 500, true },
+    };
+
+    [Theory]
+    [MemberData(nameof(NonPageBoundaries))]
+    public async Task ABoundaryForAnEndpointThatServesNoPage_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string path, int status, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/forbidden.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                }).RequireAuthorization();
+                a.MapAction("secure", () => ServerAction.Ok()).RequireAuthorization();
+                a.MapAction("boom", Func<ServerActionResult> () => throw new InvalidOperationException("boom"));
+                a.MapGet("/api/missing", () => Page.NotFound());
+                a.MapGet("/api/refused", () => Page.Forbidden());
+            },
+            services: s =>
+            {
+                (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                if (path == "the fallback policy's 401")
+                {
+                    s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+                }
+            },
+            configureApp: a =>
+            {
+                a.UseAuthorization();
+                a.Use(async (http, next) =>
+                {
+                    switch (http.Request.Path.Value)
+                    {
+                        case "/blocked":
+                            http.Response.StatusCode = path == "a middleware's 429" ? 429 : 403;
+                            return;
+                        case "/boom":
+                            throw new InvalidOperationException("boom");
+                    }
+
+                    await next(http);
+                });
+            },
+            renderer: r => r.OnRender = payload => path == "a failed render of an unknown URL's 404" && payload.Contains("app/not-found.tsx", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("The not-found page failed to render")
+                : "<!DOCTYPE html><html><body>rendered</body></html>");
+
+        var response = path switch
+        {
+            "a server action's 401" => await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/_netjes/actions/secure") { Content = new FormUrlEncodedContent([]) }, Ct),
+            "an exception in a server action" => await app.Client.SendAsync(NoJsPost("boom", await FetchedTokenAsync(app)), Ct),
+            "a middleware's 403" or "a middleware's 429" => await app.GetDocumentAsync("/blocked"),
+            "Page.NotFound() from a minimal API" => await app.GetDocumentAsync("/api/missing"),
+            "Page.Forbidden() from a minimal API" => await app.GetDocumentAsync("/api/refused"),
+            "an exception on an unknown URL" => await app.GetDocumentAsync("/boom"),
+            _ => await app.GetDocumentAsync("/nope"),
+        };
+        var payload = app.Renderer.Payloads.Last();
+        var ids = JsonNode.Parse(payload)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal((HttpStatusCode)status, response.StatusCode);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? ["app"] : [], ids);
+        Assert.Equal(signedIn, payload.Contains("s3cret", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
     {
