@@ -18,6 +18,8 @@ internal sealed class TypeGenRegistry
     public void Add(string group, string key, IReadOnlyDictionary<string, Type> slots, string? owner = null)
     {
         ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(slots);
         if (!IsIdentifier(group))
         {
             throw new ArgumentException(
@@ -55,6 +57,11 @@ internal sealed class TypeGenRegistry
                 throw new ArgumentException(
                     $"The entry '{key}' of the TypeScript export '{group}' cannot have a slot '{name}': an object literal takes that key for its prototype.",
                     nameof(slots));
+            }
+
+            if (type is null)
+            {
+                throw new ArgumentException($"The slot '{name}' of '{key}' in the TypeScript export '{group}' has no type.", nameof(slots));
             }
 
             if (type.ContainsGenericParameters || type.IsByRef || type.IsPointer || type.IsFunctionPointer || type == typeof(void))

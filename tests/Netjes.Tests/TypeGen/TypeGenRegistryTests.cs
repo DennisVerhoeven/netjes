@@ -172,4 +172,18 @@ public class TypeGenRegistryTests
             slot.Message);
         Assert.Empty(registry.Snapshot());
     }
+
+    [Fact]
+    public void NullForAGroupKeySlotsOrASlotsType_Throws()
+    {
+        var registry = new TypeGenRegistry();
+
+        Assert.Equal("group", Assert.Throws<ArgumentNullException>(() => registry.Add(null!, "hero", Props(typeof(Hero)))).ParamName);
+        Assert.Equal("key", Assert.Throws<ArgumentNullException>(() => registry.Add("blocks", null!, Props(typeof(Hero)))).ParamName);
+        Assert.Equal("slots", Assert.Throws<ArgumentNullException>(() => registry.Add("blocks", "hero", null!)).ParamName);
+        var type = Assert.Throws<ArgumentException>(() => registry.Add("blocks", "hero", Props(null!)));
+        Assert.Equal("slots", type.ParamName);
+        Assert.StartsWith("The slot 'props' of 'hero' in the TypeScript export 'blocks' has no type.", type.Message);
+        Assert.Empty(registry.Snapshot());
+    }
 }
