@@ -684,6 +684,171 @@ public class AppRouterRegressionTests
         Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
     }
 
+    private sealed class ThrowingHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
+            throw new InvalidOperationException("The identity provider's metadata could not be fetched");
+    }
+
+    /// <summary>The way ASP.NET Core documents to hide a protected page: a refusal answered with an empty 404.</summary>
+    private sealed class RefusalAs404 : Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler
+    {
+        private readonly Microsoft.AspNetCore.Authorization.Policy.AuthorizationMiddlewareResultHandler _default = new();
+
+        public Task HandleAsync(
+            Microsoft.AspNetCore.Http.RequestDelegate next, Microsoft.AspNetCore.Http.HttpContext context,
+            Microsoft.AspNetCore.Authorization.AuthorizationPolicy policy, Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult result)
+        {
+            if (result.Challenged || result.Forbidden)
+            {
+                context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound;
+                return Task.CompletedTask;
+            }
+
+            return _default.HandleAsync(next, context, policy, result);
+        }
+    }
+
+    /// <summary>
+    /// The ways a page's own status or error page renders before the authorization middleware has let its visitor in,
+    /// with the status each keeps: an empty 429 from a middleware ahead of it (a rate limiter), an exception thrown there,
+    /// an authentication handler that throws (the guides put UseAuthentication() after UseNetjes()), and a refusal the
+    /// app answers with an empty 404.
+    /// </summary>
+    public static TheoryData<string, string, bool> BeforeAuthorization => new()
+    {
+        { "a middleware's 429", "document", false },
+        { "a middleware's 429", "data", false },
+        { "a middleware's 429", "data", true },
+        { "an exception in a middleware", "document", false },
+        { "an exception in a middleware", "document", true },
+        { "an authentication handler that throws", "document", false },
+        { "a refusal answered with 404", "document", false },
+        { "a refusal answered with 404", "data", false },
+    };
+
+    [Theory]
+    [MemberData(nameof(BeforeAuthorization))]
+    public async Task APagesBoundary_BeforeAuthorizationLetsTheVisitorIn_NeverRunsALayoutLoaderItRefusesThem(string how, string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/page.tsx",
+             "app/admin/layout.tsx", "app/admin/error.tsx", "app/admin/not-found.tsx", "app/admin/page.tsx"],
+            map: a => a.MapLayoutLoader("/admin", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: s =>
+            {
+                if (how == "an authentication handler that throws")
+                {
+                    s.AddAuthorization().AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, ThrowingHandler>("Test", null);
+                }
+                else
+                {
+                    (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                }
+
+                if (how == "a refusal answered with 404")
+                {
+                    s.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, RefusalAs404>();
+                }
+            },
+            configureApp: a =>
+            {
+                a.Use(async (http, next) =>
+                {
+                    switch (how)
+                    {
+                        case "a middleware's 429":
+                            http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                            return;
+                        case "an exception in a middleware":
+                            throw new InvalidOperationException("boom");
+                    }
+
+                    await next(http);
+                });
+                if (how == "an authentication handler that throws")
+                {
+                    a.UseAuthentication();
+                }
+
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/admin", request);
+        var payload = JsonNode.Parse(body)!;
+        var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(how switch
+        {
+            "a middleware's 429" => HttpStatusCode.TooManyRequests,
+            "a refusal answered with 404" => HttpStatusCode.NotFound,
+            _ => HttpStatusCode.InternalServerError,
+        }, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+        if (signedIn)
+        {
+            Assert.Equal(["app", "app/admin"], ids);
+        }
+        else
+        {
+            // The nearest boundary above the refused section, inside the layouts above it.
+            Assert.Equal(how == "a refusal answered with 404" ? "app/not-found.tsx" : "app/error.tsx", (string?)payload["page"]);
+            Assert.Equal(["app"], ids);
+        }
+    }
+
+    /// <summary>
+    /// A GET over a raw socket that declares a body of <paramref name="declared"/> bytes and sends none, in HTTP/1.0 so the
+    /// answer comes unchunked.
+    /// </summary>
+    private static async Task<(int Status, string Body)> GetDeclaringABodyAsync(TestApp app, string path, long declared, bool data)
+    {
+        var uri = app.Client.BaseAddress!;
+        using var tcp = new System.Net.Sockets.TcpClient();
+        await tcp.ConnectAsync(uri.Host, uri.Port, Ct);
+        await using var stream = tcp.GetStream();
+        var head = $"GET {path} HTTP/1.0\r\nHost: {uri.Authority}\r\nContent-Length: {declared}\r\n"
+            + (data ? $"{NetjesHeaders.Data}: 1\r\n" : "") + "\r\n";
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head), Ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var text = await reader.ReadToEndAsync(Ct);
+        var split = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        return (int.Parse(text[..split].Split("\r\n")[0].Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture), text[(split + 4)..]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ABodyOverTheLimit_OnAProtectedPage_GetsThe413WithoutRunningALayoutLoaderNothingAuthorized(bool data)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            kestrel: true);
+
+        // Above the server's 30 MB: Netjes answers 413 before the authorization middleware runs.
+        var (status, body) = await GetDeclaringABodyAsync(app, "/", 40_000_000, data);
+
+        Assert.Equal(413, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body + string.Join("\n", app.Renderer.Payloads));
+        Assert.Empty(JsonNode.Parse(data ? body : app.Renderer.Payloads.Last())!["segments"]!.AsArray());
+    }
+
     [Fact]
     public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
     {

@@ -183,8 +183,8 @@ internal sealed class PageRenderer(
     };
 
     /// <summary>The nearest not-found boundary of the request's page, else the root one, else the built-in page.</summary>
-    public Task RenderNotFoundAsync(HttpContext http) =>
-        RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null);
+    public async Task RenderNotFoundAsync(HttpContext http) =>
+        await RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null, await RefusedSegmentAsync(http));
 
     /// <summary>
     /// <see cref="RenderNotFoundAsync"/> for a page's URL that a middleware turns away before the authorization middleware
@@ -204,11 +204,24 @@ internal sealed class PageRenderer(
         await RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null, limit);
     }
 
-    public Task RenderErrorAsync(HttpContext http, Exception exception)
+    public async Task RenderErrorAsync(HttpContext http, Exception exception)
     {
         var status = exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError;
-        return RenderBoundaryAsync(http, Boundary.Error, status, ErrorPropsFor(status, exception));
+        await RenderBoundaryAsync(http, Boundary.Error, status, ErrorPropsFor(status, exception), await RefusedSegmentAsync(http));
     }
+
+    /// <summary>
+    /// Where a boundary on the request's page stops when the page's endpoint refuses the visitor, though nothing turned
+    /// them away for it: the status or the exception came before the authorization middleware ran (a middleware ahead of
+    /// it, a body over the size limit), or in place of its answer (a refusal an app answers with an empty 404). As for a
+    /// refused visitor (<see cref="FirstDeniedSegmentAsync"/>), the first segment they may not see, and the boundary renders
+    /// inside the layouts above it. Null when the endpoint lets them in, as the middleware would, and on an endpoint that
+    /// serves no page, whose chain <see cref="RenderBoundaryAsync"/> authorizes itself.
+    /// </summary>
+    private async Task<int?> RefusedSegmentAsync(HttpContext http) =>
+        RouteOf(http) is { } route && http.GetEndpoint() is { } endpoint && !await ConventionAuthorization.AuthorizesAsync(http, endpoint.Metadata)
+            ? await FirstDeniedSegmentAsync(http, route.Segments)
+            : null;
 
     /// <summary>
     /// Renders the page for a status some other component set without writing a body, or a loader asked for:
@@ -222,7 +235,7 @@ internal sealed class PageRenderer(
     /// </param>
     public async Task RenderStatusAsync(HttpContext http, int status, bool denied = false)
     {
-        var limit = denied ? await FirstDeniedSegmentAsync(http, RouteOf(http)?.Segments ?? []) : null;
+        var limit = denied ? await FirstDeniedSegmentAsync(http, RouteOf(http)?.Segments ?? []) : await RefusedSegmentAsync(http);
         var boundary = status switch
         {
             StatusCodes.Status404NotFound => Boundary.NotFound,
@@ -231,7 +244,7 @@ internal sealed class PageRenderer(
             _ => Boundary.Error,
         };
         var props = boundary == Boundary.NotFound ? null : ErrorPropsFor(status, null);
-        await RenderBoundaryAsync(http, boundary, status, props, limit, includeLimit: limit is not null);
+        await RenderBoundaryAsync(http, boundary, status, props, limit, includeLimit: denied && limit is not null);
     }
 
     /// <summary>
@@ -386,7 +399,8 @@ internal sealed class PageRenderer(
         // An endpoint that serves no page (the not-found fallback, a server action, a minimal API) carries no layout
         // loader's conventions, so nothing has authorized the root's: as on a mount's chain, the page stops above the
         // first one this user fails, and renders inside the layouts above it with its own status. A page's endpoint
-        // carries those of every layout above it, and a mount's chain was authorized when it was found.
+        // carries those of every layout above it (its callers stop its chain when it has not let the user in), and a
+        // mount's chain was authorized when it was found.
         if (route is null && mount is null && await FirstDeniedSegmentAsync(http, specialSegments) is { } refused)
         {
             specialSegments = specialSegments[..refused];
