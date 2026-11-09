@@ -624,10 +624,19 @@ public class StaticExportTests
         Assert.False(File.Exists(Out("contact/index.html")));
     }
 
+    /// <summary>Requirements that an endpoint's metadata states itself, without an <c>[Authorize]</c>.</summary>
+    private sealed class SignedInRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirementData
+    {
+        public IEnumerable<Microsoft.AspNetCore.Authorization.IAuthorizationRequirement> GetRequirements() =>
+            [new Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement()];
+    }
+
     [Theory]
     [InlineData("dynamic", "/blog/[slug]", ".StaticParams")]
     [InlineData("action", "/contact", "form posts")]
     [InlineData("auth", "/account", "authorization")]
+    [InlineData("policy", "/account", "requires authorization")]
+    [InlineData("requirements", "/account", "requires authorization")]
     public async Task Export_PageThatNeedsAServer_FailsBeforeWritingAnything(string kind, string pattern, string reason)
     {
         await using var app = await ExportAsync(
@@ -637,6 +646,9 @@ public class StaticExportTests
                 if (kind != "dynamic") a.MapPageLoader("/blog/[slug]", (string slug) => Page.Props()).ExcludeFromExport();
                 if (kind == "action") a.MapPageAction("/contact", () => Page.Redirect("/"));
                 if (kind == "auth") a.MapPageLoader("/account", () => Page.Props()).RequireAuthorization();
+                // What the authorization middleware enforces without an [Authorize]: a policy, or requirements alone.
+                if (kind == "policy") a.MapPageLoader("/account", () => Page.Props()).WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireRole("Staff").Build());
+                if (kind == "requirements") a.MapPageLoader("/account", () => Page.Props()).WithMetadata(new SignedInRequirement());
             },
             services: s => s.AddAuthorization());
 
@@ -965,6 +977,7 @@ public class StaticExportTests
     [InlineData("extension", "/feed", "file extension")]
     [InlineData("root", "/", "file extension")]
     [InlineData("authorization", "/feed.xml", "requires authorization")]
+    [InlineData("requirements", "/feed.xml", "requires authorization")]
     [InlineData("fallback", "/feed.xml", "fallback policy")]
     [InlineData("post", "/feed.xml", "GET")]
     [InlineData("segment", "/a/../feed.xml", "not a safe file or directory name")]
@@ -988,6 +1001,7 @@ public class StaticExportTests
                 var endpoint = kind == "post" ? a.MapPost(pattern, () => "text") : a.MapGet(pattern, () => "text");
                 endpoint.IncludeInExport();
                 if (kind == "authorization") endpoint.RequireAuthorization();
+                if (kind == "requirements") endpoint.WithMetadata(new SignedInRequirement());
                 if (kind == "file below") a.MapGet("/about.txt", () => "text").IncludeInExport();
             },
             services: s =>

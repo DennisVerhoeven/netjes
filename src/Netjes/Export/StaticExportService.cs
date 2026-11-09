@@ -316,13 +316,13 @@ internal sealed class StaticExportService(
                 continue;
             }
 
-            if (get?.Metadata.GetMetadata<IAuthorizeData>() is not null && get.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            if (get is not null && ConventionAuthorization.AsksForAuthorization(get.Metadata) && get.Metadata.GetMetadata<IAllowAnonymous>() is null)
             {
                 problems.Add($"{page.Pattern} requires authorization, which a static file cannot check. Exclude it with .ExcludeFromExport().");
                 continue;
             }
 
-            if (fallback is not null && get?.Metadata.GetMetadata<IAuthorizeData>() is null && get?.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            if (fallback is not null && (get is null || !ConventionAuthorization.AsksForAuthorization(get.Metadata)) && get?.Metadata.GetMetadata<IAllowAnonymous>() is null)
             {
                 problems.Add(
                     $"{page.Pattern} requires authorization through the fallback policy, which a static file cannot check. " +
@@ -417,13 +417,13 @@ internal sealed class StaticExportService(
                 continue;
             }
 
-            if (endpoint.Metadata.GetMetadata<IAuthorizeData>() is not null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            if (ConventionAuthorization.AsksForAuthorization(endpoint.Metadata) && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
             {
                 problems.Add($"{route} requires authorization, which a static file cannot check. Exclude it with .ExcludeFromExport().");
                 continue;
             }
 
-            if (fallback is not null && endpoint.Metadata.GetMetadata<IAuthorizeData>() is null && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            if (fallback is not null && !ConventionAuthorization.AsksForAuthorization(endpoint.Metadata) && endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
             {
                 problems.Add(
                     $"{route} requires authorization through the fallback policy, which a static file cannot check. " +

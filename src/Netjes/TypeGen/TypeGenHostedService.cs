@@ -202,7 +202,7 @@ internal sealed class TypeGenHostedService(
                     Action = PageEndpoints(page.Pattern, HttpMethods.Post).Any(),
                     Props = get?.Metadata.GetMetadata<PagePropsMetadata>()?.PropsType.Name,
                     Cached = get?.Metadata.Any(m => m is IOutputCachePolicy or OutputCacheAttribute) ?? false,
-                    Authorized = get?.Metadata.GetMetadata<IAuthorizeData>() is not null && get.Metadata.GetMetadata<IAllowAnonymous>() is null,
+                    Authorized = get is not null && ConventionAuthorization.AsksForAuthorization(get.Metadata) && get.Metadata.GetMetadata<IAllowAnonymous>() is null,
                 };
             }),
             Endpoints = endpoints

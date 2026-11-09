@@ -46,6 +46,33 @@ public class SitemapTests
             xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
     }
 
+    /// <summary>Requirements that an endpoint's metadata states itself, without an <c>[Authorize]</c>.</summary>
+    private sealed class SignedInRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirementData
+    {
+        public IEnumerable<Microsoft.AspNetCore.Authorization.IAuthorizationRequirement> GetRequirements() =>
+            [new Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement()];
+    }
+
+    [Fact]
+    public async Task Sitemap_LeavesOutPagesThatStateAPolicyOrRequirementsWithoutAnAuthorizeAttribute()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx", "app/staff/page.tsx", "app/members/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/staff", () => Page.Props())
+                    .WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireRole("Staff").Build());
+                a.MapPageLoader("/members", () => Page.Props()).WithMetadata(new SignedInRequirement());
+                a.MapSitemap(new Uri("https://blog.example/"));
+            },
+            services: s => s.AddAuthorization().AddAuthentication());
+
+        var xml = XDocument.Parse(await app.Client.GetStringAsync("/sitemap.xml", Ct));
+
+        // The authorization middleware enforces both, as it does RequireAuthorization().
+        Assert.Equal(["https://blog.example/"], xml.Root!.Elements(Ns + "url").Select(u => (string)u.Element(Ns + "loc")!));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
