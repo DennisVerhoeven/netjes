@@ -500,9 +500,10 @@ describe('the development sidecar with a linked page package', () => {
     expect(await status(`${fs}/lib/later.ts`)).toBe(200);
     expect(await status(`${fs}/pages/page.tsx`)).toBe(200);
     for (const file of ['obj/project.assets.json', 'bin/Debug/net10.0/Linked.deps.json', 'Linked.csproj']) {
-      for (const url of [`${fs}/${file}`, `${fs}/${file}?raw`, `${fs}/${file}?import`, `${fs}/${file}?url`, `${throughLink}/${file}`, `${throughLink}/${file}?raw`]) {
-        expect(await status(url), url).toBe(403);
-      }
+      // Every URL's status at once, so a failure names each one that got through.
+      const refused = [`${fs}/${file}`, `${fs}/${file}?raw`, `${fs}/${file}?import`, `${fs}/${file}?url`, `${throughLink}/${file}`, `${throughLink}/${file}?raw`];
+      const statuses = Object.fromEntries(await Promise.all(refused.map(async (url) => [url, await status(url)] as const)));
+      expect(statuses).toEqual(Object.fromEntries(refused.map((url) => [url, 403])));
       // A file name in another case, and a folder climbed back out of, are not served either.
       expect(await status(`${fs}/${file.toUpperCase()}`), file.toUpperCase()).not.toBe(200);
       expect(await status(`${fs}/pages/%2e%2e/${file}`), `pages/%2e%2e/${file}`).not.toBe(200);
