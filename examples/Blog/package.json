@@ -12,6 +12,7 @@
     "test:e2e": "dotnet build && playwright test"
   },
   "dependencies": {
+    "@netjes-examples/help-center": "*",
     "@tanstack/react-query": "^5.105.0",
     "netjes": "*",
     "react": "^19.3.1",

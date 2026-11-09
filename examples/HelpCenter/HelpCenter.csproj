@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The C# half of a page package: the npm half (package.json, app/, src/, styles/, generated/) sits in this folder too. -->
+  <PropertyGroup>
+    <RootNamespace>Netjes.Examples.HelpCenter</RootNamespace>
+    <PackageId>Netjes.Examples.HelpCenter</PackageId>
+    <Description>An example page package for Netjes: a help center that an app mounts at a prefix with MapHelpCenter.</Description>
+    <PackageTags>netjes;example;page-package</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\Netjes\Netjes.csproj" />
+  </ItemGroup>
+
+</Project>

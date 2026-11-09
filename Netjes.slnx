@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples/Blog/Blog.csproj" />
+    <Project Path="examples/HelpCenter/HelpCenter.csproj" />
     <Project Path="examples/TaskBoard/TaskBoard.csproj" />
   </Folder>
   <Folder Name="/src/">
