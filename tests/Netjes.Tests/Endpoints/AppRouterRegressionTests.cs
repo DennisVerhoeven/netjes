@@ -688,6 +688,40 @@ public class AppRouterRegressionTests
         Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task AnUnsupportedLocale_ForAPageWhoseOwnLoaderRefusesTheVisitor_RendersInsideTheLayoutsTheyMayUse()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/layout.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx", "app/[lang]/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/[lang]", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Site = "public" });
+                });
+                a.MapPageLoader("/[lang]/admin", () => Page.Props()).RequireAuthorization();
+            },
+            services: s =>
+            {
+                Nobody(s);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/xx/admin", "data");
+
+        // As on the page's 401 for the same visitor: its own loader's refusal says nothing about the layout above it.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app/[lang]"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
     private sealed class ThrowingHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {

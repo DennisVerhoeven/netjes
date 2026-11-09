@@ -98,7 +98,7 @@ namespace Microsoft.AspNetCore.Builder
                             http.Features.Set<IRequestCultureFeature>(new RequestCultureFeature(defaultCulture, provider: null));
                             CultureInfo.CurrentCulture = defaultCulture.Culture;
                             CultureInfo.CurrentUICulture = defaultCulture.UICulture;
-                            await http.RequestServices.GetRequiredService<PageRenderer>().RenderNotFoundBeforeAuthorizationAsync(http);
+                            await http.RequestServices.GetRequiredService<PageRenderer>().RenderNotFoundAsync(http);
                         }
                         else
                         {
