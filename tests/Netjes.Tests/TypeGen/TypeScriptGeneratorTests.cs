@@ -521,6 +521,26 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_ATypeNamedLikeARegisteredGroup_GetsAnotherName()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/items/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/items", () => Page.Props(new NewItem("x")));
+                a.Services.GetRequiredService<TypeGenRegistry>().Add("Item", "latest", new Dictionary<string, Type> { ["props"] = typeof(Item) });
+            });
+
+        var output = await GenerateAsync(app);
+
+        // Two declarations of `Item` would not compile.
+        Assert.Contains("export const TypeScriptGeneratorTestsItem = z.object({", output);
+        Assert.Contains("export const Item = {\n  \"latest\": { \"props\": TypeScriptGeneratorTestsItem },\n} as const;", output);
+        Assert.Equal(2, output.Split("export const Item =").Length);
+        Assert.Contains("export const NewItem = z.object({", output);
+    }
+
+    [Fact]
     public async Task Generate_RegisteredSlots_AreInOrdinalOrder_WhateverOrderTheDictionaryKeeps()
     {
         // A dictionary that hashes its keys (ImmutableDictionary) may list them in another order in each process, and

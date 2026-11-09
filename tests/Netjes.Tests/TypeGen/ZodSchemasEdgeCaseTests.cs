@@ -310,6 +310,23 @@ public class ZodSchemasEdgeCaseTests
         }
     }
 
+    public sealed record Blocks(string Hero);
+
+    [Fact]
+    public void TypeNamedLikeANameOneInstanceReserves_GetsAnotherNameInThatInstanceAlone()
+    {
+        // The generated file that holds a registered export `Blocks` reserves the name; a file without it does not.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var reserving = new ZodSchemas(options, new HashSet<string>(TypeScriptGenerator.ReservedExports.Append("Blocks"), StringComparer.Ordinal));
+        var plain = new ZodSchemas(options);
+        reserving.Add(typeof(Blocks));
+        plain.Add(typeof(Blocks));
+
+        Assert.Equal("ZodSchemasEdgeCaseTestsBlocks", reserving.Reference(typeof(Blocks)));
+        Assert.Contains("export const ZodSchemasEdgeCaseTestsBlocks = z.object({", reserving.Declarations());
+        Assert.Equal("Blocks", plain.Reference(typeof(Blocks)));
+    }
+
     [Fact]
     public void DeferredValues_KeepTheNullabilityOfTheirTypeArgument()
     {

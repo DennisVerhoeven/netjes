@@ -74,7 +74,11 @@ internal sealed class TypeScriptGenerator(
 
     private string GenerateFile(MountedPackage? package)
     {
-        var schemas = new ZodSchemas(json.Value.SerializerOptions, package is null ? ReservedExports : PackageReservedExports);
+        var groups = package is null ? registry.Snapshot() : [];
+        // A registered export's name is taken in the file that holds it, so a C# type of that name gets another.
+        var schemas = new ZodSchemas(
+            json.Value.SerializerOptions,
+            new HashSet<string>((package is null ? ReservedExports : PackageReservedExports).Concat(groups.Select(g => g.Group)), StringComparer.Ordinal));
         var table = routes.Current;
         var all = endpoints.Endpoints.OfType<RouteEndpoint>().ToList();
         // A page package's pages are routes of the app, but their schemas are in the package's own file.
@@ -102,7 +106,6 @@ internal sealed class TypeScriptGenerator(
             .OrderBy(l => l.Key, StringComparer.Ordinal)
             .ToList();
         var actions = ActionEntries(own);
-        var groups = package is null ? registry.Snapshot() : [];
 
         foreach (var type in pages.Select(p => p.Type).OfType<Type>()) schemas.Add(type);
         if (sharedType is not null) schemas.Add(sharedType);
