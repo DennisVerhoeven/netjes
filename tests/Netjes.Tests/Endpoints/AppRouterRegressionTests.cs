@@ -1298,6 +1298,124 @@ public class AppRouterRegressionTests
         Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
     }
 
+    /// <summary>Requirements that an endpoint's metadata states itself, which the authorization middleware enforces: a signed-in user.</summary>
+    private sealed class SignedInRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirementData
+    {
+        public IEnumerable<Microsoft.AspNetCore.Authorization.IAuthorizationRequirement> GetRequirements() =>
+            [new Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement()];
+    }
+
+    /// <summary>ASP.NET Core's shape for an attribute with requirements of its own: an <c>[Authorize]</c> that requires the Admin role.</summary>
+    private sealed class AdminOnlyAttribute : Microsoft.AspNetCore.Authorization.AuthorizeAttribute, Microsoft.AspNetCore.Authorization.IAuthorizationRequirementData
+    {
+        public IEnumerable<Microsoft.AspNetCore.Authorization.IAuthorizationRequirement> GetRequirements() =>
+            [new Microsoft.AspNetCore.Authorization.Infrastructure.RolesAuthorizationRequirement(["Admin"])];
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/nope")]
+    [InlineData("/admin")]
+    public async Task AnAttributeThatStatesRequirements_OnALayoutLoader_IsEnforcedOnARefusedVisitorsChainAsOnThePage(string url)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/forbidden.tsx", "app/page.tsx", "app/admin/layout.tsx", "app/admin/forbidden.tsx", "app/admin/page.tsx"],
+            map: a => a.MapLayoutLoader(url == "/admin" ? "/admin" : "/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(new AdminOnlyAttribute()),
+            services: Ada,
+            configureApp: a => a.UseAuthorization());
+
+        var (status, body) = await RequestAsync(app, url, "data");
+        var payload = JsonNode.Parse(body)!;
+
+        // Ada is signed in without the Admin role: the middleware refuses her the pages, and no loader they carry runs for her.
+        Assert.Equal(url == "/nope" ? HttpStatusCode.NotFound : HttpStatusCode.Forbidden, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body);
+        Assert.Equal(url == "/admin" ? ["app"] : [], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    /// <summary>
+    /// Requirements stated without an <c>[Authorize]</c> (<see cref="SignedInRequirement"/>), on the root layout's loader, a
+    /// section's, a page package's mount or <c>MapPages()</c>, for a visitor without a user or Ada.
+    /// </summary>
+    public static TheoryData<string, bool> RequirementGuards => new()
+    {
+        { "the root loader's", false },
+        { "the root loader's", true },
+        { "a section loader's", false },
+        { "a section loader's", true },
+        { "the mount's", false },
+        { "the mount's", true },
+        { "MapPages()'s", false },
+        { "MapPages()'s", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(RequirementGuards))]
+    public async Task RequirementsAlone_GuardTheLayoutLoadersOnARefusedVisitorsChainAsOnThePages(string guard, bool signedIn)
+    {
+        var calls = 0;
+        var mounted = guard == "the mount's";
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/layout.tsx", "app/admin/unauthorized.tsx", "app/admin/page.tsx"],
+            prepareRoot: mounted ? root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]) : null,
+            map: a =>
+            {
+                var secret = () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                };
+                if (mounted)
+                {
+                    a.MapPagePackage(TestPagePackage.Descriptor, "/help").WithMetadata(new SignedInRequirement()).MapLayoutLoader("/", secret);
+                }
+                else
+                {
+                    var loader = a.MapLayoutLoader(guard == "a section loader's" ? "/admin" : "/", secret);
+                    if (guard != "MapPages()'s")
+                    {
+                        loader.WithMetadata(new SignedInRequirement());
+                    }
+                }
+            },
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.WithMetadata(new SignedInRequirement());
+                }
+            });
+
+        (string page, string? unknown) = guard switch
+        {
+            "a section loader's" => ("/admin", null),
+            "the mount's" => ("/help", "/help/nope"),
+            _ => ("/", "/nope"),
+        };
+        var (pageStatus, pageBody) = await RequestAsync(app, page, "data");
+        var (status, body) = unknown is null ? (pageStatus, pageBody) : await RequestAsync(app, unknown, "data");
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(signedIn ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, pageStatus);
+        Assert.Equal(unknown is null ? pageStatus : HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? (unknown is null ? 1 : 2) : 0, calls);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+        Assert.Equal(guard switch
+        {
+            "a section loader's" => signedIn ? ["app", "app/admin"] : ["app"],
+            "the mount's" => signedIn ? ["app", "app/help"] : ["app"],
+            _ => signedIn ? ["app"] : [],
+        }, ids);
+    }
+
     [Theory]
     [InlineData("document")]
     [InlineData("data")]

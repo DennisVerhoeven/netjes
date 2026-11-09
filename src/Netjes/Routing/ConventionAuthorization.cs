@@ -24,8 +24,16 @@ internal static class ConventionAuthorization
         IReadOnlyList<Action<EndpointBuilder>> finallyConventions)
     {
         var metadata = MetadataOf(services, conventions.Concat(finallyConventions));
-        return !metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy) || await AuthorizesAsync(http, metadata);
+        return !AsksForAuthorization(metadata) || await AuthorizesAsync(http, metadata);
     }
+
+    /// <summary>
+    /// Whether an endpoint carrying <paramref name="metadata"/> asks for authorization of its own, as the authorization
+    /// middleware reads it: an <see cref="IAuthorizeData"/>, an <see cref="AuthorizationPolicy"/>, or requirements its
+    /// metadata states (<see cref="IAuthorizationRequirementData"/>). An endpoint that asks for none gets the fallback policy.
+    /// </summary>
+    public static bool AsksForAuthorization(IEnumerable<object> metadata) =>
+        metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy or IAuthorizationRequirementData);
 
     /// <summary>The metadata <paramref name="conventions"/> give an endpoint, in their order.</summary>
     public static IReadOnlyList<object> MetadataOf(IServiceProvider services, IEnumerable<Action<EndpointBuilder>> conventions)
@@ -42,7 +50,8 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether the user passes the authorization that an endpoint carrying <paramref name="metadata"/> asks for, evaluated
     /// the way the authorization middleware would: its <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>,
-    /// else the fallback policy, unless it allows anonymous users, against the user the policy's schemes authenticate.
+    /// else the fallback policy, joined by the requirements its metadata states (<see cref="IAuthorizationRequirementData"/>),
+    /// unless it allows anonymous users, against the user the policy's schemes authenticate.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
     {
@@ -54,11 +63,25 @@ internal static class ConventionAuthorization
 
         var data = items.OfType<IAuthorizeData>().ToList();
         var policies = items.OfType<AuthorizationPolicy>().ToList();
+        var requirements = items.OfType<IAuthorizationRequirementData>().SelectMany(r => r.GetRequirements()).ToList();
         // Without authorization services nothing is authorized, and only an endpoint that asks for none can be served.
-        var provider = data.Count == 0 && policies.Count == 0
+        var provider = data.Count == 0 && policies.Count == 0 && requirements.Count == 0
             ? http.RequestServices.GetService<IAuthorizationPolicyProvider>()
             : http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-        if (provider is null || await AuthorizationPolicy.CombineAsync(provider, data, policies) is not { } policy)
+        if (provider is null)
+        {
+            return true;
+        }
+
+        var policy = await AuthorizationPolicy.CombineAsync(provider, data, policies);
+        if (requirements.Count > 0)
+        {
+            // As the middleware does: the stated requirements join the policy, or stand alone.
+            var stated = new AuthorizationPolicyBuilder().AddRequirements([.. requirements]).Build();
+            policy = policy is null ? stated : AuthorizationPolicy.Combine(policy, stated);
+        }
+
+        if (policy is null)
         {
             return true;
         }
