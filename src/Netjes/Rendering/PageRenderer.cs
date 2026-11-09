@@ -186,6 +186,24 @@ internal sealed class PageRenderer(
     public Task RenderNotFoundAsync(HttpContext http) =>
         RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null);
 
+    /// <summary>
+    /// <see cref="RenderNotFoundAsync"/> for a page's URL that a middleware turns away before the authorization middleware
+    /// has run (an unsupported locale). The page's endpoint carries the authorization of every layout loader on its chain,
+    /// and nothing has checked it yet: a visitor it refuses gets no layout loader run, as on the not-found fallback under
+    /// <c>MapPages()</c>'s, and the page stops above the first segment with one.
+    /// </summary>
+    public async Task RenderNotFoundBeforeAuthorizationAsync(HttpContext http)
+    {
+        int? limit = null;
+        if (http.GetEndpoint() is { } endpoint && !await ConventionAuthorization.AuthorizesAsync(http, endpoint.Metadata))
+        {
+            var first = (RouteOf(http)?.Segments ?? []).ToList().FindIndex(s => layoutLoaders.Find(s.Id) is not null);
+            limit = first < 0 ? null : first;
+        }
+
+        await RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null, limit);
+    }
+
     public Task RenderErrorAsync(HttpContext http, Exception exception)
     {
         var status = exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError;

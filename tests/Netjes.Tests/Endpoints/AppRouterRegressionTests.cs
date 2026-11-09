@@ -601,6 +601,60 @@ public class AppRouterRegressionTests
         Assert.Equal(signedIn, payload.Contains("s3cret", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("the loader's", "document", false)]
+    [InlineData("the loader's", "data", false)]
+    [InlineData("the loader's", "data", true)]
+    [InlineData("MapPages()'s", "data", false)]
+    [InlineData("MapPages()'s", "data", true)]
+    public async Task AnUnsupportedLocale_BeforeAuthorization_NeverRunsAProtectedLayoutLoaderOnThePagesChainForAVisitorItRefuses(
+        string guard, string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/layout.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx", "app/[lang]/admin/layout.tsx", "app/[lang]/admin/not-found.tsx", "app/[lang]/admin/page.tsx"],
+            map: a =>
+            {
+                var loader = a.MapLayoutLoader("/[lang]/admin", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                if (guard == "the loader's")
+                {
+                    loader.RequireAuthorization();
+                }
+            },
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization();
+                }
+            },
+            services: s =>
+            {
+                (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            // Right after UseNetjes, as the routing guide puts it: its 404 comes before the authorization middleware.
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/xx/admin", request);
+        var payload = JsonNode.Parse(body)!;
+        var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? "app/[lang]/admin/not-found.tsx" : "app/[lang]/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(signedIn ? ["app/[lang]", "app/[lang]/admin"] : ["app/[lang]"], ids);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
     {
