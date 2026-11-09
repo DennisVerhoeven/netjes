@@ -26,6 +26,11 @@ internal sealed class TypeGenRegistry
                 nameof(group));
         }
 
+        if (ReservedWords.Contains(group))
+        {
+            throw new ArgumentException($"'{group}' cannot be the name of a TypeScript export: it is a reserved word in a JavaScript module.", nameof(group));
+        }
+
         if (TypeScriptGenerator.ReservedExports.Contains(group))
         {
             throw new ArgumentException($"'{group}' is a built-in export of the generated file.", nameof(group));
@@ -56,6 +61,19 @@ internal sealed class TypeGenRegistry
             entries.Entries[key] = [.. slots.OrderBy(s => s.Key, StringComparer.Ordinal)];
         }
     }
+
+    /// <summary>
+    /// What a module cannot declare with <c>export const</c>: JavaScript's reserved words, those of strict mode, which a
+    /// module is in, <c>await</c>, and <c>arguments</c> and <c>eval</c>, which strict mode does not let a declaration take.
+    /// </summary>
+    private static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
+    {
+        "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export",
+        "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
+        "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
+        "implements", "interface", "let", "package", "private", "protected", "public", "static", "yield",
+        "await", "arguments", "eval",
+    };
 
     private static bool IsIdentifier(string name) =>
         name.Length > 0 && !char.IsAsciiDigit(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '$');

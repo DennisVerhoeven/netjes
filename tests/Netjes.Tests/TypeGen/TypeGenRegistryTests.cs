@@ -61,4 +61,34 @@ public class TypeGenRegistryTests
             error.Message);
         Assert.Empty(registry.Snapshot());
     }
+
+    /// <summary>
+    /// Words a module cannot declare with <c>export const</c>: JavaScript's reserved words, those of strict mode, which
+    /// a module is in, <c>await</c>, and <c>arguments</c> and <c>eval</c>, which strict mode does not let a declaration take.
+    /// </summary>
+    [Theory]
+    [InlineData("class")]
+    [InlineData("default")]
+    [InlineData("delete")]
+    [InlineData("enum")]
+    [InlineData("null")]
+    [InlineData("true")]
+    [InlineData("await")]
+    [InlineData("yield")]
+    [InlineData("let")]
+    [InlineData("static")]
+    [InlineData("implements")]
+    [InlineData("package")]
+    [InlineData("arguments")]
+    [InlineData("eval")]
+    public void AGroupNamedLikeAReservedWord_Throws(string group)
+    {
+        var registry = new TypeGenRegistry();
+
+        var error = Assert.Throws<ArgumentException>(() => registry.Add(group, "hero", Props(typeof(Hero)), owner: "@acme/blocks"));
+
+        Assert.Equal("group", error.ParamName);
+        Assert.StartsWith($"'{group}' cannot be the name of a TypeScript export: it is a reserved word in a JavaScript module.", error.Message);
+        Assert.Empty(registry.Snapshot());
+    }
 }
