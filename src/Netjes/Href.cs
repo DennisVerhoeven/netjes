@@ -74,7 +74,7 @@ public sealed class Href : IEquatable<Href>
     [return: NotNullIfNotNull(nameof(href))]
     public static implicit operator string?(Href? href) => href?.Value;
 
-    // The same rule as isRouteHref in the npm package, without its check of the app's pages.
+    // The same rule as isHrefShape in the npm package, which isRouteHref adds its check of the app's pages to.
     private static bool HasTheShape(string value)
     {
         // Browsers drop tabs and newlines anywhere in a URL, and control characters and spaces at either end:

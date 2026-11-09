@@ -1,5 +1,5 @@
 {
-  "about": "The route and segments the server sends with the document of each case's page: tests/Netjes.Tests/Routing/SegmentFixtureTests.cs requests each url from an app with these files, and test/render-document.test.tsx builds the same payload in TypeScript, as renderDocument in netjes/testing does. A change to either rule fails one of the two until this file says what both send. A new kind of segment file needs a case here.",
+  "about": "The route and segments the server sends with the document of each case's page: tests/Netjes.Tests/Routing/SegmentFixtureTests.cs requests each url from an app with these files, and test/render-document.test.tsx builds the same payload in TypeScript, as renderDocument in netjes/testing does. A change to either rule fails one of the two until this file says what both send. A new kind of segment file needs a case here. A case's packages are page packages, installed with their files in their pages folder (app) and mounted at their prefix, and its mounts are what the payload maps each one to; a case without packages has no mounts.",
   "cases": [
     {
       "name": "a page inside a route group",
@@ -117,6 +117,64 @@
       "segments": [
         { "id": "src/app", "layout": "src/app/layout.tsx", "depth": 0 },
         { "id": "src/app/(docs)/docs/[...path]", "layout": "src/app/(docs)/docs/[...path]/layout.tsx", "depth": 3 }
+      ]
+    },
+    {
+      "name": "a page package's page",
+      "files": ["app/layout.tsx", "app/page.tsx"],
+      "packages": [
+        {
+          "name": "@acme/help-center",
+          "prefix": "/help",
+          "files": ["layout.tsx", "(center)/layout.tsx", "(center)/articles/[slug]/page.tsx"]
+        }
+      ],
+      "url": "/help/articles/hello",
+      "page": "@acme/help-center/app/(center)/articles/[slug]/page.tsx",
+      "params": { "slug": "hello" },
+      "route": "/help/articles/[slug]",
+      "status": 200,
+      "mounts": { "@acme/help-center": "/help" },
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/help", "layout": "@acme/help-center/app/layout.tsx", "depth": 1 },
+        { "id": "app/help/(center)", "layout": "@acme/help-center/app/(center)/layout.tsx", "depth": 1 }
+      ]
+    },
+    {
+      "name": "an app page in a page package's route group",
+      "files": ["app/layout.tsx", "app/(marketing)/layout.tsx", "app/(marketing)/help/(center)/shortcuts/page.tsx"],
+      "packages": [
+        { "name": "@acme/help-center", "prefix": "/(marketing)/help", "files": ["layout.tsx", "page.tsx", "(center)/layout.tsx"] }
+      ],
+      "url": "/help/shortcuts",
+      "page": "app/(marketing)/help/(center)/shortcuts/page.tsx",
+      "params": {},
+      "route": "/help/shortcuts",
+      "status": 200,
+      "mounts": { "@acme/help-center": "/help" },
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/(marketing)", "layout": "app/(marketing)/layout.tsx", "depth": 0 },
+        { "id": "app/(marketing)/help", "layout": "@acme/help-center/app/layout.tsx", "depth": 1 },
+        { "id": "app/(marketing)/help/(center)", "layout": "@acme/help-center/app/(center)/layout.tsx", "depth": 1 }
+      ]
+    },
+    {
+      "name": "a page package mounted at a prefix with a value",
+      "files": ["app/layout.tsx", "app/page.tsx"],
+      "packages": [
+        { "name": "@acme/help-center", "prefix": "/[tenant]/help", "files": ["layout.tsx", "articles/[slug]/page.tsx"] }
+      ],
+      "url": "/acme/help/articles/hello",
+      "page": "@acme/help-center/app/articles/[slug]/page.tsx",
+      "params": { "tenant": "acme", "slug": "hello" },
+      "route": "/[tenant]/help/articles/[slug]",
+      "status": 200,
+      "mounts": { "@acme/help-center": "/acme/help" },
+      "segments": [
+        { "id": "app", "layout": "app/layout.tsx", "depth": 0 },
+        { "id": "app/[tenant]/help", "layout": "@acme/help-center/app/layout.tsx", "depth": 2 }
       ]
     }
   ]

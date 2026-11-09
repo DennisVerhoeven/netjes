@@ -58,31 +58,166 @@ function parseVersion(version) {
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 /**
- * Whether `version` is in `range`, for the forms package.json ranges usually take (^1.2.3, ~1.2.3, >=1, 1.2.3, *,
- * and || between them). A form it does not know passes: only a definite mismatch is reported.
+ * A version as npm reads one: major.minor.patch, a prerelease and build metadata, which no comparison looks at.
+ * @typedef {{ main: [number, number, number]; pre: (string | number)[] }} SemVer
+ * @typedef {{ op: '<' | '<=' | '>' | '>=' | '='; version: SemVer }} Comparator
+ */
+
+/** A number in a version: no leading zeros. */
+const NUMBER = '0|[1-9]\\d*';
+const IDENTIFIER = `(?:${NUMBER}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
+const PRERELEASE = `(?:-(${IDENTIFIER}(?:\\.${IDENTIFIER})*))?`;
+const BUILD = '(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?';
+const SEMVER = new RegExp(`^v?(${NUMBER})\\.(${NUMBER})\\.(${NUMBER})${PRERELEASE}${BUILD}$`);
+/** A version in a range, which may leave out its minor and patch, or write them as x, X or *. */
+const PARTIAL = new RegExp(`^v?(${NUMBER}|[xX*])(?:\\.(${NUMBER}|[xX*])(?:\\.(${NUMBER}|[xX*])${PRERELEASE}${BUILD})?)?$`);
+const OPERATOR = /^(<=|>=|<|>|=|\^|~>|~)?/;
+
+/** @param {string} pre @returns {(string | number)[]} */
+const identifiers = (pre) => (pre ? pre.split('.').map((id) => (/^\d+$/.test(id) ? Number(id) : id)) : []);
+
+/** @param {string} version @returns {SemVer | null} */
+function parseSemver(version) {
+  const match = SEMVER.exec(version.trim());
+  return match ? { main: [Number(match[1]), Number(match[2]), Number(match[3])], pre: identifiers(match[4] ?? '') } : null;
+}
+
+/** @param {SemVer} a @param {SemVer} b */
+function compareSemver(a, b) {
+  const main = compare(a.main, b.main);
+  if (main !== 0) return main;
+  // A version with a prerelease comes before the version itself, and identifiers compare one by one: numbers by value,
+  // and before words.
+  if (a.pre.length === 0 || b.pre.length === 0) return b.pre.length - a.pre.length;
+  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+    const [x, y] = [a.pre[i], b.pre[i]];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    if (x === y) continue;
+    if (typeof x !== typeof y) return typeof x === 'number' ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/** @param {number} major @param {number} minor @param {number} patch @param {(string | number)[]} [pre] @returns {SemVer} */
+const semver = (major, minor, patch, pre = []) => ({ main: [major, minor, patch], pre });
+/** The lowest version above every prerelease of a release below this one: what npm's `<1.3.0-0` bounds are. */
+const before = (/** @type {number} */ major, /** @type {number} */ minor, /** @type {number} */ patch) => semver(major, minor, patch, [0]);
+
+/**
+ * The comparators one comparator of a range stands for, as npm reads it: `^1.2` is `>=1.2.0 <2.0.0-0`. Null for one
+ * that is none. With `includePrerelease`, a lower bound that the range leaves to npm (`1.2` in `^1.2`, `~1.2`, `>=1.2`)
+ * is the lowest prerelease, `>=1.2.0-0`, as npm makes it.
+ * @param {string} token
+ * @param {boolean} includePrerelease
+ * @returns {Comparator[] | null}
+ */
+function comparators(token, includePrerelease) {
+  const op = OPERATOR.exec(token)?.[1] ?? '';
+  const match = PARTIAL.exec(token.slice(op.length));
+  if (!match) return null;
+  const [major, minor, patch] = [match[1], match[2], match[3]].map((part) => (part === undefined || /^[xX*]$/.test(part) ? null : Number(part)));
+  // A number after an x, as in `1.x.3`, makes it none.
+  if ((major === null && (minor ?? patch ?? null) !== null) || (minor === null && (patch ?? null) !== null)) return null;
+  const pre = identifiers(match[4] ?? '');
+  /** @param {number} major @param {number} minor @returns {SemVer} */
+  const lowest = (major, minor) => semver(major, minor, 0, includePrerelease ? [0] : []);
+  if (major === null || major === undefined) return op === '<' || op === '>' ? [{ op: '<', version: before(0, 0, 0) }] : [];
+  if (minor === null || minor === undefined) {
+    /** @type {Record<string, Comparator[]>} */
+    const byMajor = {
+      '>': [{ op: '>=', version: lowest(major + 1, 0) }],
+      '>=': [{ op: '>=', version: lowest(major, 0) }],
+      '<': [{ op: '<', version: before(major, 0, 0) }],
+      '<=': [{ op: '<', version: before(major + 1, 0, 0) }],
+    };
+    return byMajor[op] ?? [{ op: '>=', version: lowest(major, 0) }, { op: '<', version: before(major + 1, 0, 0) }];
+  }
+  if (patch === null || patch === undefined) {
+    /** @type {Record<string, Comparator[]>} */
+    const byMinor = {
+      '>': [{ op: '>=', version: lowest(major, minor + 1) }],
+      '>=': [{ op: '>=', version: lowest(major, minor) }],
+      '<': [{ op: '<', version: before(major, minor, 0) }],
+      '<=': [{ op: '<', version: before(major, minor + 1, 0) }],
+      '^': [{ op: '>=', version: lowest(major, minor) }, { op: '<', version: major > 0 ? before(major + 1, 0, 0) : before(0, minor + 1, 0) }],
+    };
+    return byMinor[op] ?? [{ op: '>=', version: lowest(major, minor) }, { op: '<', version: before(major, minor + 1, 0) }];
+  }
+  const version = semver(major, minor, patch, pre);
+  switch (op) {
+    case '^': {
+      // npm's caret allows the changes that keep the first non-zero part: ^0.0.4 is 0.0.4 alone, and its prereleases.
+      const upper = major > 0 ? before(major + 1, 0, 0) : minor > 0 ? before(0, minor + 1, 0) : before(0, 0, patch + 1);
+      return [{ op: '>=', version }, { op: '<', version: upper }];
+    }
+    case '~':
+    case '~>':
+      return [{ op: '>=', version }, { op: '<', version: before(major, minor + 1, 0) }];
+    case '':
+      return [{ op: '=', version }];
+    default:
+      return [{ op: /** @type {Comparator['op']} */ (op), version }];
+  }
+}
+
+/**
+ * The comparators of one part of a range, between `||`s: a hyphen range (`1.2 - 2.3.4`), or comparators that a version
+ * has to pass all of, separated by spaces. Null for a part that is none.
+ * @param {string} part
+ * @param {boolean} includePrerelease
+ * @returns {Comparator[] | null}
+ */
+function comparatorSet(part, includePrerelease) {
+  const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(part);
+  if (hyphen) {
+    // From the first version, up to and with the second: `<=2.3` is below 2.4.0, as npm reads a partial version there.
+    // With prereleases included, npm starts a hyphen range at the first version's lowest prerelease, unless it names one.
+    const from = comparators(`>=${hyphen[1]}`, includePrerelease)?.map((c) =>
+      includePrerelease && c.version.pre.length === 0 ? { ...c, version: { ...c.version, pre: [0] } } : c,
+    );
+    const to = comparators(`<=${hyphen[2]}`, includePrerelease);
+    return from && to ? [...from, ...to] : null;
+  }
+  // `>= 1.2.3` is `>=1.2.3`.
+  const tokens = part.replace(/(<=|>=|<|>|=|\^|~>|~)\s+/g, '$1').split(/\s+/).filter(Boolean);
+  /** @type {Comparator[]} */
+  const set = [];
+  for (const token of tokens) {
+    const parsed = comparators(token, includePrerelease);
+    if (!parsed) return null;
+    set.push(...parsed);
+  }
+  return set;
+}
+
+/** @param {SemVer} version @param {Comparator} comparator */
+function passes(version, { op, version: bound }) {
+  const order = compareSemver(version, bound);
+  return op === '<' ? order < 0 : op === '<=' ? order <= 0 : op === '>' ? order > 0 : op === '>=' ? order >= 0 : order === 0;
+}
+
+/**
+ * Whether `version` is in `range`, as npm reads ranges: `^`, `~`, `x` and partial versions, `<`, `<=`, `>`, `>=` and
+ * `=`, comparators separated by spaces, hyphen ranges and `||`. `^0.0.4` is `>=0.0.4 <0.0.5-0`, and a prerelease is in
+ * a range only when a comparator names a prerelease of the same major.minor.patch: `0.0.5-rc.1` is not in `^0.0.4`.
+ * Build metadata (`+sha`) is left out. In strict mode a range or a version that is none satisfies nothing; otherwise
+ * it passes, so that only a definite mismatch is reported. With `includePrerelease`, as npm checks `engines`, a
+ * prerelease is in a range by its place in the order alone: `24.16.0-rc.1` is in `^24.15.0`.
  * @param {string | undefined} version
  * @param {string} range
+ * @param {{ strict?: boolean; includePrerelease?: boolean }} [options]
  */
-export function satisfies(version, range) {
-  const have = parseVersion(version);
-  if (!have) return true;
-  return range.split('||').some((part) => {
-    const match = /^\s*(\^|~|>=|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(part);
-    if (!match) return true;
-    /** @type {[number, number, number]} */
-    const want = [Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0)];
-    const atLeast = compare(have, want) >= 0;
-    switch (match[1]) {
-      case '>=':
-        return atLeast;
-      case '^':
-        return atLeast && (want[0] > 0 ? have[0] === want[0] : have[1] === want[1]);
-      case '~':
-        return atLeast && have[0] === want[0] && have[1] === want[1];
-      default:
-        return match[3] === undefined ? have[0] === want[0] : compare(have, want) === 0;
-    }
-  });
+export function satisfies(version, range, { strict = false, includePrerelease = false } = {}) {
+  const have = parseSemver(version ?? '');
+  const sets = range.split('||').map((part) => comparatorSet(part.trim(), includePrerelease));
+  if (!have || sets.some((set) => set === null)) return !strict;
+  return sets.some(
+    (set) =>
+      set !== null &&
+      set.every((comparator) => passes(have, comparator)) &&
+      (includePrerelease || have.pre.length === 0 || set.some(({ version: bound }) => bound.pre.length > 0 && compare(bound.main, have.main) === 0)),
+  );
 }
 
 /** @param {string} file @returns {Promise<any>} */
@@ -99,7 +234,8 @@ async function readJson(file) {
  * @returns {Check}
  */
 export function checkNode(version) {
-  if (satisfies(version, NODE_RANGE)) return ok(`Node.js ${version}`);
+  // A prerelease of Node.js is checked by its place in the order, as npm checks a package's engines.
+  if (satisfies(version, NODE_RANGE, { includePrerelease: true })) return ok(`Node.js ${version}`);
   const major = parseVersion(version)?.[0] ?? 0;
   const fix = `Install a Node.js release that matches ${NODE_RANGE}: ${NODE_DOWNLOAD}`;
   // The odd release lines between the supported ones (23, 25) are short-lived; they may work, but are not supported.
@@ -236,6 +372,25 @@ async function checkPackages(cwd, cliVersion) {
   return { checks, netjes: netjes?.version };
 }
 
+/** @param {string} text */
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The project file's PackageReference of the NuGet package `name`, in any case as NuGet compares ids: the Version it
+ * gives, and that version when it is an exact one, 1.2.3 or [1.2.3]. A range, a floating version or an MSBuild property
+ * such as $(NetjesVersion) is resolved by NuGet and MSBuild, which this does not repeat, so it has no exact version.
+ * Null when the project does not reference the package.
+ * @param {string} text
+ * @param {string} name
+ * @returns {{ reference: string | undefined; version: string | undefined } | null}
+ */
+function packageReference(text, name) {
+  const element = new RegExp(`<PackageReference\\s+[^>]*Include="${escapeRegExp(name)}"[^>]*>`, 'i').exec(text)?.[0];
+  if (!element) return null;
+  const reference = /\sVersion="([^"]*)"/i.exec(element)?.[1];
+  return { reference, version: /^\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?$/.exec(reference?.trim() ?? '')?.[1] };
+}
+
 /**
  * How the project file references Netjes, and whether that is the version of the npm package.
  * @param {string} cwd
@@ -253,17 +408,14 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
       ? ok(`${csproj} references the Netjes checkout at ${file}`)
       : fail(`${csproj} references Netjes at ${file}, which does not exist`, 'Point its ProjectReference (and the Netjes.targets import) at src/Netjes in a Netjes checkout');
   }
-  const element = /<PackageReference\s+[^>]*Include="Netjes"[^>]*>/i.exec(text)?.[0];
-  if (!element) {
+  const found = packageReference(text, 'Netjes');
+  if (!found) {
     return warn(
       `${csproj} does not reference the Netjes package`,
       `Add <PackageReference Include="Netjes" Version="[${npmVersion ?? cliVersion}]" />, unless a Directory.Packages.props does`,
     );
   }
-  const reference = /\sVersion="([^"]*)"/i.exec(element)?.[1];
-  // Only an exact version, 1.2.3 or [1.2.3], is compared: a range, a floating version or an MSBuild property such as
-  // $(NetjesVersion) is resolved by NuGet and MSBuild, which this does not repeat.
-  const version = /^\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?$/.exec(reference?.trim() ?? '')?.[1];
+  const { reference, version } = found;
   const shown = version ?? reference;
   if (!version || !npmVersion) return ok(`${csproj} references Netjes${shown ? ` ${shown}` : ''}`);
   return version === npmVersion
@@ -272,6 +424,80 @@ function checkReference(cwd, csproj, text, npmVersion, cliVersion) {
         `${csproj} references Netjes ${version}, but node_modules has netjes ${npmVersion}`,
         'Use one version on both sides (the C# and npm halves speak one protocol): change the PackageReference or package.json',
       );
+}
+
+/**
+ * The page packages the app depends on: each dependency whose package.json has a `netjes` field, as the Vite plugin
+ * reads them. One line names them with their versions, and a line follows for each one that the app would refuse to
+ * mount (no peer range, or one that leaves out the installed netjes), whose NuGet half the project references at another
+ * exact version, or that `netjes({ packages })` does not list, so that no build holds its pages. Nothing when the app
+ * depends on none.
+ * @param {string} cwd
+ * @param {{
+ *   manifest: Record<string, any> | null;
+ *   netjes: string | undefined;
+ *   csproj: { file: string; text: string } | null;
+ *   viteConfig: { file: string; text: string } | null;
+ * }} project the app's package.json, the installed netjes's version, the project file, and the Vite config that uses netjes()
+ * @returns {Promise<Check[]>}
+ */
+async function checkPagePackages(cwd, { manifest, netjes, csproj, viteConfig }) {
+  /** @param {unknown} deps */
+  const namesIn = (deps) => (typeof deps === 'object' && deps !== null ? Object.keys(deps) : []);
+  const names = [...new Set([...namesIn(manifest?.dependencies), ...namesIn(manifest?.devDependencies)])]
+    .filter((name) => name !== 'netjes')
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  /** @type {{ name: string; version: string; range: unknown; nuget: unknown }[]} */
+  const found = [];
+  for (const name of names) {
+    const file = findPackage(cwd, name);
+    const json = file ? await readJson(file) : null;
+    const field = json?.netjes;
+    if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
+    found.push({ name, version: typeof json.version === 'string' ? json.version : '?', range: json.peerDependencies?.netjes, nuget: field.nuget });
+  }
+  if (!found.length) return [];
+
+  /** @type {Check[]} */
+  const checks = [ok(`page packages: ${found.map((p) => `${p.name} ${p.version}`).join(', ')}`)];
+  for (const p of found) {
+    const named = `${p.name} ${p.version}`;
+    if (typeof p.range !== 'string' || p.range.trim() === '') {
+      checks.push(
+        fail(
+          `${named} has no peerDependencies.netjes, so the app refuses to mount it`,
+          `A page package names the Netjes versions it supports there: install a version of ${p.name} that does`,
+        ),
+      );
+    } else if (netjes && !satisfies(netjes, p.range, { strict: true })) {
+      // As the app and the Vite plugin say it; both stop on it.
+      checks.push(
+        fail(
+          `${named} supports Netjes ${p.range}; this app runs Netjes ${netjes}`,
+          `Install a version of ${p.name} that supports netjes ${netjes}, or a netjes in ${p.range}: the app stops at startup otherwise`,
+        ),
+      );
+    }
+    const reference = csproj && typeof p.nuget === 'string' ? packageReference(csproj.text, p.nuget) : null;
+    if (reference?.version && reference.version !== p.version) {
+      checks.push(
+        fail(
+          `${csproj?.file} references ${p.nuget} ${reference.version}, but node_modules has ${named}`,
+          'Use one version of both halves of the page package: change the PackageReference or package.json; the app stops at startup otherwise',
+        ),
+      );
+    }
+    // The name in quotes, so that '@acme/help-center-extra' does not list '@acme/help-center'.
+    if (viteConfig && !new RegExp(`(['"\`])${escapeRegExp(p.name)}\\1`).test(viteConfig.text)) {
+      checks.push(
+        warn(
+          `${named} is not in netjes({ packages }) in ${viteConfig.file}`,
+          `List it there to build its pages, as in netjes({ packages: ['${p.name}'] }), and mount it with app.MapPagePackage; or uninstall it`,
+        ),
+      );
+    }
+  }
+  return checks;
 }
 
 /**
@@ -330,14 +556,25 @@ export async function checkProject(cwd, cliVersion) {
   );
 
   const viteConfig = entries.find((e) => /^vite\.config\.(ts|mts|js|mjs)$/.test(e));
+  const viteText = viteConfig ? await readFile(path.join(cwd, viteConfig), 'utf8') : null;
   if (!viteConfig) {
     checks.push(fail('No vite.config.ts', "Add one: export default defineConfig({ plugins: [netjes()] }), with netjes from 'netjes/vite'"));
-  } else if (!(await readFile(path.join(cwd, viteConfig), 'utf8')).includes('netjes(')) {
+  } else if (!viteText?.includes('netjes(')) {
     checks.push(fail(`${viteConfig} does not use netjes() from 'netjes/vite'`, 'Add netjes() to its plugins'));
   } else checks.push(ok(`${viteConfig} uses netjes()`));
 
+  const manifest = hasManifest ? await readJson(path.join(cwd, 'package.json')) : null;
+  checks.push(
+    ...(await checkPagePackages(cwd, {
+      manifest,
+      netjes: packages.netjes,
+      csproj: csproj ? { file: csproj, text: await readFile(path.join(cwd, csproj), 'utf8') } : null,
+      // A config without netjes() is flagged above already.
+      viteConfig: viteConfig && viteText?.includes('netjes(') ? { file: viteConfig, text: viteText } : null,
+    })),
+  );
+
   if (hasManifest) {
-    const manifest = await readJson(path.join(cwd, 'package.json'));
     if (!manifest) checks.push(fail('package.json is not valid JSON', 'Fix its syntax; npm and Vite read it'));
     else if (manifest.scripts?.build) checks.push(ok('package.json has a build script (dotnet publish runs it)'));
     else {

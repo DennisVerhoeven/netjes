@@ -29,6 +29,7 @@ internal sealed class NetjesContext
         ClientDist = Path.Combine(Root, Options.DistDirectory, "client");
         ServerDist = Path.Combine(Root, Options.DistDirectory, "server");
         ManifestPath = Path.Combine(ClientDist, ".vite", "manifest.json");
+        BuildRecordPath = Path.Combine(ClientDist, ".vite", "netjes.json");
         ServerEntry = Path.Combine(ServerDist, "server-entry.js");
         SidecarScript = Options.SidecarScript is { } script
             ? Path.GetFullPath(script, Root)
@@ -64,8 +65,11 @@ internal sealed class NetjesContext
         return sources.Length > 0 ? string.Join(' ', sources) : null;
     }
 
+    private static string FindInNodeModules(string start, string relativePath) =>
+        TryFindInNodeModules(start, relativePath) ?? Path.Combine(start, "node_modules", relativePath);
+
     // Node looks for packages in node_modules of the directory and each ancestor (npm workspaces hoist them up).
-    private static string FindInNodeModules(string start, string relativePath)
+    private static string? TryFindInNodeModules(string start, string relativePath)
     {
         for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
         {
@@ -76,7 +80,48 @@ internal sealed class NetjesContext
             }
         }
 
-        return Path.Combine(start, "node_modules", relativePath);
+        return null;
+    }
+
+    /// <summary>
+    /// The folder of the npm package <paramref name="name"/> as Node resolves it for the app, in <c>node_modules</c> of
+    /// <see cref="Root"/> or of a folder above it, with links resolved (a workspace's, <c>npm link</c>'s); null when it
+    /// is not installed.
+    /// </summary>
+    public string? FindPackage(string name) =>
+        TryFindInNodeModules(Root, Path.Combine([.. name.Split('/'), "package.json"])) is { } manifest
+            ? RealPath(Path.GetDirectoryName(manifest)!)
+            : null;
+
+    /// <summary>A directory's path with every link in it resolved, as Node's <c>realpath</c> gives it.</summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        for (var hops = 0; hops < 40; hops++)
+        {
+            var root = Path.GetPathRoot(full)!;
+            var resolved = root;
+            var changed = false;
+            foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                resolved = Path.Combine(resolved, part);
+                if (!changed && new DirectoryInfo(resolved) is { LinkTarget: not null } link && link.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+                {
+                    resolved = Path.GetFullPath(target.FullName);
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                return resolved;
+            }
+
+            // The target's own folders may be links too.
+            full = resolved;
+        }
+
+        return full;
     }
 
     public NetjesOptions Options { get; }
@@ -106,6 +151,9 @@ internal sealed class NetjesContext
     public string ClientDist { get; }
     public string ServerDist { get; }
     public string ManifestPath { get; }
+
+    /// <summary>The client build's record of the page packages it holds (<see cref="Rendering.BuildRecord"/>).</summary>
+    public string BuildRecordPath { get; }
     public string ServerEntry { get; }
     public string SidecarScript { get; }
 }

@@ -654,6 +654,64 @@ describe('commands that run the app', () => {
     expect(lines.slice(heading + 1, heading + 3)).toEqual([`  ${binding}`, `  ${overlap}`]);
   });
 
+  it('routes adds a Package column and lists the packages when the app mounts one', async () => {
+    const help = '@acme/help-center';
+    const { io, out } = recordingIo(temp, async (call) => {
+      await writeFile(
+        call.env.NETJES_OUTPUT!,
+        JSON.stringify({
+          routes: [
+            { pattern: '/', template: '/', file: 'app/page.tsx', package: null, overrides: null, layouts: [], loader: false, action: false, props: null, cached: false, authorized: false },
+            { pattern: '/help', template: '/help', file: `${help}/app/page.tsx`, package: help, overrides: null, layouts: [], loader: true, action: false, props: 'HelpProps', cached: false, authorized: false },
+            { pattern: '/help/contact', template: '/help/contact', file: 'app/help/contact/page.tsx', package: help, overrides: `${help}/app/contact/page.tsx`, layouts: [], loader: false, action: false, props: null, cached: false, authorized: false },
+          ],
+          endpoints: [
+            { method: 'GET', route: '/api/likes', name: 'HTTP: GET /api/likes', package: null },
+            { method: 'POST', route: '/help/feedback', name: 'HTTP: POST /help/feedback', package: help },
+          ],
+          packages: [{ name: help, version: '1.2.0', nuget: 'Acme.HelpCenter', nugetVersion: '1.2.0', prefix: '/(marketing)/help', pattern: '/help', overrides: ['/help/contact'] }],
+          warnings: [],
+        }),
+      );
+      return 0;
+    });
+
+    expect(await run(['routes'], io)).toBe(0);
+
+    const lines = out().split('\n');
+    expect(lines[0]).toMatch(/^Pattern\s+File\s+Package\s+Loader\s+Action\s+Props\s+Cached\s+Auth$/);
+    expect(lines.find((l) => l.startsWith('/ '))).toMatch(/^\/\s+app\/page\.tsx$/);
+    expect(lines.find((l) => l.startsWith('/help '))).toMatch(/^\/help\s+@acme\/help-center\/app\/page\.tsx\s+@acme\/help-center\s+yes\s+HelpProps$/);
+    // The app's file replaces the package's page, which still loads its props.
+    expect(lines.find((l) => l.startsWith('/help/contact'))).toMatch(/^\/help\/contact\s+app\/help\/contact\/page\.tsx\s+@acme\/help-center \(override\)$/);
+    expect(lines.find((l) => l.includes('/help/feedback'))).toMatch(/^POST\s+\/help\/feedback\s+@acme\/help-center$/);
+    expect(lines.find((l) => l.includes('/api/likes'))).toMatch(/^GET\s+\/api\/likes$/);
+    const heading = lines.indexOf('Packages');
+    expect(heading).toBeGreaterThan(lines.findIndex((l) => l.includes('/help/feedback')));
+    expect(lines[heading + 1]).toMatch(/^@acme\/help-center 1\.2\.0\s+Acme\.HelpCenter 1\.2\.0\s+\/\(marketing\)\/help\s+overrides \/help\/contact$/);
+  });
+
+  it('routes prints no Package column and no packages when the app mounts none', async () => {
+    const { io, out } = recordingIo(temp, async (call) => {
+      await writeFile(
+        call.env.NETJES_OUTPUT!,
+        JSON.stringify({
+          routes: [{ pattern: '/', template: '/', file: 'app/page.tsx', package: null, overrides: null, layouts: [], loader: false, action: false, props: null, cached: false, authorized: false }],
+          endpoints: [{ method: 'GET', route: '/api/likes', name: 'HTTP: GET /api/likes', package: null }],
+          packages: [],
+          warnings: [],
+        }),
+      );
+      return 0;
+    });
+
+    expect(await run(['routes'], io)).toBe(0);
+
+    const lines = out().split('\n');
+    expect(lines[0]).toMatch(/^Pattern\s+File\s+Loader\s+Action\s+Props\s+Cached\s+Auth$/);
+    expect(lines).not.toContain('Packages');
+  });
+
   it('routes prints no warnings section when there are none', async () => {
     const { io, out } = recordingIo(temp, async (call) => {
       await writeFile(call.env.NETJES_OUTPUT!, JSON.stringify({ routes: [], endpoints: [], warnings: [] }));

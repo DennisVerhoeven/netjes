@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Packs the NuGet and npm packages into a local feed, scaffolds an app with `netjes new --packages` that restores
 # from that feed only, then runs its Vitest and C# tests, type-checks it (also under create-vite's React-TS flags),
-# builds and runs it in Production, and runs its Playwright suite. Run from the repository root; the scaffold goes in a
+# mounts the example page package from its own packed halves, builds and runs it in Production, and runs its
+# Playwright suite. Run from the repository root; the scaffold goes in a
 # temporary folder, outside this repository's global.json, whose test runner the app's test project does not use.
 # On Linux outside CI, install Chromium's system libraries once first: `npx playwright install-deps chromium`.
 set -euo pipefail
@@ -202,6 +203,64 @@ echo "== C# tests"
 [[ ! -e dist ]] || { echo "dist/ is there before the C# tests, which must not need it"; exit 1; }
 dotnet test tests/App.Tests -c Release --nologo
 
+echo "== a page package"
+# The example page package (examples/HelpCenter), installed as an app installs one from the registries: its npm half
+# from a tarball into node_modules, its NuGet half from the local feed, of the same version. The workspace links the
+# package into the examples; here it is a real folder in node_modules and a package in the NuGet cache. The app mounts
+# it at /help, and the published app below serves it, through the build record, and runs one more Playwright spec.
+dotnet pack "$root/examples/HelpCenter/HelpCenter.csproj" -c Release -o "$feed" --nologo -v quiet
+(cd "$root/examples/HelpCenter" && npm pack --silent --pack-destination "$feed" >/dev/null)
+npm install --no-audit --no-fund --silent "$feed/netjes-examples-help-center-$version.tgz"
+[[ -d node_modules/@netjes-examples/help-center && ! -L node_modules/@netjes-examples/help-center ]] || { echo "the page package is not installed as a folder"; exit 1; }
+dotnet add package Netjes.Examples.HelpCenter --version "$version" >/dev/null
+node - <<'JS'
+const fs = require('node:fs');
+// Each edit names the text it goes after, so a template change that moves it fails here, not later.
+function edit(file, edits) {
+  let text = fs.readFileSync(file, 'utf8');
+  for (const [anchor, replacement] of edits) {
+    if (!text.includes(anchor)) throw new Error(`${file} has no ${JSON.stringify(anchor)}`);
+    text = text.replace(anchor, replacement);
+  }
+  fs.writeFileSync(file, text);
+}
+edit('Program.cs', [
+  ['var builder = WebApplication.CreateBuilder(args);', 'using Netjes.Examples.HelpCenter;\n\nvar builder = WebApplication.CreateBuilder(args);'],
+  ['builder.Services.AddHealthChecks().AddNetjes();', 'builder.Services.AddHealthChecks().AddNetjes();\nbuilder.Services.AddHelpCenter();'],
+  ['app.MapPages();', 'app.MapHelpCenter("/help");\napp.MapPages();'],
+]);
+edit('vite.config.ts', [['plugins: [netjes()],', "plugins: [netjes({ packages: ['@netjes-examples/help-center'] })],"]]);
+JS
+cat > e2e/help.spec.ts <<'TS'
+import { expect, test } from '@playwright/test';
+
+// The example page package, installed from its tarball and its NuGet package and mounted at /help (Program.cs).
+test('the mounted help center renders, links below /help, navigates on the client and has its styles', async ({ page }) => {
+  await page.goto('/help');
+  await page.locator('html[data-netjes-hydrated]').waitFor({ state: 'attached' });
+  await page.evaluate(() => {
+    (window as unknown as Record<string, unknown>)['__helpMark'] = true;
+  });
+  const marked = () => page.evaluate(() => (window as unknown as Record<string, unknown>)['__helpMark'] === true);
+
+  const center = page.locator('[data-help-center]');
+  await expect(center.getByRole('heading', { level: 1 })).toHaveText('How can we help?');
+  await expect(center.locator('header')).toHaveCSS('background-color', 'rgb(15, 111, 106)');
+  await expect(center.getByRole('link', { name: 'Contact' })).toHaveAttribute('href', '/help/contact');
+
+  await center.getByRole('link', { name: 'Privacy' }).click();
+  await expect(page).toHaveURL('/help/articles/privacy');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Privacy');
+
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'About' }).click();
+  await expect(page).toHaveURL('/about');
+  expect(await marked()).toBe(true);
+});
+TS
+npx netjes generate
+npx netjes generate --check
+npm run typecheck --silent
+
 echo "== publish"
 # The package's build/Netjes.targets makes publish run `npm run build` and ship dist/ (client, server and sidecar).
 dotnet publish -c Release -o "$work/publish" --nologo -v quiet
@@ -228,6 +287,8 @@ curl -sf "http://127.0.0.1:$port/" | grep 'href="#content"' >/dev/null || { echo
 titles=$(curl -s "http://127.0.0.1:$port/no/such/page" | grep -o "<title>[^<]*</title>")
 [[ "$titles" =~ ^\<title\>Not\ found\ ·\ [^\<]+\</title\>$ ]] || { echo "not-found titles: $titles"; exit 1; }
 curl -sf "http://127.0.0.1:$port/healthz" | grep -q Healthy
+# The page package, from the build record and the NuGet package, below its mount.
+curl -sf "http://127.0.0.1:$port/help/articles/privacy" | grep -q "What was missing?" || { echo "/help/articles/privacy is not the page package's article"; cat "$work/app.log"; exit 1; }
 # The greeting form posted without its field asks for the name, with JavaScript (the client router sends the token in a
 # header and the page's URL in the body) and without (the browser posts the token field).
 read -r field header value < <(curl -sf -c "$work/cookies" -H "X-Netjes-Data: 1" "http://127.0.0.1:$port/" \
@@ -247,4 +308,4 @@ echo "== end-to-end"
 PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install ${CI:+--with-deps} chromium
 CI=1 E2E_DEV_PORT="$e2e_dev_port" E2E_PROD_PORT="$e2e_prod_port" E2E_VITE_PORT="$e2e_vite_port" npm run test:e2e --silent
 
-echo "ok: Netjes $version packages build, test, publish and serve a new app"
+echo "ok: Netjes $version packages build, test, publish and serve a new app, with a page package mounted"

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NODE_RANGE, checkNode } from '../cli/info.mjs';
+import { NODE_RANGE, checkNode, satisfies } from '../cli/info.mjs';
 import { run } from '../cli/main.mjs';
 import { recordingIo } from './cli-io.ts';
 
@@ -244,6 +244,154 @@ describe('netjes info', () => {
     expect(out).toContain('npx netjes info');
   });
 
+  const HELP = '@acme/help-center';
+
+  /**
+   * A page package the app depends on, installed in its node_modules, and listed in netjes({ packages }) unless
+   * `listed` is false.
+   */
+  async function installPagePackage({
+    version: packageVersion = '1.2.0',
+    peer = `^${version}` as string | null,
+    nuget,
+    listed = true,
+    name = HELP,
+    dev = false,
+  }: { version?: string; peer?: string | null; nuget?: string; listed?: boolean; name?: string; dev?: boolean } = {}) {
+    const manifestPath = path.join(app, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const deps = dev ? 'devDependencies' : 'dependencies';
+    manifest[deps] = { ...manifest[deps], [name]: packageVersion };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await mkdir(path.join(app, 'node_modules', name), { recursive: true });
+    const pkg = {
+      name,
+      version: packageVersion,
+      ...(peer === null ? {} : { peerDependencies: { netjes: peer } }),
+      netjes: { pages: 'app', ...(nuget ? { nuget } : {}) },
+    };
+    await writeFile(path.join(app, 'node_modules', name, 'package.json'), JSON.stringify(pkg));
+    if (listed) {
+      const config = path.join(app, 'vite.config.ts');
+      const text = await readFile(config, 'utf8');
+      const listedNames = /packages: \[([^\]]*)\]/.exec(text)?.[1];
+      await writeFile(
+        config,
+        listedNames === undefined
+          ? text.replace('netjes()', `netjes({ packages: ['${name}'] })`)
+          : text.replace(`packages: [${listedNames}]`, `packages: [${listedNames}, '${name}']`),
+      );
+    }
+  }
+
+  it('names each page package the app depends on, with its version', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage();
+    await installPagePackage({ name: '@acme/status', version: '0.3.1' });
+
+    const { code, out } = await info();
+
+    expect(out).not.toMatch(/^[✗!]/m);
+    expect(code).toBe(0);
+    expect(out).toContain(`✓ page packages: ${HELP} 1.2.0, @acme/status 0.3.1`);
+  });
+
+  it('names a page package the app lists in devDependencies, and checks it', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ dev: true, peer: '>=99.0.0' });
+
+    const { code, out } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✓ page packages: ${HELP} 1.2.0`);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 supports Netjes >=99.0.0`);
+  });
+
+  it('shows no page packages when the app depends on none', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+
+    expect((await info()).out).not.toContain('page package');
+  });
+
+  it('flags a page package whose peer range leaves out the installed netjes', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ peer: '>=99.0.0' });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 supports Netjes >=99.0.0; this app runs Netjes ${version}`);
+    expectFixes(lines);
+  });
+
+  it('flags a page package with no peer range, which the app refuses to mount', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    await installPagePackage({ peer: null });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ ${HELP} 1.2.0 has no peerDependencies.netjes`);
+    expectFixes(lines);
+  });
+
+  it('flags a page package whose NuGet half the project references at another version', async () => {
+    await newApp('--packages');
+    await install(app, INSTALLED);
+    await installPagePackage({ nuget: 'Acme.HelpCenter' });
+    const csproj = path.join(app, 'App.csproj');
+    await writeFile(
+      csproj,
+      (await readFile(csproj, 'utf8')).replace('</Project>', '  <ItemGroup><PackageReference Include="Acme.HelpCenter" Version="[1.1.0]" /></ItemGroup>\n</Project>'),
+    );
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(1);
+    expect(out).toContain(`✗ App.csproj references Acme.HelpCenter 1.1.0, but node_modules has ${HELP} 1.2.0`);
+    expectFixes(lines);
+  });
+
+  // NuGet and MSBuild resolve a range, a floating version or a property, which this does not repeat.
+  it.each([['1.2.0'], ['[1.2.0]'], ['$(HelpCenterVersion)'], ['1.*']])(
+    'passes a NuGet half the project references as %s',
+    async (reference) => {
+      await newApp('--packages');
+      await install(app, INSTALLED);
+      await installPagePackage({ nuget: 'Acme.HelpCenter' });
+      const csproj = path.join(app, 'App.csproj');
+      await writeFile(
+        csproj,
+        (await readFile(csproj, 'utf8')).replace('</Project>', `  <ItemGroup><PackageReference Include="Acme.HelpCenter" Version="${reference}" /></ItemGroup>\n</Project>`),
+      );
+
+      const { code, out } = await info();
+
+      expect(out).not.toMatch(/^[✗!]/m);
+      expect(code).toBe(0);
+    },
+  );
+
+  it('warns, without failing, about a page package that netjes({ packages }) does not list', async () => {
+    await newApp();
+    await install(app, INSTALLED);
+    // '@acme/help-center-extra' in the config is another package, which does not list this one.
+    await installPagePackage({ name: '@acme/help-center-extra' });
+    await installPagePackage({ listed: false });
+
+    const { code, out, lines } = await info();
+
+    expect(code).toBe(0);
+    expect(out).toContain(`! ${HELP} 1.2.0 is not in netjes({ packages }) in vite.config.ts`);
+    expect(out).not.toContain('! @acme/help-center-extra');
+    expectFixes(lines);
+  });
+
   it('gives a fix for everything it flags outside an app', async () => {
     await mkdir(app);
 
@@ -264,7 +412,13 @@ describe('the Node.js check', () => {
     expect(check).toEqual({ status: 'ok', text: `Node.js ${node}` });
   });
 
-  it.each(['20.18.1', '21.7.3', '22.0.0', '22.12.0', '22.22.1', '24.0.0', '24.14.1'])('Node.js %s is too old', (node) => {
+  it.each(['24.16.0-rc.1', '26.1.0-nightly20261101abcdef'])('Node.js %s, a prerelease inside the range, passes, as npm checks engines', (node) => {
+    const check = checkNode(node);
+
+    expect(check).toEqual({ status: 'ok', text: `Node.js ${node}` });
+  });
+
+  it.each(['20.18.1', '21.7.3', '22.0.0', '22.12.0', '22.22.1', '24.0.0', '24.14.1', '24.15.0-rc.1', '26.0.0-rc.1'])('Node.js %s is too old', (node) => {
     const check = checkNode(node);
 
     expect(check.status).toBe('fail');
@@ -286,5 +440,56 @@ describe('the Node.js check', () => {
     expect(NODE_RANGE).toBe(range);
     expect((await read('package.json')).engines).toEqual({ node: NODE_RANGE });
     expect((await read('template/package.json')).engines).toEqual({ node: NODE_RANGE });
+  });
+});
+
+/** The version ranges the C# version checks of page packages read too (PagePackageVersionTests). */
+const ranges = JSON.parse(await readFile(new URL('./fixtures/version-ranges.json', import.meta.url), 'utf8')) as {
+  ranges: { range: string; in: string[]; out: string[] }[];
+  invalid: string[];
+  invalidVersions: string[];
+};
+
+describe('version ranges', () => {
+  const cases = ranges.ranges.flatMap((c) => [
+    ...c.in.map((version) => ({ range: c.range, version, expected: true })),
+    ...c.out.map((version) => ({ range: c.range, version, expected: false })),
+  ]);
+
+  it.each(cases)('$version in "$range" is $expected, as npm reads it', ({ range, version, expected }) => {
+    expect(satisfies(version, range, { strict: true })).toBe(expected);
+    expect(satisfies(version, range)).toBe(expected);
+  });
+
+  // As npm's satisfies(version, range, { includePrerelease: true }), which npm checks engines with: a prerelease is in a
+  // range by its order alone, and a range's lower bound that npm fills in is the lowest prerelease, -0.
+  it.each([
+    ['~1.2', '1.2.0-rc.1', true],
+    ['1.2.x', '1.2.0-rc.1', true],
+    ['^1', '1.0.0-rc.1', true],
+    ['>=1.2', '1.2.0-0', true],
+    ['>1.2', '1.3.0-rc.1', true],
+    ['1.2.3 - 2', '1.2.3-rc.1', true],
+    ['1.2 - 2', '1.2.0-rc.1', true],
+    ['1.2.3 - 2.3.4', '2.3.4-rc.1', true],
+    ['^1.2.3', '1.5.0-rc.1', true],
+    ['*', '1.0.0-rc.1', true],
+    ['^1.2.3', '1.2.3-rc.1', false],
+    ['~1.2.3', '1.2.3-rc.1', false],
+    ['>=1.2.3', '1.2.3-rc.1', false],
+    ['<1.2', '1.2.0-rc.1', false],
+  ] as const)('with prereleases included, %s holds %s: %s, as npm reads it', (range, version, expected) => {
+    expect(satisfies(version, range, { strict: true, includePrerelease: true })).toBe(expected);
+  });
+
+  it.each(ranges.invalid)('"%s" is no range, which nothing satisfies in strict mode, and everything otherwise', (range) => {
+    expect(satisfies('1.2.3', range, { strict: true })).toBe(false);
+    expect(satisfies('1.2.3', range)).toBe(true);
+  });
+
+  it.each(ranges.invalidVersions)('"%s" is no version, which satisfies no range in strict mode, and every range otherwise', (version) => {
+    // A range that would hold each of them, read loosely.
+    expect(satisfies(version, '* || >=1.2.3-0', { strict: true })).toBe(false);
+    expect(satisfies(version, '^1.2.3')).toBe(true);
   });
 });

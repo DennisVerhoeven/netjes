@@ -36,10 +36,13 @@ public static class NetjesServiceCollectionExtensions
         services.AddAntiforgery();
         services.TryAddSingleton<NetjesContext>();
         services.TryAddSingleton<ViteManifestProvider>();
+        services.TryAddSingleton<RouteSources>();
+        services.TryAddSingleton(sp => new PagePackageMounts(sp.GetRequiredService<RouteSources>()));
         services.TryAddSingleton<IRouteTableProvider>(sp => sp.GetRequiredService<NetjesContext>().ScansPageFiles
             ? new FileSystemRouteTableProvider(
-                sp.GetRequiredService<NetjesContext>(), sp.GetRequiredService<ILogger<FileSystemRouteTableProvider>>())
-            : new ManifestRouteTableProvider(sp.GetRequiredService<ViteManifestProvider>(), sp.GetRequiredService<NetjesContext>()));
+                sp.GetRequiredService<NetjesContext>(), sp.GetRequiredService<RouteSources>(), sp.GetRequiredService<ILogger<FileSystemRouteTableProvider>>())
+            : new ManifestRouteTableProvider(
+                sp.GetRequiredService<ViteManifestProvider>(), sp.GetRequiredService<NetjesContext>(), sp.GetRequiredService<RouteSources>()));
         services.TryAddSingleton<IAssetResolver>(sp => sp.GetRequiredService<NetjesContext>().Mode == NetjesMode.Development
             ? new DevAssetResolver(sp.GetRequiredService<NetjesContext>(), sp.GetRequiredService<SidecarPool>().Primary)
             : new ManifestAssetResolver(sp.GetRequiredService<ViteManifestProvider>()));

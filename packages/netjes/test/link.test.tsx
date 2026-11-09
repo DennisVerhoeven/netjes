@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Form, SubmitButton } from '../src/form.tsx';
 import { Image } from '../src/image.tsx';
 import { Link } from '../src/link.tsx';
+import { mounted } from '../src/mounted.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
 /** Renders a link to each href on the page at `url`, and reads each one's aria-current. */
@@ -100,6 +101,22 @@ describe('Link', () => {
 
     expect(screen.getByRole('link', { name: 'Intro' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'Docs' }).getAttribute('aria-current')).toBe('true');
+  });
+
+  it("marks a page package's link to the page on screen, below its mount", () => {
+    const help = mounted('@acme/help-center');
+    render(
+      <nav>
+        <help.Link href="/articles">Articles</help.Link>
+        <help.Link href="/">Help</help.Link>
+        <Link href="/articles">The app's articles</Link>
+      </nav>,
+      { wrapper: createTestApp({ url: '/acme/help/articles', mounts: { '@acme/help-center': '/acme/help' } }).Wrapper },
+    );
+
+    expect(screen.getByRole('link', { name: 'Articles' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Help' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('link', { name: "The app's articles" }).getAttribute('aria-current')).toBeNull();
   });
 
   it('passes a ref to its element: Link, Form, SubmitButton and Image', () => {

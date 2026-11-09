@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Netjes\Netjes.csproj" />
     <ProjectReference Include="..\..\src\Netjes.Images.SkiaSharp\Netjes.Images.SkiaSharp.csproj" />
+    <ProjectReference Include="..\HelpCenter\HelpCenter.csproj" />
   </ItemGroup>
 
 </Project>

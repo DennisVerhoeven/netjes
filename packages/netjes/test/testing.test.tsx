@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
+import { mounted } from '../src/mounted.tsx';
 import { useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
 import { serverAction, useAction } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
@@ -303,6 +304,27 @@ describe('createTestApp', () => {
 
     expect(screen.getByText('hello loading 3 likes')).toBeDefined();
     expect(app.queryClient.getQueryData(['likes', 'hello'])).toBe(3);
+  });
+
+  it("mounts page packages at the URLs it is given, which a package's links go below as the user navigates", async () => {
+    const help = mounted('@acme/help-center');
+    function Nav() {
+      return (
+        <nav>
+          <p>{`at ${help.usePathname()}`}</p>
+          <help.Link href="/articles">Articles</help.Link>
+        </nav>
+      );
+    }
+    const app = createTestApp({ url: '/acme/help', mounts: { '@acme/help-center': '/acme/help' } });
+    render(<Nav />, { wrapper: app.Wrapper });
+
+    expect(screen.getByText('at /')).toBeDefined();
+    await userEvent.click(screen.getByRole('link', { name: 'Articles' }));
+
+    expect(app.navigations).toEqual([{ type: 'push', href: '/acme/help/articles' }]);
+    expect(screen.getByText('at /articles')).toBeDefined();
+    expect(screen.getByRole('link', { name: 'Articles' }).getAttribute('aria-current')).toBe('page');
   });
 });
 

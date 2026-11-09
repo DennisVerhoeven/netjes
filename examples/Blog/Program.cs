@@ -6,6 +6,7 @@ using Blog.Features.Guestbook;
 using Blog.Features.Posts;
 using Blog.Features.Streaming;
 using Microsoft.AspNetCore.HttpOverrides;
+using Netjes.Examples.HelpCenter;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,6 +38,7 @@ builder.Services.AddHealthChecks().AddNetjes();
 builder.Services.AddSingleton<PostStore>();
 builder.Services.AddSingleton<DocsStore>();
 builder.Services.AddSingleton<GuestbookStore>();
+builder.Services.AddHelpCenter();
 
 var app = builder.Build();
 
@@ -75,6 +77,12 @@ app.MapPostLikesApi();
 app.MapDocsPages();
 app.MapGuestbookPage();
 app.MapStreamingDemo();
+// The help center page package (examples/HelpCenter), mounted at /help inside the Blog's root layout. The Blog is the
+// app the package is developed in, so it writes the package's own generated file. A static export leaves the package's
+// pages out: its article page posts feedback, which needs a server.
+app.MapHelpCenter("/help")
+    .WriteTypes("../HelpCenter/generated/netjes.ts")
+    .ExcludeFromExport();
 // sitemap.xml from the route table (docs through their StaticParams), and robots.txt pointing at it. netjes export
 // writes both files from this URL, so set SiteUrl for an export that goes online.
 var siteUrl = new Uri(app.Configuration["SiteUrl"] ?? "http://localhost:5080");

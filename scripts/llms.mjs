@@ -53,6 +53,7 @@ export const SECTIONS = [
       { path: 'docs/guides/routing.md' },
       { path: 'docs/guides/data-loading.md' },
       { path: 'docs/guides/actions-and-forms.md' },
+      { path: 'docs/guides/page-packages.md' },
       { path: 'docs/guides/rendering-and-streaming.md' },
       { path: 'docs/guides/caching.md' },
       { path: 'docs/guides/images.md' },
@@ -118,6 +119,7 @@ export const SECTIONS = [
       { path: 'docs/benchmarks.md', full: false },
       { path: 'examples/Blog/README.md', title: 'Blog example', full: false },
       { path: 'examples/TaskBoard/README.md', title: 'TaskBoard example', full: false },
+      { path: 'examples/HelpCenter/README.md', title: 'HelpCenter example', full: false },
     ],
   },
 ];

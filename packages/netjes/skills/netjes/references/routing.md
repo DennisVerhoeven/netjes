@@ -11,7 +11,7 @@ ASP.NET Core does the routing: every page file becomes an endpoint with an ordin
 | `template.tsx` | Like a layout, but remounted on every navigation. |
 | `loading.tsx` | Suspense fallback, streamed first while the page below waits on deferred values or lazy code. |
 | `error.tsx` | Error boundary below its layout; props `{ error, reset }` (`ErrorPageProps`). `error.status` is the HTTP status of a server answer behind the error and is undefined for an error thrown in the browser, so show `error.status ?? 500`. Render `error.message` only when `!error.withheld`: `withheld` marks a stand-in for a message Netjes does not show (an exception's or a failed `Page.Defer` value's with error details off, a server action answer with no message, a thrown value that is neither an Error nor a string). `reset()` renders the segment again, or on an error page the server rendered loads the page again; on the page the router's own boundary shows it does nothing, so offer a link there too. In development `error.message` can take several lines (a syntax error's code frame): render it with `whitespace-pre-wrap`. |
-| `not-found.tsx` | Rendered for `Page.NotFound()` from a loader below it, and the root one for unknown URLs. |
+| `not-found.tsx` | Rendered for `Page.NotFound()` from a loader below it, and the root one for unknown URLs, except below a page package's mount, where the package's renders. |
 | `forbidden.tsx`, `unauthorized.tsx` | Rendered for `Page.Forbidden()` / `Page.Unauthorized()` and for empty 403/401 responses from authorization; without one, the error page renders. |
 | `global-error.tsx` | In `app/` only: rendered without any layout when even the error page fails. |
 
@@ -68,10 +68,21 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 
 A check that depends on data (is this user a member of this project?) goes in the page loader as well as in the layout loader: a page's loader runs before its layouts' loaders, and a layout loader is skipped on client navigations within its section while its own route values, the user and the roles stay the same. A layout loader also binds only the route values of its own URL, so it cannot check a deeper one.
 
+## Page packages
+
+A page package is an npm package and a NuGet package of one version that bring pages, layouts, boundaries, loaders and actions. The app mounts it with the package's extension, before `app.MapPages()`, and lists the npm half in `netjes({ packages: ['@acme/help-center'] })`; both halves are installed at one version, or the app stops at startup in one line that says what to install.
+
+- The prefix is in folder syntax: `/help`, `/(marketing)/help` (the same URL, inside `app/(marketing)/layout.tsx`), `/[tenant]/help` (`tenant` is a route value). The package's folder of pages merges into `app/` under it, folder by folder: its `layout.tsx` at the mount wraps the app's own pages in `app/help/`, and its `(center)` group wraps an app page in `app/help/(center)/`. Link to its pages with the app's `route('/help/articles/[slug]', { slug })`.
+- An app page of the same shape as a package's page stops the app. To replace the package's page, put the app's in the same folder and add `.Override("/help/contact")` to the mount: it renders with the package's loader, so it reads `pages['/contact']` from the package's generated file (`import { pages } from '@acme/help-center/generated'`), and the app maps no loader for it. Layouts and boundaries cannot be replaced.
+- Conventions on the mount (`.RequireAuthorization()`, `.ExcludeFromExport()`, `.ExcludeFromSitemap()`) cover the package's pages and endpoints, not the app's pages under the prefix; protect those with a layout loader above them, as before. An app layout loader above the mount protects the package's pages too.
+- An unknown URL below the mount renders the package's `not-found.tsx`, after the layout loaders on the way have authorized the visitor.
+- A package that draws its own shell (a back-office package) should not render inside the site's header: keep `app/layout.tsx` to providers and the skip link, and move the site's header and footer into `app/(site)/layout.tsx` with the site's pages. URLs do not change. The `package-shell` route warning names an app that has not.
+- Route warnings for packages: `package-shell`, `package-unmounted` (in the build but not mounted), `package-nonce` (a package whose pages stream, under a Content-Security-Policy without a nonce), and `overlap` for a literal page of one source next to a parameter page of the other (`/help/settings` from the package next to the app's `app/help/[section]`).
+
 ## Base path and locales
 
 `app.UsePathBase("/docs")` with `netjes({ basePath: '/docs' })`; links, forms and redirects add it, and app code is written as if at the root (`useHref(path)` for a plain `<a>`). Locale routing is a `[lang]` folder with `AddNetjesLocalization`, `UseNetjesLocalization` and `MapLocaleRedirect`; `useLocale()` reads it.
 
 ## More
 
-[Routing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/routing.md) and [Metadata](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/metadata.md) in the guides, and the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md) for every component and hook.
+[Routing](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/routing.md), [Page packages](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/page-packages.md) and [Metadata](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/metadata.md) in the guides, and the [React API](https://github.com/DennisVerhoeven/netjes/blob/main/docs/reference/react-api.md) for every component and hook.

@@ -1,6 +1,6 @@
 # Blog
 
-A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard/README.md) is the larger example, with authentication and a database.
+A small blog built with Netjes: posts with tags and likes, a docs section, a guestbook and a streaming demo. It is the example to read for the parts of Netjes that most sites use: C# loaders, a layout loader, a catch-all route, a form that works without JavaScript, TanStack Query seeded from C#, streaming, images, metadata and a static export. It also mounts a page package, the [help center](../HelpCenter/README.md), at `/help`, and is the app that package is developed in. It builds against `src/Netjes` and `packages/netjes` in this repository. [TaskBoard](../TaskBoard/README.md) is the larger example, with authentication and a database.
 
 ## Run it
 
@@ -49,6 +49,7 @@ The development container binds its ports to localhost only, and `appsettings.De
 | A `beforeInteractive` script in the root layout, which puts the class `js` on `<html>` before the first paint, under the nonce policy; `app/document.test.ts` lists its hash for a policy without a nonce | `app/layout.tsx`, `app/document.test.ts` |
 | A base path (`PathBase=/base`, like Next.js's `basePath`) and forwarded headers from known proxies only | `Program.cs` |
 | Not-found and error pages | `app/not-found.tsx`, `app/error.tsx` |
+| A page package: the help center from `examples/HelpCenter`, mounted at `/help` inside the root layout with `app.MapHelpCenter("/help")` and listed in `netjes({ packages })`, which builds its pages and its Tailwind tokens with the Blog's. `.WriteTypes("../HelpCenter/generated/netjes.ts")` writes the package's own generated file, so `npx netjes generate --check` here checks it too, and `.ExcludeFromExport()` leaves its pages out of the static export, since its article page posts to a page action. The footer links it, and its links, its forms and its 404 stay below `/help`, under the base path too | `Program.cs`, `vite.config.ts`, `app/layout.tsx`, `../HelpCenter/` |
 
 ## The guestbook's limits
 
@@ -57,10 +58,10 @@ The guestbook keeps the newest 200 entries in memory. Signing is anonymous, so i
 ## Tests
 
 ```bash
-npm test                                     # Vitest: components, the post index and the guestbook page with createTestApp, the about page's document with renderDocument
+npm test                                     # Vitest: components, the post index and the guestbook page with createTestApp, the about page's and a help page's documents with renderDocument
 npm run typecheck                            # TypeScript against the generated types
-npx netjes generate --check                  # fails when generated/netjes.ts is out of date
-dotnet test --project ../../tests/Blog.Tests # the guestbook store's cap and the rate limit
+npx netjes generate --check                  # fails when generated/netjes.ts, or the help center's, is out of date
+dotnet test --project ../../tests/Blog.Tests # the guestbook store's cap, the rate limit, and the help center below /help
 npm run test:e2e                             # Playwright, below
 npm run export                               # netjes export, into out/
 ```

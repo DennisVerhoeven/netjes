@@ -68,6 +68,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
 | `draftMode` | What `useDraftMode()` reports. |
+| `mounts` | Each mounted [page package's](page-packages.md) URL for the page, by npm name and without the base path, as the server sends it: `{ '@acme/help-center': '/help' }`. The `Link`, `Form` and hooks of a package's generated file put it in front of their hrefs, and throw for a package it leaves out. |
 
 `createTestApp()` returns `{ Wrapper, navigations, queryClient }`. The [React API reference](../reference/react-api.md#createtestapp) has the types.
 
@@ -194,6 +195,15 @@ it('renders the post inside the blog layout, which lists the categories', async 
 - It renders a page file, or a `not-found`, `error`, `forbidden`, `unauthorized` or `global-error` file, with the status the server gives it (404, 500, 403, 401 and 500) unless `status` sets another. An error file gets the props the test passes and no others: the server sends an error page `{ status, message, stack }`, with `withheld: true` when the message stands in for an exception's (error details off), from which Netjes builds the `error` prop that `error.tsx` reads, so pass those. A page in a parallel route slot (`app/@modal/...`) is refused, and so is any page in or below a folder that has a slot, since the server chooses what each slot renders.
 - A boundary file renders as the server renders it in place of a page in or below its folder: inside the layouts down to its own folder, that folder's layout included, and `global-error` without any layout. The payload's route is `null`, which the server sends only when no page matched; in place of a page, it sends that page's route. One case renders otherwise: for a user who fails the authorization of a section's layout loader, the server renders the section's own `forbidden` or `unauthorized` file without the section's layout, and `renderDocument` renders that file inside it.
 - The document is a crawler's: it waits for every Suspense boundary and renders what they hold in place.
+- With page packages, `mounts` names each package's prefix as `MapPagePackage` takes it, and the package's files in the pages map go into the app's folders under it, by the server's rule. A package's page, named by its id, renders inside the app's layouts above the mount and the package's own, and an app page in a folder of the package, such as TaskBoard's `app/(marketing)/help/(center)/shortcuts/page.tsx`, inside the package's layouts there. The payload's `mounts` holds each prefix's URL for the test's `params`:
+
+  ```ts
+  const html = await renderDocument('@acme/help-center/app/contact/page.tsx', {
+    mounts: { '@acme/help-center': '/(marketing)/help' },
+    url: '/help/contact',
+    props: { email: 'help@example.com', hours: 'Monday to Friday' },
+  });
+  ```
 
 What the server adds to a page's document, and a test cannot pass, is left out, so a page that reads it renders as it does without it:
 

@@ -22,10 +22,15 @@ namespace Netjes.Routing;
 /// <c>ambiguous-endpoint</c>: an endpoint of the app ranks the same as a page or a page action for URLs both match, so
 /// ASP.NET Core answers those requests with 500.
 /// <c>form-input</c>: an action binds a <c>[FromForm]</c> positional record with a field a browser leaves out of a post.
+/// <c>package-shell</c>: a page package that draws its own shell renders inside the app's root layout, and the app has no
+/// route group layout below it for its own chrome.
+/// <c>package-unmounted</c>: in production, the client build holds a page package that the app does not mount.
+/// <c>package-nonce</c>: a page package's pages stream, and <c>NetjesOptions.ContentSecurityPolicy</c> refuses inline
+/// scripts and has no nonce.
 /// </param>
 /// <param name="Files">
 /// The files the warning is about: the loader's page or layout, the winning page and the other, the page an endpoint ties
-/// with, or a page action's page (none for a server action).
+/// with, a page action's page (none for a server action), or the app's root layout around a page package.
 /// </param>
 internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> Files, string Template, object?[] Arguments)
 {
@@ -34,11 +39,17 @@ internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> F
         get
         {
             var index = 0;
-            return HoleRegex().Replace(Template, _ => Convert.ToString(Arguments[index++], System.Globalization.CultureInfo.InvariantCulture) ?? "");
+            // {{ and }} are a brace, as in every message template.
+            return HoleRegex().Replace(Template, hole => hole.Value switch
+            {
+                "{{" => "{",
+                "}}" => "}",
+                _ => Convert.ToString(Arguments[index++], System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            });
         }
     }
 
-    [GeneratedRegex(@"\{[A-Za-z]+\}")]
+    [GeneratedRegex(@"\{\{|\}\}|\{[A-Za-z]+\}")]
     private static partial Regex HoleRegex();
 }
 
@@ -46,8 +57,9 @@ internal sealed partial record RouteWarning(string Kind, IReadOnlyList<string> F
 /// Checks what the matcher and minimal API binding would do quietly: a loader parameter that binds from the query
 /// string while a route parameter of its pattern goes unbound, a layout loader parameter that binds from the query
 /// string though a page below has a route parameter of its name, two pages that match the same URLs, where route
-/// precedence picks one, an endpoint of the app that ties with a page, which fails each request both match, and an
-/// action's form input that form binding refuses when a checkbox is left unchecked.
+/// precedence picks one, an endpoint of the app that ties with a page, which fails each request both match, an
+/// action's form input that form binding refuses when a checkbox is left unchecked, and page packages mounted where they
+/// likely render wrong: inside the app's chrome, unmounted in a build, or streaming under a policy without a nonce.
 /// </summary>
 internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteDiagnostics> logger)
 {
@@ -86,12 +98,27 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
         "{Action} binds {Type} from the form through its constructor, and form binding refuses a post without one of the constructor's fields with 400. " +
         "A browser leaves out {Fields} when nothing is checked or chosen. Give the type init properties instead, which a missing field leaves at its default.";
 
+    // {GroupLayout} is a route group layout below the app's root, such as app/(site)/layout.tsx.
+    private const string PackageShell =
+        "'{Package}' draws its own shell, and its pages at {Pattern} render inside {Layout}, the app's root layout, which wraps every page. " +
+        "Keep {Layout} to what every page needs, such as providers, and move the app's header and footer into a route group's layout, such as {GroupLayout}, with the app's own pages in that group.";
+
+    private const string PackageUnmounted =
+        "'{Package}' is in the client build, from netjes({{ packages }}) in vite.config.ts, but the app does not mount it: its pages ship in dist/client, and no URL serves them. " +
+        "Mount it with app.MapPagePackage before app.MapPages(), or take it out of netjes({{ packages }}) and build again.";
+
+    private const string PackageNonce =
+        "The pages of '{Package}' at {Pattern} stream, and NetjesOptions.ContentSecurityPolicy has no {{nonce}}: no hash covers the scripts that deliver Page.Defer values and reveal Suspense boundaries, so browsers refuse them and those pages do not finish loading. " +
+        "Use a nonce: 'nonce-{{nonce}}' in the policy's script-src.";
+
     /// <summary>Every warning for the current routes; never throws (a failing check is logged and skipped).</summary>
     public IReadOnlyList<RouteWarning> Check()
     {
         try
         {
             var table = services.GetRequiredService<IRouteTableProvider>().Current;
+            var sources = services.GetRequiredService<RouteSources>();
+            var context = services.GetRequiredService<NetjesContext>();
             var all = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
             var endpoints = PageEndpoints(all);
             var layouts = LayoutBindings();
@@ -101,11 +128,14 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 StringComparer.Ordinal);
             return
             [
-                .. PageLoaderWarnings(table, endpoints, boundBySegment),
-                .. LayoutLoaderWarnings(table, layouts, boundBySegment),
-                .. OverlapWarnings(table, endpoints),
+                .. PageLoaderWarnings(table, sources, endpoints, boundBySegment),
+                .. LayoutLoaderWarnings(table, sources, layouts, boundBySegment),
+                .. OverlapWarnings(table, sources, endpoints),
                 .. EndpointTieWarnings(table, all),
                 .. FormInputWarnings(table, all),
+                .. PackageShellWarnings(table, sources),
+                .. PackageUnmountedWarnings(sources, context),
+                .. PackageNonceWarnings(sources, context.Options.ContentSecurityPolicy),
             ];
         }
         catch (Exception ex)
@@ -137,7 +167,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
 
     /// <param name="boundBySegment">The route parameters each layout loader binds, by segment: bound for every page below.</param>
     private static IEnumerable<RouteWarning> PageLoaderWarnings(
-        RouteTable table, Dictionary<string, RouteEndpoint> endpoints, Dictionary<string, List<string>> boundBySegment)
+        RouteTable table, RouteSources sources, Dictionary<string, RouteEndpoint> endpoints, Dictionary<string, List<string>> boundBySegment)
     {
         foreach (var page in table.Pages)
         {
@@ -150,7 +180,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             // URL is named as mapped, with the group's prefix.
             var routeParameters = endpoint.RoutePattern.Parameters.Select(p => p.Name).ToList();
             var url = endpoint.RoutePattern.RawText is { } mapped && mapped != page.Template ? mapped : page.Pattern;
-            var boundAbove = page.Segments.SelectMany(s => boundBySegment.GetValueOrDefault(s.Id) ?? []);
+            var boundAbove = page.Segments.SelectMany(s => boundBySegment.GetValueOrDefault(s.Id) ?? [])
+                .Concat(PrefixParameters(sources.PackageOf(page)));
             foreach (var warning in QueryBindings(page.File, url, endpoint.Metadata.GetMetadata<MethodInfo>()!,
                          endpoint.Metadata.OfType<IParameterBindingMetadata>(), routeParameters, boundAbove))
             {
@@ -184,7 +215,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     }
 
     private static IEnumerable<RouteWarning> LayoutLoaderWarnings(
-        RouteTable table, List<LayoutBinding> layouts, Dictionary<string, List<string>> boundBySegment)
+        RouteTable table, RouteSources sources, List<LayoutBinding> layouts, Dictionary<string, List<string>> boundBySegment)
     {
         foreach (var (loader, method, parameters) in layouts)
         {
@@ -198,7 +229,8 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             }
 
             // Segment ids are folders (app/[team]/[project]), so the ones above are the prefixes ending at a slash.
-            var boundAbove = boundBySegment.Where(s => segment.Id.StartsWith(s.Key + "/", StringComparison.Ordinal)).SelectMany(s => s.Value);
+            var boundAbove = boundBySegment.Where(s => segment.Id.StartsWith(s.Key + "/", StringComparison.Ordinal)).SelectMany(s => s.Value)
+                .Concat(PrefixParameters(sources.OwnerOf(segment.Layout)));
             var others = parameters.Except(meantForBelow.Select(m => m.Parameter));
             foreach (var warning in QueryBindings(segment.Layout!, segment.Pattern, method, others, segment.Parameters, boundAbove))
             {
@@ -233,6 +265,12 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 .Select(b => (b.Parameter, b.Below.Route, b.Below.Pattern)),
         ];
     }
+
+    /// <summary>
+    /// The parameters of the prefix a page package is mounted at, which its loaders need not bind: the package is written
+    /// before anyone picks its prefix, so a value there is the app's to read. None for the app's own loaders.
+    /// </summary>
+    private static IReadOnlyList<string> PrefixParameters(MountedPackage? package) => package?.Mount.Prefix.Parameters ?? [];
 
     /// <summary>
     /// Loader parameters that bind from the query string while a route parameter of the pattern is bound by none, nor
@@ -284,15 +322,18 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
     /// <summary>
     /// Pairs of pages that can match the same URL, except where one is the other with literals for some of its
     /// parameters (<c>/blog/new</c> next to <c>/blog/[slug]</c>): the literal winning is the convention, as in Next.js.
-    /// The winner is the endpoint the matcher prefers: lower order, then lower route precedence.
+    /// That holds within one source only. Between the app and a page package, or two packages, neither wrote the
+    /// exception: a package update that adds <c>settings/page.tsx</c> would take <c>/help/settings</c> from the app's
+    /// <c>app/help/[section]/page.tsx</c> without a word. An app page that replaces a package's (<c>.Override()</c>) counts
+    /// as the package's. The winner is the endpoint the matcher prefers: lower order, then lower route precedence.
     /// </summary>
-    private static IEnumerable<RouteWarning> OverlapWarnings(RouteTable table, Dictionary<string, RouteEndpoint> endpoints)
+    private static IEnumerable<RouteWarning> OverlapWarnings(RouteTable table, RouteSources sources, Dictionary<string, RouteEndpoint> endpoints)
     {
         var pages = table.Pages.Select(page =>
         {
             var endpoint = endpoints.GetValueOrDefault(page.Pattern);
             var rank = (endpoint?.Order ?? 0, (endpoint?.RoutePattern ?? RoutePatternFactory.Parse(page.Template)).InboundPrecedence);
-            return (page.File, Url: UrlPattern.Parse(page.Pattern), Rank: rank);
+            return (page.File, Url: UrlPattern.Parse(page.Pattern), Rank: rank, Source: sources.PackageOf(page)?.Name ?? PageSource.AppName);
         }).ToList();
 
         for (var i = 0; i < pages.Count; i++)
@@ -305,7 +346,7 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
                 }
 
                 var (winner, loser) = pages[i].Rank.CompareTo(pages[j].Rank) <= 0 ? (pages[i], pages[j]) : (pages[j], pages[i]);
-                if (UrlSegment.IsLiteralException(winner.Url, loser.Url))
+                if (winner.Source == loser.Source && UrlSegment.IsLiteralException(winner.Url, loser.Url))
                 {
                     continue;
                 }
@@ -455,6 +496,61 @@ internal sealed class RouteDiagnostics(IServiceProvider services, ILogger<RouteD
             }
         }
     }
+
+    /// <summary>
+    /// Page packages that draw their own shell, mounted in an app whose root layout, which wraps every page, is its own
+    /// and has no route group layout directly below it (<c>app/(site)/layout.tsx</c>), where an app keeps its chrome so
+    /// that the package's pages render outside it. What a layout draws is not known; the folders say how it is likely
+    /// split.
+    /// </summary>
+    private static IEnumerable<RouteWarning> PackageShellWarnings(RouteTable table, RouteSources sources)
+    {
+        var shells = sources.Mounts.Where(m => m.Mount.Package.DrawsItsOwnShell).ToList();
+        if (shells.Count == 0 || table.RootLayouts.FirstOrDefault(l => sources.OwnerOf(l) is null) is not { } layout)
+        {
+            yield break;
+        }
+
+        var root = sources.AppDirectory;
+        var grouped = table.Pages.SelectMany(p => p.Segments).Any(s =>
+            s.Layout is not null
+            && sources.OwnerOf(s.Layout) is null
+            && s.Id.StartsWith(root + "/(", StringComparison.Ordinal)
+            && s.Id.EndsWith(')')
+            && !s.Id[(root.Length + 1)..].Contains('/'));
+        if (grouped)
+        {
+            yield break;
+        }
+
+        foreach (var shell in shells)
+        {
+            yield return new RouteWarning("package-shell", [layout], PackageShell,
+                [shell.Name, shell.Mount.Pattern, layout, layout, $"{root}/(site)/layout.tsx"]);
+        }
+    }
+
+    /// <summary>
+    /// Page packages in the client build's record that the app does not mount, in production, where the route table comes
+    /// from that build. Development and the commands read <c>node_modules</c> and no build.
+    /// </summary>
+    private IEnumerable<RouteWarning> PackageUnmountedWarnings(RouteSources sources, NetjesContext context) =>
+        context.ScansPageFiles
+            ? []
+            : (services.GetRequiredService<ViteManifestProvider>().Record?.Packages ?? [])
+                .Where(p => sources.Find(p.Name) is null)
+                .Select(p => new RouteWarning("package-unmounted", [], PackageUnmounted, [p.Name]));
+
+    /// <summary>
+    /// Page packages whose pages stream, under a policy of Netjes's own that has no <c>{nonce}</c> and refuses inline
+    /// scripts, as a hash-based policy does: it blocks what streams after the shell. A policy the app sends itself is not
+    /// seen, and no policy, or one that allows inline scripts or leaves scripts alone, blocks nothing.
+    /// </summary>
+    private static IEnumerable<RouteWarning> PackageNonceWarnings(RouteSources sources, string? policy) =>
+        policy is null || policy.Contains("{nonce}", StringComparison.Ordinal) || !CspChecks.RefusesInlineScripts(policy)
+            ? []
+            : sources.Mounts.Where(m => m.Mount.Package.RequiresNonce)
+                .Select(m => new RouteWarning("package-nonce", [], PackageNonce, [m.Name, m.Mount.Pattern]));
 
     /// <summary>A checkbox's <c>bool</c>, or a list (an array, or any <c>IEnumerable&lt;T&gt;</c> but a string).</summary>
     private static bool LeftOutWhenEmpty(Type type) =>

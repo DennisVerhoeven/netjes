@@ -43,7 +43,7 @@ A folder can hold these files next to its `page.tsx`:
 | `template.tsx` | Like a layout, but mounted again on every navigation to another path. |
 | `loading.tsx` | The Suspense fallback while a page below waits for deferred values or code. |
 | `error.tsx` | The error boundary for the pages below the folder's layout. |
-| `not-found.tsx` | Rendered when the loader of a page in or below the folder returns `Page.NotFound()`. The root one also renders for unknown URLs. |
+| `not-found.tsx` | Rendered when the loader of a page in or below the folder returns `Page.NotFound()`. The root one also renders for unknown URLs, except below a [page package's](#page-packages) mount, which renders its own. |
 | `forbidden.tsx` | Rendered for `Page.Forbidden()` and for an empty 403 from authorization. |
 | `unauthorized.tsx` | Rendered for `Page.Unauthorized()` and for an empty 401 from authorization. |
 | `global-error.tsx` | In `app/` only: rendered without any layout when even the error page fails. |
@@ -184,6 +184,8 @@ A folder in parentheses, `(marketing)`, adds nothing to the URL. Use it to give 
 
 A folder whose name starts with `_`, such as `_components`, is not routed, so components can live next to the pages that use them.
 
+A group can also hold the site's chrome, so that pages outside it do without: keep `app/layout.tsx` to the providers and the skip link, and put the header and footer in `app/(site)/layout.tsx`, with the site's pages in `app/(site)/`. The URLs stay as they were, and the client router moves between groups without loading a new document. An app that mounts a [page package](#page-packages) that draws its own shell does this, so the package's pages do not render inside the site's header.
+
 ## Parallel routes
 
 A folder named `@slot` is a slot of the layout in the folder above it. The layout gets each slot as a prop named after the folder, without the `@`:
@@ -229,6 +231,23 @@ app/
 ```
 
 A client navigation to `/photo/7` from a page inside the slot's layout keeps that page on screen, with its state, and renders the intercepting page in the slot. The intercepting page gets the props of the real page's loader and its own `params`. Back closes it, and `router.refresh()` keeps it open over the page it opened on. A document request, such as a reload or a shared link, always shows the real page. Intercepting folders work only inside a slot.
+
+## Page packages
+
+A page package brings pages, layouts, boundaries, loaders and actions in an npm package and a NuGet package of one version, and the app mounts it at a prefix: the package's C# extension, which calls `MapPagePackage`, before `app.MapPages()`, and its name in `netjes({ packages })`. [Page packages](page-packages.md) covers mounting and writing one; this section is what it changes in the route table.
+
+```csharp
+app.MapHelpCenter("/help");                     // the package's app/contact/page.tsx answers /help/contact
+app.MapHelpCenter("/(marketing)/help");         // the same URL, inside app/(marketing)/layout.tsx
+app.MapHelpCenter("/[tenant]/help");            // /acme/help/contact, with tenant a route value
+app.MapPages();
+```
+
+The prefix is written in folder syntax, with literal segments, `[name]` values and `(group)` groups. The package's folder of pages goes under the prefix's folders and merges with the app's `app/` folder by folder, route groups included: the package's `layout.tsx` at the mount wraps the app's own pages in `app/help/`, and its `(center)` group wraps the app's pages in `app/help/(center)/`. The app's layouts above the mount wrap the package's pages. Each file keeps an id that names its package, such as `@acme/help-center/app/contact/page.tsx`, which errors, `netjes routes` and telemetry use. The app's `route()` and `Href` hold the package's pages at their URLs, with the prefix's values first: `route('/[tenant]/help/contact', { tenant })`.
+
+An app page of the same shape as a package's page stops `MapPages()`, naming both files, unless `.Override(pattern)` on the mount names it: `app.MapHelpCenter("/help").Override("/help/contact")` renders `app/help/contact/page.tsx` in place of the package's page, with the package's loader and page action. Two packages' pages of one shape, and two segment files for one folder from the app and a package, stop the app too; layouts and boundaries cannot be replaced ([Replacing a page](page-packages.md#replacing-a-page)).
+
+Conventions on the mount, such as `.RequireAuthorization()`, apply to the package's own pages and endpoints, not to the app's pages under the prefix, which the layout loaders above them protect as before. An unknown URL below the mount renders the package's `not-found.tsx`, inside its layouts and the app's above the mount, after the layout loaders on the way have authorized the visitor ([404 and error pages under a mount](page-packages.md#404-and-error-pages-under-a-mount)). Three [route warnings](#route-warnings) are about packages: a package that draws its own shell inside the app's chrome, a package in the build that is not mounted, and a package whose pages stream under a policy without a nonce.
 
 ## Linking and navigating
 
@@ -511,7 +530,7 @@ Because Netjes's own endpoints answer `HEAD` themselves, a `HEAD` for `/sitemap.
 
 ## Route warnings
 
-Some mistakes in routes and actions fail without an error, or only when a request meets them, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](../decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0029](../decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md) for endpoints that tie with pages, [ADR 0017](../decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs).
+Some mistakes in routes and actions fail without an error, or only when a request meets them, so Netjes checks for them once the app has started, in every mode, and logs a warning for each one it finds under the category `Netjes.Routing.RouteDiagnostics`. `netjes routes` prints the same warnings after the route table. They never stop the app or fail a command. The check names only what is likely wrong, not every near name, overlap or positional record ([ADR 0015](../decisions/0015-route-warnings-name-what-is-likely-wrong.md) for the loader and overlap checks, [ADR 0029](../decisions/0029-an-endpoint-that-ties-with-a-page-is-a-route-warning.md) for endpoints that tie with pages, [ADR 0017](../decisions/0017-a-form-input-without-fields-is-empty-not-null.md) for form inputs, [ADR 0049](../decisions/0049-page-packages-are-mounted-into-the-route-table.md) for page packages).
 
 ### A loader parameter that reads the query string instead of a route value
 
@@ -525,7 +544,7 @@ app.MapPageLoader("/blog/[slug]", (string id, PostStore posts) => ...);
 app.MapPageLoader("/blog/[slug]", (string slug, PostStore posts) => ...);
 ```
 
-The warning names the page or layout file, the query parameters and the route parameters nothing binds, once per loader. If a query parameter has a near name of an unbound route parameter (two edits or fewer, like `slg` for `slug`, or for an array the route parameter's own name in any case), only that one is named, in a warning of its own; the others are taken for ordinary query parameters. There is no warning when every route parameter is bound, by the loader itself or by a layout loader above it: `(string id, string? q)` on `/projects/[id]` is fine, and so is `(int? page)` on `/[locale]/blog` when the loader of `app/[locale]/layout.tsx` takes `locale`. A page loader mapped in a route group whose prefix has a parameter (`app.MapGroup("/{tenant}").MapPageLoader("/projects", ...)`) has the group's route parameters as well: `(string tenant)` or `[FromRoute] string tenant` binds that route value, and a warning names the URL as mapped, `/{tenant}/projects`. The page then answers at `/acme/projects`, while the generated `Href` type, `route()` and `isHref` know it by its file's URL, `/projects`, so a URL segment such as a tenant belongs in the file tree instead (`app/[tenant]/projects/page.tsx`). Parameters with a binding attribute (`[FromQuery]`, `[FromRoute]`, `[FromHeader]`, `[FromServices]`, `[AsParameters]`), services, `HttpContext`, `ClaimsPrincipal`, `CancellationToken` and types that bind themselves (`BindAsync`) are never named. A parameter that reads the request body, such as a complex type with no binding attribute or a `[FromBody]` one, is not a warning either: it stops the app at startup ([Binding](data-loading.md#binding)).
+The warning names the page or layout file, the query parameters and the route parameters nothing binds, once per loader. If a query parameter has a near name of an unbound route parameter (two edits or fewer, like `slg` for `slug`, or for an array the route parameter's own name in any case), only that one is named, in a warning of its own; the others are taken for ordinary query parameters. There is no warning when every route parameter is bound, by the loader itself or by a layout loader above it: `(string id, string? q)` on `/projects/[id]` is fine, and so is `(int? page)` on `/[locale]/blog` when the loader of `app/[locale]/layout.tsx` takes `locale`. A page package's loaders are not held to binding the values of the prefix it is mounted at: `(string? q)` on a package's page under `/[tenant]/help` gets no warning about `tenant`, which the package cannot know of, while the app's own loaders below the mount do. A page loader mapped in a route group whose prefix has a parameter (`app.MapGroup("/{tenant}").MapPageLoader("/projects", ...)`) has the group's route parameters as well: `(string tenant)` or `[FromRoute] string tenant` binds that route value, and a warning names the URL as mapped, `/{tenant}/projects`. The page then answers at `/acme/projects`, while the generated `Href` type, `route()` and `isHref` know it by its file's URL, `/projects`, so a URL segment such as a tenant belongs in the file tree instead (`app/[tenant]/projects/page.tsx`). Parameters with a binding attribute (`[FromQuery]`, `[FromRoute]`, `[FromHeader]`, `[FromServices]`, `[AsParameters]`), services, `HttpContext`, `ClaimsPrincipal`, `CancellationToken` and types that bind themselves (`BindAsync`) are never named. A parameter that reads the request body, such as a complex type with no binding attribute or a `[FromBody]` one, is not a warning either: it stops the app at startup ([Binding](data-loading.md#binding)).
 
 A layout loader binds only the route values of its own URL. A query parameter of a layout loader that has the name of a route parameter of a page below it gets a warning of its own: `MapLayoutLoader("/projects", (string id) => ...)` above `app/projects/[id]/page.tsx` gets `?id=`, never the project's id. Read that value in the page's loader ([Layout loaders](data-loading.md#layout-loaders)).
 
@@ -535,7 +554,7 @@ To fix it, name the parameter after the route value (or bind it with `[FromRoute
 
 `app/[id]/page.tsx` next to `app/[...rest]/page.tsx`: `/x` goes to `[id]`, and the catch-all only gets URLs of two or more segments. The same holds for `app/docs/page.tsx` next to `app/docs/[[...slug]]/page.tsx` (`/docs` goes to the page) and for `app/en/[slug]/page.tsx` next to `app/[lang]/about/page.tsx` (`/en/about` goes to `en/[slug]`). The warning names both files, the URLs they share and the one ASP.NET Core's route precedence picks.
 
-Pages that cannot match one URL get no warning: literals that differ, or a catch-all next to a page without that segment (`app/docs/page.tsx` and `app/docs/[...slug]/page.tsx`, since `[...slug]` needs at least one segment). Neither does a page that is another with literals in place of some parameters, such as `app/blog/new/page.tsx` next to `app/blog/[slug]/page.tsx`: the literal wins, as in Next.js.
+Pages that cannot match one URL get no warning: literals that differ, or a catch-all next to a page without that segment (`app/docs/page.tsx` and `app/docs/[...slug]/page.tsx`, since `[...slug]` needs at least one segment). Neither does a page that is another with literals in place of some parameters, such as `app/blog/new/page.tsx` next to `app/blog/[slug]/page.tsx`: the literal wins, as in Next.js. That exception holds within the app, or within one [page package](#page-packages), but not between the two: the app's `app/help/[section]/page.tsx` next to a package's `settings/page.tsx` at `/help/settings` is warned, both ways round, since a package update that adds a page would otherwise take a URL from the app without a word, or the app one from the package. An app page that replaces a package's page counts as the package's.
 
 To fix it, rename or move one of the pages so the patterns do not overlap. For a page next to an optional catch-all, drop the page and handle the empty case in the catch-all, or make the catch-all a required `[...slug]`. Two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, are not a warning but an error that stops the app at startup, and so are two files for one convention in one folder (`page.tsx` and `page.jsx`).
 
@@ -571,6 +590,18 @@ public sealed record PinInput
 
 A positional record of text fields only gets no warning, since a browser posts a text field even when it is empty, and neither does a JSON input. To fix it, give the type `init` properties, or bind the checkbox as a parameter of its own (`[FromForm] bool? stay`) ([Validation](actions-and-forms.md#validation)).
 
+### A page package that draws its own shell, inside the app's chrome
+
+A [page package](#page-packages) whose layout draws a whole page around its pages, with a header and navigation of its own, says so with `PagePackage.DrawsItsOwnShell`. Mounted in an app whose root layout draws the site's header and footer, its pages would show both. So when such a package is mounted and the app has an `app/layout.tsx` but no route group layout directly below it, such as `app/(site)/layout.tsx`, the warning names the root layout and the package. To fix it, keep the root layout to what every page needs and move the site's chrome into a group ([Route groups and private folders](#route-groups-and-private-folders), [The app's root layout](page-packages.md#the-apps-root-layout)). Netjes cannot see what a layout draws, so an app that has such a group gets no warning, wherever the package is mounted.
+
+### A page package in the build that is not mounted
+
+In production, a package listed in `netjes({ packages })` is in the client build, and its pages ship with it. When the app mounts no such package, no URL serves them, and the warning names the package: mount it with its extension, or take it out of `packages` and build again. Development and the commands read the packages from `node_modules`, not from a build, so they do not report it.
+
+### A page package whose pages stream, under a policy without a nonce
+
+A package whose pages stream, with `Page.Defer` or a Suspense boundary still waiting when the shell goes out, says so with `PagePackage.RequiresNonce`. When such a package is mounted and `NetjesOptions.ContentSecurityPolicy` has no `{nonce}` and refuses inline scripts, as a [hash-based policy](security.md#hash-based) does, what its pages stream is blocked, and the warning names the package and the policy. To fix it, use a policy with a nonce. A policy the app writes itself, rather than through the option, is not checked.
+
 ### Hiding the warnings
 
 There is no option to turn the check off. For an overlap you keep on purpose, a route value only middleware reads, or an endpoint that a matcher policy of your own tells apart from a page, raise the category's log level in `appsettings.json`:
@@ -589,13 +620,13 @@ That hides every kind, and the warning logged when the check itself cannot run. 
 
 ## The route table
 
-`netjes routes` (or `npm run routes` in an app made with `netjes new`) prints the pages as ASP.NET Core maps them: pattern, file, loader, page action, props type, output caching and authorization, then the other endpoints and the route warnings. `--json` prints the same as JSON. See [the netjes command](../reference/cli.md#netjes-routes).
+`netjes routes` (or `npm run routes` in an app made with `netjes new`) prints the pages as ASP.NET Core maps them: pattern, file, loader, page action, props type, output caching and authorization, then the other endpoints and the route warnings. With a page package mounted, a Package column names the package of each page and of each endpoint its mount maps, and a list of the mounted packages follows, with their versions, prefixes and overrides. `--json` prints the same as JSON. See [the netjes command](../reference/cli.md#netjes-routes).
 
 App code and tests can read the same from the endpoints, without running the command. Every endpoint that serves a page carries `PageRouteMetadata`: its `Pattern` is the page's pattern in the report, and the report's loader is the `IsLoader` of the page's `GET` endpoint, true when `MapPageLoader` maps it. The report's output caching is true when that endpoint carries an output-cache policy, from `CachePage`, `.CacheOutput(...)` or an `[OutputCache]` attribute, while `CachedPageMetadata`, with the duration and tags, is only on the endpoints `CachePage` is put on. A base policy (`options.AddBasePolicy(...)`) applies to requests and is on no endpoint, so a page that only a base policy caches is listed as not cached. See [endpoint metadata](../reference/csharp-api.md#endpoint-metadata).
 
 ## In development and production
 
-In development Netjes reads the page files from `app/` and reads them again when they change, so a new page answers on the next request and the browser picks up edits through Vite's hot module replacement. In production the routes come from the Vite build's manifest, so a page file that was not built does not exist.
+In development Netjes reads the page files from `app/` and reads them again when they change, so a new page answers on the next request and the browser picks up edits through Vite's hot module replacement. In production the routes come from the Vite build's manifest, so a page file that was not built does not exist. A mounted page package's pages come from `node_modules` in development, where a page added to a package that a workspace links in answers without a restart, and from the client build's record of the packages in production (`dist/client/.vite/netjes.json`).
 
 ## What is not there
 

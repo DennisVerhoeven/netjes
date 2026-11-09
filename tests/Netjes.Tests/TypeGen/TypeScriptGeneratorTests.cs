@@ -517,7 +517,71 @@ public class TypeScriptGeneratorTests
 
         var output = await GenerateAsync(app);
 
-        Assert.Contains("export const actions = {\n  \"items.create\": { input: NewItem, result: Item },\n} as const;", output);
+        Assert.Contains("export const actions = {\n  \"items.create\": { \"input\": NewItem, \"result\": Item },\n} as const;", output);
+    }
+
+    [Fact]
+    public async Task Generate_ATypeNamedLikeARegisteredGroup_GetsAnotherName()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/items/page.tsx"],
+            map: a =>
+            {
+                a.MapPageLoader("/items", () => Page.Props(new NewItem("x")));
+                a.Services.GetRequiredService<TypeGenRegistry>().Add("Item", "latest", new Dictionary<string, Type> { ["props"] = typeof(Item) });
+            });
+
+        var output = await GenerateAsync(app);
+
+        // Two declarations of `Item` would not compile.
+        Assert.Contains("export const TypeScriptGeneratorTestsItem = z.object({", output);
+        Assert.Contains("export const Item = {\n  \"latest\": { \"props\": TypeScriptGeneratorTestsItem },\n} as const;", output);
+        Assert.Equal(2, output.Split("export const Item =").Length);
+        Assert.Contains("export const NewItem = z.object({", output);
+    }
+
+    [Fact]
+    public async Task Generate_RegisteredSlots_AreInOrdinalOrder_WhateverOrderTheDictionaryKeeps()
+    {
+        // A dictionary that hashes its keys (ImmutableDictionary) may list them in another order in each process, and
+        // `netjes generate --check` compares the file of one process with that of another.
+        var slots = new SortedDictionary<string, Type>(Comparer<string>.Create((a, b) => string.CompareOrdinal(b, a)))
+        {
+            ["input"] = typeof(NewItem),
+            ["result"] = typeof(Item),
+            ["Error"] = typeof(Item),
+        };
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.Services.GetRequiredService<TypeGenRegistry>().Add("actions", "items.create", slots));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("  \"items.create\": { \"Error\": Item, \"input\": NewItem, \"result\": Item },\n", output);
+    }
+
+    [Fact]
+    public async Task Generate_RegisteredKeys_AreQuoted_SoNoneWritesCode()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.Services.GetRequiredService<TypeGenRegistry>()
+                .Add("blocks", "x\": {}, y: alert(1), \"z\n*/\u2028`${x}`", new Dictionary<string, Type> { ["props"] = typeof(Item) }));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("export const blocks = {\n  \"x\\u0022: {}, y: alert(1), \\u0022z\\n*/\\u2028\\u0060${x}\\u0060\": { \"props\": Item },\n} as const;", output);
+    }
+
+    [Fact]
+    public async Task Generate_RegisteredSlotNames_AreQuoted_SoNoneWritesCode()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.Services.GetRequiredService<TypeGenRegistry>()
+                .Add("blocks", "hero", new Dictionary<string, Type> { ["x: z.any() }, y: alert(1), z: { w"] = typeof(Item), ["data-id"] = typeof(NewItem) }));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("export const blocks = {\n  \"hero\": { \"data-id\": NewItem, \"x: z.any() }, y: alert(1), z: { w\": Item },\n} as const;", output);
     }
 
     [Fact]

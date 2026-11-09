@@ -72,63 +72,90 @@ internal sealed class TypeGenHostedService(
             return;
         }
 
-        if (context.Mode != NetjesMode.Development || context.TypesFilePath is not { } path)
+        // TypesFile null turns generation off, the page packages' files included: a test host sets it so that a test run
+        // rewrites no committed file.
+        if (context.Mode != NetjesMode.Development || context.TypesFilePath is not { } appFile)
         {
             return;
         }
 
-        try
+        foreach (var (path, generate) in Files(appFile))
         {
-            if (await WriteIfChangedAsync(path, Generate(), cancellationToken))
+            try
             {
-                logger.LogInformation("Wrote {TypesFile}", Path.GetRelativePath(context.Root, path));
+                if (await WriteIfChangedAsync(path, generate(), cancellationToken))
+                {
+                    logger.LogInformation("Wrote {TypesFile}", Path.GetRelativePath(context.Root, path));
+                }
             }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Development keeps running with the previous file; the page that needs a new type will say so.
-            logger.LogWarning(ex, "Could not generate {TypesFile}: {Message}", path, ex.Message);
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Development keeps running with the previous file; the page that needs a new type will say so.
+                logger.LogWarning(ex, "Could not generate {TypesFile}: {Message}", path, ex.Message);
+            }
         }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private string Generate() => services.GetRequiredService<TypeScriptGenerator>().Generate();
+    /// <summary>
+    /// The generated files, each with how to write it: the app's at <paramref name="appFile"/>, then the file of each
+    /// mounted page package that the app writes (<c>WriteTypes</c> on its mount), in the order they were mounted.
+    /// </summary>
+    private List<(string Path, Func<string> Generate)> Files(string appFile)
+    {
+        var generator = services.GetRequiredService<TypeScriptGenerator>();
+        var files = new List<(string Path, Func<string> Generate)> { (appFile, generator.Generate) };
+        foreach (var mounted in services.GetRequiredService<RouteSources>().Mounts)
+        {
+            if (mounted.Mount.TypesFile is { } path)
+            {
+                files.Add((path, () => generator.Generate(mounted)));
+            }
+        }
+
+        return files;
+    }
 
     private async Task<int> GenerateCommandAsync(NetjesCommandOptions command, CancellationToken cancellationToken)
     {
-        var path = command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath;
-        if (path is null)
+        // The page packages' files go with the app's, as at a Development start.
+        if ((command.Output is { } output ? Path.GetFullPath(output, context.Root) : context.TypesFilePath) is not { } appFile)
         {
             logger.LogError("NetjesOptions.TypesFile is null and no output was given; nothing to generate");
             return 2;
         }
 
-        var content = Generate();
-        if (command.Check)
+        var files = Files(appFile);
+        var stale = 0;
+        foreach (var (path, generate) in files)
         {
+            var content = generate();
+            if (!command.Check)
+            {
+                await WriteIfChangedAsync(path, content, cancellationToken);
+                logger.LogInformation("Generated {TypesFile}", path);
+                continue;
+            }
+
             var current = File.Exists(path) ? await File.ReadAllTextAsync(path, cancellationToken) : null;
             if (current is not null && SameContent(current, content))
             {
                 logger.LogInformation("{TypesFile} is up to date", path);
-                return 0;
             }
-
-            if (current is null)
+            else if (current is null)
             {
                 logger.LogError("{TypesFile} does not exist; run `netjes generate`", path);
+                stale++;
             }
             else
             {
                 logger.LogError("{TypesFile} is out of date; run `netjes generate`\n{Differences}", path, Differences(current, content));
+                stale++;
             }
-
-            return 1;
         }
 
-        await WriteIfChangedAsync(path, content, cancellationToken);
-        logger.LogInformation("Generated {TypesFile}", path);
-        return 0;
+        return stale == 0 ? 0 : 1;
     }
 
     private async Task<int> RoutesCommandAsync(NetjesCommandOptions command, CancellationToken cancellationToken)
@@ -149,6 +176,7 @@ internal sealed class TypeGenHostedService(
     private object DescribeRoutes()
     {
         var table = services.GetRequiredService<IRouteTableProvider>().Current;
+        var sources = services.GetRequiredService<RouteSources>();
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
 
         // A page's endpoints as an app finds them: by the public metadata, which only endpoints that serve a page carry.
@@ -166,6 +194,9 @@ internal sealed class TypeGenHostedService(
                     page.Pattern,
                     page.Template,
                     page.File,
+                    // The page package whose page it is, also where the app's file replaces the package's.
+                    Package = sources.PackageOf(page)?.Name,
+                    page.Overrides,
                     page.Layouts,
                     Loader = get?.Metadata.GetMetadata<PageRouteMetadata>()?.IsLoader ?? false,
                     Action = PageEndpoints(page.Pattern, HttpMethods.Post).Any(),
@@ -182,9 +213,23 @@ internal sealed class TypeGenHostedService(
                     Method = method,
                     Route = e.RoutePattern.RawText,
                     Name = e.DisplayName,
+                    // Mapped through a page package's mount; null for the app's own and Netjes's.
+                    Package = e.Metadata.GetMetadata<PagePackageEndpointMetadata>()?.Package,
                 }))
                 .OrderBy(e => e.Route, StringComparer.Ordinal)
                 .ThenBy(e => e.Method, StringComparer.Ordinal),
+            // The page packages mounted, in the order of their mounts: the npm half's version and the NuGet half's, which the
+            // version checks have held to one, and the app-absolute patterns where the app's page replaces one of theirs.
+            Packages = sources.Mounts.Select(mounted => new
+            {
+                mounted.Name,
+                mounted.Install.Version,
+                Nuget = mounted.Install.Nuget ?? mounted.Mount.Package.AssemblyName,
+                NugetVersion = mounted.Mount.Package.Version,
+                Prefix = mounted.Mount.Prefix.ToString(),
+                mounted.Mount.Pattern,
+                Overrides = table.Pages.Where(p => p.Overrides is not null && sources.PackageOf(p) == mounted).Select(p => p.Pattern),
+            }),
             // Logged at startup otherwise; here the CLI prints them.
             Warnings = services.GetRequiredService<RouteDiagnostics>().Check().Select(w => new { w.Kind, w.Message, w.Files }),
         };

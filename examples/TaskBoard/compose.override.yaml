@@ -32,5 +32,7 @@ services:
       - /src/examples/TaskBoard/node_modules
       - /src/examples/TaskBoard/bin
       - /src/examples/TaskBoard/obj
+      - /src/examples/HelpCenter/bin
+      - /src/examples/HelpCenter/obj
       - /src/src/Netjes/bin
       - /src/src/Netjes/obj

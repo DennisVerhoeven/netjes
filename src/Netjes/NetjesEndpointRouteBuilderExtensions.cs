@@ -24,7 +24,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         // Fail at startup on a route conflict or a file name the conventions do not allow. Production builds the table
         // from the manifest when it is first read, and the matcher reads the pages' endpoints for every request: left
         // to then, every request would answer 500, /healthz and unknown URLs too.
-        _ = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
+        var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
+        // An app page and a page package's page of one shape: the mounts are all in, and no override resolved it.
+        if (table.PendingConflicts is [var conflict, ..])
+        {
+            throw conflict.ToException();
+        }
+
+        endpoints.ServiceProvider.GetRequiredService<RouteSources>().MarkPagesMapped();
         var dataSource = endpoints.ServiceProvider.GetRequiredService<PagesEndpointDataSource>();
         if (!endpoints.DataSources.Contains(dataSource))
         {
@@ -76,16 +83,18 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <param name="loader">The loader delegate.</param>
     public static RouteHandlerBuilder MapPageLoader(this IEndpointRouteBuilder endpoints, string pattern, Delegate loader)
     {
-        var route = RequireRoute(endpoints, pattern);
+        var target = TargetFor(endpoints, pattern, nameof(MapPageLoader));
+        var route = target.Route;
         // A GET endpoint, so minimal APIs infer no body for it, as for every loader.
         LoaderBinding.RequireBindable($"The loader of {route.File} ({route.Pattern})", loader.Method, endpoints.ServiceProvider,
-            RouteParameters(endpoints, RoutePatternFactory.Parse(route.Template)), routed: true);
+            RouteParameters(target.Endpoints, RoutePatternFactory.Parse(route.Template)), routed: true);
         endpoints.ServiceProvider.GetRequiredService<PageLoaderRegistry>().Register(route.Pattern);
-        return endpoints
+        return target.Endpoints
             .MapMethods(route.Template, [HttpMethods.Get, HttpMethods.Head], loader)
+            .WithMountConventions(target.Mount)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(EndAborted)
-            .AddEndpointFilter(Traced("netjes.loader", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.loader", route.Pattern, target.Package))
             .WithMetadata(EndpointMetadataFor(route.Pattern, loader, isLoader: true))
             .WithDisplayName($"Page {route.Pattern}")
             .ExcludeFromDescription();
@@ -104,15 +113,17 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// </summary>
     public static RouteHandlerBuilder MapPageAction(this IEndpointRouteBuilder endpoints, string pattern, Delegate action)
     {
-        var route = RequireRoute(endpoints, pattern);
+        var target = TargetFor(endpoints, pattern, nameof(MapPageAction));
+        var route = target.Route;
         var name = $"The action of {route.File} ({route.Pattern})";
-        RequireBindable(endpoints, name, route.Template, action);
+        RequireBindable(target.Endpoints, name, route.Template, action);
         ActionInputValidation.RequireReadable(name, action.Method);
-        return endpoints
+        return target.Endpoints
             .MapPost(route.Template, action)
+            .WithMountConventions(target.Mount)
             .WithLayoutConventions(endpoints, route)
             .AddEndpointFilter(CookieChanges.Mark)
-            .AddEndpointFilter(Traced("netjes.action", route.Pattern))
+            .AddEndpointFilter(Traced("netjes.action", route.Pattern, target.Package))
             .WithMetadata(EndpointMetadataFor(route.Pattern, action, isLoader: false))
             .WithMetadata(new PageActionMetadata(route.Pattern), new ActionFormFields(action.Method), new RequireAntiforgeryTokenAttribute())
             .AddEndpointFilter(RejectCrossSitePosts)
@@ -139,33 +150,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// <param name="loader">The loader delegate.</param>
     public static LayoutLoaderBuilder MapLayoutLoader(this IEndpointRouteBuilder endpoints, string segment, Delegate loader)
     {
-        var context = endpoints.ServiceProvider.GetRequiredService<NetjesContext>();
-        var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
-        var layouts = table.Pages.SelectMany(p => p.Segments).Concat(table.RootSegments)
-            .Where(s => s.Layout is not null)
-            .DistinctBy(s => s.Id)
-            .ToList();
-        var normalized = segment.Replace('\\', '/').TrimEnd('/');
-        var matches = layouts.Where(s => s.Id == normalized).ToList();
-        if (matches.Count == 0)
-        {
-            var pattern = normalized.Length == 0 ? "/" : normalized;
-            matches = [.. layouts.Where(s => s.Pattern == pattern)];
-        }
-
-        if (matches.Count > 1)
-        {
-            throw new InvalidOperationException(
-                $"Several layouts serve '{segment}': {string.Join(", ", matches.Select(m => $"\"{m.Id}\""))}. Pass the folder instead.");
-        }
-
-        if (matches.Count == 0)
-        {
-            var path = segment.Trim('/');
-            throw new InvalidOperationException(
-                $"No layout file serves '{segment}'. Expected {context.AppDirectory}/{(path.Length == 0 ? "" : path + "/")}layout.tsx.");
-        }
-
+        var matches = LayoutsFor(endpoints, segment);
         if (LayoutLoader.RouteBindingsOutsideItsUrl(matches[0], loader, endpoints.ServiceProvider) is [var (parameter, route), ..])
         {
             throw new InvalidOperationException(
@@ -183,8 +168,10 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static RouteHandlerBuilder WithLayoutConventions(this RouteHandlerBuilder builder, IEndpointRouteBuilder endpoints, PageRoute route)
     {
         var registry = endpoints.ServiceProvider.GetRequiredService<LayoutLoaderRegistry>();
-        // Applied when endpoints are built, after every MapLayoutLoader call.
-        builder.Add(endpoint => registry.ApplyConventions(route, endpoint));
+        var routes = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>();
+        // Applied when endpoints are built, after every MapLayoutLoader call, to the page's segments then: a page package
+        // mounted after the loader was mapped can bring a layout above the page, whose loader's conventions apply too.
+        builder.Add(endpoint => registry.ApplyConventions(routes.Current.Find(route.Pattern) ?? route, endpoint));
         return builder;
     }
 
@@ -205,11 +192,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         }
     }
 
-    /// <summary>A span around the loader or action delegate (see <see cref="NetjesTelemetry"/>).</summary>
-    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string route) =>
+    /// <summary>
+    /// A span around the loader or action delegate of a page (see <see cref="NetjesTelemetry"/>), with the page package
+    /// whose page it is.
+    /// </summary>
+    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string pattern, string? package) =>
         async (context, next) =>
         {
-            using var activity = NetjesTelemetry.StartActivity(operation, route);
+            using var activity = NetjesTelemetry.StartActivity(operation, pattern).WithPackage(package);
             try
             {
                 return await next(context);
@@ -340,16 +330,29 @@ public static partial class NetjesEndpointRouteBuilderExtensions
                 $"'{name}' is not a valid action name: use letters, digits, '.', '-' and '_'.", nameof(name));
         }
 
-        var names = endpoints.ServiceProvider.GetRequiredService<ServerActionRegistry>();
-        if (!names.Add(name))
+        // On a page package's mount, it maps on the app, at the one URL the client posts to, with the mount's conventions.
+        var mount = endpoints as PagePackageBuilder;
+        if (mount is null)
         {
-            throw new InvalidOperationException($"A server action named '{name}' is already mapped.");
+            RequireOutsideAMount(endpoints, nameof(MapAction));
+            RequireNoGroupPrefix(endpoints, name);
         }
 
-        RequireBindable(endpoints, $"The server action '{name}'", $"/_netjes/actions/{name}", action);
+        var target = mount?.Outer ?? endpoints;
+        var package = mount?.Mount.Package.Name;
+        if (endpoints.ServiceProvider.GetRequiredService<ServerActionRegistry>().Add(name, package) is { } mapped)
+        {
+            throw new InvalidOperationException(
+                $"The server action '{name}' of {OwnerOf(package)} is mapped already, as '{mapped.Name}' by {OwnerOf(mapped.Package)}. " +
+                "Routing matches /_netjes/actions/{name} in any case, so names that differ only in case are one action. " +
+                "Give one of them another name.");
+        }
+
+        RequireBindable(target, $"The server action '{name}'", $"/_netjes/actions/{name}", action);
         ActionInputValidation.RequireReadable($"The server action '{name}'", action.Method);
-        var builder = endpoints
+        var builder = target
             .MapPost($"/_netjes/actions/{name}", action)
+            .WithMountConventions(mount)
             .WithMetadata(new ServerActionMetadata(name), new ActionFormFields(action.Method), new PageEndpointMetadata(null), new RequireAntiforgeryTokenAttribute());
         if (ServerActionResultMetadata.For(action) is { } result)
         {
@@ -365,6 +368,31 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             .AddEndpointFilterFactory(ActionInputValidation.Filter)
             .WithDisplayName($"Server action {name}")
             .ExcludeFromDescription();
+    }
+
+    /// <summary>
+    /// Refuses a route group with a prefix, which would map the action below it, where the client never posts: every
+    /// call goes to <c>/_netjes/actions/{name}</c>. A group whose prefix cannot be read is let through.
+    /// </summary>
+    private static void RequireNoGroupPrefix(IEndpointRouteBuilder endpoints, string name)
+    {
+        for (var builder = endpoints; builder is RouteGroupBuilder group;)
+        {
+            if (GroupPrefix?.GetValue(group) is not RoutePattern prefix || GroupOuter?.GetValue(group) is not IEndpointRouteBuilder outer)
+            {
+                return;
+            }
+
+            if (prefix.PathSegments.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"MapAction('{name}') is called on MapGroup(\"{prefix.RawText}\"), which would map it below the group's prefix. " +
+                    $"The client posts every server action to /_netjes/actions/{name}: map it on the app, or on a group " +
+                    "without a prefix, and put the group's conventions on the action.");
+            }
+
+            builder = outer;
+        }
     }
 
     // For calls from the client router: failures come back as action responses rather than error pages.
@@ -485,12 +513,20 @@ public static partial class NetjesEndpointRouteBuilderExtensions
             ? [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader), props]
             : [new PageEndpointMetadata(pattern), new PageRouteMetadata(pattern, isLoader)];
 
-    private static PageRoute RequireRoute(IEndpointRouteBuilder endpoints, string pattern)
+    private static PageRoute RequireRoute(IEndpointRouteBuilder endpoints, string pattern, string method)
     {
         var context = endpoints.ServiceProvider.GetRequiredService<NetjesContext>();
         var table = endpoints.ServiceProvider.GetRequiredService<IRouteTableProvider>().Current;
-        return table.Find(pattern) ?? throw new InvalidOperationException(
+        // The page's file is contested: that is the error to fix, whoever owns the loader.
+        if (table.PendingConflictFor(pattern) is { } conflict)
+        {
+            throw conflict.ToException();
+        }
+
+        var route = table.Find(pattern) ?? throw new InvalidOperationException(
             $"No page file matches '{pattern}'. Expected {PageRenderer.ExpectedFile(context, pattern)}. " +
             $"Known pages: {string.Join(", ", table.Pages.Select(p => p.Pattern))}.");
+        RequireTheApps(route, endpoints.ServiceProvider.GetRequiredService<RouteSources>(), method, pattern);
+        return route;
     }
 }

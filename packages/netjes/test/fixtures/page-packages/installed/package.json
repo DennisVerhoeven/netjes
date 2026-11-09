@@ -1,0 +1,17 @@
+{
+  "name": "@netjes-test/installed",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "peerDependencies": {
+    "netjes": ">=0.0.1"
+  },
+  "netjes": {
+    "pages": "app",
+    "css": "styles/installed.css",
+    "nuget": "Netjes.Test.Installed"
+  }
+}

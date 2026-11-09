@@ -88,6 +88,20 @@ public class ViteManifestTests
     }
 
     [Fact]
+    public void AssetsFor_APagePackagesFile_IsFoundByItsManifestKey()
+    {
+        // A page package's file is listed under its path from the app's root, which the build record maps its id to.
+        var manifest = ViteManifest.Parse(
+            Manifest.Replace("\"app/blog/[slug]/page.tsx\": {", "\"../help-center/app/page.tsx\": {"),
+            keys: new Dictionary<string, string> { ["@acme/help-center/app/page.tsx"] = "../help-center/app/page.tsx" });
+
+        var assets = manifest.AssetsFor(["@acme/help-center/app/page.tsx"]);
+
+        Assert.Contains("/assets/_slug_-III.js", assets.ModulePreloads);
+        Assert.Contains("/assets/shared-EEE.css", assets.Stylesheets);
+    }
+
+    [Fact]
     public void Parse_ManifestWithoutEntry_Throws()
     {
         var ex = Assert.Throws<InvalidOperationException>(() => ViteManifest.Parse("""{ "a.js": { "file": "a.js" } }"""));

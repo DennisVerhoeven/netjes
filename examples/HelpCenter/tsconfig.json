@@ -1,0 +1,11 @@
+{
+  // A page package ships its pages as TypeScript, which the app's build compiles but the app's tsc never sees, so the
+  // package checks them itself, under the strictest flags an app may use: create-vite's and Netjes's own list, plus
+  // noPropertyAccessFromIndexSignature.
+  "extends": "../../packages/netjes/tsconfig.strict-app.json",
+  "compilerOptions": {
+    "types": [],
+    "noPropertyAccessFromIndexSignature": true
+  },
+  "include": ["app", "src", "generated"]
+}

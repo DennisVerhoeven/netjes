@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CSP_SCRIPT_HASHES, DEFERRED_BOOTSTRAP } from '../src/deferred.ts';
 import type { ErrorPageProps, LayoutProps } from '../src/modules.ts';
+import { mounted } from '../src/mounted.tsx';
 import { DATA_ELEMENT_ID, type PageKind, type Params, type SegmentRef } from '../src/payload.ts';
 import { usePublicConfig } from '../src/public-config.tsx';
 import { documentPayload } from '../src/render-document.tsx';
@@ -338,6 +339,95 @@ describe('renderDocument', () => {
     );
   });
 
+  describe('with page packages mounted', () => {
+    const help = mounted('@acme/help-center');
+    function HelpLayout({ children }: LayoutProps) {
+      return (
+        <div className="help">
+          <help.Link href="/">Help home</help.Link>
+          {children}
+        </div>
+      );
+    }
+    const withHelp = {
+      ...modules,
+      '/@acme/help-center/app/layout.tsx': page(HelpLayout),
+      '/@acme/help-center/app/(center)/layout.tsx': page(({ children }: LayoutProps) => <section className="center">{children}</section>),
+      '/@acme/help-center/app/(center)/articles/[slug]/page.tsx': page(() => <help.Link href="/articles">All articles</help.Link>),
+      '/app/(marketing)/help/(center)/shortcuts/page.tsx': page(() => <h1>Shortcuts</h1>),
+      '/app/(marketing)/help/page.tsx': page(() => <h1>Not here</h1>),
+    };
+
+    it("renders an app page in a package's folder inside the package's layouts and the app's", async () => {
+      const html = await render('app/(marketing)/help/(center)/shortcuts/page.tsx', {
+        modules: withHelp,
+        mounts: { '@acme/help-center': '/(marketing)/help' },
+        url: '/help/shortcuts',
+      });
+
+      expect(html).toMatch(/<div class="root">.*<div class="help"><a href="\/help">Help home<\/a><section class="center"><h1>Shortcuts<\/h1>/s);
+      expect(payloadOf(html).mounts).toEqual({ '@acme/help-center': '/help' });
+    });
+
+    it("renders a package's page under a prefix with a value, its links below the mount for the page's params", async () => {
+      const html = await render('@acme/help-center/app/(center)/articles/[slug]/page.tsx', {
+        modules: withHelp,
+        mounts: { '@acme/help-center': '/[tenant]/help' },
+        params: { tenant: "o'brien & co", slug: 'x' },
+        url: '/o%27brien%20%26%20co/help/articles/x',
+      });
+
+      expect(payloadOf(html)).toMatchObject({ route: '/[tenant]/help/articles/[slug]', mounts: { '@acme/help-center': '/o%27brien%20%26%20co/help' } });
+      expect(html).toContain('<a href="/o%27brien%20%26%20co/help/articles">All articles</a>');
+    });
+
+    it('gives a prefix whose value the params lack, or leave the path with, no URL', () => {
+      for (const tenant of [undefined, '', '.', '..']) {
+        const payload = documentPayload(
+          'app/page.tsx',
+          { mounts: { '@acme/help-center': '/[tenant]/help' }, params: tenant === undefined ? {} : { tenant } },
+          Object.keys(withHelp),
+          'app',
+        );
+        expect(payload.mounts, String(tenant)).toEqual({ '@acme/help-center': null });
+      }
+    });
+
+    it("refuses a package's file it does not mount, and a prefix MapPagePackage refuses", async () => {
+      const listed = [{ name: '@acme/help-center', pages: 'app' }];
+      const file = '@acme/help-center/app/(center)/articles/[slug]/page.tsx';
+
+      expect(() => documentPayload(file, {}, Object.keys(withHelp), 'app', listed)).toThrow(
+        `netjes: renderDocument cannot render ${file}, a file of the page package '@acme/help-center', which it does not mount: ` +
+          "pass its prefix as MapPagePackage takes it, as in mounts: { '@acme/help-center': '/help' }.",
+      );
+      const refused = ['help', '/help/', '//help', '/../help', '/[...rest]', '/@modal', '/_private', '/(.)help', '/%2e%2e', '/a\\b'];
+      for (const prefix of [...refused, '/[tenant]/x/[tenant]', '/[tenant]/x/[Tenant]', '/[1x]']) {
+        await expect(render(file, { modules: withHelp, mounts: { '@acme/help-center': prefix } }), prefix).rejects.toThrow(
+          `netjes: renderDocument cannot mount '@acme/help-center' at '${prefix}'`,
+        );
+      }
+    });
+
+    it('refuses two layouts of two sources in one folder, as the server does', async () => {
+      const twice = { ...withHelp, '/app/(marketing)/help/layout.tsx': page(AboutLayout) };
+
+      await expect(
+        render('app/(marketing)/help/(center)/shortcuts/page.tsx', { modules: twice, mounts: { '@acme/help-center': '/(marketing)/help' } }),
+      ).rejects.toThrow(
+        'netjes: renderDocument has two layout files for app/(marketing)/help: @acme/help-center/app/layout.tsx and app/(marketing)/help/layout.tsx.',
+      );
+    });
+
+    it("refuses a page package's global error page, which only the app has", () => {
+      const files = [...Object.keys(withHelp), '/@acme/help-center/app/global-error.tsx'];
+
+      expect(() => documentPayload('@acme/help-center/app/global-error.tsx', { mounts: { '@acme/help-center': '/' } }, files, 'app')).toThrow(
+        'netjes: renderDocument renders a page or a not-found, error, forbidden, unauthorized or global-error file, not @acme/help-center/app/global-error.tsx.',
+      );
+    });
+  });
+
   it('refuses a page under parallel route slots', async () => {
     const slots = { ...modules, '/app/@modal/default.tsx': page(() => null), '/app/@modal/login/page.tsx': page(() => <h1>Log in</h1>) };
 
@@ -364,25 +454,35 @@ describe('the route and segments renderDocument sends, for every case in fixture
     pageKind?: PageKind;
     status: number;
     segments: SegmentRef[];
+    /** Page packages, with their files in their pages folder, app, mounted at their prefix. */
+    packages?: { name: string; prefix: string; files: string[] }[];
+    mounts?: Record<string, string | null>;
   };
   const fixture = JSON.parse(readFileSync(new URL('./fixtures/segments/cases.json', import.meta.url), 'utf8')) as { cases: SegmentCase[] };
 
   it.each(fixture.cases.map((expected) => [expected.name, expected] as const))('are what the server sends for %s', (_, expected) => {
+    const packages = expected.packages ?? [];
     const payload = documentPayload(
       expected.page,
-      { params: expected.params, url: expected.url },
-      expected.files.map((file) => `/${file}`),
+      {
+        params: expected.params,
+        url: expected.url,
+        ...(packages.length > 0 ? { mounts: Object.fromEntries(packages.map((p) => [p.name, p.prefix])) } : {}),
+      },
+      [...expected.files, ...packages.flatMap((p) => p.files.map((file) => `${p.name}/app/${file}`))].map((file) => `/${file}`),
       expected.appDir ?? 'app',
+      packages.map((p) => ({ name: p.name, pages: 'app' })),
     );
 
-    const { page, route, pageKind, status, params, segments } = payload;
-    expect({ page, route, pageKind, status, params, segments }).toEqual({
+    const { page, route, pageKind, status, params, segments, mounts } = payload;
+    expect({ page, route, pageKind, status, params, segments, mounts }).toEqual({
       page: expected.page,
       route: expected.route,
       pageKind: expected.pageKind,
       status: expected.status,
       params: expected.params,
       segments: expected.segments,
+      mounts: expected.mounts,
     });
   });
 });

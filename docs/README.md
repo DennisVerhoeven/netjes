@@ -16,6 +16,7 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 - [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, focus and announcements after a navigation, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, typed URLs for the app's endpoints, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
+- [Page packages](guides/page-packages.md): mounting a package's pages, loaders and actions at a prefix, how its folders merge with the app's, replacing one of its pages, protecting it, its 404, and writing a page package of your own.
 
 ### Render
 
@@ -101,6 +102,10 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0046 – The export writes the GET endpoints marked IncludeInExport](decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)
 - [0047 – Cached pages name the query keys they read](decisions/0047-cached-pages-name-the-query-keys-they-read.md)
 - [0048 – A new app has a C# test project and a Playwright suite, both outside the app's build](decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md)
+- [0049 – Page packages are mounted into the route table](decisions/0049-page-packages-are-mounted-into-the-route-table.md)
+- [0050 – A page package ships sources that the app builds](decisions/0050-a-page-package-ships-sources-that-the-app-builds.md)
+- [0051 – A page package has a generated file of its own, and its links carry its mount](decisions/0051-a-page-package-has-a-generated-file-of-its-own.md)
+- [0052 – A page package whose versions do not fit stops the app](decisions/0052-a-page-package-whose-versions-do-not-fit-stops-the-app.md)
 
 ## The project
 
@@ -113,4 +118,5 @@ Each decision record says what was decided, the alternatives, and what follows f
 
 - [Blog](../examples/Blog/README.md): a blog with a docs section, a guestbook, a JSON API, streaming, images and a static export.
 - [TaskBoard](../examples/TaskBoard/README.md): a multi-tenant project tracker on Postgres, with authentication and a production Docker Compose stack.
+- [HelpCenter](../examples/HelpCenter/README.md): a page package, a help center that the Blog mounts at `/help` and TaskBoard in its marketing group, with one of its pages replaced.
 - [netjes on npm](../packages/netjes/README.md), [Netjes on NuGet](../src/Netjes/README.md) and [Netjes.Images.SkiaSharp](../src/Netjes.Images.SkiaSharp/README.md): what each package holds and how to install it.

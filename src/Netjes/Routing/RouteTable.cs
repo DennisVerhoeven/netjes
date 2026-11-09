@@ -175,7 +175,10 @@ internal sealed record RouteIntercept(string Segment, string Slot, string Page, 
 /// <summary>A page file and the URL it serves.</summary>
 /// <param name="Pattern">URL pattern in file-name syntax, e.g. <c>/blog/[slug]</c>. Route groups are removed.</param>
 /// <param name="Template">The equivalent ASP.NET Core route template, e.g. <c>/blog/{slug}</c>.</param>
-/// <param name="File">Module path relative to the app root, e.g. <c>app/blog/[slug]/page.tsx</c>.</param>
+/// <param name="File">
+/// The file's id: its module path relative to the app root, e.g. <c>app/blog/[slug]/page.tsx</c>, or for a page
+/// package's file its npm name and its path in the package, e.g. <c>@acme/help-center/app/page.tsx</c>.
+/// </param>
 /// <param name="Segments">The folders with segment files wrapping the page, outermost first.</param>
 internal sealed record PageRoute(
     string Pattern,
@@ -186,6 +189,21 @@ internal sealed record PageRoute(
 {
     /// <summary>Layout modules wrapping the page, outermost first.</summary>
     public IReadOnlyList<string> Layouts { get; } = [.. Segments.Where(s => s.Layout is not null).Select(s => s.Layout!)];
+
+    /// <summary>Where <see cref="File"/> comes from: <c>app</c>, or the npm name of a page package.</summary>
+    public string Source { get; init; } = PageSource.AppName;
+
+    /// <summary>The page package's page that the app's <see cref="File"/> replaces (<c>.Override()</c>); null when none.</summary>
+    public string? Overrides { get; init; }
+
+    public bool IsFromTheApp => Source == PageSource.AppName;
+}
+
+/// <summary>An app page and a page package's page of one shape, which an override on the mount can still resolve.</summary>
+/// <param name="Pattern">The package page's URL pattern, which the table holds.</param>
+internal sealed record PendingConflict(string Pattern, string AppFile, string PackageFile, string Message)
+{
+    public RouteConflictException ToException() => new(Message);
 }
 
 /// <summary>A page that is rendered for a condition rather than a URL (404, error).</summary>
@@ -196,7 +214,8 @@ internal sealed record SpecialPage(string File, IReadOnlyList<RouteSegment> Segm
 
 /// <summary>
 /// Two pages in <c>app/</c> of one shape, which match the same URLs whatever their parameters are called, or two files
-/// for one convention in one folder; the message names both.
+/// for one convention in one folder, also when one of them comes from a page package; the message names both. Also an
+/// override on a page package's mount that does not fit the files.
 /// </summary>
 public sealed class RouteConflictException(string message) : Exception(message);
 
@@ -251,7 +270,37 @@ internal sealed partial class RouteTable
     /// <summary>Layouts of the root segments.</summary>
     public IReadOnlyList<string> RootLayouts { get; }
 
+    /// <summary>The folders with segment files, by their path relative to the app directory (<c>""</c> for its root).</summary>
+    private IReadOnlyDictionary<string, RouteSegment> Folders { get; init; } = new Dictionary<string, RouteSegment>();
+
+    /// <summary>
+    /// The segments of <paramref name="folder"/> (relative to the app directory, as a mount's folder is:
+    /// <c>support/(desk)/help</c>) and of the folders above it, outermost first: what wraps a page in that folder, from
+    /// every source.
+    /// </summary>
+    public IReadOnlyList<RouteSegment> SegmentsAt(string folder)
+    {
+        string[] directories = folder.Length == 0 ? [] : folder.Split('/');
+        return [.. Enumerable.Range(0, directories.Length + 1)
+            .Select(depth => Folders.GetValueOrDefault(string.Join('/', directories[..depth])))
+            .OfType<RouteSegment>()];
+    }
+
     public PageRoute? Find(string pattern) => _byPattern.GetValueOrDefault(pattern);
+
+    /// <summary>The page whose URL has the shape of <paramref name="pattern"/>, whatever its parameters are called and literals in any case.</summary>
+    public PageRoute? FindByShape(string pattern) =>
+        Pages.FirstOrDefault(p => string.Equals(ShapeOf(p.Pattern), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// App pages of the same shape as a page package's page, in order of the URL. The package's page is in the table;
+    /// <c>MapPages()</c> throws the first conflict left, unless the mount's <c>.Override()</c> resolved it.
+    /// </summary>
+    public IReadOnlyList<PendingConflict> PendingConflicts { get; private init; } = [];
+
+    /// <summary>The pending conflict over the URL <paramref name="pattern"/>, matched by shape; null when none.</summary>
+    public PendingConflict? PendingConflictFor(string pattern) =>
+        PendingConflicts.FirstOrDefault(c => string.Equals(ShapeOf(c.Pattern), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Every intercepting route in the app.</summary>
     public IReadOnlyList<RouteIntercept> Intercepts { get; private init; } = [];
@@ -261,35 +310,190 @@ internal sealed partial class RouteTable
     public IReadOnlyList<RouteIntercept> InterceptsFor(string pattern) =>
         [.. Intercepts.Where(i => string.Equals(ShapeOf(i.Pattern), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase))];
 
-    public static RouteTable Build(IEnumerable<string> files, string appDirectory = "app")
-    {
-        // In ordinal order, so the same files give the same table and the same error, whichever order the file system
-        // (development) or the build manifest (production) lists them in.
-        var all = files.Select(f => f.Replace('\\', '/')).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        var app = BuildAppRouter(all, Prefix(appDirectory));
+    public static RouteTable Build(IEnumerable<string> files, string appDirectory = "app") =>
+        Build([PageSource.App(files, appDirectory)], []);
 
-        var routes = new List<PageRoute>();
-        var byShape = new Dictionary<string, PageRoute>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Merges the app's directory and the page packages mounted in it into one table, by folder: a package's files go
+    /// under its prefix's folders, so its layout at the mount wraps the app's pages in that folder too, and a package's
+    /// route group wraps the app's pages in a folder of that group.
+    /// </summary>
+    /// <param name="sources">The app's source and one per mounted package, in any order.</param>
+    /// <param name="overrides">App-absolute URL patterns where the app's page replaces a package's page.</param>
+    public static RouteTable Build(IReadOnlyList<PageSource> sources, IReadOnlyCollection<string> overrides)
+    {
+        RequireValid(sources);
+        var root = sources.Single(s => s.IsApp).IdPrefix.TrimEnd('/');
+        // In ordinal order, so the same files give the same table and the same error, whichever order the file system
+        // (development) or the build manifest (production) lists them in, and whichever order the sources come in.
+        var candidates = sources.OrderBy(s => s.Name, StringComparer.Ordinal).SelectMany(Candidates).OrderBy(c => c.File, StringComparer.Ordinal).ToList();
+        var app = BuildAppRouter(candidates, root);
+
+        // Pages of one shape match the same URLs. Within one source, or between two packages, that stops the table.
+        // An app page and a package page of one shape are held until the overrides are applied.
+        var byShape = new Dictionary<string, List<PageRoute>>(StringComparer.OrdinalIgnoreCase);
         foreach (var route in app.Routes)
         {
             var shape = ShapeOf(route);
-            if (byShape.TryGetValue(shape, out var existing))
+            if (!byShape.TryGetValue(shape, out var same))
+            {
+                byShape[shape] = same = [];
+            }
+
+            foreach (var existing in same.Where(e => e.Source == route.Source || (!e.IsFromTheApp && !route.IsFromTheApp)))
             {
                 // Conflict names the files in ordinal order; the URL is that of the one named first.
                 var first = string.CompareOrdinal(existing.File, route.File) < 0 ? existing : route;
-                throw Conflict(existing.File, route.File, $"both match the URL '{first.Pattern}'");
+                throw Conflict(existing.File, existing.Source, route.File, route.Source, $"both match the URL '{first.Pattern}'");
             }
 
-            byShape[shape] = route;
-            routes.Add(route);
+            same.Add(route);
+        }
+
+        var overridden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pattern in overrides.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        {
+            var same = byShape.GetValueOrDefault(ShapeOf(pattern)) ?? [];
+            var package = same.FirstOrDefault(r => !r.IsFromTheApp) ?? throw new RouteConflictException(
+                $".Override(\"{pattern}\"): no page package has a page at '{pattern}'. Remove the override, or give it the URL " +
+                "pattern of one of the package's pages.");
+            var page = same.FirstOrDefault(r => r.IsFromTheApp) ?? throw new RouteConflictException(
+                $".Override(\"{pattern}\") replaces '{package.File}', but the app has no page at '{pattern}' " +
+                $"({FolderOf(sources, package)}/page.tsx). Add the app's page, or remove the override.");
+            if (!ParameterNames(pattern).SequenceEqual(package.Parameters.Select(p => p.Name), StringComparer.Ordinal)
+                || !page.Parameters.Select(p => p.Name).SequenceEqual(package.Parameters.Select(p => p.Name), StringComparer.Ordinal))
+            {
+                throw new RouteConflictException(
+                    $".Override(\"{pattern}\"): '{page.File}', '{package.File}' ('{package.Pattern}') and the override must name " +
+                    "their parameters alike, since the app's page renders with the package's loader.");
+            }
+
+            // The package's loader keeps serving the URL, protected by the layout loaders of the folders around the
+            // package's page, so the app's page stays inside each of them.
+            if (package.Segments.FirstOrDefault(s => !page.Segments.Any(p => p.Id == s.Id)) is { } left)
+            {
+                throw new RouteConflictException(
+                    $".Override(\"{pattern}\"): '{page.File}' is not inside {left.Id}, whose files wrap '{package.File}'. Move the " +
+                    $"app's page to {FolderOf(sources, package)}/page.tsx.");
+            }
+
+            overridden.Add(ShapeOf(pattern));
+        }
+
+        var routes = new List<PageRoute>();
+        var pending = new List<PendingConflict>();
+        foreach (var (shape, same) in byShape)
+        {
+            if (same is not [var one, var other])
+            {
+                routes.AddRange(same);
+                continue;
+            }
+
+            var (page, package) = one.IsFromTheApp ? (one, other) : (other, one);
+            if (overridden.Contains(shape))
+            {
+                // The app's file, in the package's route: the URL is spelled as the package spells it, so the mount's
+                // loader finds it.
+                routes.Add(page with { Pattern = package.Pattern, Template = package.Template, Overrides = package.File });
+                continue;
+            }
+
+            routes.Add(package);
+            var (first, second) = string.CompareOrdinal(page.File, package.File) < 0 ? (page.File, package.File) : (package.File, page.File);
+            pending.Add(new PendingConflict(
+                package.Pattern,
+                page.File,
+                package.File,
+                $"'{first}' and '{second}' both match the URL '{package.Pattern}'. Rename or remove the app's page, or replace " +
+                $"the package's page with .Override(\"{package.Pattern}\") on its mount."));
         }
 
         routes.Sort((a, b) => string.CompareOrdinal(a.Pattern, b.Pattern));
+        pending.Sort((a, b) => string.CompareOrdinal(a.Pattern, b.Pattern));
         return new RouteTable(routes, app.NotFound, app.Error, app.GlobalError, app.RootSegments)
         {
-            Intercepts = [.. (app.Intercepts ?? []).OrderBy(i => i.Segment, StringComparer.Ordinal).ThenBy(i => i.Slot, StringComparer.Ordinal)],
+            Intercepts = [.. app.Intercepts.OrderBy(i => i.Segment, StringComparer.Ordinal).ThenBy(i => i.Slot, StringComparer.Ordinal)],
+            PendingConflicts = pending,
+            Folders = app.Folders,
         };
     }
+
+    // The sources' names and id prefixes keep every file id unique and tell the app's files from a package's.
+    private static void RequireValid(IReadOnlyList<PageSource> sources)
+    {
+        var apps = sources.Where(s => s.IsApp).ToList();
+        if (apps is not [var app])
+        {
+            throw new ArgumentException($"A route table has one source for the app's own pages, not {apps.Count}.", nameof(sources));
+        }
+
+        if (app.Folder.Length > 0)
+        {
+            throw new ArgumentException($"The app's pages are not mounted at a prefix ('{app.Folder}').", nameof(sources));
+        }
+
+        var appDirectory = app.IdPrefix.TrimEnd('/');
+        foreach (var source in sources.Where(s => !s.IsApp).OrderBy(s => s.Name, StringComparer.Ordinal))
+        {
+            if (!PageSource.IsNpmName(source.Name))
+            {
+                throw new ArgumentException($"'{source.Name}' is not an npm package name, which is what a page package goes by.", nameof(sources));
+            }
+
+            if (source.Name.Equals(PageSource.AppName, StringComparison.OrdinalIgnoreCase)
+                || source.Name.Equals(appDirectory, StringComparison.OrdinalIgnoreCase)
+                || appDirectory.StartsWith(source.Name + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    $"A page package cannot be named '{source.Name}': its file ids would read as the app's files, which are in " +
+                    $"'{appDirectory}'.", nameof(sources));
+            }
+
+            var pages = source.IdPrefix.StartsWith(source.Name + "/", StringComparison.Ordinal) && source.IdPrefix.EndsWith('/')
+                ? source.IdPrefix[(source.Name.Length + 1)..^1]
+                : "";
+            if (!IsPathInside(pages))
+            {
+                throw new ArgumentException(
+                    $"'{source.IdPrefix}' is not the id prefix of the page package '{source.Name}': its name, then its pages " +
+                    "folder, a relative path inside the package without '.', '..' or empty segments, '\\' or ':', then '/'.",
+                    nameof(sources));
+            }
+
+            MountPrefix.Parse("/" + source.Folder);
+        }
+
+        if (sources.GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
+        {
+            throw new ArgumentException($"'{twice.Key}' is in the route table more than once.", nameof(sources));
+        }
+    }
+
+    // A file id of a package is its id prefix and a path inside its pages folder.
+    private static void RequireInside(PageSource source, string file)
+    {
+        if (!file.StartsWith(source.IdPrefix, StringComparison.Ordinal) || !IsPathInside(file[source.IdPrefix.Length..]))
+        {
+            throw new InvalidPageFileException(
+                $"'{file}' is no file of the page package '{source.Name}': a file id is '{source.IdPrefix}' followed by a " +
+                "path inside the package's pages folder, without '.', '..' or empty segments, '\\' or ':'.");
+        }
+    }
+
+    private static bool IsPathInside(string path) =>
+        path.Split('/').All(segment => segment is not ("" or "." or "..") && segment.IndexOfAny(['\\', ':']) < 0);
+
+    /// <summary>The merged folder of a package's page, as the app's directory spells it: <c>app/help/contact</c>.</summary>
+    private static string FolderOf(IReadOnlyList<PageSource> sources, PageRoute route)
+    {
+        var source = sources.First(s => s.Name == route.Source);
+        var file = route.File[source.IdPrefix.Length..];
+        var app = sources.First(s => s.IsApp).IdPrefix.TrimEnd('/');
+        return string.Join('/', new[] { app, source.Folder, file.Contains('/') ? file[..file.LastIndexOf('/')] : "" }.Where(p => p.Length > 0));
+    }
+
+    private static IEnumerable<string> ParameterNames(string pattern) => pattern.Split('/').Select(ParameterName).OfType<string>();
 
     private sealed record RouterResult(
         List<PageRoute> Routes,
@@ -297,32 +501,69 @@ internal sealed partial class RouteTable
         SpecialPage? Error,
         SpecialPage? GlobalError,
         IReadOnlyList<RouteSegment> RootSegments,
-        IReadOnlyList<RouteIntercept>? Intercepts = null);
+        IReadOnlyList<RouteIntercept> Intercepts,
+        IReadOnlyDictionary<string, RouteSegment> Folders);
 
-    private static string Prefix(string directory) => directory.Replace('\\', '/').Trim('/') + "/";
+    /// <summary>A file of one source, with its folders in the merged tree and its name last.</summary>
+    private sealed record Candidate(string File, string[] Segments, PageSource Source);
 
-    private static List<(string File, string[] Segments)> Candidates(List<string> files, string prefix) =>
-        files
-            .Where(f => f.StartsWith(prefix, StringComparison.Ordinal))
-            .Where(f => !IsTestFile(f))
-            .Select(f => (File: f, Segments: f[prefix.Length..^Path.GetExtension(f).Length].Split('/')))
-            .ToList();
-
-    private static RouterResult BuildAppRouter(List<string> files, string prefix)
+    private static IEnumerable<Candidate> Candidates(PageSource source)
     {
-        var root = prefix.TrimEnd('/');
+        if (!source.IsApp)
+        {
+            foreach (var file in source.Files.Order(StringComparer.Ordinal))
+            {
+                RequireInside(source, file);
+            }
+        }
+
+        var files = source.IsApp ? source.Files.Select(f => f.Replace('\\', '/')) : source.Files;
+        string[] folder = source.Folder.Length == 0 ? [] : source.Folder.Split('/');
+        return files
+            .Distinct(StringComparer.Ordinal)
+            .Where(f => f.StartsWith(source.IdPrefix, StringComparison.Ordinal))
+            .Where(f => !IsTestFile(f))
+            .Select(f => new Candidate(f, [.. folder, .. f[source.IdPrefix.Length..^Path.GetExtension(f).Length].Split('/')], source));
+    }
+
+    private static RouterResult BuildAppRouter(List<Candidate> candidates, string root)
+    {
         // Convention files by folder (relative to the app directory); everything else is colocated code.
         var folders = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         // Parallel routes: folder -> slot -> (pages by pattern below the slot, default).
         var slots = new Dictionary<string, Dictionary<string, (Dictionary<string, string> Pages, string? Default)>>(StringComparer.Ordinal);
         var intercepts = new List<RouteIntercept>();
-        foreach (var (file, segments) in Candidates(files, prefix))
+        // Page files by folder, one per source.
+        var pages = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        // The source of each file.
+        var sources = new Dictionary<string, string>(StringComparer.Ordinal);
+        // The folders of each source's convention files, and the folders above them.
+        var spelled = new HashSet<(string Folder, string Source)>();
+        foreach (var (file, segments, source) in candidates)
         {
+            sources[file] = source.Name;
             var name = segments[^1];
             var directories = segments[..^1];
             if (IsPrivate(directories))
             {
                 continue;
+            }
+
+            // A file the table routes: its folders merge with the other sources' folders, and a package's must not
+            // name the mount prefix's parameters again.
+            void Accept()
+            {
+                for (var depth = 1; depth <= directories.Length; depth++)
+                {
+                    spelled.Add((string.Join('/', directories[..depth]), source.Name));
+                }
+
+                if (!source.IsApp && ReusedPrefixParameter(source, directories) is { } reused)
+                {
+                    throw new InvalidPageFileException(
+                        $"'{file}': parameter '{reused}' is used more than once: the mount prefix '/{source.Folder}' has it too. " +
+                        "Give the prefix's parameter another name.");
+                }
             }
 
             var slotIndex = Array.FindIndex(directories, d => d.Length > 1 && d[0] == '@');
@@ -339,6 +580,7 @@ internal sealed partial class RouteTable
                     slots[parent] = bySlot = new(StringComparer.Ordinal);
                 }
 
+                Accept();
                 var slotName = directories[slotIndex][1..];
                 if (!bySlot.TryGetValue(slotName, out var slot))
                 {
@@ -346,14 +588,14 @@ internal sealed partial class RouteTable
                 }
 
                 var below = directories[(slotIndex + 1)..];
-                var slotFolder = prefix + string.Join('/', directories[..(slotIndex + 1)]);
+                var slotFolder = $"{root}/{string.Join('/', directories[..(slotIndex + 1)])}";
                 if (name == "default")
                 {
                     if (below.Length == 0)
                     {
                         if (slot.Default is { } other)
                         {
-                            throw Conflict(other, file, $"are both the default of {slotFolder}");
+                            throw Conflict(other, sources[other], file, source.Name, $"are both the default of {slotFolder}");
                         }
 
                         bySlot[slotName] = slot with { Default = file };
@@ -363,16 +605,49 @@ internal sealed partial class RouteTable
                 {
                     // (.) the slot's own level, (..) one up, (...) the root: the URL this page intercepts.
                     var baseUrl = directories[..slotIndex].Where(d => !IsGroup(d) && !(d.Length > 1 && d[0] == '@')).ToList();
+                    if (!source.IsApp)
+                    {
+                        // A package intercepts only its own URLs, below the mount, wherever the app mounts it.
+                        var mounted = source.Folder.Split('/', StringSplitOptions.RemoveEmptyEntries).Count(d => !IsGroup(d));
+                        if (levels == int.MaxValue ? mounted > 0 : levels > baseUrl.Count - mounted)
+                        {
+                            throw new InvalidPageFileException(
+                                $"'{file}': this intercepting route climbs above the mount prefix '/{source.Folder}'. A page " +
+                                "package can intercept only the URLs below its mount.");
+                        }
+                    }
+
                     var kept = levels == int.MaxValue ? [] : baseUrl.Take(Math.Max(0, baseUrl.Count - levels)).ToList();
                     var target = "/" + string.Join('/', kept.Append(rest).Concat(below[1..].Where(d => !IsGroup(d))).Where(d => d.Length > 0));
-                    intercepts.Add(new RouteIntercept(SegmentOf(root, directories[..slotIndex]).Id, slotName, file, target));
+                    var intercept = new RouteIntercept(SegmentOf(root, directories[..slotIndex]).Id, slotName, file, target);
+                    // The client shows the first intercepting route whose segment the page is in, so two sources'
+                    // routes for one URL on one chain of segments would leave one of them unseen.
+                    if (intercepts.FirstOrDefault(i => sources[i.Page] != source.Name
+                            && string.Equals(ShapeOf(i.Pattern), ShapeOf(target), StringComparison.OrdinalIgnoreCase)
+                            && OnOneChain(i.Segment, intercept.Segment)) is { } clash)
+                    {
+                        var first = string.CompareOrdinal(clash.Page, file) < 0 ? clash : intercept;
+                        var inner = clash.Segment.Length > intercept.Segment.Length ? clash.Segment : intercept.Segment;
+                        throw Conflict(clash.Page, sources[clash.Page], file, source.Name, $"both intercept the URL '{first.Pattern}' from the pages in {inner}");
+                    }
+
+                    intercepts.Add(intercept);
                 }
                 else
                 {
                     var pattern = "/" + string.Join('/', below.Where(d => !IsGroup(d)));
                     if (slot.Pages.TryGetValue(pattern, out var other))
                     {
-                        throw Conflict(other, file, $"both match the URL '{pattern}' in {slotFolder}");
+                        throw Conflict(other, sources[other], file, source.Name, $"both match the URL '{pattern}' in {slotFolder}");
+                    }
+
+                    // Between sources by shape too: the slot shows the first of its best-ranked pages, whatever their
+                    // parameters are called.
+                    if (slot.Pages.FirstOrDefault(p => sources[p.Value] != source.Name
+                            && string.Equals(ShapeOf(p.Key), ShapeOf(pattern), StringComparison.OrdinalIgnoreCase)) is { Value: { } shaped } same)
+                    {
+                        var url = string.CompareOrdinal(shaped, file) < 0 ? same.Key : pattern;
+                        throw Conflict(shaped, sources[shaped], file, source.Name, $"both match the URL '{url}' in {slotFolder}");
                     }
 
                     slot.Pages[pattern] = file;
@@ -393,23 +668,67 @@ internal sealed partial class RouteTable
                 continue;
             }
 
-            if (name == "global-error" && directories.Length > 0)
+            if (name == "global-error" && !source.IsApp)
             {
-                throw new InvalidPageFileException($"'{file}': global-error is only supported at the app root ({prefix}global-error).");
+                throw new InvalidPageFileException(
+                    $"'{file}': a page package cannot have a global-error file. The app's own ({root}/global-error) renders when " +
+                    "its root layout fails.");
             }
 
+            if (name == "global-error" && directories.Length > 0)
+            {
+                throw new InvalidPageFileException($"'{file}': global-error is only supported at the app root ({root}/global-error).");
+            }
+
+            Accept();
             var key = string.Join('/', directories);
             if (!folders.TryGetValue(key, out var conventions))
             {
                 folders[key] = conventions = new Dictionary<string, string>(StringComparer.Ordinal);
             }
 
-            if (conventions.TryGetValue(name, out var existing))
+            var existing = name == "page"
+                ? pages.GetValueOrDefault(key)?.FirstOrDefault(p => sources[p] == source.Name)
+                : conventions.GetValueOrDefault(name);
+            if (existing is not null)
             {
-                throw Conflict(existing, file, $"are both the {name} of {(key.Length == 0 ? root : $"{root}/{key}")}");
+                throw Conflict(existing, sources[existing], file, source.Name, $"are both the {name} of {(key.Length == 0 ? root : $"{root}/{key}")}");
             }
 
-            conventions[name] = file;
+            if (name == "page")
+            {
+                // An app page and a package page in one folder are of one shape: Build holds or resolves the conflict.
+                if (!pages.TryGetValue(key, out var inFolder))
+                {
+                    pages[key] = inFolder = [];
+                }
+
+                inFolder.Add(file);
+            }
+            else
+            {
+                conventions[name] = file;
+            }
+        }
+
+        // Folders of two sources that differ only in case would not merge, while their URLs match.
+        var spellings = new Dictionary<string, List<(string Folder, string Source)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (folder, source) in spelled.OrderBy(f => f.Folder, StringComparer.Ordinal).ThenBy(f => f.Source, StringComparer.Ordinal))
+        {
+            if (!spellings.TryGetValue(folder, out var seen))
+            {
+                spellings[folder] = seen = [];
+            }
+
+            if (seen.FirstOrDefault(s => s.Folder != folder && s.Source != source) is ({ } other, { } otherSource))
+            {
+                static string From(string name) => name == PageSource.AppName ? "the app" : $"'{name}'";
+                throw new RouteConflictException(
+                    $"'{root}/{other}' (from {From(otherSource)}) and '{root}/{folder}' (from {From(source)}) differ only in case, " +
+                    "so their files would not merge while their URLs match. Spell the folders alike, or mount the package at another prefix.");
+            }
+
+            seen.Add((folder, source));
         }
 
         RouteSegment? SegmentAt(string[] directories)
@@ -440,12 +759,12 @@ internal sealed partial class RouteTable
             [.. Enumerable.Range(0, directories.Length + 1).Select(depth => SegmentAt(directories[..depth])).OfType<RouteSegment>()];
 
         var routes = new List<PageRoute>();
-        foreach (var (folder, conventions) in folders)
+        foreach (var folder in folders.Keys)
         {
-            if (conventions.TryGetValue("page", out var page))
+            foreach (var page in pages.GetValueOrDefault(folder) ?? [])
             {
                 var directories = folder.Length == 0 ? [] : folder.Split('/');
-                routes.Add(ParseRoute(page, [.. directories], SegmentsFor(directories)));
+                routes.Add(ParseRoute(page, [.. directories], SegmentsFor(directories)) with { Source = sources[page] });
             }
         }
 
@@ -459,16 +778,24 @@ internal sealed partial class RouteTable
                 : null,
             rootConventions.TryGetValue("global-error", out var globalError) ? new SpecialPage(globalError, []) : null,
             rootSegments,
-            intercepts);
+            intercepts,
+            folders.Keys.Concat(slots.Keys).Distinct(StringComparer.Ordinal)
+                .Select(folder => (Folder: folder, Segment: SegmentAt(folder.Length == 0 ? [] : folder.Split('/'))))
+                .Where(f => f.Segment is not null)
+                .ToDictionary(f => f.Folder, f => f.Segment!, StringComparer.Ordinal));
     }
 
     // Two files for one convention (page.tsx and page.jsx): the one listed last would win, and development (the file
     // system) and production (the build manifest) list them in different orders. Two pages of one shape conflict too.
     // The files are named in ordinal order, so the message does not depend on the order either.
-    private static RouteConflictException Conflict(string one, string another, string what)
+    // Between sources, the fix is the app's, or the mount's: a package's files are not the app's to rename.
+    private static RouteConflictException Conflict(string one, string oneSource, string another, string anotherSource, string what)
     {
         var (first, second) = string.CompareOrdinal(one, another) < 0 ? (one, another) : (another, one);
-        return new RouteConflictException($"'{first}' and '{second}' {what}. Rename or remove one of them.");
+        var fix = oneSource == anotherSource ? "Rename or remove one of them."
+            : oneSource == PageSource.AppName || anotherSource == PageSource.AppName ? "Remove the app's file, or mount the package at another prefix."
+            : "Mount one of them at another prefix.";
+        return new RouteConflictException($"'{first}' and '{second}' {what}. {fix}");
     }
 
     /// <summary>
@@ -504,6 +831,25 @@ internal sealed partial class RouteTable
         return new RouteSegment(
             directories.Length == 0 ? root : $"{root}/{string.Join('/', directories)}", "/" + string.Join('/', url), parameters);
     }
+
+    /// <summary>A parameter of a package's folders that its mount prefix has too; null when none.</summary>
+    private static string? ReusedPrefixParameter(PageSource source, string[] directories)
+    {
+        var mounted = source.Folder.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var prefix = mounted.Select(ParameterName).OfType<string>().ToList();
+        return directories[mounted.Length..].Select(ParameterName).OfType<string>()
+            .FirstOrDefault(name => prefix.Contains(name, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static string? ParameterName(string segment) =>
+        OptionalCatchAllRegex().Match(segment) is { Success: true } o ? o.Groups[1].Value
+        : CatchAllRegex().Match(segment) is { Success: true } c ? c.Groups[1].Value
+        : SingleRegex().Match(segment) is { Success: true } p ? p.Groups[1].Value
+        : null;
+
+    /// <summary>Whether one segment is the other or holds it, so a page in the inner one is in both.</summary>
+    private static bool OnOneChain(string segment, string another) =>
+        segment == another || another.StartsWith(segment + "/", StringComparison.Ordinal) || segment.StartsWith(another + "/", StringComparison.Ordinal);
 
     private static bool IsPrivate(IEnumerable<string> directories) => directories.Any(d => d.StartsWith('_'));
 

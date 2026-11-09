@@ -5,7 +5,7 @@ import { deferred } from 'netjes/zod';
 import { z } from 'zod';
 
 /** Every page's URL pattern. */
-export const routePatterns = ["/", "/about", "/blog", "/blog/[slug]", "/docs/[...path]", "/guestbook", "/streaming"] as const;
+export const routePatterns = ["/", "/about", "/blog", "/blog/[slug]", "/docs/[...path]", "/guestbook", "/help", "/help/articles/[slug]", "/help/contact", "/streaming"] as const;
 
 /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
 export function isHref(value: string): value is Href {
@@ -199,11 +199,14 @@ export type RouteParams = {
   "/blog/[slug]": { slug: string };
   "/docs/[...path]": { path: string[] };
   "/guestbook": Record<string, never>;
+  "/help": Record<string, never>;
+  "/help/articles/[slug]": { slug: string };
+  "/help/contact": Record<string, never>;
   "/streaming": Record<string, never>;
 };
 export type RoutePattern = keyof RouteParams;
 /** The URLs the app's pages serve. */
-export type Route = '/' | '/about' | '/blog' | `/blog/${string}` | `/docs/${string}` | '/guestbook' | '/streaming';
+export type Route = '/' | '/about' | '/blog' | `/blog/${string}` | `/docs/${string}` | '/guestbook' | '/help' | `/help/articles/${string}` | '/help/contact' | '/streaming';
 /** What `<Link href>` and `router.push` accept: the app's routes, with a query or fragment, or another site. */
 export type Href = Route | `${Route}?${string}` | `${Route}#${string}` | `?${string}` | `#${string}` | `http://${string}` | `https://${string}` | `mailto:${string}` | `tel:${string}`;
 

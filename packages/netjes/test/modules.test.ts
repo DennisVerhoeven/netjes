@@ -17,6 +17,24 @@ describe('createModuleLoader', () => {
     expect(modules.segments).toEqual([{ id: 'app', Layout }]);
   });
 
+  it("loads a page package's files by their ids, which the page module map keys with a leading /", async () => {
+    const loader = createModuleLoader({
+      '/@acme/help-center/app/page.tsx': async () => ({ default: Page }),
+      '/@acme/help-center/app/layout.tsx': async () => ({ default: Layout }),
+    });
+
+    const modules = await loader.loadRoute({
+      page: '@acme/help-center/app/page.tsx',
+      segments: [{ id: 'app/help', layout: '@acme/help-center/app/layout.tsx' }],
+    });
+
+    expect(modules).toEqual({ page: Page, segments: [{ id: 'app/help', Layout }] });
+    await expect(loader.load('@acme/help-center/app/new/page.tsx')).rejects.toMatchObject({
+      name: 'MissingModuleError',
+      file: '@acme/help-center/app/new/page.tsx',
+    });
+  });
+
   it('imports each module once', async () => {
     const importer = vi.fn(async () => ({ default: Page }));
     const loader = createModuleLoader({ '/app/page.tsx': importer });

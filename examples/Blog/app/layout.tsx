@@ -37,7 +37,9 @@ export default function RootLayout({ children }: LayoutProps) {
           {children}
         </main>
         <footer className="border-t border-line pt-6 pb-8 text-[0.9rem] text-muted">
-          <p className="m-0">React pages served by ASP.NET Core. Rendered by Netjes.</p>
+          <p className="m-0">
+            React pages served by ASP.NET Core. Rendered by Netjes. Questions? <Link href="/help">Visit the help center</Link>.
+          </p>
         </footer>
       </div>
     </>

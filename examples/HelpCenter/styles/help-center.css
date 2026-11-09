@@ -1,0 +1,33 @@
+/*
+ * The help center's design tokens. The Vite plugin imports this file into the app's Tailwind build, after the app's
+ * `@import "tailwindcss"`, so the package's pages get utilities such as bg-help-accent and text-help-muted. The pages
+ * use these tokens alone, and an app restyles them by setting the --help-* variables in its own stylesheet.
+ */
+:root {
+  --help-accent: #0f6f6a;
+  --help-accent-ink: #f2fbfa;
+  --help-surface: #eef6f5;
+  --help-line: #c9dedb;
+  --help-ink: #13302e;
+  --help-muted: #4d6764;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --help-accent: #5cc8bf;
+    --help-accent-ink: #062320;
+    --help-surface: #10201f;
+    --help-line: #24403d;
+    --help-ink: #dcefed;
+    --help-muted: #93b1ad;
+  }
+}
+
+@theme inline {
+  --color-help-accent: var(--help-accent);
+  --color-help-accent-ink: var(--help-accent-ink);
+  --color-help-surface: var(--help-surface);
+  --color-help-line: var(--help-line);
+  --color-help-ink: var(--help-ink);
+  --color-help-muted: var(--help-muted);
+}

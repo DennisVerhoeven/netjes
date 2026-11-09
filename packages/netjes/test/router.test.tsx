@@ -238,9 +238,14 @@ describe('client navigation', () => {
   });
 
   it('shows the loading state while the next page is fetched', async () => {
+    // The response waits for the test, not for a timer: under load the click alone can outlast any delay.
+    let respond!: () => void;
+    const responded = new Promise<void>((resolve) => {
+      respond = resolve;
+    });
     server.use(
       http.get(`${origin}/about`, async () => {
-        await delay(50);
+        await responded;
         return HttpResponse.json(payload('about', '/about'));
       }),
     );
@@ -249,6 +254,7 @@ describe('client navigation', () => {
     await user.click(screen.getByRole('link', { name: 'About' }));
 
     expect(screen.getByRole('status').textContent).toBe('loading');
+    respond();
     await screen.findByRole('heading', { name: /About/ });
     expect(screen.getByRole('status').textContent).toBe('idle');
   });

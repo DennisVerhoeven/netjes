@@ -28,6 +28,19 @@
   --radius-card: 12px;
 }
 
+/*
+ * The help center page package (examples/HelpCenter) styles its pages with --help-* tokens only, so TaskBoard sets
+ * them to its own colours. Outside any layer, as the package's own defaults are, and after them in the cascade.
+ */
+:root {
+  --help-accent: var(--color-signal);
+  --help-accent-ink: var(--color-signal-ink);
+  --help-surface: var(--color-ink-900);
+  --help-line: var(--color-ink-700);
+  --help-ink: var(--color-ink-100);
+  --help-muted: var(--color-ink-300);
+}
+
 @layer base {
   :root {
     color-scheme: dark;

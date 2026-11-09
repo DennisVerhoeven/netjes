@@ -10,7 +10,7 @@ The extension methods belong to these static classes, which app code never names
 |---|---|---|
 | `NetjesServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjes` on `IServiceCollection` and on `IHealthChecksBuilder` |
 | `NetjesApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjes` |
-| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapAction`, `CachePage`, `CacheQueryKeys` |
+| `NetjesEndpointRouteBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `MapPages`, `MapPageLoader`, `MapLayoutLoader`, `MapPageAction`, `MapPagePackage`, `MapAction`, `CachePage`, `CacheQueryKeys` |
 | `StaticExportEndpointConventionBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `StaticParams`, `ExcludeFromExport`, `IncludeInExport` |
 | `NetjesLocalizationServiceCollectionExtensions` | `Microsoft.Extensions.DependencyInjection` | `AddNetjesLocalization` |
 | `NetjesLocalizationApplicationBuilderExtensions` | `Microsoft.AspNetCore.Builder` | `UseNetjesLocalization`, `MapLocaleRedirect` |
@@ -43,7 +43,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page, the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there ([Route errors](#route-errors)).
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page (below a page package's mount, [the mount's](#mappagepackage)), the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages, the file pages of mounted [page packages](#page-packages) too, after their mount's. It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there, and so does an app page of the same shape as a mounted package's page ([Route errors](#route-errors)). Mount page packages before it.
 
 ### AddNetjes (health checks)
 
@@ -69,7 +69,9 @@ The `netjes` CLI command this run of the app is for (`generate`, `routes` or `ex
 public static RouteHandlerBuilder MapPageLoader(this IEndpointRouteBuilder endpoints, string pattern, Delegate loader)
 ```
 
-The C# loader of a page, in place of a server component or `getServerSideProps`. `pattern` is the page's URL in file syntax (`/blog/[slug]`) and must match a page file; otherwise it throws, naming the file it expected and the pages there are. The endpoint answers `GET` and `HEAD` at the page's URL, below the prefix of a route group it is mapped in (`app.MapGroup("/{tenant}")`), whose route parameters it binds as it binds the page's own. The delegate binds like a minimal API `GET` handler (route values, the query string, services, `HttpContext`, `ClaimsPrincipal`, `CancellationToken`, no request body) and returns a `PageResult` or `PageResult<T>`; its return type names the props type for the generated TypeScript. A parameter minimal APIs cannot bind, such as a complex type that is not a registered service and has no `[AsParameters]`, throws here, naming the page, the parameter and the fixes, and so does one that reads the request body (`[FromBody]`, `[FromForm]`, `IFormFile`, `IFormFileCollection`, `IFormCollection`), which a navigation does not have, or an `IEnumerable<int>`, which minimal APIs would take from services and not from the query string, as `int[]` is, or a type that adds accepts metadata (`IAcceptsMetadata`) for itself, with which routing would match the page only for requests with that Content-Type and no navigation would reach it ([binding](../guides/data-loading.md#binding)). The result is a `RouteHandlerBuilder`, so `RequireAuthorization()`, `CachePage()`, `CacheOutput()`, filters and metadata work as on any endpoint, except accepts metadata (`.Accepts<T>()`), which would keep navigations from the page in the same way. Conventions of layout loaders above the page apply to it too. See [data loading](../guides/data-loading.md).
+The C# loader of a page, in place of a server component or `getServerSideProps`. `pattern` is the page's URL in file syntax (`/blog/[slug]`) and must match a page file; otherwise it throws, naming the file it expected and the pages there are. The endpoint answers `GET` and `HEAD` at the page's URL, below the prefix of a route group it is mapped in (`app.MapGroup("/{tenant}")`), whose route parameters it binds as it binds the page's own. The delegate binds like a minimal API `GET` handler (route values, the query string, services, `HttpContext`, `ClaimsPrincipal`, `CancellationToken`, no request body) and returns a `PageResult` or `PageResult<T>`; its return type names the props type for the generated TypeScript. A parameter minimal APIs cannot bind, such as a complex type that is not a registered service and has no `[AsParameters]`, throws here, naming the page, the parameter and the fixes, and so does one that reads the request body (`[FromBody]`, `[FromForm]`, `IFormFile`, `IFormFileCollection`, `IFormCollection`), which a navigation does not have, or an `IEnumerable<int>`, which minimal APIs would take from services and not from the query string, as `int[]` is, or a type that adds accepts metadata (`IAcceptsMetadata`) for itself, with which routing would match the page only for requests with that Content-Type and no navigation would reach it ([binding](../guides/data-loading.md#binding)). The result is a `RouteHandlerBuilder`, so `RequireAuthorization()`, `CachePage()`, `CacheOutput()`, filters and metadata work as on any endpoint, except accepts metadata (`.Accepts<T>()`), which would keep navigations from the page in the same way. Conventions of layout loaders above the page apply to it too, also those of a page package's layout mounted after the call. See [data loading](../guides/data-loading.md).
+
+On the `PagePackageBuilder` of a [page package's mount](#pagepackagebuilder), `pattern` is the page's URL below the mount (`/articles/[slug]`, and `/` for the mount's own page), and the page is one of the package's, or an app page that replaces one with `Override`. The endpoint answers at the page's URL where the package is mounted (`/help/articles/[slug]`), gets the mount's conventions before its own, and binds the mount's route values as well (`tenant` under `/[tenant]/help`). Called on the app for a package's page, or for one an override replaced, it throws, naming the mount; called on a mount for an app page, or for a page of a package mounted inside it, it throws too. On a `MapGroup` made from a mount it throws, since it would map at the wrong URL.
 
 ### MapLayoutLoader
 
@@ -78,6 +80,8 @@ public static LayoutLoaderBuilder MapLayoutLoader(this IEndpointRouteBuilder end
 ```
 
 The C# loader of a `layout.tsx`: its props reach the layout component next to `children` and `params`. `segment` is the layout's URL (`/dashboard`, `/[team]`) or, when route groups share a URL, its folder (`app/(shop)`); it throws when no layout or several match. The loader binds like a minimal API `GET` handler, from the route values of the layout's own URL, the query string and services, with no inferred body; a parameter it cannot bind, such as a `[FromRoute]` naming a route value outside the layout's URL, a complex type that is not a registered service and does not bind itself, one that reads the request body (`[FromBody]`, `[FromForm]`, `IFormFile`, `IFormFileCollection`, `IFormCollection`), or an `IEnumerable<int>`, which minimal APIs would take from services, throws here, naming the layout ([what a layout loader binds](../guides/data-loading.md#what-a-layout-loader-binds)). It runs before the page renders, outermost layout first, and is skipped on client navigations while its route values and the user stay the same. `NotFound`, `Forbidden` and `Unauthorized` render the boundary above the layout; `Redirect` redirects the page. Conventions on the result, such as `RequireAuthorization()`, apply to every page below the layout. Access checks on route values deeper than the layout's URL belong in the page's loader. Mapping a second loader for one layout throws.
+
+On a page package's mount, `segment` is the layout's folder in the package, its pages folder first (`app`, `app/(center)`), or its URL below the mount (`/`), and the layout is one of the package's. It is the layout of the merged folder (`app/help/(center)`), so the conventions on the result apply to every page below it, the app's own pages in that folder included (`app/help/(center)/shortcuts/page.tsx`); the mount's own conventions do not reach it. Called on the app for a package's layout it throws, naming the mount, and called on a mount for an app layout it throws too.
 
 ### LayoutLoaderBuilder
 
@@ -97,7 +101,7 @@ What `MapLayoutLoader` returns. Each convention is applied to the layout loader 
 public static RouteHandlerBuilder MapPageAction(this IEndpointRouteBuilder endpoints, string pattern, Delegate action)
 ```
 
-A `POST` handler at a page's URL, for `<Form method="post">` on that page, with or without JavaScript. Bind fields with `[FromForm]`; a delegate minimal APIs cannot bind, such as one with two inferred bodies, throws here, naming the page ([page actions](../guides/actions-and-forms.md#page-actions)), and so does a `[FromForm]` input with several public constructors or none, or an abstract or interface type, which form binding never builds. Return `Page.Redirect(...)` after a change, or `Page.Props(...)` (often `.WithStatus(422)`) to render the page again, with errors you put in the props. Before the delegate runs, the DataAnnotations of its inputs, and then `IValidatableObject`, are checked as for `MapAction`, with or without `AddValidation()`; a failure renders the page again from its loader with status 422, and the page reads the errors and the declared fields' values with `usePageActionState()` ([validation in page actions](../guides/actions-and-forms.md#validation-in-page-actions)). An attribute that cannot be read throws here. A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other. It always requires a valid antiforgery token, also when it binds no form fields, and a same-origin request, so `app.UseAntiforgery()` must be in the pipeline. `.DisableAntiforgery()` turns off both, for a form another site posts back. The server's request size limit applies, not `ActionBodySizeLimit`. A post from the client router whose response sets or deletes a cookie is marked `X-Netjes-Cookies: changed`. See [actions and forms](../guides/actions-and-forms.md).
+A `POST` handler at a page's URL, for `<Form method="post">` on that page, with or without JavaScript. Bind fields with `[FromForm]`; a delegate minimal APIs cannot bind, such as one with two inferred bodies, throws here, naming the page ([page actions](../guides/actions-and-forms.md#page-actions)), and so does a `[FromForm]` input with several public constructors or none, or an abstract or interface type, which form binding never builds. Return `Page.Redirect(...)` after a change, or `Page.Props(...)` (often `.WithStatus(422)`) to render the page again, with errors you put in the props. Before the delegate runs, the DataAnnotations of its inputs, and then `IValidatableObject`, are checked as for `MapAction`, with or without `AddValidation()`; a failure renders the page again from its loader with status 422, and the page reads the errors and the declared fields' values with `usePageActionState()` ([validation in page actions](../guides/actions-and-forms.md#validation-in-page-actions)). An attribute that cannot be read throws here. A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other. It always requires a valid antiforgery token, also when it binds no form fields, and a same-origin request, so `app.UseAntiforgery()` must be in the pipeline. `.DisableAntiforgery()` turns off both, for a form another site posts back. The server's request size limit applies, not `ActionBodySizeLimit`. A post from the client router whose response sets or deletes a cookie is marked `X-Netjes-Cookies: changed`. See [actions and forms](../guides/actions-and-forms.md). On a page package's mount, and for a package's page on the app, it follows the rules of `MapPageLoader`.
 
 ### Page
 
@@ -125,7 +129,7 @@ Results for page loaders, layout loaders and page actions.
 | `Props(props)` | Render the endpoint's page with these props. The result is typed by them, so the loader's inferred return type names the props for the generated TypeScript and for tests (`result.Props`). Only in endpoints mapped with `MapPageLoader` or `MapPageAction`; it throws elsewhere. |
 | `Props()` | The same without props (`{}`). |
 | `Render(pattern, props)` | Render the page for `pattern` (`/blog/[slug]`) from any endpoint, such as a minimal API. |
-| `NotFound()` | Render the nearest `not-found.tsx`, inside the layouts above it, else the root not-found page, with status 404. |
+| `NotFound()` | Render the nearest `not-found.tsx`, inside the layouts above it, else the root not-found page, with status 404. From an app page whose folders do not reach a page package's mount that the URL is below, such as a catch-all, the mount's, unless the page's own is at the mount's URL or below it ([MapPagePackage](#mappagepackage)). |
 | `Forbidden()` | Render the nearest `forbidden.tsx`, else the error page, with status 403. |
 | `Unauthorized()` | Render the nearest `unauthorized.tsx`, else the error page, with status 401. |
 | `Redirect(location, permanent)` | Redirect: 307 (308 when `permanent`) for `GET` and `HEAD`, 303 after a `POST`. The client router follows it without a full page load. Accepts relative URLs and `http`/`https` URLs, and throws for any other scheme and for a `%` before the first `:` or `/`. |
@@ -216,6 +220,125 @@ A link in props, to one of the app's pages or to another site: a root-relative U
 
 The name is in `Netjes`, which apps with implicit usings import everywhere: a file that also imports another namespace with a type named `Href` gets CS0104 for it. Qualify one of the two, or give one an alias (`using SiteHref = MyCms.Href;`).
 
+## Page packages
+
+A page package is a NuGet package and an npm package of one version that bring pages, layouts and boundaries, which an app mounts at a prefix. The npm half is listed in `netjes({ packages })` in `vite.config.ts` ([Vite plugin](vite-plugin.md#page-packages)); the C# half holds a `PagePackage` and an extension that mounts it.
+
+### MapPagePackage
+
+```csharp
+public static PagePackageBuilder MapPagePackage(this IEndpointRouteBuilder endpoints, PagePackage package, string prefix)
+```
+
+Mounts the package's pages folder at `prefix`, written in folder syntax: `/help`, `/(marketing)/help`, `/support/(desk)/help`, `/[tenant]/help` or `/`. Its segments are literal URL segments, `[name]` values and `(group)` route groups; a catch-all, an `@slot`, a `_private` folder, an intercepting folder, `.`, `..`, `%`, `\` and an empty segment throw `ArgumentException`. The package's files merge into the app's route table by folder, under the prefix's folders: its `layout.tsx` at the mount wraps the app's own pages in that folder too, and its route group `(center)` wraps the app's pages in `app/help/(center)/`. The URLs leave out the groups, as for the app's own folders. Each of its files has an id of its npm name, its pages folder and its path there, such as `@netjes-examples/help-center/app/contact/page.tsx`, which is what the payload's `page`, errors, `netjes routes` and telemetry name.
+
+In development and in the `generate` and `routes` commands, the package is found in `node_modules` of the app or a folder above it, with a workspace link resolved, and a file added to it is routed without a restart. In production it comes from the client build's record, `dist/client/.vite/netjes.json`, which names each file's chunk in the manifest; the record is published with the manifest and, like it, never served or exported. These stop the app in one line (`NetjesStartupException`):
+
+- `'@netjes-examples/help-center' is mounted but not installed: npm install @netjes-examples/help-center@1.2.0`, with the version of the C# half;
+- `'@netjes-examples/help-center' is mounted but not in the client build: add it to netjes({ packages }) in vite.config.ts and build again`;
+- a package whose `package.json` is not JSON or has no `netjes` field or no `peerDependencies.netjes`, whose `pages`, `sources` or `css` leaves the package (`..`, a leading `/`, a drive letter or `\`), or that has no pages folder (`app`, unless `pages` names another), as the Vite plugin refuses them;
+- a file in the record without a chunk in the manifest;
+- `@netjes-examples/help-center is 1.2.0 on npm and Netjes.Examples.HelpCenter is 1.1.0 on NuGet: install one version of both`: the two halves are two versions. The NuGet half is named by the `nuget` in the npm half's `netjes` field, or else by its assembly;
+- `@netjes-examples/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`: the npm half's `peerDependencies.netjes` leaves out the running Netjes, whose informational version is compared without its `+` suffix. The range is read as npm and the Vite plugin read it: `^0.0.4` holds 0.0.4 alone, a prerelease is in a range only when the range names a prerelease of that version, and a range that is none holds no version.
+
+The checks run in that order, before the package's files are scanned. An app run as its own program (`dotnet run`, the netjes CLI) logs the line as one critical entry and exits with code 1, as for a missing build; a test host's start throws it.
+
+A file of the package that the conventions refuse, such as a `global-error` or a `route.ts`, and a conflict with another package or between two packages' layouts in one folder, throw here ([Route errors](#route-errors)). An app page of the same shape as one of the package's pages is held until `MapPages()`, which throws it, and so do `MapPageLoader` and `MapLayoutLoader` for that page's URL. Call it on the app, before `MapPages()` and once per package: inside a `MapGroup`, after `MapPages()` and for a package mounted already, it throws `InvalidOperationException`.
+
+An unknown URL below the mount renders the not-found of the mount's folder, inside the layouts there: the package's own `not-found.tsx` inside its layout and the app's layouts above the mount, or else the nearest not-found above, with status 404. So does `Page.NotFound()` from an app page whose folders do not reach the mount, such as `app/[[...slug]]/page.tsx`, unless the page's own nearest not-found is at the mount's URL or below it, such as `app/(x)/help/not-found.tsx` under a mount at `/help`; a page inside the mount's folder renders its own nearest not-found, as every page does. A URL is below the mount when its path, below the base path, starts with the segments of the prefix's URL, literals in any case: `/HELP/nope` is below `/help`, and `/helpx/nope`, `/help%2Fnope` and `/help%5Cnope` are not. With a mount inside another (`/a/(g)/b` inside `/a`), the deepest one the URL is below takes it. A mount at the root URL (`/`, `/(site)`) leaves unknown URLs, the exported `404.html` included, to the app's `not-found.tsx`, which is at that URL too; in an app without one, the mount's renders. The prefix's values are route values there, as for the package's own pages, so the layout loaders bind them (`tenant` under `/[tenant]/help`), and the payload's `params` and `mounts` hold them. The fallback endpoint carries no layout loader's authorization and none of the mount's conventions, and a catch-all's endpoint only those of its own folders. So before anything loads, each layout loader on the way to the mount is authorized, and so is each folder there that holds a package's files, under that package's mount's conventions (`RequireAuthorization()` on the mount). From the first one the user fails, nothing loads or renders, and the nearest not-found above it renders instead: a visitor refused there never runs the layout loaders from that folder down, and gets a 404, not a 401 or 403.
+
+### PagePackageBuilder
+
+```csharp
+namespace Netjes.Routing;
+
+public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConventionBuilder
+{
+    public PagePackageMount Mount { get; }
+    public PagePackageBuilder Override(string pattern);
+    public PagePackageBuilder WriteTypes(string path);
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots);
+}
+```
+
+What `MapPagePackage` returns, for the package's extension to map through: `MapHelpCenter(this IEndpointRouteBuilder app, string prefix = "/help")` calls `app.MapPagePackage(Package, prefix)`, maps through the result and returns it. A minimal API endpoint mapped on it (`MapGet`, `MapPost`) maps below the mount's URL. Netjes's own extensions are scoped to the mount:
+
+- `MapPageLoader` and `MapPageAction` take a pattern below the mount (`/articles/[slug]`, `/` for its own page) and map at the page's URL where the package is mounted, for the package's own pages only ([MapPageLoader](#mappageloader));
+- `MapLayoutLoader` takes the layout's folder in the package (`app/(center)`) or its URL below the mount, for the package's own layouts only ([MapLayoutLoader](#maplayoutloader));
+- `MapAction` maps at `/_netjes/actions/{name}`, as on the app, and the package owns the name ([MapAction](#mapaction)).
+
+On a `MapGroup` made from the mount, these four throw, naming the mount. The app's own extensions refuse the package's pages and layouts the same way.
+
+Conventions on it, such as `RequireAuthorization()`, `ExcludeFromExport()` and `ExcludeFromSitemap()`, apply to the package's own endpoints: its file pages, its loaders, page actions and server actions, and the endpoints mapped through it. They do not reach the app's own pages under the prefix, nor a layout loader mapped through the mount, which keeps its own conventions and gives those to the pages below its layout; an app layout loader above the app's pages protects them, and an app layout loader above the mount protects the package's pages as well. So an app page in one of the package's folders renders the package's layouts, and runs their loaders, for every visitor the page lets in, whatever the mount's conventions. Where a page refuses a visitor whom the mount's conventions refuse too, they decide how much of the package renders: the page's 401 or 403 stops at the package's first folder on the way, whose boundary renders without its layout, and a 404 below the mount renders the nearest not-found above that folder ([MapPagePackage](#mappagepackage)), so no layout loader of the package runs for them.
+
+`Override(pattern)` replaces the package's page at `pattern` with the app's page in the same folder of the merged tree: `.Override("/help/contact")` renders `app/help/contact/page.tsx` in place of the package's `contact/page.tsx`. `pattern` is the page's URL as the app links to it, below the mount; it is matched by shape, literals in any case and one trailing slash left out (`/HELP/Contact/` is `/help/contact`), and it names the parameters as both pages do. The app's page renders with the package's loader and page action, and keeps the conventions of the mount and of the layout loaders above the package's page; the app maps no loader or page action of its own for it: `MapPageLoader` and `MapPageAction` on the app throw for it, and `Override` throws when the app mapped one of them for the page before the mount. Call it before `MapPages()`, before or after the package's extension has mapped the page's loader. It throws `ArgumentException` for a pattern that is no URL pattern (no leading `/`, a `\`, a `%`, `.`, `..` or an empty segment) or is not below the mount, `RouteConflictException` when the package has no page there, the app has none there, their parameters are named otherwise, the app's page is outside a folder whose files wrap the package's, or the page is another package's, and `InvalidOperationException` after `MapPages()` and for a page the app maps a loader or page action for. Without an override, an app page of the same shape as a package's page stops `MapPages()`.
+
+`WriteTypes(path)` writes the package's own generated file at `path`, relative to the app's root as `TypesFile` is: `.WriteTypes("../HelpCenter/generated/netjes.ts")`, in the app the package is developed in. The file holds the zod schemas of what the package maps through its mount (its loaders, page actions, layout loaders, server actions and endpoints) and its typed routes, all below the mount and without the prefix's parameters, so it is the same wherever an app mounts the package, and the package ships it ([The generated module](react-api.md#a-page-packages-file)). It is written with the app's own file, when the app starts in Development and by `netjes generate`, and `netjes generate --check` checks it next to that file ([netjes generate](cli.md#netjes-generate)); with `TypesFile` set to `null`, as a test host sets it, neither is written. The app's own file routes the package's pages but holds none of its schemas, except those of its exports (`AddTypeScriptExport`, below). An empty `path`, the app's own file and another package's file throw `ArgumentException`.
+
+`AddTypeScriptExport(group, key, slots)` adds an entry to an export of the package's own, in the app's generated file and in the package's, for schemas that the app's code and the package's both read by key, such as the props of each kind of block a package stores and the app's pages render too: `.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) })` writes `export const blocks = { "hero": { "props": HeroBlock } } as const;` with the zod schema of each slot's type ([Schemas the app reads too](../guides/page-packages.md#schemas-the-app-reads-too)). Entries are in ordinal order of their keys, slots of their names, and both are quoted. The package owns the export. These throw at startup:
+
+- `ArgumentException`: a `group` that is no JavaScript identifier of ASCII letters, digits, `_` and `$`, a reserved word of a JavaScript module (`class`, `default`, `await`, `let`, `eval`, ...), or a name a page package's generated file declares or imports (`pages`, `layouts`, `serverActions`, `Href`, `route`, `Link`, `useRouter`, `MountHref`, `z`, ...); a `key` or slot name `__proto__`, which an object literal takes for its prototype, or one with half a surrogate pair, which a JSON string writes as U+FFFD; a slot without a type, or of a type no value has: an open generic type, a by-ref type, a pointer or `void`;
+- `InvalidOperationException`: a second entry of one key in the export, and an entry in an export that another package added.
+
+A C# type named like the export gets another name in both files, as one named like the file's own exports does. The app's own schemas keep their names: a slot's type named like one of the app's types gets another name in the app's file, and keeps its own in the package's.
+
+### PagePackage
+
+```csharp
+public sealed class PagePackage
+{
+    public PagePackage(string name, System.Reflection.Assembly assembly);
+    public string Name { get; }
+    public string Version { get; }
+    public bool DrawsItsOwnShell { get; init; }
+    public bool RequiresNonce { get; init; }
+}
+```
+
+The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix, which the npm half's version has to equal. A name that is not an npm package name throws `ArgumentException`.
+
+The two flags describe the package's pages for the [route warnings](../guides/routing.md#route-warnings), which `netjes routes` lists too, and change nothing else. `DrawsItsOwnShell` marks a package whose layout draws a whole page around its pages, with a header, navigation and footer of its own, as a back-office package does: the `package-shell` warning names an app whose own root layout wraps every page while it has no route group layout directly below it, such as `app/(site)/layout.tsx`, to hold the app's chrome. `RequiresNonce` marks a package whose pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out): the `package-nonce` warning names an app whose `NetjesOptions.ContentSecurityPolicy` has no `{nonce}` and refuses inline scripts, since such a policy, as a hash-based one is, blocks what streams ([hash-based policies](../guides/security.md#hash-based)).
+
+```csharp
+public static class BackOfficePackage
+{
+    public static PagePackage Package { get; } = new("@acme/back-office", typeof(BackOfficePackage).Assembly)
+    {
+        DrawsItsOwnShell = true,
+    };
+}
+```
+
+### PagePackageMount
+
+```csharp
+public sealed class PagePackageMount
+{
+    public PagePackage Package { get; }
+    public string Folder { get; }
+    public string Pattern { get; }
+    public Href Url(string path, RouteValueDictionary? values = null);
+}
+```
+
+Where a package is mounted. `Folder` is the prefix's folders, relative to the app directory (`support/(desk)/help`); `Pattern` is its URL pattern without groups (`/support/help`, `/[tenant]/help`).
+
+`Url(path, values)` is the app's URL of `path`, a URL below the mount, for a package's services that write links in C#, such as an email or a cookie's path. `/articles` is `/help/articles` for a package mounted at `/help`, `/` is the mount itself (`/help`), and a query or fragment stays where it is (`/?page=2` is `/help?page=2`). Like every [`Href`](#href), it has no base path. `values` holds the values of the prefix's parameters, such as the request's route values (`http.Request.RouteValues`); others are ignored. Each value is encoded as one segment, so a `/`, `?`, `#` or `%` in it stays in its segment: `acme/x` gives `/acme%2Fx/help/articles` under `/[tenant]/help`. A `path` that does not start with one `/` (another host as in `//host` or `/\host`, a scheme, a relative URL, a query or fragment on its own, or one with a control character or a space at either end), or that has a `.` or `..` segment, also written `%2e` or after a `\`, which would climb out of the mount once a browser resolves it, throws `ArgumentException`, and so does a missing value of the prefix, an empty one, `.` and `..`, which a browser would resolve away.
+
+Each page payload carries, in `mounts`, every mounted package's URL for the request, by npm name: `/help`, `/acme/help`, or `null` when the request has no value for one of the prefix's parameters, or one that is empty, `.` or `..`. The package's links in the browser go below it ([`mounted`](react-api.md#mounted)). An app that mounts nothing sends no `mounts`.
+
+### PagePackageMounts
+
+```csharp
+public sealed class PagePackageMounts
+{
+    public IReadOnlyList<PagePackageMount> All { get; }
+    public PagePackageMount Get(string name);
+}
+```
+
+A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted.
+
 ## Metadata, sitemap and robots
 
 ### PageMetadata
@@ -282,7 +405,7 @@ Both endpoints allow anonymous access, and answer a `HEAD` with the status and h
 public static RouteHandlerBuilder MapAction(this IEndpointRouteBuilder endpoints, string name, Delegate action)
 ```
 
-A server action, the counterpart of a Next.js `'use server'` function: a `POST` endpoint at `/_netjes/actions/{name}`. `name` is letters, digits, `.`, `-` and `_` (`posts.create`); another character, or a name mapped twice, throws. The delegate binds like a minimal API handler (a JSON body, `[FromForm]` fields, services), and one minimal APIs cannot bind throws here, naming the action, as does a `[FromForm]` input with several public constructors or none, or an abstract or interface type, which form binding never builds. It returns a `ServerActionResult` or `ServerActionResult<T>`, which types the generated `serverActions` reference. Before the delegate runs, the DataAnnotations of its inputs, and then `IValidatableObject`, are checked, and failures come back as `ServerAction.Invalid` field errors, with or without `AddValidation()`; an attribute that cannot be read, on an input or on a derived type it lists with `[JsonDerivedType]`, throws here ([validation](../guides/actions-and-forms.md#validation)). A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other. Every call needs a valid antiforgery token and a same-origin request; `.DisableAntiforgery()` turns off the token check only. Request bodies are limited to `ActionBodySizeLimit` (1 MB) unless the action has its own limit ([body limits](../guides/actions-and-forms.md#body-limits)). Without JavaScript a form posts here too. An action that sets or deletes a cookie, such as signing in or out, makes the client router forget the pages it keeps for Back and Forward, in every tab of the app ([signing in and out](../guides/actions-and-forms.md#signing-in-and-out)).
+A server action, the counterpart of a Next.js `'use server'` function: a `POST` endpoint at `/_netjes/actions/{name}`. `name` is letters, digits, `.`, `-` and `_` (`posts.create`); another character, or a name mapped twice, throws. Names are compared ignoring case, as routing matches the URL: `posts.create` and `Posts.Create` are one name, and the error names who mapped each, the app or a page package. On a page package's mount it maps at `/_netjes/actions/{name}` all the same, with the mount's conventions before its own, so a package prefixes its names (`help.vote`). The client posts every action to that one URL, so in a route group with a prefix (`app.MapGroup("/api")`), or one made from a mount, it throws; in a group without one (`MapGroup("")`, `MapGroup("/")`) it maps with the group's conventions. The delegate binds like a minimal API handler (a JSON body, `[FromForm]` fields, services), and one minimal APIs cannot bind throws here, naming the action, as does a `[FromForm]` input with several public constructors or none, or an abstract or interface type, which form binding never builds. It returns a `ServerActionResult` or `ServerActionResult<T>`, which types the generated `serverActions` reference. Before the delegate runs, the DataAnnotations of its inputs, and then `IValidatableObject`, are checked, and failures come back as `ServerAction.Invalid` field errors, with or without `AddValidation()`; an attribute that cannot be read, on an input or on a derived type it lists with `[JsonDerivedType]`, throws here ([validation](../guides/actions-and-forms.md#validation)). A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other. Every call needs a valid antiforgery token and a same-origin request; `.DisableAntiforgery()` turns off the token check only. Request bodies are limited to `ActionBodySizeLimit` (1 MB) unless the action has its own limit ([body limits](../guides/actions-and-forms.md#body-limits)). Without JavaScript a form posts here too. An action that sets or deletes a cookie, such as signing in or out, makes the client router forget the pages it keeps for Back and Forward, in every tab of the app ([signing in and out](../guides/actions-and-forms.md#signing-in-and-out)).
 
 ### ServerAction
 
@@ -577,7 +700,7 @@ public sealed class CachedPageMetadata
 
 What app code and tests read from the endpoints to find the app's pages and their loaders, as `netjes routes` does, and the settings `CachePage` was given. The report's output caching (`cached` in `--json`) does not come from `CachedPageMetadata`: it is true under any output-cache policy on the endpoint, while `CachedPageMetadata` is there only under `CachePage` ([the route table](../guides/routing.md#the-route-table)). Netjes puts both on the endpoints, and their constructors are internal.
 
-- `PageRouteMetadata` is on every endpoint that serves a page: the `GET` and `HEAD` endpoint of a page file or of `MapPageLoader`, and the `POST` endpoint of `MapPageAction`. `Pattern` is the page's URL as its file names it (`/blog/[slug]`), without the prefix of a route group the endpoint is mapped in, which the endpoint's own route pattern includes. `IsLoader` is true on the endpoint `MapPageLoader` maps, and false on a page file's own endpoint (a page without a loader) and on a page action's. No other endpoint carries it: not the not-found fallback, a server action, a minimal API that returns `Page.Render`, or the endpoints Netjes maps, such as `/_netjes/image`, and `/sitemap.xml` from `MapSitemap`.
+- `PageRouteMetadata` is on every endpoint that serves a page: the `GET` and `HEAD` endpoint of a page file or of `MapPageLoader`, and the `POST` endpoint of `MapPageAction`. `Pattern` is the page's URL as its file names it (`/blog/[slug]`), and for a page package's page its URL where the package is mounted (`/help/articles/[slug]`), as `netjes routes` lists it; it leaves out the prefix of a route group the endpoint is mapped in, which the endpoint's own route pattern includes. `IsLoader` is true on the endpoint `MapPageLoader` maps, and false on a page file's own endpoint (a page without a loader) and on a page action's. No other endpoint carries it: not the not-found fallback, a server action, a minimal API that returns `Page.Render`, or the endpoints Netjes maps, such as `/_netjes/image`, and `/sitemap.xml` from `MapSitemap`.
 - `CachedPageMetadata` is on every endpoint `CachePage` is put on (a page loader, each file page under `MapPages().CachePage(...)`, a minimal API that returns `Page.Render`, the endpoints of a route group), with the `duration` and the `tags` it was given, in the order given. An endpoint output-cached without `CachePage` (`CacheOutput`, `[OutputCache]`, a base policy) carries none. A `CacheOutput(...)` after `CachePage` on the same endpoint replaces the policy `CachePage` set, and the metadata still holds what `CachePage` was given ([caching](../guides/caching.md#under-any-output-caching)).
 
 Read them from `Endpoint.Metadata` once the app has started, in a test through the [factory](../guides/testing.md#the-app-over-http) and in the app through an injected `EndpointDataSource`:
@@ -617,7 +740,7 @@ public sealed class InvalidPageFileException(string message) : Exception;
 
 Netjes throws these when the files in `app/` break the file conventions. The message names the files and what to change.
 
-- `RouteConflictException`: two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, or two files for one convention in one folder, such as `page.tsx` and `page.jsx`. Pages that only overlap, such as `[id]` next to `[...rest]`, get a [route warning](../guides/routing.md#two-pages-that-match-the-same-urls) instead.
+- `RouteConflictException`: two pages of one shape, such as `app/[lang]/about/page.tsx` and `app/[slug]/about/page.tsx`, or two files for one convention in one folder, such as `page.tsx` and `page.jsx`. Pages that only overlap, such as `[id]` next to `[...rest]`, get a [route warning](../guides/routing.md#two-pages-that-match-the-same-urls) instead. With [page packages](#page-packages) mounted, it is also an app page of the same shape as a package's page (thrown by `MapPages()`), two packages' pages of one shape, two sources' files for one convention in one folder, folders of two sources that differ only in case, and an `Override` that fits no page of the package ([PagePackageBuilder](#pagepackagebuilder)).
 - `InvalidPageFileException`: a file name the conventions do not allow, such as a catch-all that is not the last segment, a `global-error` file below the app root, or a `route.ts` file. `UseNetjes` also throws it for page files in a `pages/` folder, which Netjes does not route ([Routing](../guides/routing.md#what-is-not-there)).
 
 `MapPages` reads the routes as the app starts, from `app/` in development and from the client build's manifest in production, so either exception stops the app there, and a test that starts the app can catch it by type. When a file changes while the development server runs, Netjes logs the error instead and keeps the previous routes.

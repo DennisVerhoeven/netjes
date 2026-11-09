@@ -13,11 +13,28 @@ export { CSP_SCRIPT_HASHES } from './deferred.ts';
 export { useDraftMode } from './draft-mode.ts';
 export { type DynamicOptions, clientOnly, dynamic } from './dynamic.tsx';
 export { Form, type FormAction, type FormProps, SubmitButton, type SubmitButtonProps } from './form.tsx';
-export { type Href, type Register, type SearchParamsInput, type SearchValue, buildEndpointUrl, buildHref, isRouteHref } from './href.ts';
+export {
+  type Href,
+  type Register,
+  type SearchParamsInput,
+  type SearchValue,
+  buildEndpointUrl,
+  buildHref,
+  isHrefShape,
+  isRouteHref,
+} from './href.ts';
 export { Image, type ImageProps } from './image.tsx';
 export { Link, type LinkProps } from './link.tsx';
 export { useLocale } from './locale.ts';
 export type { ErrorPageProps, LayoutProps } from './modules.ts';
+export {
+  type Mounted,
+  type MountedFormProps,
+  type MountedLinkProps,
+  type MountedRouter,
+  type MountedSubmitButtonProps,
+  mounted,
+} from './mounted.tsx';
 export { useNonce } from './nonce.tsx';
 export type { PageKind, Params, SeededQuery, SegmentRef } from './payload.ts';
 export { usePublicConfig } from './public-config.tsx';

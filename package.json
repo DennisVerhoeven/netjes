@@ -4,6 +4,7 @@
   "type": "module",
   "workspaces": [
     "packages/netjes",
+    "examples/HelpCenter",
     "examples/Blog",
     "examples/TaskBoard"
   ],

@@ -14,7 +14,7 @@ The build leaves `bin/`, `obj/` and a `publish/` folder in the project out of th
 
 The Netjes package's `build/Netjes.targets`, imported into every project that references it, runs `npm run build` during publish (`vite build && vite build --ssr` in the template) and ships `dist/` with the app:
 
-- `dist/client/`: the browser's JavaScript and CSS, content-hashed under `assets/`, and the files from `public/`, with Vite's manifest in `.vite/`.
+- `dist/client/`: the browser's JavaScript and CSS, content-hashed under `assets/`, and the files from `public/`, with Vite's manifest in `.vite/`, and next to it, for an app that lists [page packages](page-packages.md), the record of their names, versions and files (`netjes.json`), from which the app routes their pages.
 - `dist/server/`: the server bundle the Node processes import, with React and every other dependency bundled in, and the sidecar script (`netjes-sidecar.mjs`).
 
 The published folder runs without `node_modules`. Three MSBuild properties change what publish does:
@@ -31,7 +31,7 @@ The published folder runs without `node_modules`. Three MSBuild properties chang
 
 - The ASP.NET Core runtime, 10.0.14 or newer.
 - Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (Node.js 22.22.2 or a later 22, 24.15.0 or a later 24, or 26 or newer), as `node` on the path (or `NetjesOptions.NodeExecutable`). Netjes starts the Node processes itself; you do not run them.
-- The published folder, with `dist/`. In Production the app reads `dist/client/.vite/manifest.json` at startup and stops when it is missing.
+- The published folder, with `dist/`. In Production the app reads `dist/client/.vite/manifest.json` at startup and stops when it is missing. An app that mounts a page package reads `dist/client/.vite/netjes.json` too, and stops when the package is not in it, or when its halves or its Netjes range do not fit ([Page packages](page-packages.md#mounting-a-package)).
 
 The app runs in Production mode whenever the environment is not Development (`ASPNETCORE_ENVIRONMENT`); `Netjes:Mode` sets the mode outright.
 
@@ -198,9 +198,9 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route` |
-| `netjes.action` | A page action | `netjes.route` |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page`, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
@@ -213,7 +213,7 @@ The call to the Node process carries `traceparent`, and the process logs it with
 | `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `netjes.web_vitals.rating` |
 | `netjes.web_vitals.cls` | | `netjes.route`, `netjes.web_vitals.rating` |
 
-Tags carry route patterns (`/blog/[slug]`), never URLs.
+Tags carry route patterns (`/blog/[slug]`), never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
 
 ### Web vitals
 

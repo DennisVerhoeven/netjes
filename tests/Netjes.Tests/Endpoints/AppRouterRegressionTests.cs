@@ -188,6 +188,136 @@ public class AppRouterRegressionTests
         Assert.Empty(app.Renderer.LastPayload["segments"]!.AsArray());
     }
 
+    private const string Help = TestPagePackage.Name;
+
+    /// <summary>
+    /// The layout loader that guards an unknown URL below a page package's mount (the fallback endpoint carries no
+    /// layout loader's authorization): the package's own, mapped through the mount, the app's above the mount, or the
+    /// app's root layout's; or the mount's conventions, which guard the package's files where its own layout loader
+    /// has no authorization of its own.
+    /// </summary>
+    public static TheoryData<string, bool> MountGuards => new()
+    {
+        { "the mount's", false },
+        { "the mount's", true },
+        { "the mount's conventions", false },
+        { "the mount's conventions", true },
+        { "the app's above the mount", false },
+        { "the app's above the mount", true },
+        { "the app's root", false },
+        { "the app's root", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(MountGuards))]
+    public async Task UnknownUrlBelowAProtectedLayoutOnAMountsChain_NeverRunsItsLoaderForAVisitorItRefuses(string guard, bool signedIn)
+    {
+        var calls = 0;
+        var secret = () =>
+        {
+            calls++;
+            return Page.Props(new { Secret = "s3cret" });
+        };
+
+        var onTheMount = guard == "the mount's";
+        var atTheRoot = guard == "the app's root";
+        var prefix = guard == "the app's above the mount" ? "/members/help" : "/help";
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx", "app/members/layout.tsx", "app/members/not-found.tsx", "app/members/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a =>
+            {
+                if (guard == "the app's above the mount")
+                {
+                    a.MapLayoutLoader("/members", secret).RequireAuthorization();
+                }
+
+                if (atTheRoot)
+                {
+                    a.MapLayoutLoader("/", secret).RequireAuthorization();
+                }
+
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, prefix);
+                if (onTheMount)
+                {
+                    mount.MapLayoutLoader("/", secret).RequireAuthorization();
+                }
+
+                if (guard == "the mount's conventions")
+                {
+                    mount.RequireAuthorization().MapLayoutLoader("/", secret);
+                }
+            },
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        foreach (var url in new[] { $"{prefix}/nope", $"{prefix}/nope/deeper", prefix.ToUpperInvariant() + "/Nope" })
+        {
+            var response = await app.GetDataAsync(url);
+            var body = await response.Content.ReadAsStringAsync(Ct);
+            var payload = JsonNode.Parse(body)!;
+            var document = await app.GetDocumentAsync(url);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, document.StatusCode);
+            var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+            if (signedIn)
+            {
+                Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(prefix == "/help" ? ["app", "app/help"] : ["app", "app/members", "app/members/help"], ids);
+                Assert.Contains("s3cret", body);
+            }
+            else
+            {
+                // The nearest not-found above the guarded segment, inside the layouts above it: the guarded segment's own
+                // not-found would render in its place, and the mount's below it. Above the root there is no layout.
+                Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(atTheRoot ? [] : ["app"], ids);
+                Assert.DoesNotContain("s3cret", body);
+                Assert.Equal("app/not-found.tsx", (string?)app.Renderer.LastPayload["page"]);
+            }
+        }
+
+        Assert.Equal(signedIn ? 6 : 0, calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APageItsMountProtects_NeverRunsThePackagesLayoutLoaderForAVisitorTheMountRefuses(bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "error.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization().MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        var response = await app.GetDataAsync("/help");
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(signedIn ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, response.StatusCode);
+        if (signedIn)
+        {
+            Assert.Equal(["app", "app/help"], ids);
+            Assert.Contains("s3cret", body);
+        }
+        else
+        {
+            // The package's segment stops the page: its boundary renders in its place, without its layout.
+            Assert.Equal(["app"], ids);
+            Assert.DoesNotContain("s3cret", body);
+        }
+
+        Assert.Equal(signedIn ? 1 : 0, calls);
+    }
+
     [Fact]
     public async Task ForgedSegmentKey_DoesNotSkipAGuardingLayoutLoader()
     {
