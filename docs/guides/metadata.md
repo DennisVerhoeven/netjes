@@ -129,7 +129,7 @@ app.MapPages();
 
 - every page without parameters, and each dynamic page's URLs from its `.StaticParams(...)` ([Static export](static-export.md));
 - not the pages that require authorization, their own or through a fallback policy, unless they are `.AllowAnonymous()`;
-- not the pages marked `.ExcludeFromSitemap()`.
+- not the pages marked `.ExcludeFromSitemap()`. On a [page package's](page-packages.md) mount it leaves out the package's pages, which a mount's `RequireAuthorization()` also keeps out, and not the app's own pages under the prefix.
 
 URLs are absolute, under `siteUrl` and the app's base path, with the base path percent-encoded as a URL path. The list of pages is built at most once per `cacheFor` (an hour by default), so `StaticParams` does not run on every request. The XML is kept for the first eight base paths it is requested under in each `cacheFor`, which is one in a normal app. When the base path can come from a client (an `X-Forwarded-Prefix` the app accepts from untrusted addresses), any further one is built from the kept list on each request instead. Under a base path longer than 256 characters as the XML writes it (percent-encoded, with each `&` as `&amp;`), `/sitemap.xml` is not found (404, `Cache-Control: no-store`, logged at debug level) and nothing is built: every URL would repeat the base path, so one small request could ask for a large answer. The sitemap itself is sent with `Cache-Control: public, max-age` set to `cacheFor`.
 

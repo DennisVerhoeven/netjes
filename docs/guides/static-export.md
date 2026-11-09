@@ -56,6 +56,14 @@ Without it, the export stops before it writes anything, naming each problem, whe
 - would write the same file as `404.html`, the export's own `.netjes-export` marker or an endpoint written as a file ([below](#other-endpoints-as-files-includeinexport)), or needs a directory where one of those is a file,
 - has a path segment that Windows reserves for a device (`con`, `nul.txt`, `com1`).
 
+The pages of a mounted [page package](page-packages.md) are planned by the same rules, inside the app's layouts and the package's. A package with a page action, a page that needs a signed-in user or a dynamic page without static parameters stops the export, so an app that exports its site leaves such a package's pages out on its mount, which covers the package's file pages and the pages its loaders serve:
+
+```csharp
+app.MapHelpCenter("/help").ExcludeFromExport();
+```
+
+That leaves the app's own pages under the prefix alone: they are written, or need `.ExcludeFromExport()` of their own. The exported `404.html` is the not-found page the app renders for a URL that no page serves: the root `not-found.tsx`, unless a mount takes that URL, as a mount at the root URL does in an app without a root `not-found.tsx`, and a mount at a single value, such as `/[tenant]`, does in any app, so the package's not-found is written. The package's chunks are in the client build all the same, and so in the export's copy of it.
+
 Server actions, minimal APIs that are not marked `.IncludeInExport()`, `/_netjes/antiforgery`, web vitals collection and the image endpoint have no static counterpart: an exported page that calls them gets the static host's 404. `<Image>` points its `src` and `srcset` at the image endpoint, so give images on exported pages `unoptimized`, which uses the file as it is.
 
 ### Loaders that read the query string
@@ -82,7 +90,7 @@ A parameter counts when minimal API binding takes its value from the query strin
 
 An app that maps `MapSitemap` and `MapRobotsTxt` ([metadata](metadata.md#sitemap-and-robots)) gets both files in the export. The export requests them from the app after the pages, as it requests the pages, and writes what the app answers:
 
-- `sitemap.xml` lists the pages the export writes, in the order it writes them: each page without parameters, and each dynamic page for every value of its `.StaticParams(...)`, except the pages marked `.ExcludeFromSitemap()`. A page marked `.ExcludeFromExport()` has no file on the static host, so the exported sitemap leaves it out, while the sitemap the app serves still lists it.
+- `sitemap.xml` lists the pages the export writes, in the order it writes them: each page without parameters, and each dynamic page for every value of its `.StaticParams(...)`, except the pages marked `.ExcludeFromSitemap()`. `.ExcludeFromSitemap()` on a page package's mount leaves out the package's pages, in the exported sitemap and in the one the app serves. A page marked `.ExcludeFromExport()` has no file on the static host, so the exported sitemap leaves it out, while the sitemap the app serves still lists it.
 - `robots.txt` is the file the app serves: its `Disallow` or `Allow` lines and its `Sitemap:` line.
 
 Both build their URLs from the `siteUrl` that the app passes to `MapSitemap` and `MapRobotsTxt` when it runs in the Production environment, which is the environment the export runs in unless `ASPNETCORE_ENVIRONMENT` says otherwise ([environment variables](../reference/cli.md#environment-variables)). Pass the static host's URL there, for example from configuration, with the app reading `app.Configuration["SiteUrl"]`:

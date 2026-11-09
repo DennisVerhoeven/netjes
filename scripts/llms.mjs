@@ -53,6 +53,7 @@ export const SECTIONS = [
       { path: 'docs/guides/routing.md' },
       { path: 'docs/guides/data-loading.md' },
       { path: 'docs/guides/actions-and-forms.md' },
+      { path: 'docs/guides/page-packages.md' },
       { path: 'docs/guides/rendering-and-streaming.md' },
       { path: 'docs/guides/caching.md' },
       { path: 'docs/guides/images.md' },
