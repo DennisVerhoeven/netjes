@@ -31,8 +31,10 @@ The prefix is in folder syntax, so it can hold a route group or a value: `/help`
 | `app/page.tsx` | `/` | `MapPageLoader("/")`: the articles |
 | `app/(center)/layout.tsx` | the `(center)` group | `MapLayoutLoader("app/(center)")`: the list of articles beside each page |
 | `app/(center)/articles/[slug]/page.tsx` | `/articles/[slug]` | `MapPageLoader`, `Page.NotFound()` for an unknown article, and `MapPageAction` for a note, with and without JavaScript; the "Was this helpful?" buttons call `help.vote` |
-| `app/contact/page.tsx` | `/contact` | `MapPageLoader("/contact")`; its form posts JSON to `MapPost("/messages")` |
+| `app/contact/page.tsx` | `/contact` | `MapPageLoader("/contact")`; its form posts JSON to `MapPost("/messages")`, which takes a message of up to 2000 characters |
 | `app/not-found.tsx`, `app/error.tsx` | an unknown URL below the mount, and an error in a page | none |
+
+Readers post notes and messages without signing in, so the in-memory store (`HelpCenterStore.cs`, which stands in for a database) keeps the newest 200 of each, and counts every one.
 
 The pages link with the package's own `Link`, `Form` and `useHref` from `generated/netjes.ts`, which put the mount, and the app's base path, in front of each href: `<Link href="/contact">` goes to `/help/contact` in the Blog. A redirect from C# goes through `PagePackageMount.Url`, which does the same on the server.
 
