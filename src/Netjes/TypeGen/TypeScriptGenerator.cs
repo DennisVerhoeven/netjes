@@ -119,7 +119,7 @@ internal sealed class TypeScriptGenerator(
             if (action.Input is not null) schemas.Add(action.Input);
             if (action.Result is not null) schemas.Add(action.Result);
         }
-        foreach (var slot in groups.SelectMany(g => g.Entries).SelectMany(e => e.Slots.Values)) schemas.Add(slot);
+        foreach (var slot in groups.SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.Add(slot.Value);
 
         var output = new StringBuilder(package is null ? Header : PackageHeader);
         var declarations = schemas.Declarations();

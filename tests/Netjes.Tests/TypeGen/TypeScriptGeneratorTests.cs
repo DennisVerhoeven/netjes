@@ -521,6 +521,24 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_RegisteredSlots_AreInOrdinalOrder_WhateverOrderTheDictionaryKeeps()
+    {
+        // A dictionary that hashes its keys (ImmutableDictionary) may list them in another order in each process, and
+        // `netjes generate --check` compares the file of one process with that of another.
+        var slots = new SortedDictionary<string, Type>(Comparer<string>.Create((a, b) => string.CompareOrdinal(b, a)))
+        {
+            ["input"] = typeof(NewItem),
+            ["result"] = typeof(Item),
+            ["Error"] = typeof(Item),
+        };
+        await using var app = await TestApp.StartAsync(["app/page.tsx"], map: a => a.Services.GetRequiredService<TypeGenRegistry>().Add("actions", "items.create", slots));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("  \"items.create\": { \"Error\": Item, \"input\": NewItem, \"result\": Item },\n", output);
+    }
+
+    [Fact]
     public async Task Generate_RegisteredSlotNames_AreQuoted_SoNoneWritesCode()
     {
         await using var app = await TestApp.StartAsync(
@@ -530,7 +548,7 @@ public class TypeScriptGeneratorTests
 
         var output = await GenerateAsync(app);
 
-        Assert.Contains("export const blocks = {\n  \"hero\": { \"x: z.any() }, y: alert(1), z: { w\": Item, \"data-id\": NewItem },\n} as const;", output);
+        Assert.Contains("export const blocks = {\n  \"hero\": { \"data-id\": NewItem, \"x: z.any() }, y: alert(1), z: { w\": Item },\n} as const;", output);
     }
 
     [Fact]

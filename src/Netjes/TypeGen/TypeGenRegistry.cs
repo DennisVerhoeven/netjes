@@ -7,7 +7,7 @@ namespace Netjes.TypeGen;
 internal sealed class TypeGenRegistry
 {
     private readonly Lock _gate = new();
-    private readonly SortedDictionary<string, SortedDictionary<string, IReadOnlyDictionary<string, Type>>> _groups = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, SortedDictionary<string, IReadOnlyList<KeyValuePair<string, Type>>>> _groups = new(StringComparer.Ordinal);
 
     /// <param name="group">A TypeScript identifier, e.g. <c>actions</c>; must not be one of the built-in exports.</param>
     /// <param name="key">The entry's key, e.g. an action name.</param>
@@ -23,18 +23,19 @@ internal sealed class TypeGenRegistry
         {
             if (!_groups.TryGetValue(group, out var entries))
             {
-                _groups[group] = entries = new SortedDictionary<string, IReadOnlyDictionary<string, Type>>(StringComparer.Ordinal);
+                _groups[group] = entries = new SortedDictionary<string, IReadOnlyList<KeyValuePair<string, Type>>>(StringComparer.Ordinal);
             }
 
-            entries[key] = slots;
+            // A copy in ordinal order: the file is the same in every process, whatever order the dictionary keeps.
+            entries[key] = [.. slots.OrderBy(s => s.Key, StringComparer.Ordinal)];
         }
     }
 
-    public IReadOnlyList<(string Group, IReadOnlyList<(string Key, IReadOnlyDictionary<string, Type> Slots)> Entries)> Snapshot()
+    public IReadOnlyList<(string Group, IReadOnlyList<(string Key, IReadOnlyList<KeyValuePair<string, Type>> Slots)> Entries)> Snapshot()
     {
         lock (_gate)
         {
-            return [.. _groups.Select(g => (g.Key, (IReadOnlyList<(string, IReadOnlyDictionary<string, Type>)>)[.. g.Value.Select(e => (e.Key, e.Value))]))];
+            return [.. _groups.Select(g => (g.Key, (IReadOnlyList<(string, IReadOnlyList<KeyValuePair<string, Type>>)>)[.. g.Value.Select(e => (e.Key, e.Value))]))];
         }
     }
 }
