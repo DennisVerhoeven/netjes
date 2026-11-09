@@ -1416,6 +1416,154 @@ public class AppRouterRegressionTests
         }, ids);
     }
 
+    /// <summary>Signs in a user named after the scheme.</summary>
+    private sealed class SchemeUserHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(
+            new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, Scheme.Name)], Scheme.Name)), Scheme.Name)));
+    }
+
+    [Theory]
+    [InlineData("First", false)]
+    [InlineData("Second", true)]
+    public async Task APolicyNamingTwoSchemes_IsJudgedOnTheUserTheMiddlewareMergesThemInto(string name, bool admitted)
+    {
+        var calls = 0;
+        // Each scheme signs in a user of its name; the policy asks for one of them as the user's primary identity.
+        var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder("First", "Second")
+            .RequireAssertion(c => c.User.Identity?.Name == name).Build();
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/forbidden.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(policy),
+            services: s => s.AddAuthorization().AddAuthentication("Test")
+                .AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Test", null)
+                .AddScheme<AuthenticationSchemeOptions, SchemeUserHandler>("First", null)
+                .AddScheme<AuthenticationSchemeOptions, SchemeUserHandler>("Second", null),
+            configureApp: a => a.UseAuthorization());
+
+        var (pageStatus, _) = await RequestAsync(app, "/", "data");
+        var (status, body) = await RequestAsync(app, "/nope", "data");
+
+        // The middleware's policy evaluator puts the identities of each later scheme first.
+        Assert.Equal(admitted ? HttpStatusCode.OK : HttpStatusCode.Forbidden, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(admitted ? 2 : 0, calls);
+        Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    private sealed class RequestUserSignedIn : Microsoft.AspNetCore.Authorization.IAuthorizationRequirement;
+
+    /// <summary>A handler that reads the request's user rather than the one it is handed, as one built on the request does.</summary>
+    private sealed class RequestUserSignedInHandler : Microsoft.AspNetCore.Authorization.AuthorizationHandler<RequestUserSignedIn>
+    {
+        protected override Task HandleRequirementAsync(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, RequestUserSignedIn requirement)
+        {
+            if (context.Resource is Microsoft.AspNetCore.Http.HttpContext { User.Identity.IsAuthenticated: true })
+            {
+                context.Succeed(requirement);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    [Theory]
+    [InlineData("refuses Ada")]
+    [InlineData("signs Ada in")]
+    public async Task APolicysHandlerThatReadsTheRequestsUser_SeesTheUserThePolicysSchemeAuthenticates_AndTheLoadersTheRequestsOwn(string scheme)
+    {
+        var calls = 0;
+        bool? signedInForTheLoader = null;
+        var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder("Admin").AddRequirements(new RequestUserSignedIn()).Build();
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", (Microsoft.AspNetCore.Http.HttpContext http) =>
+            {
+                calls++;
+                signedInForTheLoader = http.User.Identity?.IsAuthenticated;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(policy),
+            services: s =>
+            {
+                s.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, RequestUserSignedInHandler>();
+                var builder = s.AddAuthorization().AddAuthentication("Site");
+                if (scheme == "refuses Ada")
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, AdaHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Admin", null);
+                }
+                else
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, AdaHandler>("Admin", null);
+                }
+            },
+            configureApp: a => a.UseAuthorization());
+
+        var (pageStatus, _) = await RequestAsync(app, "/", "data");
+        var (status, body) = await RequestAsync(app, "/nope", "data");
+
+        // The middleware puts the Admin scheme's user on the request while the handlers run.
+        var admitted = scheme == "signs Ada in";
+        Assert.Equal(admitted ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(admitted ? 2 : 0, calls);
+        Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
+        if (admitted)
+        {
+            // Once judged, the 404's loaders run for the request's own user, whom only the Site scheme signs in.
+            Assert.False(signedInForTheLoader);
+        }
+    }
+
+    /// <summary>An app's own policy evaluator, as integration tests put in place: it lets everyone in, or nobody.</summary>
+    private sealed class FixedPolicyEvaluator(bool authorizes) : Microsoft.AspNetCore.Authorization.Policy.IPolicyEvaluator
+    {
+        public Task<AuthenticateResult> AuthenticateAsync(Microsoft.AspNetCore.Authorization.AuthorizationPolicy policy, Microsoft.AspNetCore.Http.HttpContext context) =>
+            Task.FromResult(AuthenticateResult.NoResult());
+
+        public Task<Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult> AuthorizeAsync(
+            Microsoft.AspNetCore.Authorization.AuthorizationPolicy policy, AuthenticateResult authenticationResult,
+            Microsoft.AspNetCore.Http.HttpContext context, object? resource) =>
+            Task.FromResult(authorizes
+                ? Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult.Success()
+                : Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult.Forbid());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnAppsOwnPolicyEvaluator_DecidesOnAnUnknownUrlAsOnThePage(bool authorizes)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/forbidden.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: s =>
+            {
+                // Ada is signed in, and nobody else is: the evaluator alone decides.
+                (authorizes ? (Action<IServiceCollection>)Nobody : Ada)(s);
+                s.AddSingleton<Microsoft.AspNetCore.Authorization.Policy.IPolicyEvaluator>(new FixedPolicyEvaluator(authorizes));
+            },
+            configureApp: a => a.UseAuthorization());
+
+        var (pageStatus, _) = await RequestAsync(app, "/", "data");
+        var (status, body) = await RequestAsync(app, "/nope", "data");
+
+        Assert.Equal(authorizes ? HttpStatusCode.OK : HttpStatusCode.Forbidden, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(authorizes ? 2 : 0, calls);
+        Assert.Equal(authorizes, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("document")]
     [InlineData("data")]
