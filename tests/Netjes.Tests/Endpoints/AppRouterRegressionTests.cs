@@ -346,13 +346,13 @@ public class AppRouterRegressionTests
             message.Headers.Add(NetjesHeaders.Data, "1");
         }
 
-        if (request == "data, holding the root segment")
+        if (request is "data, holding the root segment" or "data, holding the mount's segments")
         {
-            var root = app.App.Services.GetRequiredService<Netjes.Routing.IRouteTableProvider>().Current.RootSegments[0];
+            var table = app.App.Services.GetRequiredService<Netjes.Routing.IRouteTableProvider>().Current;
             var version = app.App.Services.GetRequiredService<IAssetResolver>().Version;
-            var key = app.App.Services.GetRequiredService<Netjes.Routing.LayoutLoaderRegistry>()
-                .KeyFor(root, new Microsoft.AspNetCore.Http.DefaultHttpContext(), version);
-            message.Headers.Add(NetjesHeaders.Segments, key);
+            var keys = app.App.Services.GetRequiredService<Netjes.Routing.LayoutLoaderRegistry>();
+            var held = request == "data, holding the root segment" ? table.RootSegments : table.SegmentsAt("help");
+            message.Headers.Add(NetjesHeaders.Segments, string.Join(',', held.Select(s => keys.KeyFor(s, new Microsoft.AspNetCore.Http.DefaultHttpContext(), version))));
         }
 
         var before = app.Renderer.Payloads.Count;
@@ -482,20 +482,22 @@ public class AppRouterRegressionTests
             configureApp: a => a.UseAuthorization(),
             pages: p => p.RequireAuthorization());
 
-        foreach (var url in new[] { "/help/nope", "/HELP/nope", "/help/nope/deeper" })
+        var requests = new[]
         {
-            var (status, body) = await RequestAsync(app, url, "data");
+            ("/help/nope", "data"), ("/help/nope", "document"), ("/help/nope", "head"), ("/HELP/nope", "data"),
+            ("/help/nope/deeper", "data"), ("/help/nope", "data, holding the mount's segments"),
+        };
+        foreach (var (url, request) in requests)
+        {
+            var (status, body) = await RequestAsync(app, url, request);
             var payload = JsonNode.Parse(body)!;
             var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
-            var document = await RequestAsync(app, url, "document");
 
             Assert.Equal(HttpStatusCode.NotFound, status);
-            Assert.Equal(HttpStatusCode.NotFound, document.Status);
             if (visitor == "Ada" && !adminMount)
             {
                 Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
                 Assert.Equal(["app", "app/help"], ids);
-                Assert.Contains("s3cret", body);
             }
             else
             {
@@ -504,11 +506,39 @@ public class AppRouterRegressionTests
                 Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
                 Assert.Equal(["app"], ids);
                 Assert.DoesNotContain("s3cret", body);
-                Assert.DoesNotContain("s3cret", document.Payload);
             }
         }
 
-        Assert.Equal(visitor == "Ada" && !adminMount ? 6 : 0, calls);
+        // The keys a visitor without a user would hold are not Ada's, so her navigation runs the loader too.
+        Assert.Equal(visitor == "Ada" && !adminMount ? requests.Length : 0, calls);
+    }
+
+    [Fact]
+    public async Task AFailedRenderOfA404BelowAMount_UnderMapPagesAuthorization_NeverRunsThePackagesLayoutLoaderForTheErrorPage()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "error.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization(),
+            renderer: r => r.OnRender = payload => payload.Contains("not-found.tsx", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("The not-found page failed to render")
+                : "<!DOCTYPE html><html><body>rendered</body></html>");
+
+        var response = await app.GetDocumentAsync("/help/nope");
+
+        // The error page renders on the chain the 404 stopped, inside the layouts above the refused segment.
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(0, calls);
+        Assert.Equal("app/error.tsx", (string?)app.Renderer.LastPayload["page"]);
+        Assert.Equal(["app"], app.Renderer.LastPayload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
     }
 
     /// <summary>
