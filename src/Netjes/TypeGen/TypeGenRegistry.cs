@@ -31,9 +31,13 @@ internal sealed class TypeGenRegistry
             throw new ArgumentException($"'{group}' cannot be the name of a TypeScript export: it is a reserved word in a JavaScript module.", nameof(group));
         }
 
-        if (TypeScriptGenerator.ReservedExports.Contains(group))
+        // A page package's export is in the app's file and in the package's, which takes more names.
+        if ((owner is null ? TypeScriptGenerator.ReservedExports : TypeScriptGenerator.PackageReservedExports).Contains(group))
         {
-            throw new ArgumentException($"'{group}' is a built-in export of the generated file.", nameof(group));
+            throw new ArgumentException(
+                $"'{group}' cannot be the name of a TypeScript export: {(owner is null ? "the app's" : "a page package's")} generated file " +
+                "declares, imports or uses it already.",
+                nameof(group));
         }
 
         lock (_gate)

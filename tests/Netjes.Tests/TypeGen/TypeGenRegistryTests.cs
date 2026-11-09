@@ -91,4 +91,39 @@ public class TypeGenRegistryTests
         Assert.StartsWith($"'{group}' cannot be the name of a TypeScript export: it is a reserved word in a JavaScript module.", error.Message);
         Assert.Empty(registry.Snapshot());
     }
+
+    [Theory]
+    [InlineData("pages", null)]
+    [InlineData("Href", null)]
+    [InlineData("z", null)]
+    [InlineData("Number", null)]
+    [InlineData("pages", "@acme/blocks")]
+    [InlineData("serverActions", "@acme/blocks")]
+    [InlineData("Link", "@acme/blocks")]
+    [InlineData("MountHref", "@acme/blocks")]
+    [InlineData("mounted", "@acme/blocks")]
+    [InlineData("isHrefShape", "@acme/blocks")]
+    public void AGroupNamedLikeAnExportOfTheFile_Throws(string group, string? owner)
+    {
+        var registry = new TypeGenRegistry();
+
+        var error = Assert.Throws<ArgumentException>(() => registry.Add(group, "hero", Props(typeof(Hero)), owner));
+
+        Assert.Equal("group", error.ParamName);
+        Assert.StartsWith(
+            $"'{group}' cannot be the name of a TypeScript export: {(owner is null ? "the app's" : "a page package's")} generated file " +
+            "declares, imports or uses it already.",
+            error.Message);
+    }
+
+    [Fact]
+    public void TheApp_MayNameAGroupLikeAnExportOfAPagePackagesFileAlone()
+    {
+        var registry = new TypeGenRegistry();
+
+        // A page package's export is in the app's file and in the package's; one of the app's in the app's alone.
+        registry.Add("Link", "hero", Props(typeof(Hero)));
+
+        Assert.Equal("Link", Assert.Single(registry.Snapshot()).Group);
+    }
 }
