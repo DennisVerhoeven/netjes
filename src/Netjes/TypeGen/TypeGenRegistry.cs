@@ -6,12 +6,28 @@ namespace Netjes.TypeGen;
 /// </summary>
 internal sealed class TypeGenRegistry
 {
+    /// <summary>
+    /// What a module cannot declare with <c>export const</c>: JavaScript's reserved words, those of strict mode, which a
+    /// module is in, <c>await</c>, and <c>arguments</c> and <c>eval</c>, which strict mode does not let a declaration take.
+    /// </summary>
+    private static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
+    {
+        "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export",
+        "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
+        "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
+        "implements", "interface", "let", "package", "private", "protected", "public", "static", "yield",
+        "await", "arguments", "eval",
+    };
+
     private readonly Lock _gate = new();
     private readonly SortedDictionary<string, Group> _groups = new(StringComparer.Ordinal);
 
     private sealed record Group(string? Owner, SortedDictionary<string, IReadOnlyList<KeyValuePair<string, Type>>> Entries);
 
-    /// <param name="group">A TypeScript identifier, e.g. <c>actions</c>; must not be one of the built-in exports.</param>
+    /// <param name="group">
+    /// The export's name, e.g. <c>blocks</c>: an identifier of ASCII letters, digits, <c>_</c> and <c>$</c>, and no reserved
+    /// word or name the file takes already (a page package's file takes more).
+    /// </param>
     /// <param name="key">The entry's key, e.g. an action name.</param>
     /// <param name="slots">Named types for the entry, e.g. <c>input</c> and <c>result</c>.</param>
     /// <param name="owner">The npm name of the page package that adds the export; null for the app's own.</param>
@@ -98,19 +114,6 @@ internal sealed class TypeGenRegistry
             entries.Entries[key] = [.. slots.OrderBy(s => s.Key, StringComparer.Ordinal)];
         }
     }
-
-    /// <summary>
-    /// What a module cannot declare with <c>export const</c>: JavaScript's reserved words, those of strict mode, which a
-    /// module is in, <c>await</c>, and <c>arguments</c> and <c>eval</c>, which strict mode does not let a declaration take.
-    /// </summary>
-    private static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
-    {
-        "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export",
-        "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
-        "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
-        "implements", "interface", "let", "package", "private", "protected", "public", "static", "yield",
-        "await", "arguments", "eval",
-    };
 
     private static bool IsIdentifier(string name) =>
         name.Length > 0 && !char.IsAsciiDigit(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '$');
