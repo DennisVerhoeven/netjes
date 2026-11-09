@@ -153,4 +153,23 @@ public class TypeGenRegistryTests
             error.Message);
         Assert.Empty(registry.Snapshot());
     }
+
+    [Fact]
+    public void AKeyOrSlotNamedProto_Throws_SinceAnObjectLiteralTakesItForThePrototype()
+    {
+        var registry = new TypeGenRegistry();
+
+        // `{ "__proto__": { ... } }` sets the prototype of the object it writes, quoted or not: the entry would be no key of it.
+        var key = Assert.Throws<ArgumentException>(() => registry.Add("blocks", "__proto__", Props(typeof(Hero)), owner: "@acme/blocks"));
+        var slot = Assert.Throws<ArgumentException>(() => registry.Add("blocks", "hero", new Dictionary<string, Type> { ["__proto__"] = typeof(Hero) }, owner: "@acme/blocks"));
+
+        Assert.Equal("key", key.ParamName);
+        Assert.StartsWith(
+            "The TypeScript export 'blocks' cannot have an entry '__proto__': an object literal takes that key for its prototype.", key.Message);
+        Assert.Equal("slots", slot.ParamName);
+        Assert.StartsWith(
+            "The entry 'hero' of the TypeScript export 'blocks' cannot have a slot '__proto__': an object literal takes that key for its prototype.",
+            slot.Message);
+        Assert.Empty(registry.Snapshot());
+    }
 }

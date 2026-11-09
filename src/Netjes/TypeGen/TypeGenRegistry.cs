@@ -40,8 +40,23 @@ internal sealed class TypeGenRegistry
                 nameof(group));
         }
 
+        // `{ "__proto__": ... }` sets the prototype of the object literal, quoted or not, where every other key is its own.
+        const string Prototype = "__proto__";
+        if (key == Prototype)
+        {
+            throw new ArgumentException(
+                $"The TypeScript export '{group}' cannot have an entry '{key}': an object literal takes that key for its prototype.", nameof(key));
+        }
+
         foreach (var (name, type) in slots)
         {
+            if (name == Prototype)
+            {
+                throw new ArgumentException(
+                    $"The entry '{key}' of the TypeScript export '{group}' cannot have a slot '{name}': an object literal takes that key for its prototype.",
+                    nameof(slots));
+            }
+
             if (type.ContainsGenericParameters || type.IsByRef || type.IsPointer || type.IsFunctionPointer || type == typeof(void))
             {
                 throw new ArgumentException(
