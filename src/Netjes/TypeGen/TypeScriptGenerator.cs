@@ -123,7 +123,9 @@ internal sealed class TypeScriptGenerator(
             if (action.Input is not null) schemas.Add(action.Input);
             if (action.Result is not null) schemas.Add(action.Result);
         }
-        foreach (var slot in groups.SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.Add(slot.Value);
+        foreach (var slot in groups.Where(g => package is not null || g.Owner is null).SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.Add(slot.Value);
+        // In the app's file, a page package's export yields: the app's own types keep the names they have without the package.
+        foreach (var slot in groups.Where(g => package is null && g.Owner is not null).SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.AddYielding(slot.Value);
 
         var output = new StringBuilder(package is null ? Header : PackageHeader);
         var declarations = schemas.Declarations();

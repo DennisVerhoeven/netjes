@@ -15,7 +15,10 @@ namespace Netjes.TypeGen;
 /// types, collections and primitives are written inline, and <see cref="Href"/> as <c>Href</c>, the schema the generated
 /// file declares from the app's pages.
 /// </summary>
-/// <remarks>Usage: <see cref="Add"/> every root type, then read <see cref="Declarations"/> and <see cref="Reference"/>.</remarks>
+/// <remarks>
+/// Usage: <see cref="Add"/> every root type, then <see cref="AddYielding"/> any whose names yield, then read
+/// <see cref="Declarations"/> and <see cref="Reference"/>.
+/// </remarks>
 internal sealed class ZodSchemas
 {
     private readonly JsonSerializerOptions _options;
@@ -23,7 +26,9 @@ internal sealed class ZodSchemas
     private readonly HashSet<Type> _named = [];
     private readonly HashSet<Type> _visiting = [];
     private readonly HashSet<(Type Owner, Type Target)> _backReferences = [];
+    private readonly HashSet<Type> _yielding = [];
     private readonly IReadOnlySet<string> _reserved;
+    private bool _addingYielding;
     private Dictionary<Type, string>? _names;
 
     /// <param name="options">The app's JSON options, which the schemas follow.</param>
@@ -47,7 +52,30 @@ internal sealed class ZodSchemas
             throw new InvalidOperationException("Add every type before reading declarations or references.");
         }
 
+        if (_addingYielding)
+        {
+            throw new InvalidOperationException("Add every type whose names do not yield before those whose names do.");
+        }
+
         Visit(type, owner: null);
+    }
+
+    /// <summary>
+    /// Collects a root type and the named types it reaches that <see cref="Add"/> did not, which yield their names: each
+    /// type <see cref="Add"/> collects keeps the name it has without them, as the app's own types keep theirs in the app's
+    /// file next to a page package's export.
+    /// </summary>
+    public void AddYielding(Type type)
+    {
+        if (_names is not null)
+        {
+            throw new InvalidOperationException("Add every type before reading declarations or references.");
+        }
+
+        _addingYielding = true;
+        var known = new HashSet<Type>(_named);
+        Visit(type, owner: null);
+        _yielding.UnionWith(_named.Where(t => !known.Contains(t)));
     }
 
     /// <summary>The identifier of a named type, or the inline expression of any other type.</summary>
@@ -507,7 +535,15 @@ internal sealed class ZodSchemas
             return _names;
         }
 
-        return _names = Allocate([.. _named], _reserved);
+        var names = Allocate([.. _named.Where(t => !_yielding.Contains(t))], _reserved);
+        // The types that yield take none of the names of the others, which keep the names they have without them.
+        var taken = new HashSet<string>(_reserved.Concat(names.Values), StringComparer.Ordinal);
+        foreach (var (type, name) in Allocate([.. _named.Where(_yielding.Contains)], taken))
+        {
+            names[type] = name;
+        }
+
+        return _names = names;
     }
 
     /// <summary>A name for each of the types, none of them one of <paramref name="reserved"/>.</summary>

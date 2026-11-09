@@ -435,6 +435,8 @@ public class PagePackageTypesTests
     public static class AppTypes
     {
         public sealed record HomeProps(string Greeting, int Visits);
+
+        public sealed record HeroBlock(string Heading);
     }
 
     [Fact]
@@ -470,6 +472,26 @@ public class PagePackageTypesTests
             Assert.Contains("export const HeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", output);
             Assert.Contains("export const blocks = {\n  \"hero\": { \"props\": HeroBlock },\n  \"quote\": { \"props\": QuoteBlock },\n} as const;", output);
         }
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughTheMount_RenamesNoneOfTheAppsSchemas_ForASlotsTypeOfTheSameName()
+    {
+        // The export's schemas are in the app's file too, where the app's own `HeroBlock` was there first.
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new AppTypes.HeroBlock("Hi"))),
+            mount: MapWithBlocks);
+
+        var output = AppFile(app);
+        var package = PackageFile(app);
+
+        Assert.Contains("export const HeroBlock = z.object({\n  heading: z.string(),\n});", output);
+        Assert.Contains("export const pages = {\n  \"/\": HeroBlock,\n} as const;", output);
+        Assert.Contains("export const PagePackageTypesTestsHeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", output);
+        Assert.Contains("  \"hero\": { \"props\": PagePackageTypesTestsHeroBlock },\n", output);
+        Assert.Contains("export const HeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", package);
+        Assert.Contains("  \"hero\": { \"props\": HeroBlock },\n", package);
     }
 
     [Fact]

@@ -327,6 +327,59 @@ public class ZodSchemasEdgeCaseTests
         Assert.Equal("Blocks", plain.Reference(typeof(Blocks)));
     }
 
+    /// <summary>The app's own types, named like those of a page package's export.</summary>
+    public static class AppSide
+    {
+        public sealed record Image(string Url);
+
+        public sealed record Banner(Image Image, Shared Shared);
+    }
+
+    /// <summary>The types of a page package's export.</summary>
+    public static class PackageSide
+    {
+        public sealed record Image(string Src);
+
+        public sealed record Banner(Image Image, Shared Shared);
+    }
+
+    public sealed record Shared(int Id);
+
+    [Fact]
+    public void TypesThatYield_TakeNoNameOfTheOthers_WhichKeepTheNamesTheyHaveWithoutThem()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var alone = new ZodSchemas(options);
+        alone.Add(typeof(AppSide.Banner));
+        var both = new ZodSchemas(options);
+        both.Add(typeof(AppSide.Banner));
+        both.AddYielding(typeof(PackageSide.Banner));
+
+        foreach (var type in new[] { typeof(AppSide.Banner), typeof(AppSide.Image), typeof(Shared) })
+        {
+            Assert.Equal(alone.Reference(type), both.Reference(type));
+        }
+
+        Assert.Equal("Banner", both.Reference(typeof(AppSide.Banner)));
+        Assert.Equal("Image", both.Reference(typeof(AppSide.Image)));
+        // A type both reach is one of the others', with its own name.
+        Assert.Equal("Shared", both.Reference(typeof(Shared)));
+        Assert.Equal("PackageSideBanner", both.Reference(typeof(PackageSide.Banner)));
+        Assert.Equal("PackageSideImage", both.Reference(typeof(PackageSide.Image)));
+        Assert.Contains("export const PackageSideBanner = z.object({\n  image: PackageSideImage,\n  shared: Shared,\n});", both.Declarations());
+    }
+
+    [Fact]
+    public void AnAddAfterAnAddYielding_Throws_SinceTheTypesItReachesMightYieldAlready()
+    {
+        var schemas = new ZodSchemas(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        schemas.AddYielding(typeof(PackageSide.Banner));
+
+        var error = Assert.Throws<InvalidOperationException>(() => schemas.Add(typeof(AppSide.Banner)));
+
+        Assert.Equal("Add every type whose names do not yield before those whose names do.", error.Message);
+    }
+
     [Fact]
     public void DeferredValues_KeepTheNullabilityOfTheirTypeArgument()
     {
