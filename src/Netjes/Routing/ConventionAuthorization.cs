@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Builder;
@@ -92,6 +94,14 @@ internal static class ConventionAuthorization
         var requestUser = http.User;
         try
         {
+            if (policy.AuthenticationSchemes.Count == 0 && http.Features.Get<IAuthenticationFeature>() is null
+                && await DefaultSchemeUserAsync(http) is { } signedIn)
+            {
+                // The authentication middleware has not run for this request (a page's 413, an unsupported locale's 404, a
+                // status from a middleware ahead of it): judge the user it would have put on the request.
+                http.User = signedIn;
+            }
+
             var evaluator = http.RequestServices.GetService<IPolicyEvaluator>()
                 ?? new PolicyEvaluator(http.RequestServices.GetRequiredService<IAuthorizationService>());
             var authenticated = await evaluator.AuthenticateAsync(policy, http);
@@ -100,6 +110,30 @@ internal static class ConventionAuthorization
         finally
         {
             http.User = requestUser;
+        }
+    }
+
+    /// <summary>
+    /// The user the default authenticate scheme signs in, as <c>UseAuthentication()</c> finds them; null when it signs in
+    /// nobody, or fails.
+    /// </summary>
+    private static async Task<ClaimsPrincipal?> DefaultSchemeUserAsync(HttpContext http)
+    {
+        if (http.RequestServices.GetService<IAuthenticationSchemeProvider>() is not { } schemes
+            || await schemes.GetDefaultAuthenticateSchemeAsync() is not { } scheme)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await http.AuthenticateAsync(scheme.Name) is { Succeeded: true, Principal: { } principal } ? principal : null;
+        }
+        catch (Exception) when (!http.RequestAborted.IsCancellationRequested)
+        {
+            // UseAuthentication() fails the same way on the requests that reach it. This one keeps the page it is answered
+            // with, for a visitor without a user, as when that middleware throws ahead of the page's error page.
+            return null;
         }
     }
 }

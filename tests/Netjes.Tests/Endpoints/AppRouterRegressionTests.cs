@@ -887,6 +887,150 @@ public class AppRouterRegressionTests
         Assert.Empty(JsonNode.Parse(data ? body : app.Renderer.Payloads.Last())!["segments"]!.AsArray());
     }
 
+    /// <summary>
+    /// The status pages Netjes renders before the authentication middleware has run, in the order the guides give
+    /// (<c>UseNetjes()</c>, then <c>UseAuthentication()</c> and <c>UseAuthorization()</c>): the 413 for a body over the
+    /// limit, the 404 for an unsupported locale, and an empty 429 from a middleware between the two, on a page and on an
+    /// unknown URL; for Ada, whom the default scheme signs in, or a visitor without a user.
+    /// </summary>
+    public static TheoryData<string, bool> BeforeAuthentication => new()
+    {
+        { "a body over the limit", false },
+        { "a body over the limit", true },
+        { "an unsupported locale", false },
+        { "an unsupported locale", true },
+        { "a middleware's 429", false },
+        { "a middleware's 429", true },
+        { "a middleware's 429 on an unknown URL", false },
+        { "a middleware's 429 on an unknown URL", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(BeforeAuthentication))]
+    public async Task AStatusPageBeforeUseAuthenticationRan_JudgesTheVisitorTheDefaultSchemeSignsIn(string how, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/page.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: s =>
+            {
+                (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.Use(async (http, next) =>
+                {
+                    if (how.StartsWith("a middleware's 429", StringComparison.Ordinal))
+                    {
+                        http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+
+                    await next(http);
+                });
+                a.UseAuthentication();
+                a.UseAuthorization();
+            },
+            kestrel: true);
+
+        var (status, body) = how switch
+        {
+            "a body over the limit" => await GetDeclaringABodyAsync(app, "/", 40_000_000, data: true),
+            "an unsupported locale" => await StatusAndBodyAsync("/xx"),
+            "a middleware's 429" => await StatusAndBodyAsync("/"),
+            // Below the locale, which would take /nope.
+            _ => await StatusAndBodyAsync("/en/nope"),
+        };
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        // As on the page, where UseAuthentication() has put the default scheme's user on the request first.
+        Assert.Equal(how switch
+        {
+            "a body over the limit" => 413,
+            "an unsupported locale" => 404,
+            _ => 429,
+        }, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+        Assert.Equal(signedIn ? how == "an unsupported locale" ? ["app", "app/[lang]"] : ["app"] : [], ids);
+
+        async Task<(int, string)> StatusAndBodyAsync(string url)
+        {
+            var (code, payload) = await RequestAsync(app, url, "data");
+            return ((int)code, payload);
+        }
+    }
+
+    [Theory]
+    [InlineData("a body over the limit")]
+    [InlineData("an unsupported locale")]
+    [InlineData("a middleware's 429")]
+    public async Task AStatusPageBeforeUseAuthenticationRan_WhenTheDefaultSchemeThrows_IsTheAppsOwnForAVisitorWithoutAUser(string how)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/page.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx",
+             "app/[lang]/admin/layout.tsx", "app/[lang]/admin/page.tsx"],
+            map: a => a.MapLayoutLoader("/[lang]/admin", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: s =>
+            {
+                s.AddAuthorization().AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, ThrowingHandler>("Test", null);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.Use(async (http, next) =>
+                {
+                    if (how == "a middleware's 429")
+                    {
+                        http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+
+                    await next(http);
+                });
+                a.UseAuthentication();
+                a.UseAuthorization();
+            },
+            kestrel: true);
+
+        var (status, body) = how switch
+        {
+            "a body over the limit" => await GetDeclaringABodyAsync(app, "/en/admin", 40_000_000, data: true),
+            _ => await StatusAndBodyAsync(how == "an unsupported locale" ? "/xx/admin" : "/en/admin"),
+        };
+
+        // UseAuthentication() would fail the same way, on the requests that reach it; these keep their own page and status.
+        Assert.Equal(how switch
+        {
+            "a body over the limit" => 413,
+            "an unsupported locale" => 404,
+            _ => 429,
+        }, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body);
+        // The nearest boundary above the protected section, inside the layouts above it.
+        Assert.Equal(how == "an unsupported locale" ? ["app", "app/[lang]"] : ["app"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+
+        async Task<(int, string)> StatusAndBodyAsync(string url)
+        {
+            var (code, payload) = await RequestAsync(app, url, "data");
+            return ((int)code, payload);
+        }
+    }
+
     [Fact]
     public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
     {
