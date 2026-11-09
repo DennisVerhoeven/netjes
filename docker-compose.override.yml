@@ -18,6 +18,8 @@ services:
       - /src/packages/netjes/dist
       - /src/examples/Blog/bin
       - /src/examples/Blog/obj
+      - /src/examples/HelpCenter/bin
+      - /src/examples/HelpCenter/obj
       - /src/src/Netjes/bin
       - /src/src/Netjes/obj
       - /src/src/Netjes.Images.SkiaSharp/bin
