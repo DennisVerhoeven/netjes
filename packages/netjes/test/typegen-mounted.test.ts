@@ -7,7 +7,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { endpointUrl, Href, isHref, pages, route } from './fixtures/typegen/mounted/package.generated.ts';
+import { blocks as appBlocks } from './fixtures/typegen/mounted/app.generated.ts';
+import { blocks, endpointUrl, Href, isHref, pages, route } from './fixtures/typegen/mounted/package.generated.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/typegen/mounted/', import.meta.url));
 const TSC = path.join(path.dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc');
@@ -57,6 +58,20 @@ describe("a page package's generated file", () => {
     expect(route('/articles/[slug]', { slug: 'a b/c' }, { page: 2 })).toBe('/articles/a%20b%2Fc?page=2');
     expect(endpointUrl('GET /articles/{slug}/feed', { slug: 'a', take: 5 })).toBe('/articles/a/feed?take=5');
     expect(endpointUrl('POST /feedback')).toBe('/feedback');
+  });
+});
+
+describe("an export the package adds through its mount (AddTypeScriptExport)", () => {
+  it("parses by key in the package's file and in the app's, each with its own Href", () => {
+    for (const file of [blocks, appBlocks]) {
+      expect(file.hero.props.parse({ title: 'Hi', link: '/help/contact' })).toEqual({ title: 'Hi', link: '/help/contact' });
+      expect(file.hero.props.safeParse({ title: 'Hi', link: '//evil.example' }).success).toBe(false);
+      expect(file.quote.props.parse({ text: 'Quoted' })).toEqual({ text: 'Quoted' });
+    }
+
+    // The app's Href knows the app's pages; the package's checks the shape alone.
+    expect(appBlocks.hero.props.safeParse({ title: 'Hi', link: '/nope' }).success).toBe(false);
+    expect(blocks.hero.props.safeParse({ title: 'Hi', link: '/nope' }).success).toBe(true);
   });
 });
 

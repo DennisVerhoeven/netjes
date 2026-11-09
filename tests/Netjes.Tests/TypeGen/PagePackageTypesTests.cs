@@ -455,7 +455,7 @@ public class PagePackageTypesTests
     public sealed record QuoteBlock(string Text);
 
     /// <summary>The blocks a package adds to both files, as a package of page blocks would.</summary>
-    private static void MapWithBlocks(PagePackageBuilder mount)
+    internal static void MapWithBlocks(PagePackageBuilder mount)
     {
         MapHelpCenter(mount);
         mount.AddTypeScriptExport("blocks", "quote", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
