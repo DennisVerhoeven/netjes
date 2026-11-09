@@ -413,8 +413,9 @@ internal sealed class PageRenderer(
     /// (the fallback took it, or an app catch-all returned <c>Page.NotFound()</c>): the folders down to the deepest such
     /// mount, from every source, so the package's not-found renders inside its layouts. The prefix's values go into the
     /// route values, for the layout loaders and the payload's mounts. The fallback endpoint carries no layout loader's
-    /// authorization and no mount's conventions, so each loader on the chain, and each segment with a package's files
-    /// under that package's mount's conventions, is authorized here before any of them runs. Null elsewhere.
+    /// authorization, no mount's conventions and none of <c>MapPages()</c>'s, so each loader on the chain (on the
+    /// fallback under <c>MapPages()</c>'s authorization too), and each segment with a package's files under that
+    /// package's mount's conventions, is authorized here before any of them runs. Null elsewhere.
     /// </summary>
     private async Task<MountChain?> MountChainAsync(HttpContext http, RouteTable table, PageRoute? route)
     {
