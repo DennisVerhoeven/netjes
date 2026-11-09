@@ -507,10 +507,16 @@ internal sealed class ZodSchemas
             return _names;
         }
 
-        var names = _named.ToDictionary(t => t, t => SimpleName(t, qualify: 0));
+        return _names = Allocate([.. _named], _reserved);
+    }
+
+    /// <summary>A name for each of the types, none of them one of <paramref name="reserved"/>.</summary>
+    private static Dictionary<Type, string> Allocate(IReadOnlyCollection<Type> types, IReadOnlySet<string> reserved)
+    {
+        var names = types.ToDictionary(t => t, t => SimpleName(t, qualify: 0));
         // The generated file's own exports (pages, Href, Route, ...) are taken too.
         bool Clashes(IGrouping<string, KeyValuePair<Type, string>> group) =>
-            group.Count() > 1 || _reserved.Contains(group.Key);
+            group.Count() > 1 || reserved.Contains(group.Key);
         for (var level = 1; level <= 2; level++)
         {
             var clashes = names.GroupBy(n => n.Value, StringComparer.Ordinal).Where(Clashes).SelectMany(g => g).ToList();
@@ -520,7 +526,7 @@ internal sealed class ZodSchemas
             }
         }
 
-        foreach (var (type, name) in names.Where(n => _reserved.Contains(n.Value)).ToList())
+        foreach (var (type, name) in names.Where(n => reserved.Contains(n.Value)).ToList())
         {
             names[type] = name + "Schema";
         }
@@ -535,7 +541,7 @@ internal sealed class ZodSchemas
             }
         }
 
-        return _names = names;
+        return names;
     }
 
     private static string SimpleName(Type type, int qualify)
