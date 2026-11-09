@@ -359,6 +359,31 @@ const { navigation } = useSharedProps(sharedProps);
 - Build the URL as `route()` builds one: root-relative, in the file's spelling, with each value encoded (`new Href($"/blog/{Uri.EscapeDataString(slug)}")`), and without the base path, which the router adds as it does for every link. The props parse compares the literal segments with their case, so `new Href("/About")` fails it for `app/about/page.tsx`, although the server redirects `/About` to `/about` ([One URL per page](routing.md#one-url-per-page)). `LinkGenerator`'s overloads that take an `HttpContext` add the request's base path, so pass them `pathBase: PathString.Empty`.
 - No query value or route value binds to an `Href`, also through `[AsParameters]`. A URL from the request, such as a `returnUrl`, stays a `string`, checked with `Page.IsLocalUrl` ([What a loader returns](#what-a-loader-returns)). An action input reads an `Href` from JSON, as a server action called with an object sends it, checked for its shape only. Form binding fills one only from a field named after the constructor's parameter (`next.url` for a property `Next`), also checked for its shape only, and never from the field `next` that a form posts: that leaves an `init` property `null` and fails a positional record's post with 400. So a `[FromForm]` input takes a `string` and makes the `Href` with `Href.TryCreate`.
 
+### Exports of a page package
+
+A page package has a generated file of its own, and the app's file holds none of the package's schemas ([C# API](../reference/csharp-api.md#pagepackagebuilder)). Schemas that the app's code reads too, such as the props of each kind of block a package stores and the app's own pages render, go in an export of the package's, which its extension adds through the mount:
+
+```csharp
+public static PagePackageBuilder MapHelpCenter(this IEndpointRouteBuilder app, string prefix = "/help")
+{
+    var mount = app.MapPagePackage(Package, prefix);
+    mount.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) });
+    mount.AddTypeScriptExport("blocks", "quote", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
+    return mount;
+}
+```
+
+Both files, the app's and the package's, then hold the schemas of `HeroBlock` and `QuoteBlock`, and the export:
+
+```ts
+export const blocks = {
+  "hero": { "props": HeroBlock },
+  "quote": { "props": QuoteBlock },
+} as const;
+```
+
+The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. `netjes generate --check` fails on both files when an export changes, so run `netjes generate` after updating the package.
+
 ## JSON endpoints
 
 An API is a minimal API endpoint next to the pages. Return `TypedResults` (or declare `Results<...>`) and the endpoint gets request and response schemas in the generated `api` map, keyed by method and route template as written:
