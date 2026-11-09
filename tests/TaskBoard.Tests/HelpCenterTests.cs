@@ -50,6 +50,39 @@ public class HelpCenterTests
         Assert.Equal("help@example.com", (string?)payload["props"]!["email"]);
     }
 
+    [Fact]
+    public async Task TaskBoardsOwnPageInThePackagesGroup_RendersInsideThePackagesCenterLayout()
+    {
+        await using var app = new HelpCenterApp();
+        var client = app.CreateClient();
+
+        var (status, payload) = await PageAsync(client, "/help/shortcuts");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("app/(marketing)/help/(center)/shortcuts/page.tsx", (string?)payload["page"]);
+        Assert.Equal(
+            ["app/layout.tsx", "app/(marketing)/layout.tsx", $"{Package}/app/layout.tsx", $"{Package}/app/(center)/layout.tsx"],
+            Layouts(payload));
+        var center = payload["segments"]!.AsArray().Single(s => (string?)s!["id"] == "app/(marketing)/help/(center)")!;
+        Assert.NotEmpty(center["props"]!["articles"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task AnUnknownUrlBelowTheMount_RendersThePackagesNotFound_InsideTheMarketingChrome()
+    {
+        await using var app = new HelpCenterApp();
+        var client = app.CreateClient();
+
+        var (status, payload) = await PageAsync(client, "/help/nope");
+        var (outsideStatus, outside) = await PageAsync(client, "/helpdesk");
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal($"{Package}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(["app/layout.tsx", "app/(marketing)/layout.tsx", $"{Package}/app/layout.tsx"], Layouts(payload));
+        Assert.Equal(HttpStatusCode.NotFound, outsideStatus);
+        Assert.Equal("app/not-found.tsx", (string?)outside["page"]);
+    }
+
     /// <summary>A client navigation: the page payload as JSON.</summary>
     private static async Task<(HttpStatusCode Status, JsonNode Payload)> PageAsync(HttpClient client, string url)
     {
