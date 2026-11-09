@@ -559,6 +559,19 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_RegisteredKeys_AreQuoted_SoNoneWritesCode()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.Services.GetRequiredService<TypeGenRegistry>()
+                .Add("blocks", "x\": {}, y: alert(1), \"z\n*/\u2028`${x}`", new Dictionary<string, Type> { ["props"] = typeof(Item) }));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("export const blocks = {\n  \"x\\u0022: {}, y: alert(1), \\u0022z\\n*/\\u2028\\u0060${x}\\u0060\": { \"props\": Item },\n} as const;", output);
+    }
+
+    [Fact]
     public async Task Generate_RegisteredSlotNames_AreQuoted_SoNoneWritesCode()
     {
         await using var app = await TestApp.StartAsync(
