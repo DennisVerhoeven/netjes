@@ -17,6 +17,15 @@ internal sealed class TypeGenRegistry
     /// <param name="owner">The npm name of the page package that adds the export; null for the app's own.</param>
     public void Add(string group, string key, IReadOnlyDictionary<string, Type> slots, string? owner = null)
     {
+        ArgumentNullException.ThrowIfNull(group);
+        if (!IsIdentifier(group))
+        {
+            throw new ArgumentException(
+                $"'{group}' cannot be the name of a TypeScript export, which the generated file declares as `export const {group}`: " +
+                "a name is ASCII letters, digits, '_' and '$', and does not start with a digit.",
+                nameof(group));
+        }
+
         if (TypeScriptGenerator.ReservedExports.Contains(group))
         {
             throw new ArgumentException($"'{group}' is a built-in export of the generated file.", nameof(group));
@@ -47,6 +56,9 @@ internal sealed class TypeGenRegistry
             entries.Entries[key] = [.. slots.OrderBy(s => s.Key, StringComparer.Ordinal)];
         }
     }
+
+    private static bool IsIdentifier(string name) =>
+        name.Length > 0 && !char.IsAsciiDigit(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '$');
 
     private static string Who(string? owner) => owner is null ? "the app" : $"'{owner}'";
 

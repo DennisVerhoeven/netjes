@@ -39,4 +39,26 @@ public class TypeGenRegistryTests
         Assert.Equal(message + " Give the export a name of its own.", error.Message);
         Assert.Equal("hero", Assert.Single(Assert.Single(registry.Snapshot()).Entries).Key);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("1blocks")]
+    [InlineData("my-blocks")]
+    [InlineData("blocks.hero")]
+    [InlineData("two words")]
+    [InlineData("bl\u00f6cks")]
+    [InlineData("x = 1; alert(1); const y")]
+    public void AGroupThatIsNoIdentifier_Throws(string group)
+    {
+        var registry = new TypeGenRegistry();
+
+        var error = Assert.Throws<ArgumentException>(() => registry.Add(group, "hero", Props(typeof(Hero)), owner: "@acme/blocks"));
+
+        Assert.Equal("group", error.ParamName);
+        Assert.StartsWith(
+            $"'{group}' cannot be the name of a TypeScript export, which the generated file declares as `export const {group}`: " +
+            "a name is ASCII letters, digits, '_' and '$', and does not start with a digit.",
+            error.Message);
+        Assert.Empty(registry.Snapshot());
+    }
 }
