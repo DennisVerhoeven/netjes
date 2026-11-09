@@ -118,6 +118,7 @@ export const SECTIONS = [
       { path: 'docs/benchmarks.md', full: false },
       { path: 'examples/Blog/README.md', title: 'Blog example', full: false },
       { path: 'examples/TaskBoard/README.md', title: 'TaskBoard example', full: false },
+      { path: 'examples/HelpCenter/README.md', title: 'HelpCenter example', full: false },
     ],
   },
 ];

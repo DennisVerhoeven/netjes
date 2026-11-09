@@ -45,6 +45,7 @@ Migrations never run on app start in production. The `migrate` service runs `dot
 | Titles: `export const metadata` with a template in the root layout, `.WithMetadata` from C# | `app/layout.tsx`, every loader |
 | Loading and error states inside their layouts | `app/(app)/projects/[id]/loading.tsx`, `app/(app)/error.tsx`, `app/error.tsx` |
 | Data: EF Core, snake_case names, `IEntityTypeConfiguration` per entity, the `InitialSchema` migration | `Data/` |
+| A page package: the help center from `examples/HelpCenter`, mounted in the marketing group with `app.MapHelpCenter("/(marketing)/help")`, so its pages are at `/help` inside the marketing chrome. `.Override("/help/contact")` replaces the package's contact page with TaskBoard's own, which the package's loader still serves and which reads the package's props schema; TaskBoard's shortcuts page sits in the package's `(center)` group, inside its layout; and `styles/global.css` sets the package's `--help-*` tokens to TaskBoard's colours | `Program.cs`, `vite.config.ts`, `app/(marketing)/help/`, `styles/global.css`, `../HelpCenter/` |
 | Types from C#: page and layout props (`pages[...]`, `layouts[...]`), shared props, the stats API (`api[...]`) and its URL (`endpointUrl()`), server actions (`serverActions[...]`) and typed routes (`route()`, `<Link href>`), all generated from the C# records | `generated/netjes.ts`, `Program.cs` (`UseSharedProps`, the enum converter), `lib/project.ts` |
 
 ## Things worth knowing
@@ -95,7 +96,7 @@ The auth cookie is a self-contained, encrypted ticket, valid for 14 days and ren
 
 ```bash
 dotnet test --project ../../tests/TaskBoard.Tests   # the real app against Postgres in Testcontainers (needs Docker)
-npm test                                            # Vitest component tests with createTestApp
+npm test                                            # Vitest component tests with createTestApp, and the help center's documents with renderDocument
 npm run typecheck                                   # TypeScript against the generated types
 npx netjes generate --check                         # fails when generated/netjes.ts is out of date (no database needed)
 npm run test:e2e                                    # Playwright, dev and production, on ports 8090/8091/8190
@@ -110,6 +111,7 @@ Some suites check what production depends on rather than one feature:
 - `OutputCacheInstancesTests` runs two instances on one output-cache store and key ring, with a cached page (TaskBoard caches none): entries are shared, revalidation evicts for both, signed-in visitors are never served or stored, and a payload that reuses a layout is shared only with the same `SegmentKeySecret`, so neither instance serves one under a key the visitor never sent.
 - `SidecarCrashTests` runs the built app in a process of its own (`npm run build` first). It kills its sidecar while a page streams, and expects the response cut and the next render whole. It also stops the sidecar (`kill -STOP`), and expects `/healthz` to report Unhealthy until Netjes has killed and restarted it, then a whole render from the new process. It listens on a free port, or on `TASKBOARD_TEST_PORT`.
 - `e2e/navigation.spec.ts` overtakes a slow navigation with a newer click or the back button.
+- `HelpCenterTests` and `e2e/help.spec.ts` check the help center inside the marketing chrome: the override, TaskBoard's page in the package's group, and the package's 404. The server tests need no database, so they are not Docker tests.
 - `e2e/no-js.spec.ts` posts every form of the app without JavaScript, in development and production: signing up, signing in from a page that needs it and landing back on it, starting a project, signing out (and Back after it), the board (adding a task and moving it), editing a task and commenting, and adding a member. Each post is answered with a redirect, or with the page again showing the errors and what was typed. The project pages render inside a loading boundary and the board is larger than React's 12.8 kB streaming chunk, so these tests also show that a boundary that is ready with the shell is written in place.
 
 The end-to-end suite starts a throwaway Postgres container on 127.0.0.1:8432 (`e2e/db.mjs`; `E2E_DB_PORT` moves it) with a database for each mode, and removes it afterwards (`e2e/global-teardown.mjs`). The container is `taskboard-e2e-db`, or `taskboard-e2e-db-<port>` on another port, so runs on different ports leave each other alone. `E2E_DEV_PORT`, `E2E_PROD_PORT` and `E2E_VITE_PORT` move the app servers. The production run migrates with the `migrate` command first, like the compose stack.

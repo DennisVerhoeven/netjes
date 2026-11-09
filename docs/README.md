@@ -113,4 +113,5 @@ Each decision record says what was decided, the alternatives, and what follows f
 
 - [Blog](../examples/Blog/README.md): a blog with a docs section, a guestbook, a JSON API, streaming, images and a static export.
 - [TaskBoard](../examples/TaskBoard/README.md): a multi-tenant project tracker on Postgres, with authentication and a production Docker Compose stack.
+- [HelpCenter](../examples/HelpCenter/README.md): a page package, a help center that the Blog mounts at `/help` and TaskBoard in its marketing group, with one of its pages replaced.
 - [netjes on npm](../packages/netjes/README.md), [Netjes on NuGet](../src/Netjes/README.md) and [Netjes.Images.SkiaSharp](../src/Netjes.Images.SkiaSharp/README.md): what each package holds and how to install it.
