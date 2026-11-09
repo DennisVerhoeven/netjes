@@ -213,7 +213,8 @@ internal sealed class TypeScriptGenerator(
         foreach (var (group, entries) in groups)
         {
             output.Append('\n');
-            AppendMap(output, group, entries.Select(e => (e.Key, Slots([.. e.Slots.Select(s => (s.Key, (string?)schemas.Reference(s.Value)))]))));
+            // Slot names are quoted as keys are: a registered name is text, never code.
+            AppendMap(output, group, entries.Select(e => (e.Key, Slots([.. e.Slots.Select(s => (JsonSerializer.Serialize(s.Key), (string?)schemas.Reference(s.Value)))]))));
         }
 
         AppendRoutes(output, linked, package?.Name);

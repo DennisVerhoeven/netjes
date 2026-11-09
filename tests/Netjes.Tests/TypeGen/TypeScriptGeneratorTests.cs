@@ -517,7 +517,20 @@ public class TypeScriptGeneratorTests
 
         var output = await GenerateAsync(app);
 
-        Assert.Contains("export const actions = {\n  \"items.create\": { input: NewItem, result: Item },\n} as const;", output);
+        Assert.Contains("export const actions = {\n  \"items.create\": { \"input\": NewItem, \"result\": Item },\n} as const;", output);
+    }
+
+    [Fact]
+    public async Task Generate_RegisteredSlotNames_AreQuoted_SoNoneWritesCode()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.Services.GetRequiredService<TypeGenRegistry>()
+                .Add("blocks", "hero", new Dictionary<string, Type> { ["x: z.any() }, y: alert(1), z: { w"] = typeof(Item), ["data-id"] = typeof(NewItem) }));
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains("export const blocks = {\n  \"hero\": { \"x: z.any() }, y: alert(1), z: { w\": Item, \"data-id\": NewItem },\n} as const;", output);
     }
 
     [Fact]
