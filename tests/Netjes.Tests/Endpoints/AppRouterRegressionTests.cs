@@ -956,6 +956,171 @@ public class AppRouterRegressionTests
     }
 
     /// <summary>
+    /// Where Ada or a visitor without a user meets a root layout loader that requires a signed-in user, in an app that
+    /// opens its file pages with <c>MapPages().AllowAnonymous()</c> and maps a loader for every page, so that no page
+    /// carries the opening: the page itself (their 401), an unknown URL, and an empty 429 from a middleware ahead of
+    /// authorization on the page.
+    /// </summary>
+    public static TheoryData<string, bool> LoaderPagesUnderAnOpenMapPages => new()
+    {
+        { "the page", false },
+        { "the page", true },
+        { "an unknown URL", false },
+        { "an unknown URL", true },
+        { "a middleware's 429 on the page", false },
+        { "a middleware's 429 on the page", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(LoaderPagesUnderAnOpenMapPages))]
+    public async Task UnderMapPagesAllowAnonymous_ALayoutLoaderThatRequiresAUserOverLoaderPages_RunsOnlyForAVisitorThosePagesLetIn(string where, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                }).RequireAuthorization();
+                // MapPages()'s conventions reach the file pages only, and this leaves none.
+                a.MapPageLoader("/", () => Page.Props());
+                a.MapPageLoader("/admin", () => Page.Props());
+            },
+            services: signedIn ? Ada : Nobody,
+            configureApp: a =>
+            {
+                a.Use(async (http, next) =>
+                {
+                    if (where == "a middleware's 429 on the page")
+                    {
+                        http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+
+                    await next(http);
+                });
+                a.UseAuthorization();
+            },
+            pages: p => p.AllowAnonymous());
+
+        var (status, body) = await RequestAsync(app, where == "an unknown URL" ? "/nope" : "/admin", "data");
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(where switch
+        {
+            "the page" => signedIn ? HttpStatusCode.OK : HttpStatusCode.Unauthorized,
+            "an unknown URL" => HttpStatusCode.NotFound,
+            _ => HttpStatusCode.TooManyRequests,
+        }, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? ["app"] : [], ids);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnderMapPagesAllowAnonymous_ASectionLoaderThatRequiresAUserOverItsLoaderPage_NeverRunsOnTheir401()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/layout.tsx", "app/admin/unauthorized.tsx", "app/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/admin", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                }).RequireAuthorization();
+                a.MapPageLoader("/admin", () => Page.Props());
+            },
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.AllowAnonymous());
+
+        var (status, body) = await RequestAsync(app, "/admin", "data");
+        var payload = JsonNode.Parse(body)!;
+
+        // The section's only page carries the loader's RequireAuthorization() and not MapPages()'s AllowAnonymous().
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body);
+        Assert.Equal("app/admin/unauthorized.tsx", (string?)payload["page"]);
+        Assert.Equal(["app"], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnknownUrlBelowAMount_UnderMapPagesAllowAnonymous_RunsThePackagesLoaderThatRequiresAUserOnlyForAVisitorItsLoaderPagesLetIn(bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a =>
+            {
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                mount.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                }).RequireAuthorization();
+                mount.MapPageLoader("/", () => Page.Props());
+            },
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.AllowAnonymous());
+
+        var (status, body) = await RequestAsync(app, "/help/nope", "data");
+        var payload = JsonNode.Parse(body)!;
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? $"{Help}/app/not-found.tsx" : "app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(signedIn ? ["app", "app/help"] : ["app"], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnderAFallbackPolicy_MapPagesAllowAnonymous_KeepsAnUnprotectedRootLayoutLoaderOnTheStatusPagesOfEveryVisitor()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Site = "public" });
+                });
+                a.MapPageLoader("/admin", () => Page.Props()).RequireAuthorization();
+            },
+            services: s =>
+            {
+                Nobody(s);
+                s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+            },
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.AllowAnonymous());
+
+        // The file page at the root lets every visitor in and runs the loader for them; a loader page without conventions
+        // of its own would fall to the fallback policy, but the loader asks for nothing, so it refuses nobody.
+        var (pageStatus, _) = await RequestAsync(app, "/", "data");
+        var (refusedStatus, refused) = await RequestAsync(app, "/admin", "data");
+        var (unknownStatus, unknown) = await RequestAsync(app, "/nope", "data");
+
+        Assert.Equal(HttpStatusCode.OK, pageStatus);
+        Assert.Equal(HttpStatusCode.Unauthorized, refusedStatus);
+        Assert.Equal(HttpStatusCode.Unauthorized, unknownStatus);
+        Assert.Equal(["app"], JsonNode.Parse(refused)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+        Assert.Equal(["app"], JsonNode.Parse(unknown)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+        Assert.Equal(3, calls);
+    }
+
+    /// <summary>
     /// Where a visitor without a user meets a root layout loader of no authorization of its own, in an app whose pages
     /// <c>MapPages().RequireAuthorization()</c> or a fallback policy protects: an unknown URL, a page's own 401, a server
     /// action's 401, a forbidden page a public minimal API asks for, and an empty 429 from a middleware ahead of

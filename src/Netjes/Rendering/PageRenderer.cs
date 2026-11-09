@@ -233,12 +233,14 @@ internal sealed class PageRenderer(
     /// <summary>
     /// The index of the first of <paramref name="segments"/> whose layout loader this user may not see, or that holds a
     /// file of a page package whose mount's conventions the user fails; null when none. A layout loader is judged as the
-    /// authorization middleware judges a file page in its folder, on everything that page carries at once: the
-    /// conventions of the layout loaders down to it, those of the mount whose files the folder holds (a layout loader
-    /// mapped through a mount carries only its own, and its props would otherwise reach a visitor the mount refuses), and
-    /// <c>MapPages()</c>'s, else the fallback policy. So a loader runs here only for a visitor the pages below it let in,
-    /// whichever endpoint's boundary this is: the not-found fallback, which carries none of them, another endpoint that
-    /// serves no page, or a page whose own authorization refused the visitor or has not run.
+    /// authorization middleware judges the pages in its folder, on everything they carry at once: the conventions of the
+    /// layout loaders down to it and those of the mount whose files the folder holds (a layout loader mapped through a
+    /// mount carries only its own, and its props would otherwise reach a visitor the mount refuses), which every page
+    /// there carries; and for a file page, <c>MapPages()</c>'s too, else the fallback policy. The visitor must pass both:
+    /// a page with a loader carries none of <c>MapPages()</c>'s, so their <c>AllowAnonymous()</c> opens no page of that
+    /// kind. So a loader runs here only for a visitor the pages below it let in, whichever endpoint's boundary this is:
+    /// the not-found fallback, which carries none of them, another endpoint that serves no page, or a page whose own
+    /// authorization refused the visitor or has not run.
     /// </summary>
     private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
@@ -259,13 +261,14 @@ internal sealed class PageRenderer(
             if (layoutLoaders.Find(segments[i].Id) is { } loader)
             {
                 above.AddRange(loader.Conventions.Concat(loader.FinallyConventions));
-                // Judged as the authorization middleware judges a page in the segment's folder, on all the conventions
-                // it carries at once: an AllowAnonymous() on any of them lets every visitor in, as it does there, and
-                // with none that asks for authorization, the fallback policy applies.
-                var page = above
-                    .Concat(mounts.SelectMany(m => m.Mount.Conventions.Concat(m.Mount.FinallyConventions)))
-                    .Concat(pages);
-                if (!await ConventionAuthorization.AuthorizesAsync(http, ConventionAuthorization.MetadataOf(http.RequestServices, page)))
+                // What every page in the segment's folder carries, a loader page (MapPageLoader) too, which gets none of
+                // MapPages()'s: those must let the visitor in on their own, unless they ask for no authorization.
+                var carried = above.Concat(mounts.SelectMany(m => m.Mount.Conventions.Concat(m.Mount.FinallyConventions))).ToList();
+                // And a file page there, judged as the authorization middleware judges it, on all the conventions it
+                // carries at once: an AllowAnonymous() on any of them lets every visitor in, as it does there, and with
+                // none that asks for authorization, the fallback policy applies.
+                if (!await ConventionAuthorization.AuthorizesAsync(http, http.RequestServices, carried, [])
+                    || !await ConventionAuthorization.AuthorizesAsync(http, ConventionAuthorization.MetadataOf(http.RequestServices, carried.Concat(pages))))
                 {
                     return i;
                 }
