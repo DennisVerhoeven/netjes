@@ -318,6 +318,125 @@ public class AppRouterRegressionTests
         Assert.Equal(signedIn ? 1 : 0, calls);
     }
 
+    /// <summary>
+    /// The ways to ask for an unknown URL outside every page package's mount, which the not-found fallback answers: a
+    /// document, a client navigation (one that claims to hold the root segment too, with the key a visitor without a
+    /// user would get for it), a <c>HEAD</c>, a deeper URL, and other spellings of the URL.
+    /// </summary>
+    public static TheoryData<string, string> UnknownUrls => new()
+    {
+        { "/nope", "document" },
+        { "/nope", "data" },
+        { "/nope", "data, holding the root segment" },
+        { "/nope", "head" },
+        { "/nope/deeper", "data" },
+        { "/NOPE", "document" },
+        { "/%6eope", "document" },
+        { "//nope", "document" },
+    };
+
+    /// <summary>A request for <paramref name="url"/> as <see cref="UnknownUrls"/> names it: its status and the payload the page got.</summary>
+    private static async Task<(HttpStatusCode Status, string Payload)> RequestAsync(TestApp app, string url, string request)
+    {
+        // From the origin, so //nope stays a path rather than naming a host.
+        var message = new HttpRequestMessage(
+            request == "head" ? HttpMethod.Head : HttpMethod.Get, new Uri(app.Client.BaseAddress!.GetLeftPart(UriPartial.Authority) + url));
+        if (request.StartsWith("data", StringComparison.Ordinal))
+        {
+            message.Headers.Add(NetjesHeaders.Data, "1");
+        }
+
+        if (request == "data, holding the root segment")
+        {
+            var root = app.App.Services.GetRequiredService<Netjes.Routing.IRouteTableProvider>().Current.RootSegments[0];
+            var version = app.App.Services.GetRequiredService<IAssetResolver>().Version;
+            var key = app.App.Services.GetRequiredService<Netjes.Routing.LayoutLoaderRegistry>()
+                .KeyFor(root, new Microsoft.AspNetCore.Http.DefaultHttpContext(), version);
+            message.Headers.Add(NetjesHeaders.Segments, key);
+        }
+
+        var before = app.Renderer.Payloads.Count;
+        var response = await app.Client.SendAsync(message, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        return (response.StatusCode, message.Headers.Contains(NetjesHeaders.Data) ? body : app.Renderer.Payloads[before]);
+    }
+
+    [Theory]
+    [MemberData(nameof(UnknownUrls))]
+    public async Task UnknownUrl_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string url, string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        var (status, body) = await RequestAsync(app, url, request);
+        var payload = JsonNode.Parse(body)!;
+
+        // Still the 404 an unknown URL gets, without a challenge: the root's not-found, outside the root layout.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(0, calls);
+        Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
+        Assert.Empty(payload["segments"]!.AsArray());
+        Assert.DoesNotContain("s3cret", body);
+    }
+
+    [Theory]
+    [InlineData("document")]
+    [InlineData("data")]
+    public async Task UnknownUrl_RunsAProtectedRootLayoutLoaderForAVisitorItAuthorizes(string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Ada,
+            configureApp: a => a.UseAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", request);
+        var segments = JsonNode.Parse(body)!["segments"]!.AsArray();
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app"], segments.Select(s => (string?)s!["id"]));
+        Assert.Equal("s3cret", (string?)segments[0]!["props"]!["secret"]);
+    }
+
+    [Theory]
+    [InlineData("document")]
+    [InlineData("data")]
+    public async Task UnknownUrlUnderABasePath_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pathBase: "/base");
+
+        var (status, body) = await RequestAsync(app, "/base/nope", request);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(0, calls);
+        Assert.Empty(JsonNode.Parse(body)!["segments"]!.AsArray());
+        Assert.DoesNotContain("s3cret", body);
+    }
+
     [Fact]
     public async Task ForgedSegmentKey_DoesNotSkipAGuardingLayoutLoader()
     {

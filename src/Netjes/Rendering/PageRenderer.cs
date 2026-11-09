@@ -353,6 +353,15 @@ internal sealed class PageRenderer(
 
         var special = boundary == Boundary.NotFound ? table.NotFound : table.Error;
         var specialSegments = (special?.Segments ?? table.RootSegments).Take(max).ToList();
+        // An endpoint that serves no page (the not-found fallback, a server action, a minimal API) carries no layout
+        // loader's conventions, so nothing has authorized the root's: as on a mount's chain, the page stops above the
+        // first one this user fails, and renders inside the layouts above it with its own status. A page's endpoint
+        // carries those of every layout above it, and a mount's chain was authorized when it was found.
+        if (route is null && mount is null && await FirstDeniedSegmentAsync(http, specialSegments) is { } refused)
+        {
+            specialSegments = specialSegments[..refused];
+        }
+
         var root = await LoadSegmentsAsync(http, specialSegments, slotsOf);
         if (root.Stop is { } rootStop)
         {
