@@ -3837,7 +3837,7 @@ The pages of a mounted [page package](https://raw.githubusercontent.com/DennisVe
 app.MapHelpCenter("/help").ExcludeFromExport();
 ```
 
-That leaves the app's own pages under the prefix alone: they are written, or need `.ExcludeFromExport()` of their own. The exported `404.html` is the app's root `not-found.tsx`, not a package's, unless the package is mounted at the root URL in an app without one. The package's chunks are in the client build all the same, and so in the export's copy of it.
+That leaves the app's own pages under the prefix alone: they are written, or need `.ExcludeFromExport()` of their own. The exported `404.html` is the not-found page the app renders for a URL that no page serves: the root `not-found.tsx`, unless a mount takes that URL, as a mount at the root URL does in an app without a root `not-found.tsx`, and a mount at a single value, such as `/[tenant]`, does in any app, so the package's not-found is written. The package's chunks are in the client build all the same, and so in the export's copy of it.
 
 Server actions, minimal APIs that are not marked `.IncludeInExport()`, `/_netjes/antiforgery`, web vitals collection and the image endpoint have no static counterpart: an exported page that calls them gets the static host's 404. `<Image>` points its `src` and `srcset` at the image endpoint, so give images on exported pages `unoptimized`, which uses the file as it is.
 
