@@ -98,12 +98,16 @@ public class AppRouterRegressionTests
     [Fact]
     public async Task Empty401_WithARootLayoutLoader_RendersTheUnauthorizedPageInsideTheRootLayout()
     {
+        // The page's own loader refuses the visitor; the root layout's, like a file page at the root, lets them in.
         await using var app = await TestApp.StartAsync(
             ["app/layout.tsx", "app/error.tsx", "app/unauthorized.tsx", "app/admin/page.tsx"],
-            map: a => a.MapLayoutLoader("/", () => Page.Props(new { Site = "x" })),
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () => Page.Props(new { Site = "x" }));
+                a.MapPageLoader("/admin", () => Page.Props()).RequireAuthorization();
+            },
             services: Nobody,
-            configureApp: a => a.UseAuthorization(),
-            pages: p => p.RequireAuthorization());
+            configureApp: a => a.UseAuthorization());
 
         var response = await app.GetDocumentAsync("/admin");
 
@@ -316,6 +320,842 @@ public class AppRouterRegressionTests
         }
 
         Assert.Equal(signedIn ? 1 : 0, calls);
+    }
+
+    /// <summary>
+    /// The ways to ask for an unknown URL outside every page package's mount, which the not-found fallback answers: a
+    /// document, a client navigation (one that claims to hold the root segment too, with the key a visitor without a
+    /// user would get for it), a <c>HEAD</c>, a deeper URL, and other spellings of the URL.
+    /// </summary>
+    public static TheoryData<string, string> UnknownUrls => new()
+    {
+        { "/nope", "document" },
+        { "/nope", "data" },
+        { "/nope", "data, holding the root segment" },
+        { "/nope", "head" },
+        { "/nope/deeper", "data" },
+        { "/NOPE", "document" },
+        { "/%6eope", "document" },
+        { "//nope", "document" },
+    };
+
+    /// <summary>A request for <paramref name="url"/> as <see cref="UnknownUrls"/> names it: its status and the payload the page got.</summary>
+    private static async Task<(HttpStatusCode Status, string Payload)> RequestAsync(TestApp app, string url, string request)
+    {
+        // From the origin, so //nope stays a path rather than naming a host.
+        var message = new HttpRequestMessage(
+            request == "head" ? HttpMethod.Head : HttpMethod.Get, new Uri(app.Client.BaseAddress!.GetLeftPart(UriPartial.Authority) + url));
+        if (request.StartsWith("data", StringComparison.Ordinal))
+        {
+            message.Headers.Add(NetjesHeaders.Data, "1");
+        }
+
+        if (request is "data, holding the root segment" or "data, holding the mount's segments")
+        {
+            var table = app.App.Services.GetRequiredService<Netjes.Routing.IRouteTableProvider>().Current;
+            var version = app.App.Services.GetRequiredService<IAssetResolver>().Version;
+            var keys = app.App.Services.GetRequiredService<Netjes.Routing.LayoutLoaderRegistry>();
+            var held = request == "data, holding the root segment" ? table.RootSegments : table.SegmentsAt("help");
+            message.Headers.Add(NetjesHeaders.Segments, string.Join(',', held.Select(s => keys.KeyFor(s, new Microsoft.AspNetCore.Http.DefaultHttpContext(), version))));
+        }
+
+        var before = app.Renderer.Payloads.Count;
+        var response = await app.Client.SendAsync(message, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        return (response.StatusCode, message.Headers.Contains(NetjesHeaders.Data) ? body : app.Renderer.Payloads[before]);
+    }
+
+    [Theory]
+    [MemberData(nameof(UnknownUrls))]
+    public async Task UnknownUrl_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string url, string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        var (status, body) = await RequestAsync(app, url, request);
+        var payload = JsonNode.Parse(body)!;
+
+        // Still the 404 an unknown URL gets, without a challenge: the root's not-found, outside the root layout.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(0, calls);
+        Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
+        Assert.Empty(payload["segments"]!.AsArray());
+        Assert.DoesNotContain("s3cret", body);
+    }
+
+    [Theory]
+    [InlineData("document")]
+    [InlineData("data")]
+    public async Task UnknownUrl_RunsAProtectedRootLayoutLoaderForAVisitorItAuthorizes(string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Ada,
+            configureApp: a => a.UseAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", request);
+        var segments = JsonNode.Parse(body)!["segments"]!.AsArray();
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app"], segments.Select(s => (string?)s!["id"]));
+        Assert.Equal("s3cret", (string?)segments[0]!["props"]!["secret"]);
+    }
+
+    [Theory]
+    [InlineData("document", false)]
+    [InlineData("data", false)]
+    [InlineData("data, holding the root segment", false)]
+    [InlineData("document", true)]
+    [InlineData("data", true)]
+    public async Task UnknownUrl_UnderMapPagesAuthorization_NeverRunsAnUnprotectedRootLayoutLoaderForAVisitorItRefuses(string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", request);
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        // The fallback is one of MapPages()'s endpoints without carrying its conventions (an unknown URL would be
+        // challenged), so their authorization guards the layout loaders on its chain.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? ["app"] : [], ids);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Who visits an unknown URL below a page package's mount whose own layout loader has no authorization, nobody or Ada
+    /// (signed in, no roles), and whether the mount requires the Admin role. <c>MapPages()</c> requires a signed-in user.
+    /// </summary>
+    public static TheoryData<string, bool> MountVisitors => new()
+    {
+        { "nobody", false },
+        { "Ada", false },
+        { "nobody", true },
+        { "Ada", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(MountVisitors))]
+    public async Task UnknownUrlBelowAMount_UnderMapPagesAuthorization_NeverRunsThePackagesLayoutLoaderForAVisitorItRefuses(string visitor, bool adminMount)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a =>
+            {
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                if (adminMount)
+                {
+                    mount.RequireAuthorization(p => p.RequireRole("Admin"));
+                }
+
+                mount.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+            },
+            services: visitor == "Ada" ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var requests = new[]
+        {
+            ("/help/nope", "data"), ("/help/nope", "document"), ("/help/nope", "head"), ("/HELP/nope", "data"),
+            ("/help/nope/deeper", "data"), ("/help/nope", "data, holding the mount's segments"),
+        };
+        foreach (var (url, request) in requests)
+        {
+            var (status, body) = await RequestAsync(app, url, request);
+            var payload = JsonNode.Parse(body)!;
+            var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+            Assert.Equal(HttpStatusCode.NotFound, status);
+            if (visitor == "Ada" && !adminMount)
+            {
+                Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(["app", "app/help"], ids);
+            }
+            else
+            {
+                // The app's not-found inside its root layout, which has no loader: MapPages()'s authorization stops the
+                // chain at the first layout loader on it, the mount's at the first folder with the package's files.
+                Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(["app"], ids);
+                Assert.DoesNotContain("s3cret", body);
+            }
+        }
+
+        // The keys a visitor without a user would hold are not Ada's, so her navigation runs the loader too.
+        Assert.Equal(visitor == "Ada" && !adminMount ? requests.Length : 0, calls);
+    }
+
+    [Fact]
+    public async Task AFailedRenderOfA404BelowAMount_UnderMapPagesAuthorization_NeverRunsThePackagesLayoutLoaderForTheErrorPage()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "error.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization(),
+            renderer: r => r.OnRender = payload => payload.Contains("not-found.tsx", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("The not-found page failed to render")
+                : "<!DOCTYPE html><html><body>rendered</body></html>");
+
+        var response = await app.GetDocumentAsync("/help/nope");
+
+        // The error page renders on the chain the 404 stopped, inside the layouts above the refused segment.
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(0, calls);
+        Assert.Equal("app/error.tsx", (string?)app.Renderer.LastPayload["page"]);
+        Assert.Equal(["app"], app.Renderer.LastPayload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    /// <summary>
+    /// The boundaries Netjes renders for an endpoint that serves no page, whose chain nothing has authorized, with the
+    /// status each gets: the status pages for a server action's empty 401, for the fallback policy's on an unknown URL
+    /// and for an empty 403 or 429 a middleware sets on one; the not-found and forbidden pages a minimal API asks for;
+    /// and the error pages for an exception on an unknown URL, in a server action, and in the render of a 404.
+    /// </summary>
+    public static TheoryData<string, int, bool> NonPageBoundaries => new()
+    {
+        { "a server action's 401", 401, false },
+        { "the fallback policy's 401", 401, false },
+        { "a middleware's 403", 403, false },
+        { "a middleware's 403", 403, true },
+        { "a middleware's 429", 429, false },
+        { "Page.NotFound() from a minimal API", 404, false },
+        { "Page.NotFound() from a minimal API", 404, true },
+        { "Page.Forbidden() from a minimal API", 403, false },
+        { "an exception on an unknown URL", 500, false },
+        { "an exception on an unknown URL", 500, true },
+        { "an exception in a server action", 500, false },
+        { "a failed render of an unknown URL's 404", 500, false },
+        { "a failed render of an unknown URL's 404", 500, true },
+    };
+
+    [Theory]
+    [MemberData(nameof(NonPageBoundaries))]
+    public async Task ABoundaryForAnEndpointThatServesNoPage_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string path, int status, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/forbidden.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                }).RequireAuthorization();
+                a.MapAction("secure", () => ServerAction.Ok()).RequireAuthorization();
+                a.MapAction("boom", Func<ServerActionResult> () => throw new InvalidOperationException("boom"));
+                a.MapGet("/api/missing", () => Page.NotFound());
+                a.MapGet("/api/refused", () => Page.Forbidden());
+            },
+            services: s =>
+            {
+                (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                if (path == "the fallback policy's 401")
+                {
+                    s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+                }
+            },
+            configureApp: a =>
+            {
+                a.UseAuthorization();
+                a.Use(async (http, next) =>
+                {
+                    switch (http.Request.Path.Value)
+                    {
+                        case "/blocked":
+                            http.Response.StatusCode = path == "a middleware's 429" ? 429 : 403;
+                            return;
+                        case "/boom":
+                            throw new InvalidOperationException("boom");
+                    }
+
+                    await next(http);
+                });
+            },
+            renderer: r => r.OnRender = payload => path == "a failed render of an unknown URL's 404" && payload.Contains("app/not-found.tsx", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("The not-found page failed to render")
+                : "<!DOCTYPE html><html><body>rendered</body></html>");
+
+        var response = path switch
+        {
+            "a server action's 401" => await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/_netjes/actions/secure") { Content = new FormUrlEncodedContent([]) }, Ct),
+            "an exception in a server action" => await app.Client.SendAsync(NoJsPost("boom", await FetchedTokenAsync(app)), Ct),
+            "a middleware's 403" or "a middleware's 429" => await app.GetDocumentAsync("/blocked"),
+            "Page.NotFound() from a minimal API" => await app.GetDocumentAsync("/api/missing"),
+            "Page.Forbidden() from a minimal API" => await app.GetDocumentAsync("/api/refused"),
+            "an exception on an unknown URL" => await app.GetDocumentAsync("/boom"),
+            _ => await app.GetDocumentAsync("/nope"),
+        };
+        var payload = app.Renderer.Payloads.Last();
+        var ids = JsonNode.Parse(payload)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal((HttpStatusCode)status, response.StatusCode);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? ["app"] : [], ids);
+        Assert.Equal(signedIn, payload.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("the loader's", "document", false)]
+    [InlineData("the loader's", "data", false)]
+    [InlineData("the loader's", "data", true)]
+    [InlineData("MapPages()'s", "data", false)]
+    [InlineData("MapPages()'s", "data", true)]
+    public async Task AnUnsupportedLocale_BeforeAuthorization_NeverRunsAProtectedLayoutLoaderOnThePagesChainForAVisitorItRefuses(
+        string guard, string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/layout.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx", "app/[lang]/admin/layout.tsx", "app/[lang]/admin/not-found.tsx", "app/[lang]/admin/page.tsx"],
+            map: a =>
+            {
+                var loader = a.MapLayoutLoader("/[lang]/admin", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                if (guard == "the loader's")
+                {
+                    loader.RequireAuthorization();
+                }
+            },
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization();
+                }
+            },
+            services: s =>
+            {
+                (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            // Right after UseNetjes, as the routing guide puts it: its 404 comes before the authorization middleware.
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/xx/admin", request);
+        var payload = JsonNode.Parse(body)!;
+        var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? "app/[lang]/admin/not-found.tsx" : "app/[lang]/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(signedIn ? ["app/[lang]", "app/[lang]/admin"] : ["app/[lang]"], ids);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnUnsupportedLocale_ForAPageWhoseOwnLoaderRefusesTheVisitor_RendersInsideTheLayoutsTheyMayUse()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/[lang]/layout.tsx", "app/[lang]/not-found.tsx", "app/[lang]/page.tsx", "app/[lang]/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/[lang]", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Site = "public" });
+                });
+                a.MapPageLoader("/[lang]/admin", () => Page.Props()).RequireAuthorization();
+            },
+            services: s =>
+            {
+                Nobody(s);
+                s.AddNetjesLocalization(o => o.SupportedCultures = ["en", "nl"]);
+            },
+            configureApp: a =>
+            {
+                a.UseNetjesLocalization();
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/xx/admin", "data");
+
+        // As on the page's 401 for the same visitor: its own loader's refusal says nothing about the layout above it.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app/[lang]"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    private sealed class ThrowingHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
+            throw new InvalidOperationException("The identity provider's metadata could not be fetched");
+    }
+
+    /// <summary>The way ASP.NET Core documents to hide a protected page: a refusal answered with an empty 404.</summary>
+    private sealed class RefusalAs404 : Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler
+    {
+        private readonly Microsoft.AspNetCore.Authorization.Policy.AuthorizationMiddlewareResultHandler _default = new();
+
+        public Task HandleAsync(
+            Microsoft.AspNetCore.Http.RequestDelegate next, Microsoft.AspNetCore.Http.HttpContext context,
+            Microsoft.AspNetCore.Authorization.AuthorizationPolicy policy, Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult result)
+        {
+            if (result.Challenged || result.Forbidden)
+            {
+                context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound;
+                return Task.CompletedTask;
+            }
+
+            return _default.HandleAsync(next, context, policy, result);
+        }
+    }
+
+    /// <summary>
+    /// The ways a page's own status or error page renders before the authorization middleware has let its visitor in,
+    /// with the status each keeps: an empty 429 from a middleware ahead of it (a rate limiter), an exception thrown there,
+    /// an authentication handler that throws (the guides put UseAuthentication() after UseNetjes()), and a refusal the
+    /// app answers with an empty 404.
+    /// </summary>
+    public static TheoryData<string, string, bool> BeforeAuthorization => new()
+    {
+        { "a middleware's 429", "document", false },
+        { "a middleware's 429", "data", false },
+        { "a middleware's 429", "data", true },
+        { "an exception in a middleware", "document", false },
+        { "an exception in a middleware", "document", true },
+        { "an authentication handler that throws", "document", false },
+        { "a refusal answered with 404", "document", false },
+        { "a refusal answered with 404", "data", false },
+    };
+
+    [Theory]
+    [MemberData(nameof(BeforeAuthorization))]
+    public async Task APagesBoundary_BeforeAuthorizationLetsTheVisitorIn_NeverRunsALayoutLoaderItRefusesThem(string how, string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/page.tsx",
+             "app/admin/layout.tsx", "app/admin/error.tsx", "app/admin/not-found.tsx", "app/admin/page.tsx"],
+            map: a => a.MapLayoutLoader("/admin", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: s =>
+            {
+                if (how == "an authentication handler that throws")
+                {
+                    s.AddAuthorization().AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, ThrowingHandler>("Test", null);
+                }
+                else
+                {
+                    (signedIn ? (Action<IServiceCollection>)Ada : Nobody)(s);
+                }
+
+                if (how == "a refusal answered with 404")
+                {
+                    s.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, RefusalAs404>();
+                }
+            },
+            configureApp: a =>
+            {
+                a.Use(async (http, next) =>
+                {
+                    switch (how)
+                    {
+                        case "a middleware's 429":
+                            http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                            return;
+                        case "an exception in a middleware":
+                            throw new InvalidOperationException("boom");
+                    }
+
+                    await next(http);
+                });
+                if (how == "an authentication handler that throws")
+                {
+                    a.UseAuthentication();
+                }
+
+                a.UseAuthorization();
+            });
+
+        var (status, body) = await RequestAsync(app, "/admin", request);
+        var payload = JsonNode.Parse(body)!;
+        var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(how switch
+        {
+            "a middleware's 429" => HttpStatusCode.TooManyRequests,
+            "a refusal answered with 404" => HttpStatusCode.NotFound,
+            _ => HttpStatusCode.InternalServerError,
+        }, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+        if (signedIn)
+        {
+            Assert.Equal(["app", "app/admin"], ids);
+        }
+        else
+        {
+            // The nearest boundary above the refused section, inside the layouts above it.
+            Assert.Equal(how == "a refusal answered with 404" ? "app/not-found.tsx" : "app/error.tsx", (string?)payload["page"]);
+            Assert.Equal(["app"], ids);
+        }
+    }
+
+    /// <summary>
+    /// A GET over a raw socket that declares a body of <paramref name="declared"/> bytes and sends none, in HTTP/1.0 so the
+    /// answer comes unchunked.
+    /// </summary>
+    private static async Task<(int Status, string Body)> GetDeclaringABodyAsync(TestApp app, string path, long declared, bool data)
+    {
+        var uri = app.Client.BaseAddress!;
+        using var tcp = new System.Net.Sockets.TcpClient();
+        await tcp.ConnectAsync(uri.Host, uri.Port, Ct);
+        await using var stream = tcp.GetStream();
+        var head = $"GET {path} HTTP/1.0\r\nHost: {uri.Authority}\r\nContent-Length: {declared}\r\n"
+            + (data ? $"{NetjesHeaders.Data}: 1\r\n" : "") + "\r\n";
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head), Ct);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var text = await reader.ReadToEndAsync(Ct);
+        var split = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        return (int.Parse(text[..split].Split("\r\n")[0].Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture), text[(split + 4)..]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ABodyOverTheLimit_OnAProtectedPage_GetsThe413WithoutRunningALayoutLoaderNothingAuthorized(bool data)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            kestrel: true);
+
+        // Above the server's 30 MB: Netjes answers 413 before the authorization middleware runs.
+        var (status, body) = await GetDeclaringABodyAsync(app, "/", 40_000_000, data);
+
+        Assert.Equal(413, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body + string.Join("\n", app.Renderer.Payloads));
+        Assert.Empty(JsonNode.Parse(data ? body : app.Renderer.Payloads.Last())!["segments"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", "data");
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(["app"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/nope")]
+    public async Task ALayoutLoaderThatAllowsAnonymousVisitors_UnderMapPagesAuthorization_RunsOnTheirNotFoundAsOnTheirPages(string url)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Site = "public" });
+            }).AllowAnonymous(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, url, "data");
+
+        // The loader's AllowAnonymous() reaches every page below it, as it would reach a page at the unknown URL.
+        Assert.Equal(url == "/" ? HttpStatusCode.OK : HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    [Fact]
+    public async Task UnknownUrlBelowAMountThatAllowsAnonymousVisitors_UnderMapPagesAuthorization_RendersThePackagesNotFoundInsideItsLayouts()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").AllowAnonymous().MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Nav = "help-nav" });
+            }),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        // Every page of the package lets a visitor without a user in, and runs the loader for them; so does its 404.
+        var (pageStatus, _) = await RequestAsync(app, "/help", "data");
+        var (status, body) = await RequestAsync(app, "/help/nope", "data");
+        var payload = JsonNode.Parse(body)!;
+
+        Assert.Equal(HttpStatusCode.OK, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(["app", "app/help"], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+        Assert.Equal(2, calls);
+    }
+
+    /// <summary>
+    /// Where a visitor without a user meets a root layout loader of no authorization of its own, in an app whose pages
+    /// <c>MapPages().RequireAuthorization()</c> or a fallback policy protects: an unknown URL, a page's own 401, a server
+    /// action's 401, a forbidden page a public minimal API asks for, and an empty 429 from a middleware ahead of
+    /// authorization on a page.
+    /// </summary>
+    public static TheoryData<string, string, string> EveryPageProtected => new()
+    {
+        { "MapPages()'s", "/nope", "document" },
+        { "MapPages()'s", "/admin", "document" },
+        { "MapPages()'s", "/admin", "data" },
+        { "MapPages()'s", "a server action", "document" },
+        { "MapPages()'s", "a public minimal API's Page.Forbidden()", "document" },
+        { "MapPages()'s", "a middleware's 429 on /admin", "data" },
+        { "the fallback policy", "/nope", "data" },
+        { "the fallback policy", "/admin", "document" },
+        { "the fallback policy", "/admin", "data" },
+        { "the fallback policy", "a server action", "document" },
+        { "the fallback policy", "a public minimal API's Page.Forbidden()", "document" },
+        { "the fallback policy", "a middleware's 429 on /admin", "data" },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryPageProtected))]
+    public async Task WhenEveryPageIsProtected_AVisitorWithoutAUser_NeverRunsTheRootLayoutLoader(string guard, string where, string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/forbidden.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                a.MapAction("secure", () => ServerAction.Ok()).RequireAuthorization();
+                a.MapGet("/api/refused", () => Page.Forbidden()).AllowAnonymous();
+            },
+            services: s =>
+            {
+                Nobody(s);
+                if (guard == "the fallback policy")
+                {
+                    s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+                }
+            },
+            configureApp: a =>
+            {
+                a.Use(async (http, next) =>
+                {
+                    if (where == "a middleware's 429 on /admin")
+                    {
+                        http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+
+                    await next(http);
+                });
+                a.UseAuthorization();
+            },
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization();
+                }
+            });
+
+        HttpStatusCode status;
+        string body;
+        if (where == "a server action")
+        {
+            var response = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/_netjes/actions/secure") { Content = new FormUrlEncodedContent([]) }, Ct);
+            (status, body) = (response.StatusCode, app.Renderer.Payloads.Last());
+        }
+        else
+        {
+            (status, body) = await RequestAsync(app, where switch
+            {
+                "a public minimal API's Page.Forbidden()" => "/api/refused",
+                "a middleware's 429 on /admin" => "/admin",
+                _ => where,
+            }, request);
+        }
+
+        Assert.Equal(where switch
+        {
+            "/nope" => guard == "MapPages()'s" ? HttpStatusCode.NotFound : HttpStatusCode.Unauthorized,
+            "a public minimal API's Page.Forbidden()" => HttpStatusCode.Forbidden,
+            "a middleware's 429 on /admin" => HttpStatusCode.TooManyRequests,
+            _ => HttpStatusCode.Unauthorized,
+        }, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body);
+        // The root layout has a loader, so the page renders without it.
+        Assert.Empty(JsonNode.Parse(body)!["segments"]!.AsArray());
+    }
+
+    /// <summary>
+    /// A policy that names its authentication scheme, which the authorization middleware authenticates in place of the
+    /// request's user: on the layout loader, on <c>MapPages()</c> or on a page package's mount, naming a scheme that
+    /// signs nobody in while the default one signs Ada in, or the other way round.
+    /// </summary>
+    public static TheoryData<string, string> SchemePolicies => new()
+    {
+        { "the loader's", "refuses Ada" },
+        { "the loader's", "signs Ada in" },
+        { "MapPages()'s", "refuses Ada" },
+        { "MapPages()'s", "signs Ada in" },
+        { "the mount's", "refuses Ada" },
+        { "the mount's", "signs Ada in" },
+    };
+
+    [Theory]
+    [MemberData(nameof(SchemePolicies))]
+    public async Task APolicyNamingItsScheme_IsJudgedOnThatScheme_OnAnUnknownUrlAsOnAPage(string guard, string scheme)
+    {
+        var calls = 0;
+        var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder("Admin").RequireAuthenticatedUser().Build();
+        var mounted = guard == "the mount's";
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            prepareRoot: mounted ? root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]) : null,
+            map: a =>
+            {
+                var secret = () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                };
+                if (mounted)
+                {
+                    a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization(policy).MapLayoutLoader("/", secret);
+                }
+                else
+                {
+                    var loader = a.MapLayoutLoader("/", secret);
+                    if (guard == "the loader's")
+                    {
+                        loader.RequireAuthorization(policy);
+                    }
+                }
+            },
+            services: s =>
+            {
+                var site = scheme == "refuses Ada";
+                var builder = s.AddAuthorization().AddAuthentication("Site");
+                if (site)
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, AdaHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Admin", null);
+                }
+                else
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, AdaHandler>("Admin", null);
+                }
+            },
+            configureApp: a => a.UseAuthorization(),
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization(policy);
+                }
+            });
+
+        var page = mounted ? "/help" : "/";
+        var (pageStatus, _) = await RequestAsync(app, page, "data");
+        var (status, body) = await RequestAsync(app, mounted ? "/help/nope" : "/nope", "data");
+
+        // The page and the unknown URL agree: the middleware lets Ada in only through the scheme the policy names.
+        var admitted = scheme == "signs Ada in";
+        Assert.Equal(admitted ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(admitted ? 2 : 0, calls);
+        Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("document")]
+    [InlineData("data")]
+    public async Task UnknownUrlUnderABasePath_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }).RequireAuthorization(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pathBase: "/base");
+
+        var (status, body) = await RequestAsync(app, "/base/nope", request);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(0, calls);
+        Assert.Empty(JsonNode.Parse(body)!["segments"]!.AsArray());
+        Assert.DoesNotContain("s3cret", body);
     }
 
     [Fact]

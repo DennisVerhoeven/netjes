@@ -10,6 +10,9 @@ namespace Netjes.Routing;
 /// One endpoint per page file that has no explicit loader, plus a lowest-priority fallback that renders the 404 page.
 /// Rebuilt whenever the route table changes, so pages added in development are routable without a restart. A page gets
 /// the conventions of the layout loaders above it, a page package's page those of its mount, then those of MapPages().
+/// The fallback gets none of them, so MapPages().RequireAuthorization() never challenges an unknown URL. The layout
+/// loaders around a page the request's endpoint has not let its visitor in for are judged on those of MapPages() too
+/// (<see cref="PageConventions"/>).
 /// </summary>
 internal sealed class PagesEndpointDataSource(
     IRouteTableProvider routes, PageLoaderRegistry loaders, LayoutLoaderRegistry layouts, RouteSources sources)
@@ -46,6 +49,9 @@ internal sealed class PagesEndpointDataSource(
     public void Add(Action<EndpointBuilder> convention) => _conventions.Add(convention);
 
     public void Finally(Action<EndpointBuilder> finallyConvention) => _finallyConventions.Add(finallyConvention);
+
+    /// <summary>The conventions of <c>MapPages()</c>, its final ones last, as a file page gets them.</summary>
+    public IEnumerable<Action<EndpointBuilder>> PageConventions => _conventions.Concat(_finallyConventions);
 
     private List<Endpoint> Build(RouteTable table)
     {

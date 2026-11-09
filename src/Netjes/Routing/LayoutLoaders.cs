@@ -40,13 +40,6 @@ internal sealed class LayoutLoader(RouteSegment segment, Delegate handler, IServ
     /// <summary>The props type the loader's typed result names, for the generated <c>layouts</c> map.</summary>
     public Type? PropsType { get; } = propsType;
 
-    /// <summary>
-    /// Whether the user passes the authorization its conventions add (<c>RequireAuthorization(...)</c> and the like),
-    /// evaluated the way the authorization middleware would for an endpoint carrying them.
-    /// </summary>
-    public Task<bool> AuthorizesAsync(HttpContext http) =>
-        ConventionAuthorization.AuthorizesAsync(http, services, Conventions, FinallyConventions);
-
     /// <summary>The loader's method and how minimal API binding binds its parameters, inferred as for its request delegate.</summary>
     public (MethodInfo Method, IReadOnlyList<IParameterBindingMetadata> Parameters) InferParameterBindings()
     {

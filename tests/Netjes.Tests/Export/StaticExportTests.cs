@@ -524,6 +524,46 @@ public class StaticExportTests
         Assert.False(Directory.Exists(_out));
     }
 
+    [Theory]
+    [InlineData("the loader's")]
+    [InlineData("MapPages()'s")]
+    public async Task Export_The404Page_NeverRunsALayoutLoaderThatRefusesAVisitorWithoutAUser(string guard)
+    {
+        // Every page is left out: a static file cannot check who asks for it. The 404 page is exported regardless, and
+        // static hosts serve it to everyone.
+        var calls = 0;
+        await using var app = await ExportAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a =>
+            {
+                var loader = a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                if (guard == "the loader's")
+                {
+                    loader.RequireAuthorization();
+                }
+            },
+            services: s => s.AddAuthorization(),
+            mapPages: p =>
+            {
+                p.ExcludeFromExport();
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization();
+                }
+            });
+
+        Assert.Equal(0, _exitCode);
+        Assert.True(File.Exists(Out("404.html")));
+        Assert.Equal(0, calls);
+        var notFound = Assert.Single(app.Renderer.Payloads, p => p.Contains("\"page\":\"app/not-found.tsx\""));
+        Assert.Empty(System.Text.Json.Nodes.JsonNode.Parse(notFound)!["segments"]!.AsArray());
+        Assert.DoesNotContain("s3cret", notFound);
+    }
+
     [Fact]
     public async Task Export_FallbackPolicy_SparesPagesThatAllowAnonymous()
     {

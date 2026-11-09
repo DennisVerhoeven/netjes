@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http.Features;
@@ -183,14 +184,27 @@ internal sealed class PageRenderer(
     };
 
     /// <summary>The nearest not-found boundary of the request's page, else the root one, else the built-in page.</summary>
-    public Task RenderNotFoundAsync(HttpContext http) =>
-        RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null);
+    public async Task RenderNotFoundAsync(HttpContext http) =>
+        await RenderBoundaryAsync(http, Boundary.NotFound, StatusCodes.Status404NotFound, props: null, await RefusedSegmentAsync(http));
 
-    public Task RenderErrorAsync(HttpContext http, Exception exception)
+    public async Task RenderErrorAsync(HttpContext http, Exception exception)
     {
         var status = exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError;
-        return RenderBoundaryAsync(http, Boundary.Error, status, ErrorPropsFor(status, exception));
+        await RenderBoundaryAsync(http, Boundary.Error, status, ErrorPropsFor(status, exception), await RefusedSegmentAsync(http));
     }
+
+    /// <summary>
+    /// Where a boundary on the request's page stops when the page's endpoint refuses the visitor, though nothing turned
+    /// them away for it: the status or the exception came before the authorization middleware ran (a middleware ahead of
+    /// it, a body over the size limit), or in place of its answer (a refusal an app answers with an empty 404). As for a
+    /// refused visitor (<see cref="FirstDeniedSegmentAsync"/>), the first segment they may not see, and the boundary renders
+    /// inside the layouts above it. Null when the endpoint lets them in, as the middleware would, and on an endpoint that
+    /// serves no page, whose chain <see cref="RenderBoundaryAsync"/> authorizes itself.
+    /// </summary>
+    private async Task<int?> RefusedSegmentAsync(HttpContext http) =>
+        RouteOf(http) is { } route && http.GetEndpoint() is { } endpoint && !await ConventionAuthorization.AuthorizesAsync(http, endpoint.Metadata)
+            ? await FirstDeniedSegmentAsync(http, route.Segments)
+            : null;
 
     /// <summary>
     /// Renders the page for a status some other component set without writing a body, or a loader asked for:
@@ -204,7 +218,7 @@ internal sealed class PageRenderer(
     /// </param>
     public async Task RenderStatusAsync(HttpContext http, int status, bool denied = false)
     {
-        var limit = denied ? await FirstDeniedSegmentAsync(http, RouteOf(http)?.Segments ?? []) : null;
+        var limit = denied ? await FirstDeniedSegmentAsync(http, RouteOf(http)?.Segments ?? []) : await RefusedSegmentAsync(http);
         var boundary = status switch
         {
             StatusCodes.Status404NotFound => Boundary.NotFound,
@@ -213,26 +227,45 @@ internal sealed class PageRenderer(
             _ => Boundary.Error,
         };
         var props = boundary == Boundary.NotFound ? null : ErrorPropsFor(status, null);
-        await RenderBoundaryAsync(http, boundary, status, props, limit, includeLimit: limit is not null);
+        await RenderBoundaryAsync(http, boundary, status, props, limit, includeLimit: denied && limit is not null);
     }
 
     /// <summary>
-    /// The index of the first of <paramref name="segments"/> whose layout loader's authorization this user fails, or that
-    /// holds a file of a page package whose mount's conventions the user fails; null when none. A layout loader mapped
-    /// through a mount carries only its own conventions, and its props would otherwise reach a visitor the mount refuses.
+    /// The index of the first of <paramref name="segments"/> whose layout loader this user may not see, or that holds a
+    /// file of a page package whose mount's conventions the user fails; null when none. A layout loader is judged as the
+    /// authorization middleware judges a file page in its folder, on everything that page carries at once: the
+    /// conventions of the layout loaders down to it, those of the mount whose files the folder holds (a layout loader
+    /// mapped through a mount carries only its own, and its props would otherwise reach a visitor the mount refuses), and
+    /// <c>MapPages()</c>'s, else the fallback policy. So a loader runs here only for a visitor the pages below it let in,
+    /// whichever endpoint's boundary this is: the not-found fallback, which carries none of them, another endpoint that
+    /// serves no page, or a page whose own authorization refused the visitor or has not run.
     /// </summary>
     private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
+        var pages = http.RequestServices.GetService<PagesEndpointDataSource>()?.PageConventions ?? [];
+        // The conventions of the layout loaders down to the segment, which every page below it carries.
+        var above = new List<Action<EndpointBuilder>>();
         for (var i = 0; i < segments.Count; i++)
         {
-            if (layoutLoaders.Find(segments[i].Id) is { } loader && !await loader.AuthorizesAsync(http))
-            {
-                return i;
-            }
-
-            foreach (var mounted in PackagesOf(segments[i]))
+            var mounts = PackagesOf(segments[i]).ToList();
+            foreach (var mounted in mounts)
             {
                 if (!await ConventionAuthorization.AuthorizesAsync(http, http.RequestServices, mounted.Mount.Conventions, mounted.Mount.FinallyConventions))
+                {
+                    return i;
+                }
+            }
+
+            if (layoutLoaders.Find(segments[i].Id) is { } loader)
+            {
+                above.AddRange(loader.Conventions.Concat(loader.FinallyConventions));
+                // Judged as the authorization middleware judges a page in the segment's folder, on all the conventions
+                // it carries at once: an AllowAnonymous() on any of them lets every visitor in, as it does there, and
+                // with none that asks for authorization, the fallback policy applies.
+                var page = above
+                    .Concat(mounts.SelectMany(m => m.Mount.Conventions.Concat(m.Mount.FinallyConventions)))
+                    .Concat(pages);
+                if (!await ConventionAuthorization.AuthorizesAsync(http, ConventionAuthorization.MetadataOf(http.RequestServices, page)))
                 {
                     return i;
                 }
@@ -353,6 +386,16 @@ internal sealed class PageRenderer(
 
         var special = boundary == Boundary.NotFound ? table.NotFound : table.Error;
         var specialSegments = (special?.Segments ?? table.RootSegments).Take(max).ToList();
+        // An endpoint that serves no page (the not-found fallback, a server action, a minimal API) carries no layout
+        // loader's conventions, so nothing has authorized the root's: as on a mount's chain, the page stops above the
+        // first one this user fails, and renders inside the layouts above it with its own status. A page's endpoint
+        // carries those of every layout above it (its callers stop its chain when it has not let the user in), and a
+        // mount's chain was authorized when it was found.
+        if (route is null && mount is null && await FirstDeniedSegmentAsync(http, specialSegments) is { } refused)
+        {
+            specialSegments = specialSegments[..refused];
+        }
+
         var root = await LoadSegmentsAsync(http, specialSegments, slotsOf);
         if (root.Stop is { } rootStop)
         {
@@ -374,8 +417,9 @@ internal sealed class PageRenderer(
     /// (the fallback took it, or an app catch-all returned <c>Page.NotFound()</c>): the folders down to the deepest such
     /// mount, from every source, so the package's not-found renders inside its layouts. The prefix's values go into the
     /// route values, for the layout loaders and the payload's mounts. The fallback endpoint carries no layout loader's
-    /// authorization and no mount's conventions, so each loader on the chain, and each segment with a package's files
-    /// under that package's mount's conventions, is authorized here before any of them runs. Null elsewhere.
+    /// authorization, no mount's conventions and none of <c>MapPages()</c>'s, so each loader on the chain (on the
+    /// fallback under <c>MapPages()</c>'s authorization too), and each segment with a package's files under that
+    /// package's mount's conventions, is authorized here before any of them runs. Null elsewhere.
     /// </summary>
     private async Task<MountChain?> MountChainAsync(HttpContext http, RouteTable table, PageRoute? route)
     {

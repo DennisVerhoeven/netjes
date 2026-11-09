@@ -118,6 +118,8 @@ options.Events.OnRedirectToLogin = context =>
 };
 ```
 
+An unknown URL renders the root `not-found.tsx` inside the root layout, with status 404. Its endpoint, the fallback that `MapPages()` adds, serves no page and carries none of the layout loaders' conventions, so Netjes authorizes the layout loaders on the way first, each as a page in its folder would be: with its own conventions, those of the loaders above it and `MapPages()`'s, or the fallback policy. A visitor one of them refuses gets the not-found page inside the layouts above that loader's layout, still with 404 and never a challenge: with `app.MapLayoutLoader("/", ...).RequireAuthorization()`, or with `app.MapPages().RequireAuthorization()` and any root layout loader, a signed-out visitor of `/nope` gets `app/not-found.tsx` without the root layout. The pages of other endpoints that serve no page, such as a server action's empty 401 or a minimal API's `Page.NotFound()`, a page's `unauthorized.tsx` and `forbidden.tsx`, and a page's status and error pages from before its authorization ran, such as a rate limiter's 429, render the same way, with their own status ([Security](security.md#layout-loaders-around-404-and-error-pages)).
+
 Netjes has built-in 404 and error pages for apps that have neither file. Special pages can export `metadata` like any page, and the layouts' title templates apply to them ([Metadata](metadata.md)).
 
 ## Dynamic segments
@@ -247,7 +249,7 @@ The prefix is written in folder syntax, with literal segments, `[name]` values a
 
 An app page of the same shape as a package's page stops `MapPages()`, naming both files, unless `.Override(pattern)` on the mount names it: `app.MapHelpCenter("/help").Override("/help/contact")` renders `app/help/contact/page.tsx` in place of the package's page, with the package's loader and page action. Two packages' pages of one shape, and two segment files for one folder from the app and a package, stop the app too; layouts and boundaries cannot be replaced ([Replacing a page](page-packages.md#replacing-a-page)).
 
-Conventions on the mount, such as `.RequireAuthorization()`, apply to the package's own pages and endpoints, not to the app's pages under the prefix, which the layout loaders above them protect as before. An unknown URL below the mount renders the package's `not-found.tsx`, inside its layouts and the app's above the mount, after the layout loaders on the way have authorized the visitor ([404 and error pages under a mount](page-packages.md#404-and-error-pages-under-a-mount)). Three [route warnings](#route-warnings) are about packages: a package that draws its own shell inside the app's chrome, a package in the build that is not mounted, and a package whose pages stream under a policy without a nonce.
+Conventions on the mount, such as `.RequireAuthorization()`, apply to the package's own pages and endpoints, not to the app's pages under the prefix, which the layout loaders above them protect as before. An unknown URL below the mount renders the package's `not-found.tsx`, inside its layouts and the app's above the mount, after the layout loaders on the way, and `MapPages()`'s authorization, have authorized the visitor ([404 and error pages under a mount](page-packages.md#404-and-error-pages-under-a-mount)). Three [route warnings](#route-warnings) are about packages: a package that draws its own shell inside the app's chrome, a package in the build that is not mounted, and a package whose pages stream under a policy without a nonce.
 
 ## Linking and navigating
 
