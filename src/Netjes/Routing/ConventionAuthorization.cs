@@ -13,7 +13,7 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether the user passes the authorization <paramref name="conventions"/> and <paramref name="finallyConventions"/>
     /// add (<c>RequireAuthorization(...)</c> and the like), evaluated the way the authorization middleware would for an
-    /// endpoint carrying them.
+    /// endpoint carrying them. Conventions that add none refuse nobody: the fallback policy is for endpoints.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(
         HttpContext http,
@@ -21,32 +21,42 @@ internal static class ConventionAuthorization
         IReadOnlyList<Action<EndpointBuilder>> conventions,
         IReadOnlyList<Action<EndpointBuilder>> finallyConventions)
     {
+        var metadata = MetadataOf(services, conventions.Concat(finallyConventions));
+        return !metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy) || await AuthorizesAsync(http, metadata);
+    }
+
+    /// <summary>The metadata <paramref name="conventions"/> give an endpoint, in their order.</summary>
+    public static IReadOnlyList<object> MetadataOf(IServiceProvider services, IEnumerable<Action<EndpointBuilder>> conventions)
+    {
         var probe = new RouteEndpointBuilder(null, RoutePatternFactory.Parse("/"), 0) { ApplicationServices = services };
-        foreach (var convention in conventions.Concat(finallyConventions))
+        foreach (var convention in conventions)
         {
             convention(probe);
         }
 
-        return await AuthorizesAsync(http, probe.Metadata);
+        return [.. probe.Metadata];
     }
 
     /// <summary>
-    /// Whether the user passes the authorization that <paramref name="metadata"/> asks for (<see cref="IAuthorizeData"/>
-    /// and <see cref="AuthorizationPolicy"/>, unless it allows anonymous users), evaluated the way the authorization
-    /// middleware would for an endpoint carrying it.
+    /// Whether the user passes the authorization that an endpoint carrying <paramref name="metadata"/> asks for, evaluated
+    /// the way the authorization middleware would: its <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>,
+    /// else the fallback policy, unless it allows anonymous users.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
     {
         var items = metadata as IReadOnlyCollection<object> ?? [.. metadata];
-        var data = items.OfType<IAuthorizeData>().ToList();
-        var policies = items.OfType<AuthorizationPolicy>().ToList();
-        if ((data.Count == 0 && policies.Count == 0) || items.OfType<IAllowAnonymous>().Any())
+        if (items.OfType<IAllowAnonymous>().Any())
         {
             return true;
         }
 
-        var provider = http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-        if (await AuthorizationPolicy.CombineAsync(provider, data, policies) is not { } policy)
+        var data = items.OfType<IAuthorizeData>().ToList();
+        var policies = items.OfType<AuthorizationPolicy>().ToList();
+        // Without authorization services nothing is authorized, and only an endpoint that asks for none can be served.
+        var provider = data.Count == 0 && policies.Count == 0
+            ? http.RequestServices.GetService<IAuthorizationPolicyProvider>()
+            : http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
+        if (provider is null || await AuthorizationPolicy.CombineAsync(provider, data, policies) is not { } policy)
         {
             return true;
         }

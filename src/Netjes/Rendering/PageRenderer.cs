@@ -251,14 +251,16 @@ internal sealed class PageRenderer(
     /// <summary>
     /// The index of the first of <paramref name="segments"/> whose layout loader this user may not see, or that holds a
     /// file of a page package whose mount's conventions the user fails; null when none. A layout loader is judged as the
-    /// authorization middleware judges a page in its folder, on everything that page carries at once: the conventions of
-    /// the layout loaders down to it, those of the mount whose files the folder holds (a layout loader mapped through a
-    /// mount carries only its own, and its props would otherwise reach a visitor the mount refuses), and on the not-found
-    /// fallback <c>MapPages()</c>'s, which guard every page's: the fallback is one of its endpoints without carrying them.
+    /// authorization middleware judges a file page in its folder, on everything that page carries at once: the
+    /// conventions of the layout loaders down to it, those of the mount whose files the folder holds (a layout loader
+    /// mapped through a mount carries only its own, and its props would otherwise reach a visitor the mount refuses), and
+    /// <c>MapPages()</c>'s, else the fallback policy. So a loader runs here only for a visitor the pages below it let in,
+    /// whichever endpoint's boundary this is: the not-found fallback, which carries none of them, another endpoint that
+    /// serves no page, or a page whose own authorization refused the visitor or has not run.
     /// </summary>
     private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
-        var pages = http.GetEndpoint()?.Metadata.GetMetadata<NotFoundFallbackMetadata>()?.Conventions ?? [];
+        var pages = http.RequestServices.GetService<PagesEndpointDataSource>()?.PageConventions ?? [];
         // The conventions of the layout loaders down to the segment, which every page below it carries.
         var above = new List<Action<EndpointBuilder>>();
         for (var i = 0; i < segments.Count; i++)
@@ -276,11 +278,12 @@ internal sealed class PageRenderer(
             {
                 above.AddRange(loader.Conventions.Concat(loader.FinallyConventions));
                 // Judged as the authorization middleware judges a page in the segment's folder, on all the conventions
-                // it carries at once: an AllowAnonymous() on any of them lets every visitor in, as it does there.
+                // it carries at once: an AllowAnonymous() on any of them lets every visitor in, as it does there, and
+                // with none that asks for authorization, the fallback policy applies.
                 var page = above
                     .Concat(mounts.SelectMany(m => m.Mount.Conventions.Concat(m.Mount.FinallyConventions)))
                     .Concat(pages);
-                if (!await ConventionAuthorization.AuthorizesAsync(http, http.RequestServices, [.. page], []))
+                if (!await ConventionAuthorization.AuthorizesAsync(http, ConventionAuthorization.MetadataOf(http.RequestServices, page)))
                 {
                     return i;
                 }

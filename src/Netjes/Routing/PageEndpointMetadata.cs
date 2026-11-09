@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Builder;
-
 namespace Netjes.Routing;
 
 /// <summary>
@@ -9,19 +7,6 @@ namespace Netjes.Routing;
 /// serve a page carry.
 /// </summary>
 internal sealed record PageEndpointMetadata(string? Pattern);
-
-/// <summary>
-/// Marks the not-found fallback, which is one of <c>MapPages()</c>'s endpoints but carries none of its conventions: a
-/// <c>RequireAuthorization()</c> on it would challenge every unknown URL instead of answering 404. It keeps them here,
-/// unapplied, so the authorization they add can still guard the layout loaders on the chain its 404 renders on.
-/// </summary>
-internal sealed class NotFoundFallbackMetadata(
-    IReadOnlyList<Action<EndpointBuilder>> conventions,
-    IReadOnlyList<Action<EndpointBuilder>> finallyConventions)
-{
-    /// <summary>The conventions of <c>MapPages()</c>, its final ones last.</summary>
-    public IEnumerable<Action<EndpointBuilder>> Conventions => conventions.Concat(finallyConventions);
-}
 
 /// <summary>
 /// The page package whose mount an endpoint is mapped through: its file pages, and its loaders, page actions, server

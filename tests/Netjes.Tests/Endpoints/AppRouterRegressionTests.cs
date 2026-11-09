@@ -98,12 +98,16 @@ public class AppRouterRegressionTests
     [Fact]
     public async Task Empty401_WithARootLayoutLoader_RendersTheUnauthorizedPageInsideTheRootLayout()
     {
+        // The page's own loader refuses the visitor; the root layout's, like a file page at the root, lets them in.
         await using var app = await TestApp.StartAsync(
             ["app/layout.tsx", "app/error.tsx", "app/unauthorized.tsx", "app/admin/page.tsx"],
-            map: a => a.MapLayoutLoader("/", () => Page.Props(new { Site = "x" })),
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () => Page.Props(new { Site = "x" }));
+                a.MapPageLoader("/admin", () => Page.Props()).RequireAuthorization();
+            },
             services: Nobody,
-            configureApp: a => a.UseAuthorization(),
-            pages: p => p.RequireAuthorization());
+            configureApp: a => a.UseAuthorization());
 
         var response = await app.GetDocumentAsync("/admin");
 
@@ -915,6 +919,105 @@ public class AppRouterRegressionTests
         Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
         Assert.Equal(["app", "app/help"], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
         Assert.Equal(2, calls);
+    }
+
+    /// <summary>
+    /// Where a visitor without a user meets a root layout loader of no authorization of its own, in an app whose pages
+    /// <c>MapPages().RequireAuthorization()</c> or a fallback policy protects: an unknown URL, a page's own 401, a server
+    /// action's 401, a forbidden page a public minimal API asks for, and an empty 429 from a middleware ahead of
+    /// authorization on a page.
+    /// </summary>
+    public static TheoryData<string, string, string> EveryPageProtected => new()
+    {
+        { "MapPages()'s", "/nope", "document" },
+        { "MapPages()'s", "/admin", "document" },
+        { "MapPages()'s", "/admin", "data" },
+        { "MapPages()'s", "a server action", "document" },
+        { "MapPages()'s", "a public minimal API's Page.Forbidden()", "document" },
+        { "MapPages()'s", "a middleware's 429 on /admin", "data" },
+        { "the fallback policy", "/nope", "data" },
+        { "the fallback policy", "/admin", "document" },
+        { "the fallback policy", "/admin", "data" },
+        { "the fallback policy", "a server action", "document" },
+        { "the fallback policy", "a public minimal API's Page.Forbidden()", "document" },
+        { "the fallback policy", "a middleware's 429 on /admin", "data" },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryPageProtected))]
+    public async Task WhenEveryPageIsProtected_AVisitorWithoutAUser_NeverRunsTheRootLayoutLoader(string guard, string where, string request)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/forbidden.tsx", "app/unauthorized.tsx", "app/page.tsx", "app/admin/page.tsx"],
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+                a.MapAction("secure", () => ServerAction.Ok()).RequireAuthorization();
+                a.MapGet("/api/refused", () => Page.Forbidden()).AllowAnonymous();
+            },
+            services: s =>
+            {
+                Nobody(s);
+                if (guard == "the fallback policy")
+                {
+                    s.AddAuthorization(o => o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+                }
+            },
+            configureApp: a =>
+            {
+                a.Use(async (http, next) =>
+                {
+                    if (where == "a middleware's 429 on /admin")
+                    {
+                        http.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+
+                    await next(http);
+                });
+                a.UseAuthorization();
+            },
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization();
+                }
+            });
+
+        HttpStatusCode status;
+        string body;
+        if (where == "a server action")
+        {
+            var response = await app.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/_netjes/actions/secure") { Content = new FormUrlEncodedContent([]) }, Ct);
+            (status, body) = (response.StatusCode, app.Renderer.Payloads.Last());
+        }
+        else
+        {
+            (status, body) = await RequestAsync(app, where switch
+            {
+                "a public minimal API's Page.Forbidden()" => "/api/refused",
+                "a middleware's 429 on /admin" => "/admin",
+                _ => where,
+            }, request);
+        }
+
+        Assert.Equal(where switch
+        {
+            "/nope" => guard == "MapPages()'s" ? HttpStatusCode.NotFound : HttpStatusCode.Unauthorized,
+            "a public minimal API's Page.Forbidden()" => HttpStatusCode.Forbidden,
+            "a middleware's 429 on /admin" => HttpStatusCode.TooManyRequests,
+            _ => HttpStatusCode.Unauthorized,
+        }, status);
+        Assert.Equal(0, calls);
+        Assert.DoesNotContain("s3cret", body);
+        // The root layout has a loader, so the page renders without it.
+        Assert.Empty(JsonNode.Parse(body)!["segments"]!.AsArray());
     }
 
     [Theory]
