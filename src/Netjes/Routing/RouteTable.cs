@@ -270,6 +270,22 @@ internal sealed partial class RouteTable
     /// <summary>Layouts of the root segments.</summary>
     public IReadOnlyList<string> RootLayouts { get; }
 
+    /// <summary>The folders with segment files, by their path relative to the app directory (<c>""</c> for its root).</summary>
+    private IReadOnlyDictionary<string, RouteSegment> Folders { get; init; } = new Dictionary<string, RouteSegment>();
+
+    /// <summary>
+    /// The segments of <paramref name="folder"/> (relative to the app directory, as a mount's folder is:
+    /// <c>support/(desk)/help</c>) and of the folders above it, outermost first: what wraps a page in that folder, from
+    /// every source.
+    /// </summary>
+    public IReadOnlyList<RouteSegment> SegmentsAt(string folder)
+    {
+        string[] directories = folder.Length == 0 ? [] : folder.Split('/');
+        return [.. Enumerable.Range(0, directories.Length + 1)
+            .Select(depth => Folders.GetValueOrDefault(string.Join('/', directories[..depth])))
+            .OfType<RouteSegment>()];
+    }
+
     public PageRoute? Find(string pattern) => _byPattern.GetValueOrDefault(pattern);
 
     /// <summary>The page whose URL has the shape of <paramref name="pattern"/>, whatever its parameters are called and literals in any case.</summary>
@@ -397,8 +413,9 @@ internal sealed partial class RouteTable
         pending.Sort((a, b) => string.CompareOrdinal(a.Pattern, b.Pattern));
         return new RouteTable(routes, app.NotFound, app.Error, app.GlobalError, app.RootSegments)
         {
-            Intercepts = [.. (app.Intercepts ?? []).OrderBy(i => i.Segment, StringComparer.Ordinal).ThenBy(i => i.Slot, StringComparer.Ordinal)],
+            Intercepts = [.. app.Intercepts.OrderBy(i => i.Segment, StringComparer.Ordinal).ThenBy(i => i.Slot, StringComparer.Ordinal)],
             PendingConflicts = pending,
+            Folders = app.Folders,
         };
     }
 
@@ -484,7 +501,8 @@ internal sealed partial class RouteTable
         SpecialPage? Error,
         SpecialPage? GlobalError,
         IReadOnlyList<RouteSegment> RootSegments,
-        IReadOnlyList<RouteIntercept>? Intercepts = null);
+        IReadOnlyList<RouteIntercept> Intercepts,
+        IReadOnlyDictionary<string, RouteSegment> Folders);
 
     /// <summary>A file of one source, with its folders in the merged tree and its name last.</summary>
     private sealed record Candidate(string File, string[] Segments, PageSource Source);
@@ -760,7 +778,11 @@ internal sealed partial class RouteTable
                 : null,
             rootConventions.TryGetValue("global-error", out var globalError) ? new SpecialPage(globalError, []) : null,
             rootSegments,
-            intercepts);
+            intercepts,
+            folders.Keys.Concat(slots.Keys).Distinct(StringComparer.Ordinal)
+                .Select(folder => (Folder: folder, Segment: SegmentAt(folder.Length == 0 ? [] : folder.Split('/'))))
+                .Where(f => f.Segment is not null)
+                .ToDictionary(f => f.Folder, f => f.Segment!, StringComparer.Ordinal));
     }
 
     // Two files for one convention (page.tsx and page.jsx): the one listed last would win, and development (the file

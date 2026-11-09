@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -45,27 +44,8 @@ internal sealed class LayoutLoader(RouteSegment segment, Delegate handler, IServ
     /// Whether the user passes the authorization its conventions add (<c>RequireAuthorization(...)</c> and the like),
     /// evaluated the way the authorization middleware would for an endpoint carrying them.
     /// </summary>
-    public async Task<bool> AuthorizesAsync(HttpContext http)
-    {
-        var probe = new RouteEndpointBuilder(null, RoutePatternFactory.Parse("/"), 0) { ApplicationServices = services };
-        Conventions.ForEach(convention => convention(probe));
-        FinallyConventions.ForEach(convention => convention(probe));
-        var data = probe.Metadata.OfType<IAuthorizeData>().ToList();
-        var policies = probe.Metadata.OfType<AuthorizationPolicy>().ToList();
-        if ((data.Count == 0 && policies.Count == 0) || probe.Metadata.OfType<IAllowAnonymous>().Any())
-        {
-            return true;
-        }
-
-        var provider = http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-        if (await AuthorizationPolicy.CombineAsync(provider, data, policies) is not { } policy)
-        {
-            return true;
-        }
-
-        var result = await http.RequestServices.GetRequiredService<IAuthorizationService>().AuthorizeAsync(http.User, http, policy);
-        return result.Succeeded;
-    }
+    public Task<bool> AuthorizesAsync(HttpContext http) =>
+        ConventionAuthorization.AuthorizesAsync(http, services, Conventions, FinallyConventions);
 
     /// <summary>The loader's method and how minimal API binding binds its parameters, inferred as for its request delegate.</summary>
     public (MethodInfo Method, IReadOnlyList<IParameterBindingMetadata> Parameters) InferParameterBindings()
