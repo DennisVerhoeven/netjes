@@ -14,7 +14,7 @@ export default definePage(pages['/login'], function Login({ returnUrl }) {
   const [state, formAction] = useAction(signIn);
   const registerHref = route('/register', {}, { returnUrl });
   return (
-    <main className="mx-auto grid max-w-sm gap-6 px-6 pt-16 pb-24">
+    <div className="mx-auto grid max-w-sm gap-6 px-6 pt-16 pb-24">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
         <p className="text-ink-400">Sign in to your boards.</p>
@@ -31,6 +31,6 @@ export default definePage(pages['/login'], function Login({ returnUrl }) {
           Create an account
         </Link>
       </p>
-    </main>
+    </div>
   );
 });

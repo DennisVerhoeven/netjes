@@ -42,6 +42,14 @@ describe('the help center in TaskBoard', () => {
     expect(html).toMatch(/<a [^>]*href="\/help\/articles\/privacy"[^>]*aria-current="page"[^>]*>Privacy<\/a>/);
   });
 
+  // The package draws no shell, so its pages get TaskBoard's main landmark from the marketing layout: one, around them.
+  it("puts the package's pages in the marketing layout's main landmark", async () => {
+    const html = await article();
+
+    expect(html.match(/<main\b/g)).toHaveLength(1);
+    expect(html).toMatch(/<main\b[^>]*>.*<nav aria-label="Help center">.*<h1 class="mt-0 text-help-ink">Privacy<\/h1>.*<\/main>/s);
+  });
+
   // A package's pages render under the app's Content-Security-Policy: a hash-based one allows Netjes's own inline
   // scripts by CSP_SCRIPT_HASHES and nothing else, so the package adds none of its own.
   it("has no inline script in an article's document but Netjes's own, for a hash-based policy", async () => {
