@@ -101,6 +101,10 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0046 – The export writes the GET endpoints marked IncludeInExport](decisions/0046-the-export-writes-the-get-endpoints-marked-includeinexport.md)
 - [0047 – Cached pages name the query keys they read](decisions/0047-cached-pages-name-the-query-keys-they-read.md)
 - [0048 – A new app has a C# test project and a Playwright suite, both outside the app's build](decisions/0048-a-new-app-has-a-csharp-test-project-and-a-playwright-suite.md)
+- [0049 – Page packages are mounted into the route table](decisions/0049-page-packages-are-mounted-into-the-route-table.md)
+- [0050 – A page package ships sources that the app builds](decisions/0050-a-page-package-ships-sources-that-the-app-builds.md)
+- [0051 – A page package has a generated file of its own, and its links carry its mount](decisions/0051-a-page-package-has-a-generated-file-of-its-own.md)
+- [0052 – A page package whose versions do not fit stops the app](decisions/0052-a-page-package-whose-versions-do-not-fit-stops-the-app.md)
 
 ## The project
 
