@@ -280,7 +280,7 @@ Conventions on it, such as `RequireAuthorization()`, `ExcludeFromExport()` and `
 - `ArgumentException`: a `group` that is no JavaScript identifier of ASCII letters, digits, `_` and `$`, a reserved word of a JavaScript module (`class`, `default`, `await`, `let`, `eval`, ...), or a name a page package's generated file declares or imports (`pages`, `layouts`, `serverActions`, `Href`, `route`, `Link`, `useRouter`, `MountHref`, `z`, ...); a `key` or slot name `__proto__`, which an object literal takes for its prototype, or one with half a surrogate pair, which a JSON string writes as U+FFFD; a slot without a type, or of a type no value has: an open generic type, a by-ref type, a pointer or `void`;
 - `InvalidOperationException`: a second entry of one key in the export, and an entry in an export that another package added.
 
-A C# type named like the export gets another name in both files, as one named like the file's own exports does.
+A C# type named like the export gets another name in both files, as one named like the file's own exports does. The app's own schemas keep their names: a slot's type named like one of the app's types gets another name in the app's file, and keeps its own in the package's.
 
 ### PagePackage
 

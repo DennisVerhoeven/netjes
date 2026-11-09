@@ -382,7 +382,7 @@ export const blocks = {
 } as const;
 ```
 
-The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. `netjes generate --check` fails on both files when an export changes, so run `netjes generate` after updating the package.
+The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs. `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it (`WriteTypes`), so run `netjes generate` after updating the package.
 
 ## JSON endpoints
 
