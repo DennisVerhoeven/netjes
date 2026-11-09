@@ -31,7 +31,7 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether an endpoint carrying <paramref name="metadata"/> asks for authorization of its own, as the authorization
     /// middleware reads it: an <see cref="IAuthorizeData"/>, an <see cref="AuthorizationPolicy"/>, or requirements its
-    /// metadata states (<see cref="IAuthorizationRequirementData"/>). An endpoint that asks for none gets only the fallback policy.
+    /// metadata states (<see cref="IAuthorizationRequirementData"/>). One that asks for none gets only the fallback policy.
     /// </summary>
     public static bool AsksForAuthorization(IEnumerable<object> metadata) =>
         metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy or IAuthorizationRequirementData);
@@ -51,9 +51,9 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether the user passes the authorization that an endpoint carrying <paramref name="metadata"/> asks for, evaluated
     /// the way the authorization middleware would: its <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>,
-    /// else the fallback policy, joined by the requirements its metadata states (<see cref="IAuthorizationRequirementData"/>),
-    /// unless it allows anonymous users, through the app's <see cref="IPolicyEvaluator"/>: against the user the policy's
-    /// schemes authenticate, else the request's.
+    /// else the fallback policy, joined by the requirements its metadata states
+    /// (<see cref="IAuthorizationRequirementData"/>), unless it allows anonymous users, through the app's
+    /// <see cref="IPolicyEvaluator"/>: against the user the policy's schemes authenticate, else the request's.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
     {
@@ -127,7 +127,9 @@ internal static class ConventionAuthorization
 
         try
         {
-            return await http.AuthenticateAsync(scheme.Name) is { Succeeded: true, Principal: { } principal } ? principal : null;
+            return await http.AuthenticateAsync(scheme.Name) is { Succeeded: true, Principal: { } principal }
+                ? principal
+                : null;
         }
         catch (Exception) when (!http.RequestAborted.IsCancellationRequested)
         {
