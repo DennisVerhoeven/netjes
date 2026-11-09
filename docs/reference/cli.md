@@ -159,7 +159,7 @@ Like `routes`, it runs the app once in command mode: the app starts as usual, so
 netjes routes [--json]
 ```
 
-Prints the pages as the app maps them (pattern, file, loader, page action, props type, output caching, authorization), the other endpoints (the built-in ones such as `/_netjes/image`, your own minimal API endpoints and the [server actions](../guides/actions-and-forms.md) at `/_netjes/actions/<name>`), and the [route warnings](../guides/routing.md#route-warnings). Warnings do not change the exit code.
+Prints the pages as the app maps them (pattern, file, loader, page action, props type, output caching, authorization), the other endpoints (the built-in ones such as `/_netjes/image`, your own minimal API endpoints and the [server actions](../guides/actions-and-forms.md) at `/_netjes/actions/<name>`), and the [route warnings](../guides/routing.md#route-warnings). Warnings do not change the exit code. When the app mounts a [page package](csharp-api.md#page-packages), the table gets a Package column, after File, which names the package of each page and of each endpoint mapped through its mount, and marks a page the app's file replaces with `(override)`; a Packages list follows the endpoints, with each package's npm and NuGet versions, its prefix and its overrides. Without a mount the table is as before.
 
 | Option | What it does | Default |
 |---|---|---|
@@ -169,14 +169,38 @@ The report is the only thing on stdout; the build and app output go to stderr, s
 
 ```json
 {
-  "routes": [{ "pattern": "/blog/[slug]", "template": "/blog/{slug}", "file": "app/blog/[slug]/page.tsx", "layouts": ["app/layout.tsx"],
-               "loader": true, "action": false, "props": "PostProps", "cached": true, "authorized": false }],
-  "endpoints": [{ "method": "*", "route": "/healthz", "name": "Health checks" }],
+  "routes": [{ "pattern": "/blog/[slug]", "template": "/blog/{slug}", "file": "app/blog/[slug]/page.tsx", "package": null, "overrides": null,
+               "layouts": ["app/layout.tsx"], "loader": true, "action": false, "props": "PostProps", "cached": true, "authorized": false },
+             { "pattern": "/help/contact", "template": "/help/contact", "file": "app/help/contact/page.tsx", "package": "@netjes-examples/help-center",
+               "overrides": "@netjes-examples/help-center/app/contact/page.tsx", "layouts": ["app/layout.tsx", "@netjes-examples/help-center/app/layout.tsx"],
+               "loader": true, "action": true, "props": "ContactProps", "cached": false, "authorized": false }],
+  "endpoints": [{ "method": "*", "route": "/healthz", "name": "Health checks", "package": null },
+                { "method": "POST", "route": "/_netjes/actions/help.vote", "name": "Server action help.vote", "package": "@netjes-examples/help-center" }],
+  "packages": [{ "name": "@netjes-examples/help-center", "version": "0.0.4", "nuget": "Netjes.Examples.HelpCenter", "nugetVersion": "0.0.4",
+                 "prefix": "/help", "pattern": "/help", "overrides": ["/help/contact"] }],
   "warnings": [{ "kind": "overlap", "message": "…", "files": ["app/[id]/page.tsx", "app/[...rest]/page.tsx"] }]
 }
 ```
 
-`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does. A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings): `query-binding` for a loader parameter that reads the query string instead of a route value, `overlap` for two pages that match the same URLs, `ambiguous-endpoint` for an endpoint that ties with a page or a page action, and `form-input` for a form input that refuses a post without a checkbox. `files` lists the page and layout files the warning is about, and is empty for a server action's form input.
+`method` is the HTTP method an endpoint answers, or `"*"` for one that answers every method, as `MapHealthChecks` does.
+
+A route's `package` is the npm name of the page package whose page it is, and `null` for the app's own. A page the app's file replaces with `.Override()` is still the package's, since it renders with the package's loader and page action: its `file` is the app's, and `overrides` the package's file it replaces (`null` for every other page). An endpoint's `package` is the package whose mount it is mapped through: a server action, or a minimal API endpoint such as one `MapPost` maps. The package's loaders and page actions serve its pages, so they show in `routes`, not here. The app's own endpoints below the mount's URL, and Netjes's, have `null`.
+
+`packages` lists the mounted page packages in the order of their mounts, and is empty without one: `version` is the npm half's, `nuget` and `nugetVersion` the NuGet half's (`nuget` as the npm half's `netjes` field names it, or else the assembly's name), `prefix` the mount's prefix in folder syntax as `MapPagePackage` took it (`/(marketing)/help`), `pattern` its URL pattern without route groups (`/help`), and `overrides` the URL patterns where the app's file replaces one of the package's pages.
+
+A warning's `kind` names one of the [route warnings](../guides/routing.md#route-warnings):
+
+| `kind` | What it means |
+|---|---|
+| `query-binding` | A loader parameter reads the query string instead of a route value. A page package's loaders and layout loaders are not held to bind the parameters of the prefix it is mounted at (`tenant` under `/[tenant]/help`); the app's loaders under the mount are. |
+| `overlap` | Two pages match the same URLs. A literal page next to a parameter one (`/blog/new` next to `/blog/[slug]`) counts only when both come from the app, or from one package: the app's `app/help/[section]/page.tsx` next to a package's `settings/page.tsx` at `/help/settings` is warned, both ways round. An app page that replaces a package's page counts as the package's. |
+| `ambiguous-endpoint` | An endpoint ties with a page or a page action. |
+| `form-input` | A form input refuses a post without a checkbox. |
+| `package-shell` | A page package that draws its own shell (`PagePackage.DrawsItsOwnShell`) is mounted, and the app has a root layout of its own, which wraps every page, but no route group layout directly below it, such as `app/(site)/layout.tsx`. The fix is to keep the root layout to what every page needs and move the app's header and footer into such a group. |
+| `package-unmounted` | In production, the client build holds a page package, listed in `netjes({ packages })`, that the app does not mount, so its pages ship and no URL serves them. Development and the commands read `node_modules` and no build, so they do not report it. |
+| `package-nonce` | A page package whose pages stream (`PagePackage.RequiresNonce`) is mounted, and `NetjesOptions.ContentSecurityPolicy` is a policy without `{nonce}` that refuses inline scripts, as a hash-based policy does: its `script-src-elem`, else `script-src`, else `default-src` allows none, so it blocks what streams. No warning without a policy, or under one that allows inline scripts or restricts no scripts. |
+
+`files` lists the page and layout files the warning is about: for `package-shell` the app's root layout. It is empty for a server action's form input, `package-unmounted` and `package-nonce`.
 
 ## netjes export
 
@@ -208,7 +232,7 @@ On macOS and Windows that check ignores letter case, as .NET does. On macOS and 
 netjes info
 ```
 
-Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise.
+Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise. When the app depends on [page packages](csharp-api.md#page-packages), npm packages whose `package.json` has a `netjes` field, a line after the Vite config names them with their versions (`✓ page packages: @acme/help-center 1.2.0`), and a line follows for each problem with one; without them there is no such line.
 
 ```text
 netjes 0.0.3 in /home/me/my-shop
@@ -234,6 +258,7 @@ netjes 0.0.3 in /home/me/my-shop
 | Vite config | there is no `vite.config.*`, or it does not use `netjes()` | |
 | `package.json` | it is missing, is not valid JSON, or has no `build` script | |
 | `app/` | it is missing; or `pages/` still has pages router files (named with their `app/` files) or API routes in `pages/api/` | it has no `page.tsx` |
+| Page packages | a page package the app depends on has no `peerDependencies.netjes`, or one that leaves out the installed netjes (`@acme/help-center 1.2.0 supports Netjes ^0.0.4; this app runs Netjes 0.0.5`), read strictly as npm reads ranges; or the `.csproj` references the NuGet package its `netjes` field names at another exact version than the npm package's. A range, a floating version or an MSBuild property is not compared, as for Netjes | it is not in `netjes({ packages })` in the Vite config, so no build holds its pages |
 | `generated/netjes.ts` | it is missing | a `.cs` file in the app is newer, the root `tests/` folder left out (a hint only: `netjes generate --check` is exact) |
 
 ## netjes agents

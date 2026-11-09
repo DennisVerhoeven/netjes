@@ -47,6 +47,15 @@ internal static partial class CspChecks
         NonceSource().Replace(policy, source => IsTheNonce(source.Value, nonce) ? "'nonce'" : "'other-nonce'");
 
     /// <summary>
+    /// Whether one of the policies refuses inline scripts that carry no nonce, as the ones that stream <c>Page.Defer</c>
+    /// values and reveal Suspense boundaries are under a policy without <c>{nonce}</c>: its <c>script-src-elem</c>, else
+    /// <c>script-src</c>, else <c>default-src</c> allows no inline scripts. A policy with none of them leaves scripts alone.
+    /// </summary>
+    public static bool RefusesInlineScripts(string policies) =>
+        CspDirectives.Policies(policies).Any(policy =>
+            Governing(policy, "script-src-elem", "script-src", "default-src") is { } directive && !AllowsInline(directive.Sources, scripts: true));
+
+    /// <summary>
     /// Script elements, and the modules they load, follow <c>script-src-elem</c>, else <c>script-src</c>, else
     /// <c>default-src</c>. Netjes puts the document's nonce, when it has one, on every script it writes, and modules
     /// inherit it from the script that loads them, so a list with that nonce is not judged. Any other nonce is on none of

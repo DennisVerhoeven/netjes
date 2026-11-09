@@ -9,8 +9,9 @@ namespace Netjes.Routing;
 internal sealed record PageEndpointMetadata(string? Pattern);
 
 /// <summary>
-/// On a page package's own endpoints: its file pages, and its loaders, page actions, server actions and the endpoints
-/// mapped through its mount. The generated files tell the package's endpoints from the app's by it.
+/// The page package whose mount an endpoint is mapped through: its file pages, and its loaders, page actions, server
+/// actions and the endpoints mapped through its mount. <c>netjes routes</c> names the package by it, and the generated
+/// files tell the package's endpoints from the app's by it.
 /// </summary>
 /// <param name="Package">The package's npm name.</param>
 internal sealed record PagePackageEndpointMetadata(string Package);

@@ -33,6 +33,22 @@ public sealed class PagePackage
     /// <summary>The assembly's informational version without its <c>+</c> suffix (the commit), as NuGet versions it.</summary>
     public string Version { get; }
 
+    /// <summary>
+    /// Whether the package's layout draws a whole page around its pages: a header, navigation and footer of its own, as a
+    /// back-office package does. Netjes then warns (<c>package-shell</c>) when the app's root layout wraps every page and
+    /// the app has no route group layout below it for its own chrome, since the package's pages would render inside the
+    /// app's chrome too.
+    /// </summary>
+    public bool DrawsItsOwnShell { get; init; }
+
+    /// <summary>
+    /// Whether the package's pages stream (<c>Page.Defer</c>, or a Suspense boundary still waiting when the shell goes
+    /// out), which a Content-Security-Policy that refuses inline scripts allows only with a nonce. Netjes then warns
+    /// (<c>package-nonce</c>) when <c>NetjesOptions.ContentSecurityPolicy</c> is such a policy without <c>{nonce}</c>, as a
+    /// hash-based policy is.
+    /// </summary>
+    public bool RequiresNonce { get; init; }
+
     /// <summary>The name of the package's assembly, which errors give for its NuGet half when its npm half names none.</summary>
     internal string AssemblyName { get; }
 

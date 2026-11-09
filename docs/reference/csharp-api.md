@@ -282,10 +282,24 @@ public sealed class PagePackage
     public PagePackage(string name, System.Reflection.Assembly assembly);
     public string Name { get; }
     public string Version { get; }
+    public bool DrawsItsOwnShell { get; init; }
+    public bool RequiresNonce { get; init; }
 }
 ```
 
 The C# half's descriptor, which a package keeps in a static. `name` is the npm name, and `Version` is the assembly's informational version without its `+` suffix, which the npm half's version has to equal. A name that is not an npm package name throws `ArgumentException`.
+
+The two flags describe the package's pages for the [route warnings](../guides/routing.md#route-warnings), which `netjes routes` lists too, and change nothing else. `DrawsItsOwnShell` marks a package whose layout draws a whole page around its pages, with a header, navigation and footer of its own, as a back-office package does: the `package-shell` warning names an app whose own root layout wraps every page while it has no route group layout directly below it, such as `app/(site)/layout.tsx`, to hold the app's chrome. `RequiresNonce` marks a package whose pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out): the `package-nonce` warning names an app whose `NetjesOptions.ContentSecurityPolicy` has no `{nonce}` and refuses inline scripts, since such a policy, as a hash-based one is, blocks what streams ([hash-based policies](../guides/security.md#hash-based)).
+
+```csharp
+public static class BackOfficePackage
+{
+    public static PagePackage Package { get; } = new("@acme/back-office", typeof(BackOfficePackage).Assembly)
+    {
+        DrawsItsOwnShell = true,
+    };
+}
+```
 
 ### PagePackageMount
 

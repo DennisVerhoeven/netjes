@@ -176,6 +176,7 @@ internal sealed class TypeGenHostedService(
     private object DescribeRoutes()
     {
         var table = services.GetRequiredService<IRouteTableProvider>().Current;
+        var sources = services.GetRequiredService<RouteSources>();
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
 
         // A page's endpoints as an app finds them: by the public metadata, which only endpoints that serve a page carry.
@@ -193,6 +194,9 @@ internal sealed class TypeGenHostedService(
                     page.Pattern,
                     page.Template,
                     page.File,
+                    // The page package whose page it is, also where the app's file replaces the package's.
+                    Package = sources.PackageOf(page)?.Name,
+                    page.Overrides,
                     page.Layouts,
                     Loader = get?.Metadata.GetMetadata<PageRouteMetadata>()?.IsLoader ?? false,
                     Action = PageEndpoints(page.Pattern, HttpMethods.Post).Any(),
@@ -209,9 +213,23 @@ internal sealed class TypeGenHostedService(
                     Method = method,
                     Route = e.RoutePattern.RawText,
                     Name = e.DisplayName,
+                    // Mapped through a page package's mount; null for the app's own and Netjes's.
+                    Package = e.Metadata.GetMetadata<PagePackageEndpointMetadata>()?.Package,
                 }))
                 .OrderBy(e => e.Route, StringComparer.Ordinal)
                 .ThenBy(e => e.Method, StringComparer.Ordinal),
+            // The page packages mounted, in the order of their mounts: the npm half's version and the NuGet half's, which the
+            // version checks have held to one, and the app-absolute patterns where the app's page replaces one of theirs.
+            Packages = sources.Mounts.Select(mounted => new
+            {
+                mounted.Name,
+                mounted.Install.Version,
+                Nuget = mounted.Install.Nuget ?? mounted.Mount.Package.AssemblyName,
+                NugetVersion = mounted.Mount.Package.Version,
+                Prefix = mounted.Mount.Prefix.ToString(),
+                mounted.Mount.Pattern,
+                Overrides = table.Pages.Where(p => p.Overrides is not null && sources.PackageOf(p) == mounted).Select(p => p.Pattern),
+            }),
             // Logged at startup otherwise; here the CLI prints them.
             Warnings = services.GetRequiredService<RouteDiagnostics>().Check().Select(w => new { w.Kind, w.Message, w.Files }),
         };

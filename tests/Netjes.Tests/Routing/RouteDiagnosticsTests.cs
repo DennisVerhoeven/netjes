@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Netjes.Routing;
 using Netjes.Tests.Endpoints;
 
 namespace Netjes.Tests.Routing;
@@ -896,6 +897,263 @@ public class RouteDiagnosticsTests
             """{ "Logging": { "LogLevel": { "Netjes.Routing.RouteDiagnostics": "Error" } } }"""));
 
         Assert.Empty(Warnings(app));
+    }
+
+    /// <summary>A page package that draws its own shell: its own header, navigation and footer around its pages.</summary>
+    private static readonly PagePackage ShellPackage = new(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { DrawsItsOwnShell = true };
+
+    /// <summary>The warnings of an app with the page package installed in <c>node_modules</c> and mounted at <paramref name="prefix"/>.</summary>
+    private static async Task<IReadOnlyList<string>> PackageWarningsAsync(
+        string[] appFiles,
+        string[] packageFiles,
+        PagePackage? package = null,
+        string prefix = "/help",
+        Action<PagePackageBuilder>? mount = null,
+        Action<WebApplication>? map = null,
+        Action<NetjesOptions>? configure = null)
+    {
+        await using var app = await TestApp.StartAsync(
+            appFiles,
+            prepareRoot: root => TestPagePackage.Install(root, packageFiles),
+            map: a =>
+            {
+                var mounted = a.MapPagePackage(package ?? TestPagePackage.Descriptor, prefix);
+                mount?.Invoke(mounted);
+                map?.Invoke(a);
+            },
+            configure: configure);
+        return Warnings(app);
+    }
+
+    [Fact]
+    public async Task PackageShell_APackageThatDrawsItsOwnShell_UnderARootLayoutWithNoRouteGroupLayout_IsWarnedWithTheFix()
+    {
+        var warnings = await PackageWarningsAsync(["app/layout.tsx", "app/page.tsx"], ["layout.tsx", "page.tsx"], ShellPackage);
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"'{TestPagePackage.Name}' draws its own shell", warning);
+        Assert.Contains("/help", warning);
+        Assert.Contains("app/layout.tsx", warning);
+        Assert.Contains("app/(site)/layout.tsx", warning);
+    }
+
+    [Theory]
+    // The app's chrome is in a route group's layout, so the root layout is likely bare.
+    [InlineData(true, new[] { "app/layout.tsx", "app/(site)/layout.tsx", "app/(site)/page.tsx" })]
+    [InlineData(true, new[] { "app/layout.tsx", "app/(shop)/layout.tsx", "app/(shop)/cart/page.tsx", "app/about/page.tsx" })]
+    // No root layout of the app's: nothing wraps the package's pages.
+    [InlineData(true, new[] { "app/page.tsx" })]
+    // A package that does not draw its shell renders inside the app's chrome on purpose.
+    [InlineData(false, new[] { "app/layout.tsx", "app/page.tsx" })]
+    public async Task PackageShell_AnAppWithARouteGroupLayout_OrNoRootLayout_OrAPackageWithoutAShell_IsNotWarned(bool drawsItsShell, string[] appFiles)
+    {
+        var warnings = await PackageWarningsAsync(appFiles, ["layout.tsx", "page.tsx"], drawsItsShell ? ShellPackage : TestPagePackage.Descriptor);
+
+        Assert.Empty(warnings);
+    }
+
+    [Theory]
+    // A layout in a group below another folder, or below another group, holds no chrome of the whole app.
+    [InlineData("app/(site)/(inner)/layout.tsx", "app/(site)/(inner)/page.tsx")]
+    [InlineData("app/blog/(posts)/layout.tsx", "app/blog/(posts)/page.tsx")]
+    public async Task PackageShell_ARouteGroupLayoutNotDirectlyBelowTheRoot_StillWarns(string layout, string page)
+    {
+        var warnings = await PackageWarningsAsync(["app/layout.tsx", layout, page], ["layout.tsx", "page.tsx"], ShellPackage);
+
+        Assert.Contains($"'{TestPagePackage.Name}' draws its own shell", Assert.Single(warnings));
+    }
+
+    [Fact]
+    public async Task PackageShell_ARouteGroupLayoutOfAPackageMountedAtTheRoot_IsNotTheApps_AndStillWarns()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/layout.tsx", "app/about/page.tsx"], ["(center)/layout.tsx", "(center)/faq/page.tsx"], ShellPackage, prefix: "/");
+
+        Assert.Contains("at / render inside app/layout.tsx", Assert.Single(warnings));
+    }
+
+    /// <summary>A page package whose pages stream.</summary>
+    private static readonly PagePackage StreamingPackage = new(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { RequiresNonce = true };
+
+    [Fact]
+    public async Task PackageNonce_APackageThatStreams_UnderAPolicyWithoutANonce_IsWarned()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], StreamingPackage,
+            configure: o => o.ContentSecurityPolicy = $"script-src 'self' {NetjesContentSecurityPolicy.ScriptHashes}; object-src 'none'");
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"'{TestPagePackage.Name}'", warning);
+        Assert.Contains("NetjesOptions.ContentSecurityPolicy has no {nonce}", warning);
+        Assert.Contains("'nonce-{nonce}'", warning);
+    }
+
+    [Theory]
+    // Scripts follow script-src-elem, else script-src, else default-src.
+    [InlineData("default-src 'self'")]
+    [InlineData("script-src-elem 'self'; script-src 'self' 'unsafe-inline'")]
+    // Next to a hash or a nonce, browsers ignore 'unsafe-inline', and a nonce of the app's own is on no script Netjes streams.
+    [InlineData("script-src 'self' 'unsafe-inline' 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='")]
+    [InlineData("script-src 'self' 'nonce-fixed'")]
+    // Browsers enforce each policy of a list.
+    [InlineData("frame-ancestors 'none', script-src 'self'")]
+    public async Task PackageNonce_APackageThatStreams_UnderAnyPolicyThatRefusesInlineScripts_IsWarned(string policy)
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], StreamingPackage, configure: o => o.ContentSecurityPolicy = policy);
+
+        Assert.Contains("has no {nonce}", Assert.Single(warnings));
+    }
+
+    [Theory]
+    [InlineData(true, "script-src 'nonce-{nonce}' 'strict-dynamic'; object-src 'none'")]
+    // No policy of Netjes's: nothing it sends refuses the streamed scripts.
+    [InlineData(true, null)]
+    // A policy that leaves scripts alone, or allows inline ones, refuses nothing that streams.
+    [InlineData(true, "frame-ancestors 'none'; base-uri 'self'")]
+    [InlineData(true, "script-src 'self' 'unsafe-inline'")]
+    [InlineData(true, "default-src 'self' 'unsafe-inline'; img-src *")]
+    [InlineData(false, "script-src 'self'")]
+    public async Task PackageNonce_APolicyWithANonce_NoPolicy_OrAPackageThatDoesNotStream_IsNotWarned(bool streams, string? policy)
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"], ["page.tsx"], streams ? StreamingPackage : TestPagePackage.Descriptor,
+            configure: o => o.ContentSecurityPolicy = policy);
+
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public async Task PackageUnmounted_InProduction_APackageInTheClientBuildThatIsNotMounted_IsWarned()
+    {
+        await using var app = await TestApp.StartAsync(
+            [],
+            environment: "Production",
+            prepareRoot: root => TestPagePackage.WriteBuild(
+                root, ["app/page.tsx"], [new(TestPagePackage.Name, ["page.tsx"]), new(TestPagePackage.Other.Name, ["page.tsx"])]),
+            map: a => a.MapPagePackage(TestPagePackage.Other, "/status"));
+
+        var warning = Assert.Single(Warnings(app));
+        Assert.Contains($"'{TestPagePackage.Name}' is in the client build", warning);
+        Assert.Contains("netjes({ packages })", warning);
+        Assert.Contains("MapPagePackage", warning);
+    }
+
+    [Fact]
+    public async Task QueryBinding_APackagesLoaders_AreNotWarnedAboutTheMountsUnboundPrefixParameters()
+    {
+        // The package is written before anyone picks its prefix, so a value of the prefix is the app's to read.
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"],
+            ["layout.tsx", "page.tsx", "articles/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: m =>
+            {
+                m.MapPageLoader("/articles", (string? q) => Props(q));
+                m.MapLayoutLoader("app", (string? theme) => Props(theme));
+            });
+
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public async Task QueryBinding_APackagesLoader_IsStillWarnedAboutItsOwnUnboundRouteParameter_AndNotThePrefixs()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx"],
+            ["articles/[slug]/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: m => m.MapPageLoader("/articles/[slug]", (string? q) => Props(q)));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("route parameter 'slug' of /[tenant]/help/articles/[slug] is bound by no parameter", warning);
+        Assert.DoesNotContain("'tenant'", warning);
+    }
+
+    [Fact]
+    public async Task QueryBinding_AnAppLoaderUnderTheMount_IsStillWarnedAboutThePrefixsParameter()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx", "app/[tenant]/help/shortcuts/page.tsx"],
+            ["page.tsx"],
+            prefix: "/[tenant]/help",
+            map: a => a.MapPageLoader("/[tenant]/help/shortcuts", (string? q) => Props(q)));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("app/[tenant]/help/shortcuts/page.tsx", warning);
+        Assert.Contains("route parameter 'tenant'", warning);
+    }
+
+    [Theory]
+    // A package update that adds settings/page.tsx takes /help/settings from the app's page, and the reverse.
+    [InlineData(new[] { "app/help/[section]/page.tsx" }, new[] { "page.tsx", "settings/page.tsx" }, $"{TestPagePackage.Name}/app/settings/page.tsx", "app/help/[section]/page.tsx")]
+    [InlineData(new[] { "app/help/settings/page.tsx" }, new[] { "page.tsx", "[section]/page.tsx" }, "app/help/settings/page.tsx", $"{TestPagePackage.Name}/app/[section]/page.tsx")]
+    public async Task Overlap_ALiteralForAParameter_FromAnotherSource_IsWarnedNamingBothFiles(string[] appFiles, string[] packageFiles, string winner, string loser)
+    {
+        var warnings = await PackageWarningsAsync(["app/page.tsx", .. appFiles], packageFiles);
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains($"{winner} wins over {loser} for URLs like /help/settings", warning);
+    }
+
+    [Fact]
+    public async Task Overlap_ALiteralForAParameter_InOnePackage_OrInTheAppsOverrideOfItsPage_IsNotWarned()
+    {
+        var warnings = await PackageWarningsAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "settings/page.tsx", "contact/page.tsx", "[section]/page.tsx"],
+            mount: m => m.Override("/help/contact"));
+
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void AWarningsMessage_FillsItsHoles_AndReadsDoubledBracesAsOne_AsTheLogDoes()
+    {
+        var warning = new RouteWarning("package-unmounted", [], "'{Package}' is in netjes({{ packages }}), not {{nonce}}", ["@acme/x"]);
+
+        Assert.Equal("'@acme/x' is in netjes({ packages }), not {nonce}", warning.Message);
+    }
+
+    [Fact]
+    public async Task PackageUnmounted_InDevelopment_IsNotWarned_SinceNoClientBuildIsRead()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, ["page.tsx"]);
+                TestPagePackage.WriteBuild(root, ["app/page.tsx"], [new(TestPagePackage.Name, ["page.tsx"])]);
+            });
+
+        Assert.Empty(Warnings(app));
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ReportsThePackageWarnings_WithTheirKinds_AndBracesAsTheLogWritesThem()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        var package = new PagePackage(TestPagePackage.Name, typeof(TestPagePackage).Assembly) { DrawsItsOwnShell = true, RequiresNonce = true };
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapPagePackage(package, "/help"),
+            configure: o =>
+            {
+                o.ContentSecurityPolicy = "script-src 'self'";
+                o.Command = new NetjesCommandOptions { Name = "routes", Output = output };
+            },
+            services: s => s.AddSingleton(new Netjes.TypeGen.CommandExit(_ => { })));
+
+        var report = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        var warnings = report["warnings"]!.AsArray();
+
+        Assert.Equal(["package-shell", "package-nonce"], warnings.Select(w => (string?)w!["kind"]));
+        Assert.Equal(["app/layout.tsx"], warnings[0]!["files"]!.AsArray().Select(f => (string?)f));
+        Assert.Empty(warnings[1]!["files"]!.AsArray());
+        Assert.Contains("has no {nonce}", (string?)warnings[1]!["message"]);
+        Assert.Contains("'nonce-{nonce}' in the policy's script-src", (string?)warnings[1]!["message"]);
     }
 
     private static Delegate NearName(string name) => name switch

@@ -327,6 +327,119 @@ public class TypeGenHostedServiceTests
         Assert.False(Cached("/"));
     }
 
+    /// <summary>The report of <c>netjes routes</c> for an app with a page package mounted.</summary>
+    private static async Task<JsonNode> RoutesReportAsync(string[] appFiles, string[] packageFiles, Action<WebApplication> map)
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            appFiles,
+            prepareRoot: root => TestPagePackage.Install(root, packageFiles),
+            map: map,
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new CommandExit(_ => { })));
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        return report;
+    }
+
+    [Fact]
+    public async Task RoutesCommand_NamesThePackageOfEachRoute_AndThePackagesPageAnOverrideReplaces()
+    {
+        const string help = TestPagePackage.Name;
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").Override("/help/contact"));
+        JsonNode Route(string pattern) => report["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == pattern)!;
+
+        Assert.Null((string?)Route("/")["package"]);
+        Assert.Null((string?)Route("/")["overrides"]);
+        Assert.Equal(help, (string?)Route("/help")["package"]);
+        Assert.Null((string?)Route("/help")["overrides"]);
+        // The app's file renders with the package's loader and page action: the page is still the package's.
+        Assert.Equal("app/help/contact/page.tsx", (string?)Route("/help/contact")["file"]);
+        Assert.Equal(help, (string?)Route("/help/contact")["package"]);
+        Assert.Equal($"{help}/app/contact/page.tsx", (string?)Route("/help/contact")["overrides"]);
+    }
+
+    [Fact]
+    public async Task RoutesCommand_NamesThePackageOfEachEndpointItMapsThroughItsMount()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx"],
+            ["page.tsx"],
+            a =>
+            {
+                var help = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                help.MapPost("/feedback", () => "thanks");
+                help.MapAction("help.vote", () => ServerAction.Ok());
+                a.MapGet("/help/status", () => "up");
+            });
+        string? Package(string method, string route) => (string?)report["endpoints"]!.AsArray()
+            .Single(e => (string?)e!["method"] == method && (string?)e["route"] == route)!["package"];
+
+        Assert.Equal(TestPagePackage.Name, Package("POST", "/help/feedback"));
+        Assert.Equal(TestPagePackage.Name, Package("POST", "/_netjes/actions/help.vote"));
+        // The app's own endpoint under the mount's URL, and Netjes's.
+        Assert.Null(Package("GET", "/help/status"));
+        Assert.Null(Package("GET", "/_netjes/antiforgery"));
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ListsTheMountedPackages_WithTheirVersionsPrefixAndOverrides()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/(marketing)/help/contact/page.tsx"],
+            ["page.tsx", "contact/page.tsx", "faq/page.tsx"],
+            a => a.MapPagePackage(TestPagePackage.Descriptor, "/(marketing)/help").Override("/help/contact"));
+
+        var package = Assert.Single(report["packages"]!.AsArray())!;
+        Assert.Equal(TestPagePackage.Name, (string?)package["name"]);
+        Assert.Equal(TestPagePackage.Descriptor.Version, (string?)package["version"]);
+        // The npm half names no NuGet package, so its C# half goes by its assembly's name.
+        Assert.Equal("Netjes.Tests", (string?)package["nuget"]);
+        Assert.Equal(TestPagePackage.Descriptor.Version, (string?)package["nugetVersion"]);
+        Assert.Equal("/(marketing)/help", (string?)package["prefix"]);
+        Assert.Equal("/help", (string?)package["pattern"]);
+        Assert.Equal(["/help/contact"], package["overrides"]!.AsArray().Select(o => (string?)o));
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ReportsAuthorization_OfTheMountOnThePackagesPages_AndOfItsLayoutLoaderOnTheAppsPagesBelowIt()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/help/(center)/shortcuts/page.tsx", "app/help/about/page.tsx"],
+            ["page.tsx", "(center)/layout.tsx", "(center)/faq/page.tsx"],
+            a =>
+            {
+                var help = a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization();
+                help.MapLayoutLoader("app/(center)", () => Page.Props(new HomeProps("center"))).RequireAuthorization();
+            });
+        bool? Authorized(string pattern) =>
+            (bool?)report["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == pattern)!["authorized"];
+
+        Assert.True(Authorized("/help"));
+        Assert.True(Authorized("/help/faq"));
+        // The app's page in the package's group is protected by the package's layout loader, not by the mount.
+        Assert.True(Authorized("/help/shortcuts"));
+        Assert.False(Authorized("/help/about"));
+        Assert.False(Authorized("/"));
+    }
+
+    [Fact]
+    public async Task RoutesCommand_WithNothingMounted_ListsNoPackages()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"netjes-{Guid.NewGuid():N}.json");
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            configure: o => o.Command = new NetjesCommandOptions { Name = "routes", Output = output },
+            services: s => s.AddSingleton(new CommandExit(_ => { })));
+
+        var report = JsonNode.Parse(await File.ReadAllTextAsync(output, TestContext.Current.CancellationToken))!;
+        File.Delete(output);
+        Assert.Empty(report["packages"]!.AsArray());
+    }
+
     [Fact]
     public async Task GenerateCommand_InProduction_ScansPageFilesInsteadOfTheBuildManifest()
     {
