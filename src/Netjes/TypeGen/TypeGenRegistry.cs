@@ -40,6 +40,17 @@ internal sealed class TypeGenRegistry
                 nameof(group));
         }
 
+        foreach (var (name, type) in slots)
+        {
+            if (type.ContainsGenericParameters || type.IsByRef || type.IsPointer || type.IsFunctionPointer || type == typeof(void))
+            {
+                throw new ArgumentException(
+                    $"The slot '{name}' of '{key}' in the TypeScript export '{group}' has the type {type}, which no value has: give it a " +
+                    "closed type that is no by-ref type, pointer or void.",
+                    nameof(slots));
+            }
+        }
+
         lock (_gate)
         {
             if (!_groups.TryGetValue(group, out var entries))

@@ -126,4 +126,31 @@ public class TypeGenRegistryTests
 
         Assert.Equal("Link", Assert.Single(registry.Snapshot()).Group);
     }
+
+    /// <summary>Types no value has, of which the generated file could write no schema.</summary>
+    public static TheoryData<Type> TypesOfNoValue() =>
+    [
+        typeof(List<>),
+        typeof(Dictionary<,>).MakeGenericType(typeof(string), typeof(List<>).GetGenericArguments()[0]),
+        typeof(List<>).GetGenericArguments()[0],
+        typeof(Hero).MakeByRefType(),
+        typeof(int).MakePointerType(),
+        typeof(void),
+    ];
+
+    [Theory]
+    [MemberData(nameof(TypesOfNoValue))]
+    public void ASlotOfATypeNoValueHas_Throws(Type type)
+    {
+        var registry = new TypeGenRegistry();
+
+        var error = Assert.Throws<ArgumentException>(() => registry.Add("blocks", "hero", Props(type), owner: "@acme/blocks"));
+
+        Assert.Equal("slots", error.ParamName);
+        Assert.StartsWith(
+            $"The slot 'props' of 'hero' in the TypeScript export 'blocks' has the type {type}, which no value has: give it a closed type " +
+            "that is no by-ref type, pointer or void.",
+            error.Message);
+        Assert.Empty(registry.Snapshot());
+    }
 }
