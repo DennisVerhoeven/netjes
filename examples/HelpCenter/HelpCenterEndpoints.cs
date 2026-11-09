@@ -98,7 +98,8 @@ public static class HelpCenterEndpoints
                 ? ServerAction.Invalid("slug", "There is no such article.")
                 : ServerAction.Ok(store.Vote(input.Slug, input.Helpful)));
 
-        // A JSON endpoint below the mount, /help/messages where the package is mounted at /help.
+        // A JSON endpoint below the mount, /help/messages where the package is mounted at /help. Its body binds from JSON
+        // only, which keeps cross-site form posts out.
         help.MapPost("/messages", Results<Ok<MessageReceipt>, BadRequest> (MessageRequest request, HelpCenterStore store) =>
             string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Message)
                 ? TypedResults.BadRequest()
