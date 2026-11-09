@@ -13,7 +13,7 @@ const navLink =
  */
 export default function HelpCenterLayout({ children }: LayoutProps) {
   return (
-    <div data-help-center="" className="overflow-hidden rounded-xl border border-help-line bg-help-surface text-help-ink">
+    <div data-help-center="" className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-help-line bg-help-surface text-help-ink">
       <header className="flex flex-wrap items-center justify-between gap-3 bg-help-accent px-5 py-3 text-help-accent-ink">
         <Link href="/" className="text-lg font-semibold text-help-accent-ink no-underline">
           Help center
