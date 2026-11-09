@@ -43,7 +43,7 @@ Adds static files (`public/` in development; the client build in production, wit
 public static IEndpointConventionBuilder MapPages(this IEndpointRouteBuilder endpoints)
 ```
 
-Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page (below a page package's mount, [the mount's](#mappagepackage)), the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages, the file pages of mounted [page packages](#page-packages) too, after their mount's. The fallback gets none of them, so an unknown URL answers 404 and never a challenge, but their authorization guards the layout loaders around its not-found page: a visitor who fails it gets that page without running any ([ADR 0053](../decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)). It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there, and so does an app page of the same shape as a mounted package's page ([Route errors](#route-errors)). Mount page packages before it.
+Maps every page file that has no `MapPageLoader`, a lowest-priority fallback that renders the not-found page (below a page package's mount, [the mount's](#mappagepackage)), the image endpoint (`/_netjes/image`, for `GET` and `HEAD`), the antiforgery token endpoint (`/_netjes/antiforgery`, for `GET` only), and with `CollectWebVitals` the vitals endpoint (`/_netjes/vitals`). Conventions on the result, such as `RequireAuthorization()` or `CachePage(...)`, apply to all the file pages, the file pages of mounted [page packages](#page-packages) too, after their mount's. The fallback gets none of them, so an unknown URL answers 404 and never a challenge, but their authorization guards the layout loaders around its not-found page, and around the 401 and 403 pages of the visitors it refuses: such a visitor gets the page without running any ([ADR 0053](../decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)). It reads the routes as the app starts, so files in `app/` that break the file conventions stop the app there, and so does an app page of the same shape as a mounted package's page ([Route errors](#route-errors)). Mount page packages before it.
 
 ### AddNetjes (health checks)
 
@@ -93,7 +93,7 @@ public sealed class LayoutLoaderBuilder : IEndpointConventionBuilder
 }
 ```
 
-What `MapLayoutLoader` returns. Each convention is applied to the layout loader and to every page endpoint below the layout, so `RequireAuthorization()` on it protects the whole section before any loader runs. A page that renders inside the layout from an endpoint that serves no page (the 404 for an unknown URL, the status and error pages of the fallback and of a server action, a minimal API's `Page.NotFound()` or `Page.Forbidden()`) authorizes the loader before it runs too, and a user it refuses gets that page inside the layouts above, with the same status.
+What `MapLayoutLoader` returns. Each convention is applied to the layout loader and to every page endpoint below the layout, so `RequireAuthorization()` on it protects the whole section before any loader runs. A page that renders inside the layout for a user no page endpoint has let in (the 404 for an unknown URL, the status and error pages of the fallback and of a server action, a minimal API's `Page.NotFound()` or `Page.Forbidden()`, a page's 401 and 403 pages, and its status and error pages from before its authorization ran) authorizes the loader before it runs too, as a page in its folder would be, and a user it refuses gets that page inside the layouts above, with the same status.
 
 ### MapPageAction
 
@@ -128,7 +128,7 @@ Results for page loaders, layout loaders and page actions.
 |---|---|
 | `Props(props)` | Render the endpoint's page with these props. The result is typed by them, so the loader's inferred return type names the props for the generated TypeScript and for tests (`result.Props`). Only in endpoints mapped with `MapPageLoader` or `MapPageAction`; it throws elsewhere. |
 | `Props()` | The same without props (`{}`). |
-| `Render(pattern, props)` | Render the page for `pattern` (`/blog/[slug]`) from any endpoint, such as a minimal API. |
+| `Render(pattern, props)` | Render the page for `pattern` (`/blog/[slug]`) from any endpoint, such as a minimal API. The page's layout loaders run under that endpoint's authorization, not the page's: give the endpoint the authorization the page has ([Security](../guides/security.md#layout-loaders-around-404-and-error-pages)). |
 | `NotFound()` | Render the nearest `not-found.tsx`, inside the layouts above it, else the root not-found page, with status 404. From an app page whose folders do not reach a page package's mount that the URL is below, such as a catch-all, the mount's, unless the page's own is at the mount's URL or below it ([MapPagePackage](#mappagepackage)). |
 | `Forbidden()` | Render the nearest `forbidden.tsx`, else the error page, with status 403. |
 | `Unauthorized()` | Render the nearest `unauthorized.tsx`, else the error page, with status 401. |

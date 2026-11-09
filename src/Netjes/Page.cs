@@ -18,7 +18,10 @@ public static partial class Page
     /// <summary>Render the endpoint's page without props.</summary>
     public static PageResult<NoProps> Props() => new(new(PageResult.Kind.Props, props: NoProps.Instance));
 
-    /// <summary>Render the page for <paramref name="pattern"/> (e.g. <c>/blog/[slug]</c>) from any endpoint.</summary>
+    /// <summary>
+    /// Render the page for <paramref name="pattern"/> (e.g. <c>/blog/[slug]</c>) from any endpoint. Its layout loaders run
+    /// under the authorization of the endpoint that returns this, not the page's.
+    /// </summary>
     public static PageResult Render(string pattern, object? props = null) =>
         new(PageResult.Kind.Props, props: props, pattern: pattern);
 
