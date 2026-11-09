@@ -6,13 +6,29 @@ public sealed record HelpArticle(string Slug, string Title, string Summary, IRea
 /// <summary>How many readers found an article helpful, and how many did not.</summary>
 public sealed record HelpVotes(int Helpful, int NotHelpful);
 
-/// <summary>The articles, and what readers sent about them, in memory: it stands in for a database in this example.</summary>
+/// <summary>A note a reader left on an article.</summary>
+public sealed record HelpNote(string Slug, string Comment);
+
+/// <summary>A message from the contact page, with the number its sender was given.</summary>
+public sealed record HelpMessage(int Number, string Email, string Message);
+
+/// <summary>
+/// The articles, and what readers sent about them, in memory: it stands in for a database in this example. It keeps the
+/// newest <see cref="MaxNotes"/> notes and <see cref="MaxMessages"/> messages, and counts every one: readers write to it
+/// without signing in, so unbounded lists would let one client grow the process without limit.
+/// </summary>
 public sealed class HelpCenterStore
 {
+    public const int MaxNotes = 200;
+
+    public const int MaxMessages = 200;
+
     private readonly Lock _lock = new();
     private readonly Dictionary<string, (int Helpful, int NotHelpful)> _votes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<string>> _feedback = new(StringComparer.Ordinal);
-    private readonly List<(string Email, string Message)> _messages = [];
+    private readonly Dictionary<string, int> _noteCounts = new(StringComparer.Ordinal);
+    private readonly List<HelpNote> _notes = [];
+    private readonly List<HelpMessage> _messages = [];
+    private int _messageCount;
 
     public IReadOnlyList<HelpArticle> Articles { get; } =
     [
@@ -67,7 +83,7 @@ public sealed class HelpCenterStore
     {
         lock (_lock)
         {
-            return _feedback.TryGetValue(slug, out var notes) ? notes.Count : 0;
+            return _noteCounts.GetValueOrDefault(slug);
         }
     }
 
@@ -75,12 +91,17 @@ public sealed class HelpCenterStore
     {
         lock (_lock)
         {
-            if (!_feedback.TryGetValue(slug, out var notes))
-            {
-                _feedback[slug] = notes = [];
-            }
+            _noteCounts[slug] = _noteCounts.GetValueOrDefault(slug) + 1;
+            KeepNewest(_notes, new HelpNote(slug, comment), MaxNotes);
+        }
+    }
 
-            notes.Add(comment);
+    /// <summary>The notes readers left, the newest first.</summary>
+    public IReadOnlyList<HelpNote> RecentNotes()
+    {
+        lock (_lock)
+        {
+            return [.. Enumerable.Reverse(_notes)];
         }
     }
 
@@ -89,8 +110,26 @@ public sealed class HelpCenterStore
     {
         lock (_lock)
         {
-            _messages.Add((email, message));
-            return _messages.Count;
+            KeepNewest(_messages, new HelpMessage(++_messageCount, email, message), MaxMessages);
+            return _messageCount;
+        }
+    }
+
+    /// <summary>The messages from the contact page, the newest first.</summary>
+    public IReadOnlyList<HelpMessage> RecentMessages()
+    {
+        lock (_lock)
+        {
+            return [.. Enumerable.Reverse(_messages)];
+        }
+    }
+
+    private static void KeepNewest<T>(List<T> items, T item, int max)
+    {
+        items.Add(item);
+        if (items.Count > max)
+        {
+            items.RemoveRange(0, items.Count - max);
         }
     }
 }
