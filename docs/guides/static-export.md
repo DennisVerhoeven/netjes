@@ -51,7 +51,7 @@ Without it, the export stops before it writes anything, naming each problem, whe
 
 - is dynamic and has no `.StaticParams(...)`,
 - has a page action (`MapPageAction`), since form posts need a server,
-- requires authorization, through `RequireAuthorization()` on it or a layout loader above it, or through a fallback policy (unless the page is `.AllowAnonymous()`),
+- requires authorization, through `RequireAuthorization()` on it or a layout loader above it, a policy or requirements (`IAuthorizationRequirementData`) in its metadata, or a fallback policy (unless the page is `.AllowAnonymous()`),
 - would write the same file as another page on some file system: paths that differ only in case, Unicode normalisation or trailing dots and spaces, or a `.StaticParams` value that lands on another page's URL,
 - would write the same file as `404.html`, the export's own `.netjes-export` marker or an endpoint written as a file ([below](#other-endpoints-as-files-includeinexport)), or needs a directory where one of those is a file,
 - has a path segment that Windows reserves for a device (`con`, `nul.txt`, `com1`).
@@ -127,7 +127,7 @@ The export stops before it writes anything, naming the endpoint, when one marked
 - has route parameters, such as `/feeds/{name}.xml`, since the export writes each endpoint once,
 - has a path segment that cannot be a file or directory name: `.`, `..`, or one with `\`, `:` or a NUL character,
 - has a URL whose last segment has no file extension (`/feed` rather than `/feed.xml`), which a static host needs to send the file with its type,
-- requires authorization, through `RequireAuthorization()` on it or on its route group, or through a fallback policy (unless it is `.AllowAnonymous()`),
+- requires authorization, through `RequireAuthorization()` on it or on its route group, a policy or requirements (`IAuthorizationRequirementData`) in its metadata, or a fallback policy (unless it is `.AllowAnonymous()`),
 - has the path of a file in the client build, such as one copied from `public/` ([above](#sitemap-and-robotstxt)), where paths that differ only in case, Unicode normalisation or trailing dots and spaces count as one, as Windows and macOS treat them,
 - would write the same file as a page, `404.html`, the `.netjes-export` marker or another such endpoint, compared the same way, or would be a file where one of those needs a directory, or the other way round (`/notes.txt` next to `app/notes.txt/page.tsx`),
 - has a path segment that Windows reserves for a device (`con.txt`).

@@ -107,6 +107,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0051 – A page package has a generated file of its own, and its links carry its mount](decisions/0051-a-page-package-has-a-generated-file-of-its-own.md)
 - [0052 – A page package whose versions do not fit stops the app](decisions/0052-a-page-package-whose-versions-do-not-fit-stops-the-app.md)
 - [0053 – An unknown URL stays a 404 and runs only the layout loaders the visitor may see](decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)
+- [0054 – Layout loaders around 404 and error pages are judged as the middleware judges their pages](decisions/0054-layout-loaders-around-404-and-error-pages-are-judged-as-the-middleware-judges-their-pages.md)
 
 ## The project
 
