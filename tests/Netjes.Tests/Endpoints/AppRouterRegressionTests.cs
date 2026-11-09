@@ -435,8 +435,8 @@ public class AppRouterRegressionTests
         var (status, body) = await RequestAsync(app, "/nope", request);
         var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
 
-        // The page every page endpoint guards: the fallback is one of MapPages()'s, though it carries none of its
-        // conventions (an unknown URL would be challenged), so they guard the layout loaders on its chain.
+        // The fallback is one of MapPages()'s endpoints without carrying its conventions (an unknown URL would be
+        // challenged), so their authorization guards the layout loaders on its chain.
         Assert.Equal(HttpStatusCode.NotFound, status);
         Assert.Equal(signedIn ? 1 : 0, calls);
         Assert.Equal(signedIn ? ["app"] : [], ids);
@@ -444,9 +444,8 @@ public class AppRouterRegressionTests
     }
 
     /// <summary>
-    /// Who visits an unknown URL below a page package's mount whose own layout loader has no authorization: nobody, Ada
-    /// (signed in, no roles), or an admin. <c>MapPages()</c> requires a signed-in user, and the mount, in some cases, the
-    /// Admin role.
+    /// Who visits an unknown URL below a page package's mount whose own layout loader has no authorization, nobody or Ada
+    /// (signed in, no roles), and whether the mount requires the Admin role. <c>MapPages()</c> requires a signed-in user.
     /// </summary>
     public static TheoryData<string, bool> MountVisitors => new()
     {
