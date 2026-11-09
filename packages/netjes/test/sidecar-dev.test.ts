@@ -34,9 +34,13 @@ async function write(file: string, content: string) {
   await writeFile(path.join(root, file), content);
 }
 
-/** The sidecar in development, with its Vite dev server on `vitePort` (0: a port the system picks), for the app in `appRoot`. */
+/**
+ * The sidecar in development, with its Vite dev server on `vitePort` (0: a port the system picks), for the app in `appRoot`.
+ * It runs in the app's folder, as Netjes starts it: on Windows, Vite serves `/@fs/` files from its own drive.
+ */
 function spawnSidecar(vitePort: number, appRoot = root) {
   return spawn(process.execPath, [SIDECAR], {
+    cwd: appRoot,
     env: { ...process.env, NETJES_MODE: 'development', NETJES_ROOT: appRoot, NETJES_TOKEN: TOKEN, NETJES_VITE_PORT: String(vitePort), NODE_ENV: 'development' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
