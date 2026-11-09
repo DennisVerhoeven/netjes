@@ -1,0 +1,11 @@
+{
+  // The file of an app that mounts a page package and the package's own file, in one program, under the strictest
+  // flags a page package type-checks with: tsconfig.strict-app.json and noPropertyAccessFromIndexSignature.
+  // typegen-mounted.test.ts runs it; the package's tsconfig.json leaves this folder out, since the app's file
+  // registers its routes with netjes.
+  "extends": "../../../../tsconfig.strict-app.json",
+  "compilerOptions": {
+    "noPropertyAccessFromIndexSignature": true
+  },
+  "include": ["app.generated.ts", "package.generated.ts", "links.tsx"]
+}

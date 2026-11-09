@@ -23,10 +23,17 @@ internal sealed class ZodSchemas
     private readonly HashSet<Type> _named = [];
     private readonly HashSet<Type> _visiting = [];
     private readonly HashSet<(Type Owner, Type Target)> _backReferences = [];
+    private readonly IReadOnlySet<string> _reserved;
     private Dictionary<Type, string>? _names;
 
-    public ZodSchemas(JsonSerializerOptions options)
+    /// <param name="options">The app's JSON options, which the schemas follow.</param>
+    /// <param name="reserved">
+    /// The names the generated file declares, imports or uses from the global scope, which no schema takes; by default
+    /// those of the app's file (<see cref="TypeScriptGenerator.ReservedExports"/>).
+    /// </param>
+    public ZodSchemas(JsonSerializerOptions options, IReadOnlySet<string>? reserved = null)
     {
+        _reserved = reserved ?? TypeScriptGenerator.ReservedExports;
         // A copy: reading contracts locks an options instance, and the app's may still be configured.
         _options = new JsonSerializerOptions(options);
         _options.TypeInfoResolver ??= new DefaultJsonTypeInfoResolver();
@@ -503,7 +510,7 @@ internal sealed class ZodSchemas
         var names = _named.ToDictionary(t => t, t => SimpleName(t, qualify: 0));
         // The generated file's own exports (pages, Href, Route, ...) are taken too.
         bool Clashes(IGrouping<string, KeyValuePair<Type, string>> group) =>
-            group.Count() > 1 || TypeScriptGenerator.ReservedExports.Contains(group.Key);
+            group.Count() > 1 || _reserved.Contains(group.Key);
         for (var level = 1; level <= 2; level++)
         {
             var clashes = names.GroupBy(n => n.Value, StringComparer.Ordinal).Where(Clashes).SelectMany(g => g).ToList();
@@ -513,7 +520,7 @@ internal sealed class ZodSchemas
             }
         }
 
-        foreach (var (type, name) in names.Where(n => TypeScriptGenerator.ReservedExports.Contains(n.Value)).ToList())
+        foreach (var (type, name) in names.Where(n => _reserved.Contains(n.Value)).ToList())
         {
             names[type] = name + "Schema";
         }

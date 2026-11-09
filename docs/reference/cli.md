@@ -143,15 +143,15 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 netjes generate [--check]
 ```
 
-Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it.
+Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it. It also writes the generated file of each page package whose mount has `.WriteTypes(path)` ([C# API](csharp-api.md#pagepackagebuilder)), and `--check` checks each of those as well, naming every file that is out of date.
 
 | Option | What it does | Default |
 |---|---|---|
-| `--check` | Write nothing, and exit 1 when `generated/netjes.ts` is out of date. For CI. | off |
+| `--check` | Write nothing, and exit 1 when `generated/netjes.ts`, or a page package's file that a mount writes, is out of date. For CI. | off |
 
 When `--check` finds the file out of date, the error shows where it differs: the first block of changed lines, as `- 12: old line` from the committed file and `+ 12: new line` from the generated one, with line numbers, up to 20 lines and then a count of the rest. When the file differs again further down, a last line says up to which line. A missing file is reported as missing.
 
-Like `routes`, it runs the app once in command mode: the app starts as usual, so every `Map...` call and option applies, but it binds only a throwaway loopback port, starts no Node sidecar and needs no build; it writes its result and exits. Startup code that needs a database can skip that work with `if (app.GetNetjesCommand() is null)`. A `Map...` call that throws, such as a loader whose parameters minimal APIs cannot bind, stops the app before it writes anything: the app prints the exception's message, then its stack trace, and the command exits with the app's exit code, which is not 0. It exits 2 when `NetjesOptions.TypesFile` is null.
+Like `routes`, it runs the app once in command mode: the app starts as usual, so every `Map...` call and option applies, but it binds only a throwaway loopback port, starts no Node sidecar and needs no build; it writes its result and exits. Startup code that needs a database can skip that work with `if (app.GetNetjesCommand() is null)`. A `Map...` call that throws, such as a loader whose parameters minimal APIs cannot bind, stops the app before it writes anything: the app prints the exception's message, then its stack trace, and the command exits with the app's exit code, which is not 0. It exits 2 when `NetjesOptions.TypesFile` is null, and then writes no page package's file either.
 
 ## netjes routes
 

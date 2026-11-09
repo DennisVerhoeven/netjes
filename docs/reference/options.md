@@ -40,7 +40,7 @@ Configuration adds list items to what a list holds already, while the delegate r
 | `DistDirectory` | `string` | `dist` | Where the build is, relative to `Root`: `client/` (with Vite's manifest in `client/.vite/`) and `server/`. |
 | `PublicDirectory` | `string` | `public` | Static files served as they are in development, relative to `Root`. In production Vite has copied them into the client build. |
 | `Mode` | `NetjesMode?` | `Development` in the Development environment, else `Production` | `Development` compiles pages on demand with the Vite dev server and reads the routes from the files in `app/`; `Production` serves the build in `dist/` and reads the routes from its manifest. |
-| `TypesFile` | `string?` | `generated/netjes.ts` | The generated TypeScript, relative to `Root`. Written at startup when it changed and `Mode` is `Development`, in any environment, a test host's `Testing` included, and by `netjes generate`. `null` (in code) turns generation off. |
+| `TypesFile` | `string?` | `generated/netjes.ts` | The generated TypeScript, relative to `Root`. Written at startup when it changed and `Mode` is `Development`, in any environment, a test host's `Testing` included, and by `netjes generate`. `null` (in code) turns generation off, for the page packages' files that mounts write (`WriteTypes`) too. |
 
 ### Routing
 

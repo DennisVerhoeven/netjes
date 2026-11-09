@@ -1,0 +1,6 @@
+{
+  // Two apps' files in one program, which register two Href types with netjes: TS2717, as the test expects.
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": ["app.generated.ts", "../../../../template/generated/netjes.ts"]
+}

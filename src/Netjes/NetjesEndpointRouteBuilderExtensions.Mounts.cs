@@ -165,16 +165,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     }
 
     /// <summary>A merged folder as the caller names it: the app by its id, a package relative to the package (<c>app/(center)</c>).</summary>
-    private static string FolderIn(MountedPackage? mounted, RouteSources sources, string id)
-    {
-        if (mounted is null)
-        {
-            return id;
-        }
-
-        var root = string.Join('/', new[] { sources.AppDirectory, mounted.Mount.Folder }.Where(part => part.Length > 0));
-        return id == root ? mounted.Install.Pages : $"{mounted.Install.Pages}/{id[(root.Length + 1)..]}";
-    }
+    private static string FolderIn(MountedPackage? mounted, RouteSources sources, string id) =>
+        mounted is null ? id : mounted.FolderInThePackage(id, sources.AppDirectory);
 
     /// <summary>Refuses a page that a page package maps for: its own, or one it renders an override of with its loader.</summary>
     private static void RequireTheApps(PageRoute route, RouteSources sources, string method, string pattern)

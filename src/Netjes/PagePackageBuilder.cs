@@ -20,6 +20,8 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
         _outer = outer;
         _group = outer.MapGroup(mount.Prefix.Template);
         Mount = mount;
+        var owner = new PagePackageEndpointMetadata(mount.Package.Name);
+        ((IEndpointConventionBuilder)this).Add(endpoint => endpoint.Metadata.Add(owner));
     }
 
     /// <summary>Where the package is mounted.</summary>
@@ -109,6 +111,51 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
 
         return this;
     }
+
+    /// <summary>
+    /// Writes the package's own generated file at <paramref name="path"/>, for the app the package is developed in: the
+    /// zod schemas of its loaders, page actions, layout loaders, server actions and endpoints, and its typed routes, all
+    /// below the mount, with the links of <c>mounted()</c> typed by them. The file is the same wherever an app mounts the
+    /// package, so the package ships it. It is written when the app starts in Development and by <c>netjes generate</c>,
+    /// and <c>netjes generate --check</c> checks it, as for the app's own file.
+    /// </summary>
+    /// <param name="path">The file, relative to the app's root as <c>NetjesOptions.TypesFile</c> is: <c>../HelpCenter/generated/netjes.ts</c>.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="path"/> is empty, or is the app's generated file or another mounted package's.
+    /// </exception>
+    public PagePackageBuilder WriteTypes(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException($"WriteTypes on the mount of '{Mount.Package.Name}' needs the path of a file.", nameof(path));
+        }
+
+        var services = _outer.ServiceProvider;
+        var context = services.GetRequiredService<NetjesContext>();
+        var full = Path.GetFullPath(path, context.Root);
+        if (context.TypesFilePath is { } app && SamePath(app, full))
+        {
+            throw new ArgumentException(
+                $"WriteTypes(\"{path}\") on the mount of '{Mount.Package.Name}' names the app's own generated file " +
+                "(NetjesOptions.TypesFile). Give the package's file a path of its own, in the package.", nameof(path));
+        }
+
+        if (services.GetRequiredService<RouteSources>().Mounts
+                .FirstOrDefault(m => m.Mount != Mount && m.Mount.TypesFile is { } other && SamePath(other, full)) is { } owner)
+        {
+            throw new ArgumentException(
+                $"WriteTypes(\"{path}\") on the mount of '{Mount.Package.Name}' names the generated file of '{owner.Name}'. " +
+                "Give each package's file a path of its own.", nameof(path));
+        }
+
+        Mount.TypesFile = full;
+        return this;
+    }
+
+    /// <summary>Two full paths of one file, also on a file system that ignores case.</summary>
+    private static bool SamePath(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The pattern without one trailing slash, refusing what is no URL pattern in file syntax.</summary>
     private static string OverridePattern(string pattern)
