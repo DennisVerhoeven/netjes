@@ -129,7 +129,7 @@ The pattern is matched by shape, literals in any case and one trailing slash lef
 
 ## Protecting a mounted package
 
-Conventions on the mount, such as `RequireAuthorization()`, apply to the package's own endpoints: its page files, its loaders, page actions and server actions, and the endpoints it maps through its mount. They do not reach the app's own pages under the prefix:
+Conventions on the mount, such as `RequireAuthorization()`, apply to the package's own endpoints: its page files, its page loaders, page actions and server actions, and the endpoints it maps through its mount. They do not reach the app's own pages under the prefix, nor the package's layout loaders, which are no endpoints and keep their own conventions:
 
 ```csharp
 app.MapHelpCenter("/help").RequireAuthorization();   // the package's pages and endpoints; not app/help/faq/page.tsx
@@ -146,7 +146,9 @@ app.MapHelpCenter("/members/help");   // the package's pages need a signed-in us
 
 A layout loader that a package maps through its mount covers the app's pages in its folder in the same way: had the help center's loader of `app/(center)` carried `RequireAuthorization()`, TaskBoard's shortcuts page would need a signed-in user too.
 
-The mount's conventions also decide who sees the package's layouts. For a visitor they refuse, a page's 401 or 403 stops at the package's first folder on the way, whose boundary renders without the package's layout, as at a layout loader that refuses the visitor, so no layout loader of the package runs for them.
+So an app page in one of the package's folders renders inside the package's layouts, and runs their loaders, for every visitor that page lets in, also when the mount requires a signed-in user: TaskBoard's shortcuts page would show the help center's list of articles to anyone under `app.MapHelpCenter("/(marketing)/help").RequireAuthorization()`. A package whose layout loaders send what not every visitor may see puts `RequireAuthorization()` on them itself, which protects the app's pages in their folders as well.
+
+Where a page refuses a visitor whom the mount's conventions refuse too, those conventions decide how much of the package the visitor sees: the page's 401 or 403 stops at the package's first folder on the way, whose boundary renders without the package's layout, as at a layout loader that refuses the visitor, so no layout loader of the package runs for them.
 
 ## 404 and error pages under a mount
 
