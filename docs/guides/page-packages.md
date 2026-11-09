@@ -156,7 +156,7 @@ A package brings its own `not-found.tsx` and `error.tsx`. An unknown URL below t
 
 The URL is below the mount when its path starts with the prefix's URL, literals in any case: `/HELP/nope` is, and `/helpx/nope` and `/help%2Fnope` are not. With a mount inside another, the deepest one takes the URL. A mount at the root URL leaves unknown URLs to the app's own `not-found.tsx`, and renders its own only in an app that has none.
 
-Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them.
+Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them. A fallback policy that refuses them challenges the unknown URL first, as everywhere.
 
 ## The app's root layout
 

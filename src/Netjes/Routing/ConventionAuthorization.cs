@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -24,8 +25,16 @@ internal static class ConventionAuthorization
         IReadOnlyList<Action<EndpointBuilder>> finallyConventions)
     {
         var metadata = MetadataOf(services, conventions.Concat(finallyConventions));
-        return !metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy) || await AuthorizesAsync(http, metadata);
+        return !AsksForAuthorization(metadata) || await AuthorizesAsync(http, metadata);
     }
+
+    /// <summary>
+    /// Whether an endpoint carrying <paramref name="metadata"/> asks for authorization of its own, as the authorization
+    /// middleware reads it: an <see cref="IAuthorizeData"/>, an <see cref="AuthorizationPolicy"/>, or requirements its
+    /// metadata states (<see cref="IAuthorizationRequirementData"/>). One that asks for none gets only the fallback policy.
+    /// </summary>
+    public static bool AsksForAuthorization(IEnumerable<object> metadata) =>
+        metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy or IAuthorizationRequirementData);
 
     /// <summary>The metadata <paramref name="conventions"/> give an endpoint, in their order.</summary>
     public static IReadOnlyList<object> MetadataOf(IServiceProvider services, IEnumerable<Action<EndpointBuilder>> conventions)
@@ -42,7 +51,9 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether the user passes the authorization that an endpoint carrying <paramref name="metadata"/> asks for, evaluated
     /// the way the authorization middleware would: its <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>,
-    /// else the fallback policy, unless it allows anonymous users, against the user the policy's schemes authenticate.
+    /// else the fallback policy, joined by the requirements its metadata states
+    /// (<see cref="IAuthorizationRequirementData"/>), unless it allows anonymous users, through the app's
+    /// <see cref="IPolicyEvaluator"/>: against the user the policy's schemes authenticate, else the request's.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
     {
@@ -54,41 +65,77 @@ internal static class ConventionAuthorization
 
         var data = items.OfType<IAuthorizeData>().ToList();
         var policies = items.OfType<AuthorizationPolicy>().ToList();
+        var requirements = items.OfType<IAuthorizationRequirementData>().SelectMany(r => r.GetRequirements()).ToList();
         // Without authorization services nothing is authorized, and only an endpoint that asks for none can be served.
-        var provider = data.Count == 0 && policies.Count == 0
+        var provider = data.Count == 0 && policies.Count == 0 && requirements.Count == 0
             ? http.RequestServices.GetService<IAuthorizationPolicyProvider>()
             : http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-        if (provider is null || await AuthorizationPolicy.CombineAsync(provider, data, policies) is not { } policy)
+        if (provider is null)
         {
             return true;
         }
 
-        var user = await UserForAsync(http, policy);
-        var result = await http.RequestServices.GetRequiredService<IAuthorizationService>().AuthorizeAsync(user, http, policy);
-        return result.Succeeded;
+        var policy = await AuthorizationPolicy.CombineAsync(provider, data, policies);
+        if (requirements.Count > 0)
+        {
+            // As the middleware does: the stated requirements join the policy, or stand alone.
+            var stated = new AuthorizationPolicyBuilder().AddRequirements([.. requirements]).Build();
+            policy = policy is null ? stated : AuthorizationPolicy.Combine(policy, stated);
+        }
+
+        if (policy is null)
+        {
+            return true;
+        }
+
+        // Through the app's policy evaluator, as the middleware does: it authenticates the schemes the policy names, merged
+        // as there, and puts the user they give on the request while the handlers run, which some read there. The
+        // request's own user is back once the policy is decided.
+        var requestUser = http.User;
+        try
+        {
+            if (policy.AuthenticationSchemes.Count == 0 && http.Features.Get<IAuthenticationFeature>() is null
+                && await DefaultSchemeUserAsync(http) is { } signedIn)
+            {
+                // The authentication middleware has not run for this request (a page's 413, an unsupported locale's 404, a
+                // status from a middleware ahead of it): judge the user it would have put on the request.
+                http.User = signedIn;
+            }
+
+            var evaluator = http.RequestServices.GetService<IPolicyEvaluator>()
+                ?? new PolicyEvaluator(http.RequestServices.GetRequiredService<IAuthorizationService>());
+            var authenticated = await evaluator.AuthenticateAsync(policy, http);
+            return (await evaluator.AuthorizeAsync(policy, authenticated, http, http)).Succeeded;
+        }
+        finally
+        {
+            http.User = requestUser;
+        }
     }
 
     /// <summary>
-    /// The user a policy is checked against, as the authorization middleware's policy evaluator finds them without
-    /// replacing the request's: for a policy that names authentication schemes, what those schemes authenticate, merged,
-    /// or a user without an identity when none does; else the request's user.
+    /// The user the default authenticate scheme signs in, as <c>UseAuthentication()</c> finds them; null when it signs in
+    /// nobody, or fails.
     /// </summary>
-    private static async Task<ClaimsPrincipal> UserForAsync(HttpContext http, AuthorizationPolicy policy)
+    private static async Task<ClaimsPrincipal?> DefaultSchemeUserAsync(HttpContext http)
     {
-        if (policy.AuthenticationSchemes.Count == 0)
+        if (http.RequestServices.GetService<IAuthenticationSchemeProvider>() is not { } schemes
+            || await schemes.GetDefaultAuthenticateSchemeAsync() is not { } scheme)
         {
-            return http.User;
+            return null;
         }
 
-        var identities = new List<ClaimsIdentity>();
-        foreach (var scheme in policy.AuthenticationSchemes)
+        try
         {
-            if (await http.AuthenticateAsync(scheme) is { Succeeded: true, Principal: { } principal })
-            {
-                identities.AddRange(principal.Identities);
-            }
+            return await http.AuthenticateAsync(scheme.Name) is { Succeeded: true, Principal: { } principal }
+                ? principal
+                : null;
         }
-
-        return identities.Count == 0 ? new ClaimsPrincipal(new ClaimsIdentity()) : new ClaimsPrincipal(identities);
+        catch (Exception) when (!http.RequestAborted.IsCancellationRequested)
+        {
+            // UseAuthentication() fails the same way on the requests that reach it. This one keeps the page it is answered
+            // with, for a visitor without a user, as when that middleware throws ahead of the page's error page.
+            return null;
+        }
     }
 }

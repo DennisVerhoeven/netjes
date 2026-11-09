@@ -190,7 +190,7 @@ public static class SitemapEndpointRouteBuilderExtensions
             if (!pages.TryGetValue(page.Pattern, out var endpoint)
                 || endpoint.Metadata.GetMetadata<ExcludeFromSitemapMetadata>() is not null
                 || (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null
-                    && (endpoint.Metadata.GetMetadata<IAuthorizeData>() is not null || fallback is not null)))
+                    && (ConventionAuthorization.AsksForAuthorization(endpoint.Metadata) || fallback is not null)))
             {
                 continue;
             }

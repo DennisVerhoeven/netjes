@@ -426,6 +426,34 @@ public class TypeGenHostedServiceTests
         Assert.False(Authorized("/"));
     }
 
+    /// <summary>Requirements that an endpoint's metadata states itself, without an <c>[Authorize]</c>.</summary>
+    private sealed class SignedInRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirementData
+    {
+        public IEnumerable<Microsoft.AspNetCore.Authorization.IAuthorizationRequirement> GetRequirements() =>
+            [new Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement()];
+    }
+
+    [Fact]
+    public async Task RoutesCommand_ReportsAuthorization_StatedAsAPolicyOrAsRequirementsWithoutAnAuthorizeAttribute()
+    {
+        var report = await RoutesReportAsync(
+            ["app/page.tsx", "app/staff/page.tsx", "app/members/page.tsx"],
+            [],
+            a =>
+            {
+                a.MapPageLoader("/staff", () => Page.Props())
+                    .WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireRole("Staff").Build());
+                a.MapPageLoader("/members", () => Page.Props()).WithMetadata(new SignedInRequirement());
+            });
+        bool? Authorized(string pattern) =>
+            (bool?)report["routes"]!.AsArray().Single(r => (string?)r!["pattern"] == pattern)!["authorized"];
+
+        // The authorization middleware enforces both, as it does RequireAuthorization().
+        Assert.True(Authorized("/staff"));
+        Assert.True(Authorized("/members"));
+        Assert.False(Authorized("/"));
+    }
+
     [Fact]
     public async Task RoutesCommand_WithNothingMounted_ListsNoPackages()
     {
