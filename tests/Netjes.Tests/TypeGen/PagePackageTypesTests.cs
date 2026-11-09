@@ -447,4 +447,28 @@ public class PagePackageTypesTests
         Assert.Contains("export const HomeProps = z.object({\n  greeting: z.string(),\n  visits: z.number().int(),\n});", output);
         Assert.Contains("export const pages = {\n  \"/\": HomeProps,\n} as const;", output);
     }
+
+    public sealed record HeroBlock(string Title, Href Link);
+
+    public sealed record QuoteBlock(string Text);
+
+    /// <summary>The blocks a package adds to both files, as a package of page blocks would.</summary>
+    private static void MapWithBlocks(PagePackageBuilder mount)
+    {
+        MapHelpCenter(mount);
+        mount.AddTypeScriptExport("blocks", "quote", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
+        mount.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) });
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughTheMount_IsInTheAppsFileAndThePackagesFile()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], mount: MapWithBlocks);
+
+        foreach (var output in new[] { AppFile(app), PackageFile(app) })
+        {
+            Assert.Contains("export const HeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", output);
+            Assert.Contains("export const blocks = {\n  \"hero\": { \"props\": HeroBlock },\n  \"quote\": { \"props\": QuoteBlock },\n} as const;", output);
+        }
+    }
 }

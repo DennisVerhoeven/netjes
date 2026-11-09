@@ -74,7 +74,8 @@ internal sealed class TypeScriptGenerator(
 
     private string GenerateFile(MountedPackage? package)
     {
-        var groups = package is null ? registry.Snapshot() : [];
+        // A page package's exports are in its own file and in the app's, where the app's own are too.
+        var groups = registry.Snapshot().Where(g => package is null || g.Owner == package.Name).ToList();
         // A registered export's name is taken in the file that holds it, so a C# type of that name gets another.
         var schemas = new ZodSchemas(
             json.Value.SerializerOptions,
