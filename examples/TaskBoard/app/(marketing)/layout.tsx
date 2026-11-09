@@ -10,6 +10,9 @@ export default function MarketingLayout({ children }: LayoutProps) {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Logo />
         <nav aria-label="Account" className="flex items-center gap-2">
+          <Link href="/help" className="btn btn-ghost">
+            Help
+          </Link>
           {user ? (
             <>
               <span className="text-ink-300">{user.name}</span>
