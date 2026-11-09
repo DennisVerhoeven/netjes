@@ -27,9 +27,20 @@ internal static class ConventionAuthorization
             convention(probe);
         }
 
-        var data = probe.Metadata.OfType<IAuthorizeData>().ToList();
-        var policies = probe.Metadata.OfType<AuthorizationPolicy>().ToList();
-        if ((data.Count == 0 && policies.Count == 0) || probe.Metadata.OfType<IAllowAnonymous>().Any())
+        return await AuthorizesAsync(http, probe.Metadata);
+    }
+
+    /// <summary>
+    /// Whether the user passes the authorization that <paramref name="metadata"/> asks for (<see cref="IAuthorizeData"/>
+    /// and <see cref="AuthorizationPolicy"/>, unless it allows anonymous users), evaluated the way the authorization
+    /// middleware would for an endpoint carrying it.
+    /// </summary>
+    public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
+    {
+        var items = metadata as IReadOnlyCollection<object> ?? [.. metadata];
+        var data = items.OfType<IAuthorizeData>().ToList();
+        var policies = items.OfType<AuthorizationPolicy>().ToList();
+        if ((data.Count == 0 && policies.Count == 0) || items.OfType<IAllowAnonymous>().Any())
         {
             return true;
         }
