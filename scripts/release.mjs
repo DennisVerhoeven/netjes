@@ -198,9 +198,13 @@ async function moveReadmeLinks(root, version) {
   return { errors, moved };
 }
 
+/** The example page package, whose two halves carry the release's version too. */
+const FIXTURE = 'examples/HelpCenter';
+
 /**
- * What is wrong with the repository at `root` for releasing `version`: the npm package, its lockfile entry and the
- * NuGet packages' Directory.Build.props must all carry that version, the docs' pinned versions (VERSION_PINS) must
+ * What is wrong with the repository at `root` for releasing `version`: the npm package, its lockfile entry, the
+ * NuGet packages' Directory.Build.props and the example page package's npm half and its lockfile entry must all carry
+ * that version, that package's peer range on netjes must be `^<version>`, the docs' pinned versions (VERSION_PINS) must
  * match it, the package READMEs must link this repository's files on `main` only (checkReadmeLinks), CHANGELOG.md
  * needs an entry for it, and with `repository` (owner/name, as in GITHUB_REPOSITORY) the npm package must name that
  * GitHub repository. An empty list means ready.
@@ -219,9 +223,23 @@ export async function checkSources(root, version, options = {}) {
     ['package-lock.json (packages/netjes)', lock.packages?.['packages/netjes']?.version],
     ['Directory.Build.props', /<Version>\s*([^<]*?)\s*<\/Version>/.exec(props)?.[1]],
   ];
+  // The example page package (examples/HelpCenter): its NuGet half takes the version in Directory.Build.props, and an
+  // app whose page package has two versions on its two halves, or a peer range that leaves out the running Netjes,
+  // stops at startup. So its npm half, and its entry in the lockfile, carry the version and the range ^<version>.
+  const fixture = await readFile(path.join(root, FIXTURE, 'package.json'), 'utf8').then(JSON.parse, () => null);
+  const fixtureLock = lock.packages?.[FIXTURE];
+  sources.push([`${FIXTURE}/package.json`, fixture?.version], [`package-lock.json (${FIXTURE})`, fixtureLock?.version]);
   const errors = [];
   for (const [source, found] of sources) {
     if (found !== version) errors.push(`${source} has version ${found ?? '(none)'}, not ${version}.`);
+  }
+  /** @type {[string, unknown][]} */
+  const ranges = [
+    [`${FIXTURE}/package.json`, fixture?.peerDependencies?.netjes],
+    [`package-lock.json (${FIXTURE})`, fixtureLock?.peerDependencies?.netjes],
+  ];
+  for (const [source, found] of ranges) {
+    if (found !== `^${version}`) errors.push(`${source} has peer range netjes ${found ?? '(none)'}, not ^${version}.`);
   }
 
   errors.push(...(await checkPins(root, version)));

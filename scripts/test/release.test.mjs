@@ -62,7 +62,18 @@ function repo(version = '0.0.1', files = {}) {
       version,
       repository: { type: 'git', url: 'git+https://github.com/owner/netjes.git' },
     }),
-    'package-lock.json': JSON.stringify({ packages: { '': {}, 'packages/netjes': { name: 'netjes', version } } }),
+    'package-lock.json': JSON.stringify({
+      packages: {
+        '': {},
+        'packages/netjes': { name: 'netjes', version },
+        'examples/HelpCenter': { name: '@netjes-examples/help-center', version, peerDependencies: { netjes: `^${version}` } },
+      },
+    }),
+    'examples/HelpCenter/package.json': JSON.stringify({
+      name: '@netjes-examples/help-center',
+      version,
+      peerDependencies: { netjes: `^${version}` },
+    }),
     'Directory.Build.props': `<Project>\n  <PropertyGroup>\n    <Version>${version}</Version>\n  </PropertyGroup>\n</Project>\n`,
     'CHANGELOG.md': CHANGELOG,
     ...pinnedDocs(version),
@@ -131,11 +142,51 @@ describe('checkSources', () => {
   it('names each source whose version differs', async () => {
     const root = await repo('0.0.1', {
       'Directory.Build.props': '<Project><PropertyGroup><Version>0.1.0</Version></PropertyGroup></Project>',
-      'package-lock.json': JSON.stringify({ packages: { 'packages/netjes': { version: '0.0.2' } } }),
+      'package-lock.json': JSON.stringify({
+        packages: {
+          'packages/netjes': { version: '0.0.2' },
+          'examples/HelpCenter': { version: '0.0.1', peerDependencies: { netjes: '^0.0.1' } },
+        },
+      }),
     });
     assert.deepEqual(await checkSources(root, '0.0.1'), [
       'package-lock.json (packages/netjes) has version 0.0.2, not 0.0.1.',
       'Directory.Build.props has version 0.1.0, not 0.0.1.',
+    ]);
+  });
+
+  // Netjes stops an app whose page package has two versions on its npm and NuGet halves, or whose peer range leaves
+  // out the running Netjes: the example package's NuGet half takes Directory.Build.props's version, so its npm half,
+  // its lockfile entry and its peer range on netjes move with every release, or both examples stop.
+  it("names the example page package's version, lockfile entry and peer range when they differ", async () => {
+    const root = await repo('0.0.2', {
+      'examples/HelpCenter/package.json': JSON.stringify({
+        name: '@netjes-examples/help-center',
+        version: '0.0.1',
+        peerDependencies: { netjes: '^0.0.1' },
+      }),
+      'package-lock.json': JSON.stringify({
+        packages: {
+          'packages/netjes': { version: '0.0.2' },
+          'examples/HelpCenter': { version: '0.0.1', peerDependencies: { netjes: '>=0.0.1' } },
+        },
+      }),
+      'CHANGELOG.md': CHANGELOG.replace('## [0.0.1]', '## [0.0.2] - 2026-11-01\n\n- A fix.\n\n## [0.0.1]'),
+    });
+    assert.deepEqual(await checkSources(root, '0.0.2'), [
+      'examples/HelpCenter/package.json has version 0.0.1, not 0.0.2.',
+      'package-lock.json (examples/HelpCenter) has version 0.0.1, not 0.0.2.',
+      'examples/HelpCenter/package.json has peer range netjes ^0.0.1, not ^0.0.2.',
+      'package-lock.json (examples/HelpCenter) has peer range netjes >=0.0.1, not ^0.0.2.',
+    ]);
+  });
+
+  it('names the example page package when it is gone', async () => {
+    const root = await repo();
+    await rm(path.join(root, 'examples/HelpCenter/package.json'));
+    assert.deepEqual(await checkSources(root, '0.0.1'), [
+      'examples/HelpCenter/package.json has version (none), not 0.0.1.',
+      'examples/HelpCenter/package.json has peer range netjes (none), not ^0.0.1.',
     ]);
   });
 
