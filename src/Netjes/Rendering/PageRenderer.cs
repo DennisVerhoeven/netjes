@@ -198,8 +198,9 @@ internal sealed class PageRenderer(
     /// </summary>
     /// <param name="denied">
     /// The status came from authorization (an empty 401/403). The first section whose layout loader's authorization
-    /// this user fails is where the page stops: its loader never runs, and its own boundary (or the nearest above it)
-    /// renders inside the layouts above the section.
+    /// this user fails, or that holds a page package's files whose mount's conventions the user fails, is where the page
+    /// stops: its loader never runs, and its own boundary (or the nearest above it) renders inside the layouts above the
+    /// section.
     /// </param>
     public async Task RenderStatusAsync(HttpContext http, int status, bool denied = false)
     {
@@ -216,10 +217,11 @@ internal sealed class PageRenderer(
     }
 
     /// <summary>
-    /// The index of the first of <paramref name="segments"/> whose layout loader's authorization this user fails, or, with
-    /// <paramref name="mounts"/>, that holds a file of a page package whose mount's conventions the user fails; null when none.
+    /// The index of the first of <paramref name="segments"/> whose layout loader's authorization this user fails, or that
+    /// holds a file of a page package whose mount's conventions the user fails; null when none. A layout loader mapped
+    /// through a mount carries only its own conventions, and its props would otherwise reach a visitor the mount refuses.
     /// </summary>
-    private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments, bool mounts = false)
+    private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
         for (var i = 0; i < segments.Count; i++)
         {
@@ -228,7 +230,7 @@ internal sealed class PageRenderer(
                 return i;
             }
 
-            foreach (var mounted in mounts ? PackagesOf(segments[i]) : [])
+            foreach (var mounted in PackagesOf(segments[i]))
             {
                 if (!await ConventionAuthorization.AuthorizesAsync(http, http.RequestServices, mounted.Mount.Conventions, mounted.Mount.FinallyConventions))
                 {
@@ -412,7 +414,7 @@ internal sealed class PageRenderer(
             parameters[name] = value;
         }
 
-        var chain = new MountChain(segments, parameters, await FirstDeniedSegmentAsync(http, segments, mounts: true));
+        var chain = new MountChain(segments, parameters, await FirstDeniedSegmentAsync(http, segments));
         http.Items[MountChainKey] = chain;
         return chain;
     }

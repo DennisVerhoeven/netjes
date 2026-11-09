@@ -281,6 +281,43 @@ public class AppRouterRegressionTests
         Assert.Equal(signedIn ? 6 : 0, calls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APageItsMountProtects_NeverRunsThePackagesLayoutLoaderForAVisitorTheMountRefuses(bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/error.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "error.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization().MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization());
+
+        var response = await app.GetDataAsync("/help");
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Equal(signedIn ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, response.StatusCode);
+        if (signedIn)
+        {
+            Assert.Equal(["app", "app/help"], ids);
+            Assert.Contains("s3cret", body);
+        }
+        else
+        {
+            // The package's segment stops the page: its boundary renders in its place, without its layout.
+            Assert.Equal(["app"], ids);
+            Assert.DoesNotContain("s3cret", body);
+        }
+
+        Assert.Equal(signedIn ? 1 : 0, calls);
+    }
+
     [Fact]
     public async Task ForgedSegmentKey_DoesNotSkipAGuardingLayoutLoader()
     {
