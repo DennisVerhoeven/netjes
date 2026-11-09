@@ -251,6 +251,32 @@ public class PagePackageTests
     }
 
     [Fact]
+    public async Task Development_TheAppsPageOfAnOverrideRemovedWhileRunning_IsLoggedAndThePreviousRoutesAnswer()
+    {
+        await using var app = await StartWithPackageAsync(
+            "Development",
+            ["app/page.tsx", "app/help/contact/page.tsx"],
+            ["contact/page.tsx"],
+            mount: m => m.Override("/help/contact"));
+        Assert.Equal("app/help/contact/page.tsx", (string?)(await app.GetDataJsonAsync("/help/contact"))["page"]);
+
+        // The override is left without the app's page: the package's page does not take the URL back without a word.
+        File.Delete(Path.Combine(app.Root, "app", "help", "contact", "page.tsx"));
+        LogEntry? error = null;
+        for (var attempt = 0; attempt < 100 && error is null; attempt++)
+        {
+            await Task.Delay(100, Ct);
+            error = app.Logs.FirstOrDefault(e => e.Category == typeof(FileSystemRouteTableProvider).FullName && e.Level == LogLevel.Error);
+        }
+
+        Assert.NotNull(error);
+        Assert.Contains("Keeping the previous routes", error.Message);
+        Assert.Contains(".Override(\"/help/contact\")", error.Message);
+        Assert.Contains("the app has no page at '/help/contact'", error.Message);
+        Assert.Equal("app/help/contact/page.tsx", (string?)(await app.GetDataJsonAsync("/help/contact"))["page"]);
+    }
+
+    [Fact]
     public async Task MapPagePackage_InsideAMapGroup_Throws()
     {
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
