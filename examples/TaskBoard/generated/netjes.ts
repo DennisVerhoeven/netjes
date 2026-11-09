@@ -5,7 +5,7 @@ import { deferred } from 'netjes/zod';
 import { z } from 'zod';
 
 /** Every page's URL pattern. */
-export const routePatterns = ["/", "/login", "/projects", "/projects/[id]", "/projects/[id]/settings", "/projects/[id]/tasks/[taskId]", "/register"] as const;
+export const routePatterns = ["/", "/help", "/help/articles/[slug]", "/help/contact", "/help/shortcuts", "/login", "/projects", "/projects/[id]", "/projects/[id]/settings", "/projects/[id]/tasks/[taskId]", "/register"] as const;
 
 /** Whether a URL that comes from data (a CMS, shared props) is one of the app's pages or another site. */
 export function isHref(value: string): value is Href {
@@ -172,6 +172,7 @@ export type CreatedTask = z.infer<typeof CreatedTask>;
 /** Props of each page by URL pattern, as its C# loader returns them: `definePage(pages['/blog/[slug]'], Page)`. */
 export const pages = {
   "/": z.object({}),
+  "/help/shortcuts": z.object({}),
   "/login": AuthPageProps,
   "/projects": ProjectsProps,
   "/projects/[id]": BoardProps,
@@ -240,6 +241,10 @@ export const serverActions = {
 /** Every page's URL pattern and the parameters `route()` needs for it. */
 export type RouteParams = {
   "/": Record<string, never>;
+  "/help": Record<string, never>;
+  "/help/articles/[slug]": { slug: string };
+  "/help/contact": Record<string, never>;
+  "/help/shortcuts": Record<string, never>;
   "/login": Record<string, never>;
   "/projects": Record<string, never>;
   "/projects/[id]": { id: string };
@@ -249,7 +254,7 @@ export type RouteParams = {
 };
 export type RoutePattern = keyof RouteParams;
 /** The URLs the app's pages serve. */
-export type Route = '/' | '/login' | '/projects' | `/projects/${string}` | `/projects/${string}/settings` | `/projects/${string}/tasks/${string}` | '/register';
+export type Route = '/' | '/help' | `/help/articles/${string}` | '/help/contact' | '/help/shortcuts' | '/login' | '/projects' | `/projects/${string}` | `/projects/${string}/settings` | `/projects/${string}/tasks/${string}` | '/register';
 /** What `<Link href>` and `router.push` accept: the app's routes, with a query or fragment, or another site. */
 export type Href = Route | `${Route}?${string}` | `${Route}#${string}` | `?${string}` | `#${string}` | `http://${string}` | `https://${string}` | `mailto:${string}` | `tel:${string}`;
 

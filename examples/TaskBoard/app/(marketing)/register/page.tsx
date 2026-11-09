@@ -10,7 +10,7 @@ const signUp = withTooManyAttempts(serverActions['auth.register'], 'password', '
 export default definePage(pages['/register'], function Register({ returnUrl }) {
   const [state, formAction] = useAction(signUp);
   return (
-    <main className="mx-auto grid max-w-sm gap-6 px-6 pt-16 pb-24">
+    <div className="mx-auto grid max-w-sm gap-6 px-6 pt-16 pb-24">
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Create your board</h1>
         <p className="text-ink-400">Free, and it takes ten seconds.</p>
@@ -36,6 +36,6 @@ export default definePage(pages['/register'], function Register({ returnUrl }) {
           Sign in
         </Link>
       </p>
-    </main>
+    </div>
   );
 });

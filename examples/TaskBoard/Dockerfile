@@ -14,6 +14,7 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /src
 COPY package.json package-lock.json ./
 COPY packages/netjes/package.json packages/netjes/
+COPY examples/HelpCenter/package.json examples/HelpCenter/
 COPY examples/Blog/package.json examples/Blog/
 COPY examples/TaskBoard/package.json examples/TaskBoard/
 RUN npm ci
@@ -40,6 +41,8 @@ CMD ["sh", "-c", "npm run build --workspace=packages/netjes && { npm run build -
 # Client bundle (dist/client) and server bundle + sidecar (dist/server).
 FROM deps AS client
 COPY packages/netjes packages/netjes
+# The help center page package, whose pages the build compiles with the example's.
+COPY examples/HelpCenter examples/HelpCenter
 COPY examples/TaskBoard examples/TaskBoard
 RUN npm run build --workspace=packages/netjes && npm run build --workspace=examples/TaskBoard
 
@@ -48,9 +51,11 @@ WORKDIR /src
 COPY global.json Directory.Build.props ./
 COPY src/Netjes/Netjes.csproj src/Netjes/
 COPY src/Netjes/build src/Netjes/build
+COPY examples/HelpCenter/HelpCenter.csproj examples/HelpCenter/
 COPY examples/TaskBoard/TaskBoard.csproj examples/TaskBoard/
 RUN dotnet restore examples/TaskBoard/TaskBoard.csproj
 COPY src/Netjes src/Netjes
+COPY examples/HelpCenter examples/HelpCenter
 COPY examples/TaskBoard examples/TaskBoard
 COPY --from=client /src/examples/TaskBoard/dist examples/TaskBoard/dist
 RUN dotnet publish examples/TaskBoard/TaskBoard.csproj -c Release -o /app --no-restore -p:NetjesSkipClientBuild=true

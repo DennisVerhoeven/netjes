@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Netjes.Examples.HelpCenter;
 using TaskBoard.Data;
 using TaskBoard.Features.Auth;
 using TaskBoard.Features.Board;
@@ -55,6 +56,7 @@ builder.Services.AddAuthLimits();
 builder.Services.AddNetjes(options =>
     options.UseSharedProps(http => ValueTask.FromResult(new SharedProps(SignedInUser.From(http.User)))));
 builder.Services.AddHealthChecks().AddNetjes();
+builder.Services.AddHelpCenter();
 
 var app = builder.Build();
 
@@ -109,6 +111,11 @@ app.MapProjectLayout();
 app.MapBoard();
 app.MapTasks();
 app.MapMembers();
+// The help center page package (examples/HelpCenter), mounted in the (marketing) route group, so its pages render inside
+// the marketing chrome at /help. TaskBoard's own app/(marketing)/help/contact/page.tsx replaces the package's contact
+// page, which the package's loader still serves.
+app.MapHelpCenter("/(marketing)/help")
+    .Override("/help/contact");
 app.MapPages();
 
 app.Run();

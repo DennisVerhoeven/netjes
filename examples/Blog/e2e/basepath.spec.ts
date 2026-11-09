@@ -36,6 +36,35 @@ test('forms post and redirect under the base path', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Entries' })).toContainText(name);
 });
 
+test('the help center page package links, navigates, posts and fetches under the base path', async ({ page }) => {
+  await page.goto('help');
+  await markWindow(page);
+
+  const center = page.locator('[data-help-center]');
+  await expect(center.getByRole('link', { name: 'Contact' })).toHaveAttribute('href', '/base/help/contact');
+  await center.getByRole('link', { name: 'Privacy' }).click();
+  await expect(page).toHaveURL(/\/base\/help\/articles\/privacy$/);
+
+  // The page action's redirect comes from PagePackageMount.Url in C#, and the server puts the base path in front.
+  await page.getByLabel('Your note').fill('Sent under a base path.');
+  await page.getByRole('button', { name: 'Send note' }).click();
+  await expect(page).toHaveURL(/\/base\/help\/articles\/privacy\?feedback=sent$/);
+  await expect(page.getByRole('status').filter({ hasText: 'your note reached us' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Yes' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Thanks for telling us' })).toBeVisible();
+
+  await center.getByRole('link', { name: 'Contact' }).click();
+  await expect(page).toHaveURL(/\/base\/help\/contact$/);
+  const posted = page.waitForRequest((request) => request.method() === 'POST' && new URL(request.url()).pathname === '/base/help/messages');
+  await page.getByLabel('Your email').fill('reader@example.com');
+  await page.getByLabel('Message').fill('Hello from under a base path.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await posted;
+  await expect(page.getByRole('status')).toHaveText(/^Thanks, we have your message\./);
+  expect(await isMarked(page)).toBe(true);
+});
+
 test('the image optimizer answers under the base path', async ({ request }) => {
   const response = await request.get('_netjes/image?url=%2Fhero.png&w=640', { headers: { Accept: 'image/webp' } });
 

@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Netjes\Netjes.csproj" />
+    <ProjectReference Include="..\HelpCenter\HelpCenter.csproj" />
   </ItemGroup>
 
   <ItemGroup>

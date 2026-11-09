@@ -10,8 +10,9 @@ Netjes renders React pages from an ASP.NET Core app. C# owns routing, loaders, s
 | `src/Netjes.Images.SkiaSharp/` | The optional SkiaSharp image processor |
 | `packages/netjes/` | The npm package: the Vite plugin (`vite/`), the client router and components (`src/`, compiled into `dist/`, which the package exports), the sidecar (`sidecar/server.mjs`), the CLI (`cli/`), the app template (`template/`), the skill for agents building apps (`skills/netjes/`) |
 | `tests/Netjes.Tests/` | xUnit tests for the library: endpoints, rendering, typegen golden files, sidecar lifecycle, and the packaging (`Packaging/`: the build targets, the template's project file, the template's and the examples' Docker images and the template's Compose files) |
-| `tests/TaskBoard.Tests/`, `tests/Blog.Tests/` | The examples' server tests (TaskBoard against Postgres in Testcontainers) |
+| `tests/TaskBoard.Tests/`, `tests/Blog.Tests/` | The examples' server tests (TaskBoard against Postgres in Testcontainers), the mounted help center's included |
 | `examples/Blog/`, `examples/TaskBoard/` | Example apps with Vitest and Playwright suites; TaskBoard has Docker Compose for dev and production |
+| `examples/HelpCenter/` | A page package that both examples mount: its npm half (`@netjes-examples/help-center`, a workspace) and its NuGet half (`HelpCenter.csproj`). The Blog writes its `generated/netjes.ts`; its version is the repository's, which the release checks |
 | `docs/` | The tutorial, guides and reference pages ([docs/README.md](docs/README.md) lists them), architecture, decisions (ADRs), roadmap, benchmarks |
 | `bench/netjes/` | The benchmark, run on demand (`run.sh`): a load generator with no dependencies and a small app ([docs/benchmarks.md](docs/benchmarks.md)) |
 | `assets/` | The Netjes mark, the wordmark and the lockups of the two (for light and for dark grounds), as SVG, and the PNGs `render.mjs` makes from the mark and the social preview (the NuGet packages' icon, the repository's social preview), committed so packing needs no browser; `render.mjs` also copies the mark to the template's `public/favicon.svg` |
@@ -27,7 +28,7 @@ npm test                                       # Vitest: the package and both ex
 npm run typecheck                              # strict TypeScript in every workspace, and in scripts/ from its JSDoc types
 cd examples/Blog && npm run test:e2e           # Playwright, dev and production servers
 cd examples/TaskBoard && npm run test:e2e      # Playwright, with a throwaway Postgres
-scripts/check-packages.sh                      # pack, scaffold, test (Vitest and C#), type-check (also under create-vite's flags and noPropertyAccessFromIndexSignature), publish and serve a new app, and run its Playwright suite
+scripts/check-packages.sh                      # pack, scaffold, test (Vitest and C#), type-check (also under create-vite's flags and noPropertyAccessFromIndexSignature), mount the packed example page package, publish and serve a new app, and run its Playwright suite
 npm run docs:check                             # llms.txt and llms-full.txt match the docs, and every link resolves
 cd bench/netjes && npm test                    # the benchmark harness (not a workspace, so not in the root npm test)
 cd bench/netjes && npm run typecheck           # the harness's JavaScript, strict, from its JSDoc types

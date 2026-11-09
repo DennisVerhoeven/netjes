@@ -1,0 +1,39 @@
+{
+  "name": "@netjes-examples/help-center",
+  "version": "0.0.3",
+  "private": true,
+  "description": "An example page package for Netjes: a help center that an app mounts at a prefix.",
+  "type": "module",
+  "files": [
+    "app",
+    "src",
+    "styles",
+    "generated"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated": "./generated/netjes.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.105.0",
+    "netjes": "^0.0.3",
+    "react": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  },
+  "netjes": {
+    "pages": "app",
+    "sources": [
+      "app",
+      "src"
+    ],
+    "css": "styles/help-center.css",
+    "nuget": "Netjes.Examples.HelpCenter"
+  }
+}

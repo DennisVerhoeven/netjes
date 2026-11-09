@@ -7,7 +7,7 @@ The npm package `netjes` and the NuGet packages `Netjes` and `Netjes.Images.Skia
 1. Checks out the tag it is given, such as `v0.0.1`.
 2. Stops unless:
    - the CI workflow passed on `main` for the tag's commit (that run includes both end-to-end suites, the package check and the tests on macOS and Windows);
-   - the version in the tag is the version in `packages/netjes/package.json`, its entry in `package-lock.json`, `Directory.Build.props` and the places in the docs that pin it;
+   - the version in the tag is the version in `packages/netjes/package.json`, its entry in `package-lock.json`, `Directory.Build.props`, the example page package's `examples/HelpCenter/package.json` and its entry in `package-lock.json` (whose peer range on `netjes` is `^<version>`), and the places in the docs that pin it;
    - every `blob`, `tree` and `raw.githubusercontent.com` link to this repository in the three package READMEs (`packages/netjes/README.md`, `src/Netjes/README.md` and `src/Netjes.Images.SkiaSharp/README.md`) is on `main`, which step 4 moves to the tag;
    - `CHANGELOG.md` has an entry for that version;
    - `packages/netjes/package.json` names this repository, which npm checks against the provenance statement.
@@ -56,7 +56,8 @@ The publish job installs npm 11, which trusted publishing needs (11.5.1 or later
 ## Cutting a release
 
 1. On a branch off `main`:
-   - set the version in `packages/netjes/package.json` with `npm version <version> --no-git-tag-version -w packages/netjes`, run `npm install --package-lock-only` to carry it into `package-lock.json`, and set the same `<Version>` in `Directory.Build.props`. `VersionTests` fails when the npm and NuGet versions differ;
+   - set the version in `packages/netjes/package.json` with `npm pkg set version=<version> -w packages/netjes`, and set the same `<Version>` in `Directory.Build.props`. `VersionTests` fails when the npm and NuGet versions differ;
+   - set the same version in the example page package, and its peer range on `netjes` to `^<version>`, with `npm pkg set version=<version> peerDependencies.netjes=^<version> -w examples/HelpCenter`. Its NuGet half takes the version in `Directory.Build.props`, and an app whose page package's halves are two versions, or whose Netjes is outside the package's range, stops at startup, so without this both examples stop. `VersionTests` checks it too. Then run `npm install --package-lock-only` to carry both into `package-lock.json`. Change both `package.json` files before npm touches the lockfile: `npm version` updates it at once, and while the package's peer range and the workspace's `netjes` disagree, npm refuses with `ERESOLVE` (`^0.0.3` is `>=0.0.3 <0.0.4`);
    - set the same version where the docs pin it. `VERSION_PINS` in [scripts/release.mjs](scripts/release.mjs) lists every pinned text, such as the install commands in the getting-started page and the package READMEs, and the version in the README's "Status" paragraph. `node scripts/release.mjs check` reports a pin that carries another version, or one that has gone from its file, so when you reword a pinned text in a doc, change it in `VERSION_PINS` too. Then run `npm run docs:llms`, which carries them into `llms-full.txt`; `npm run docs:check` fails until it has run;
    - leave the links in the package READMEs on `main`: the workflow moves them to the tag in the packages it publishes, so they need no edit, and `node scripts/release.mjs check` reports a `blob`, `tree` or `raw.githubusercontent.com` link to this repository, in one of the package READMEs in the checkout, on any other ref;
    - in `CHANGELOG.md`, move the entries under `## [Unreleased]` to a new `## [<version>] - <yyyy-mm-dd>` section and update the comparison links at the bottom;

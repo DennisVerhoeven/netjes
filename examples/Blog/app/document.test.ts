@@ -43,3 +43,28 @@ describe('the about page', () => {
     expect(await inlineScriptHashes(await about())).toEqual([...CSP_SCRIPT_HASHES.split(' '), jsEnabled]);
   });
 });
+
+describe('a page of the help center, which Program.cs mounts at /help', () => {
+  const help = '@netjes-examples/help-center';
+  const home = () =>
+    renderDocument(`${help}/app/page.tsx`, {
+      url: '/help',
+      shared,
+      mounts: { [help]: '/help' },
+      props: { articles: [{ slug: 'privacy', title: 'Privacy', summary: 'What we keep about you.' }] },
+    });
+
+  it("renders inside the Blog's chrome and the package's layout, linking below the mount", async () => {
+    const html = await home();
+
+    expect(html).toMatch(/<nav aria-label="Main">.*<nav aria-label="Help center">.*<footer/s);
+    expect(html).toMatch(/<a [^>]*href="\/help\/articles\/privacy"[^>]*>Privacy<\/a>/);
+    expect(html).toContain('<title>Help center · Netjes Blog</title>');
+  });
+
+  it("adds no inline script to the Blog's own", async () => {
+    const jsEnabled = await hashSource("document.documentElement.classList.add('js')");
+
+    expect(await inlineScriptHashes(await home())).toEqual([...CSP_SCRIPT_HASHES.split(' '), jsEnabled]);
+  });
+});

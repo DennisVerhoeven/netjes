@@ -37,7 +37,7 @@ function SignInHere() {
 export default function Landing() {
   const user = useUser();
   return (
-    <main className="mx-auto grid max-w-6xl gap-16 px-6 pt-16 pb-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+    <div className="mx-auto grid max-w-6xl gap-16 px-6 pt-16 pb-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
       <section className="grid gap-6">
         <p className="label text-signal">React pages · ASP.NET Core · Postgres</p>
         <h1 className="text-[clamp(2.4rem,1.6rem+3.4vw,4.2rem)]/[1.02] font-semibold tracking-[-0.03em]">
@@ -75,6 +75,6 @@ export default function Landing() {
           </div>
         ))}
       </section>
-    </main>
+    </div>
   );
 }

@@ -138,6 +138,15 @@ test('the export warns that /blog reads tag from the query string', () => {
   expect(exportLog).toContain("app/blog/page.tsx reads 'tag'");
 });
 
+test('the export leaves out the help center, which Program.cs mounts with ExcludeFromExport(), and its 404 is the root one', () => {
+  // The package's article page posts notes to a page action, which needs a server.
+  expect(existsSync(path.join(output, 'help'))).toBe(false);
+  const notFound = readFileSync(path.join(output, '404.html'), 'utf8');
+  expect(notFound).toContain('"page":"app/not-found.tsx"');
+  expect(notFound).not.toContain('@netjes-examples/help-center/app/not-found.tsx');
+  expect(readFileSync(path.join(output, 'sitemap.xml'), 'utf8')).not.toContain('/help');
+});
+
 test('the export writes sitemap.xml with the exported pages, and robots.txt', () => {
   const sitemap = readFileSync(path.join(output, 'sitemap.xml'), 'utf8');
   const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((match) => match[1] ?? '');
