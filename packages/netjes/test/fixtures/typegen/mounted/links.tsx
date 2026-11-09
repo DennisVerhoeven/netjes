@@ -1,15 +1,19 @@
 // The file of an app that mounts a page package and the package's own file, in one program: the app's links are typed
 // by every route, the package's by its routes below the mount, and a URL from the package's C# side is one of the app's.
 import { Link } from 'netjes';
-import { route as appRoute } from './app.generated.ts';
-import { Link as HelpLink, pages, route } from './package.generated.ts';
+import type { z } from 'zod';
+import { blocks as appBlocks, route as appRoute } from './app.generated.ts';
+import { blocks, Link as HelpLink, pages, route } from './package.generated.ts';
 
 const article = pages['/articles/[slug]'].parse({ slug: 'a', title: 'A', back: '/help' });
+// An export the package adds through its mount is in both files, by key.
+const hero: z.infer<typeof blocks.hero.props> = appBlocks.hero.props.parse({ title: 'Hi', link: '/help' });
 
 export const links = (
   <>
     <Link href={appRoute('/help/articles/[slug]', { slug: 'a' })}>An article, from the app</Link>
     <Link href={article.back}>Back, to a URL from the C# side</Link>
+    <Link href={hero.link}>{hero.title}</Link>
     <HelpLink href={route('/articles/[slug]', { slug: 'a' })}>An article, from the package</HelpLink>
     <HelpLink href="/contact?topic=billing">Contact</HelpLink>
     {/* @ts-expect-error The app has no such page. */}

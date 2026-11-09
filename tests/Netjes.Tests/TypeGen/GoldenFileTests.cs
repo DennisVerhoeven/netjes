@@ -160,14 +160,15 @@ public class GoldenFileTests
 
     /// <summary>
     /// An app that mounts a page package, and the package's own file, which packages/netjes/test/typegen-mounted.test.ts
-    /// type-checks together in one program and calls.
+    /// type-checks together in one program and calls, with an export the package adds to both.
     /// </summary>
     [Fact]
     public async Task PagePackageFiles_MatchTheGoldenFiles()
     {
         await using var app = await PagePackageTypesTests.StartAsync(
             ["app/layout.tsx", "app/page.tsx", "app/help/(center)/shortcuts/page.tsx"],
-            map: a => a.MapPageLoader("/", () => Page.Props(new PagePackageTypesTests.AppHomeProps("Hi"))));
+            map: a => a.MapPageLoader("/", () => Page.Props(new PagePackageTypesTests.AppHomeProps("Hi"))),
+            mount: PagePackageTypesTests.MapWithBlocks);
         var generator = app.App.Services.GetRequiredService<TypeScriptGenerator>();
         var mounted = app.App.Services.GetRequiredService<Netjes.Routing.RouteSources>().Mounts.Single();
 

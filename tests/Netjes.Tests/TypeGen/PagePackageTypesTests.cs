@@ -435,6 +435,8 @@ public class PagePackageTypesTests
     public static class AppTypes
     {
         public sealed record HomeProps(string Greeting, int Visits);
+
+        public sealed record HeroBlock(string Heading);
     }
 
     [Fact]
@@ -446,5 +448,145 @@ public class PagePackageTypesTests
 
         Assert.Contains("export const HomeProps = z.object({\n  greeting: z.string(),\n  visits: z.number().int(),\n});", output);
         Assert.Contains("export const pages = {\n  \"/\": HomeProps,\n} as const;", output);
+    }
+
+    public sealed record HeroBlock(string Title, Href Link);
+
+    public sealed record QuoteBlock(string Text);
+
+    /// <summary>The blocks a package adds to both files, as a package of page blocks would.</summary>
+    internal static void MapWithBlocks(PagePackageBuilder mount)
+    {
+        MapHelpCenter(mount);
+        mount.AddTypeScriptExport("blocks", "quote", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
+        mount.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) });
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughTheMount_IsInTheAppsFileAndThePackagesFile()
+    {
+        await using var app = await StartAsync(["app/page.tsx"], mount: MapWithBlocks);
+
+        foreach (var output in new[] { AppFile(app), PackageFile(app) })
+        {
+            Assert.Contains("export const HeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", output);
+            Assert.Contains("export const blocks = {\n  \"hero\": { \"props\": HeroBlock },\n  \"quote\": { \"props\": QuoteBlock },\n} as const;", output);
+        }
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughTheMount_RenamesNoneOfTheAppsSchemas_ForASlotsTypeOfTheSameName()
+    {
+        // The export's schemas are in the app's file too, where the app's own `HeroBlock` was there first.
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new AppTypes.HeroBlock("Hi"))),
+            mount: MapWithBlocks);
+
+        var output = AppFile(app);
+        var package = PackageFile(app);
+
+        Assert.Contains("export const HeroBlock = z.object({\n  heading: z.string(),\n});", output);
+        Assert.Contains("export const pages = {\n  \"/\": HeroBlock,\n} as const;", output);
+        Assert.Contains("export const PagePackageTypesTestsHeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", output);
+        Assert.Contains("  \"hero\": { \"props\": PagePackageTypesTestsHeroBlock },\n", output);
+        Assert.Contains("export const HeroBlock = z.object({\n  title: z.string(),\n  link: Href,\n});", package);
+        Assert.Contains("  \"hero\": { \"props\": HeroBlock },\n", package);
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughOneMount_IsInNoOtherPackagesFile_AndTheAppsOwnIsInNoPackagesFile()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, PackageFiles);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                a.Services.GetRequiredService<TypeGenRegistry>().Add("appBlocks", "banner", new Dictionary<string, Type> { ["props"] = typeof(QuoteBlock) });
+                MapWithBlocks(a.MapPagePackage(TestPagePackage.Descriptor, "/help"));
+                a.MapPagePackage(TestPagePackage.Other, "/status")
+                    .AddTypeScriptExport("checks", "ping", new Dictionary<string, Type> { ["result"] = typeof(StatusProps) });
+            });
+        var mounts = app.App.Services.GetRequiredService<RouteSources>().Mounts;
+        var generator = app.App.Services.GetRequiredService<TypeScriptGenerator>();
+
+        var help = generator.Generate(mounts.Single(m => m.Name == TestPagePackage.Name));
+        var status = generator.Generate(mounts.Single(m => m.Name == TestPagePackage.Other.Name));
+        var appFile = AppFile(app);
+
+        Assert.Contains("export const blocks = {", help);
+        Assert.DoesNotContain("export const checks", help);
+        Assert.DoesNotContain("appBlocks", help);
+        Assert.Contains("export const checks = {\n  \"ping\": { \"result\": StatusProps },\n} as const;", status);
+        Assert.DoesNotContain("export const blocks", status);
+        Assert.DoesNotContain("appBlocks", status);
+        Assert.DoesNotContain("QuoteBlock", status);
+        foreach (var name in new[] { "export const appBlocks = {", "export const blocks = {", "export const checks = {" })
+        {
+            Assert.Contains(name, appFile);
+        }
+    }
+
+    [Fact]
+    public async Task AnExportAddedThroughTwoMounts_StopsTheApp_NamingBothPackages()
+    {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/page.tsx"],
+            prepareRoot: root =>
+            {
+                TestPagePackage.Install(root, PackageFiles);
+                TestPagePackage.Install(root, ["page.tsx"], name: TestPagePackage.Other.Name);
+            },
+            map: a =>
+            {
+                MapWithBlocks(a.MapPagePackage(TestPagePackage.Descriptor, "/help"));
+                a.MapPagePackage(TestPagePackage.Other, "/status")
+                    .AddTypeScriptExport("blocks", "chart", new Dictionary<string, Type> { ["props"] = typeof(StatusProps) });
+            }));
+
+        Assert.Equal(
+            "'@acme/status' cannot add 'chart' to the TypeScript export 'blocks', which '@acme/help-center' added. Give the export a name of its own.",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData("Link")]
+    [InlineData("useRouter")]
+    [InlineData("MountHref")]
+    public async Task AnExportThroughTheMount_CannotTakeANameOfThePackagesFile(string group)
+    {
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => StartAsync(
+            ["app/page.tsx"],
+            mount: m => m.AddTypeScriptExport(group, "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) })));
+
+        Assert.StartsWith($"'{group}' cannot be the name of a TypeScript export: a page package's generated file declares", error.Message);
+    }
+
+    [Fact]
+    public async Task GenerateCheck_NoticesAnExportAddedThroughTheMount_InBothFiles()
+    {
+        var (appFile, packageFile) = await CurrentFilesAsync();
+        int? exit = null;
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: WithTypes(MapWithBlocks),
+            configure: o => o.Command = new NetjesCommandOptions { Name = "generate", Check = true },
+            services: s => s.AddSingleton(new CommandExit(code => exit = code)),
+            prepareRoot: root =>
+            {
+                Write(root, "generated/netjes.ts", appFile);
+                Write(root, PackageTypes, packageFile);
+            });
+
+        Assert.Equal(1, exit);
+        var errors = app.Logs.Where(l => l.Level == Microsoft.Extensions.Logging.LogLevel.Error).Select(l => l.Message).ToList();
+        Assert.Equal(2, errors.Count);
+        Assert.All(errors, error => Assert.Contains(": export const HeroBlock = z.object({", error));
+        Assert.StartsWith($"{Path.Combine(app.Root, "generated", "netjes.ts")} is out of date", errors[0]);
+        Assert.StartsWith($"{PackageTypesPath(app)} is out of date", errors[1]);
     }
 }

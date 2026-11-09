@@ -55,6 +55,15 @@ export const VoteCount = z.object({
   helpful: z.number().int(),
 });
 export type VoteCount = z.infer<typeof VoteCount>;
+export const HeroBlock = z.object({
+  title: z.string(),
+  link: Href,
+});
+export type HeroBlock = z.infer<typeof HeroBlock>;
+export const QuoteBlock = z.object({
+  text: z.string(),
+});
+export type QuoteBlock = z.infer<typeof QuoteBlock>;
 
 /** Props of each of the package's pages by URL pattern below the mount, as its C# loader returns them: `definePage(pages['/articles/[slug]'], Page)`. */
 export const pages = {
@@ -113,6 +122,11 @@ export const layouts = {
 /** The package's server actions (`MapAction` on the mount), typed from their C# signatures: call them, or pass them to `useAction`. */
 export const serverActions = {
   "help.vote": serverAction<z.input<typeof Vote>, VoteCount>("help.vote", { result: VoteCount }),
+} as const;
+
+export const blocks = {
+  "hero": { "props": HeroBlock },
+  "quote": { "props": QuoteBlock },
 } as const;
 
 /** Every page's URL pattern and the parameters `route()` needs for it. */

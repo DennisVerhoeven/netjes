@@ -74,7 +74,12 @@ internal sealed class TypeScriptGenerator(
 
     private string GenerateFile(MountedPackage? package)
     {
-        var schemas = new ZodSchemas(json.Value.SerializerOptions, package is null ? ReservedExports : PackageReservedExports);
+        // A page package's exports are in its own file and in the app's, where the app's own are too.
+        var groups = registry.Snapshot().Where(g => package is null || g.Owner == package.Name).ToList();
+        // A registered export's name is taken in the file that holds it, so a C# type of that name gets another.
+        var schemas = new ZodSchemas(
+            json.Value.SerializerOptions,
+            new HashSet<string>((package is null ? ReservedExports : PackageReservedExports).Concat(groups.Select(g => g.Group)), StringComparer.Ordinal));
         var table = routes.Current;
         var all = endpoints.Endpoints.OfType<RouteEndpoint>().ToList();
         // A page package's pages are routes of the app, but their schemas are in the package's own file.
@@ -102,7 +107,6 @@ internal sealed class TypeScriptGenerator(
             .OrderBy(l => l.Key, StringComparer.Ordinal)
             .ToList();
         var actions = ActionEntries(own);
-        var groups = package is null ? registry.Snapshot() : [];
 
         foreach (var type in pages.Select(p => p.Type).OfType<Type>()) schemas.Add(type);
         if (sharedType is not null) schemas.Add(sharedType);
@@ -119,7 +123,9 @@ internal sealed class TypeScriptGenerator(
             if (action.Input is not null) schemas.Add(action.Input);
             if (action.Result is not null) schemas.Add(action.Result);
         }
-        foreach (var slot in groups.SelectMany(g => g.Entries).SelectMany(e => e.Slots.Values)) schemas.Add(slot);
+        foreach (var slot in groups.Where(g => package is not null || g.Owner is null).SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.Add(slot.Value);
+        // In the app's file, a page package's export yields: the app's own types keep the names they have without the package.
+        foreach (var slot in groups.Where(g => package is null && g.Owner is not null).SelectMany(g => g.Entries).SelectMany(e => e.Slots)) schemas.AddYielding(slot.Value);
 
         var output = new StringBuilder(package is null ? Header : PackageHeader);
         var declarations = schemas.Declarations();
@@ -210,10 +216,11 @@ internal sealed class TypeScriptGenerator(
             AppendMap(output, "serverActions", actions.Select(a => (a.Name, ActionReference(a, schemas, inputs.ContainsKey(a.Name), results.ContainsKey(a.Name)))));
         }
 
-        foreach (var (group, entries) in groups)
+        foreach (var (group, _, entries) in groups)
         {
             output.Append('\n');
-            AppendMap(output, group, entries.Select(e => (e.Key, Slots([.. e.Slots.Select(s => (s.Key, (string?)schemas.Reference(s.Value)))]))));
+            // Slot names are quoted as keys are: a registered name is text, never code.
+            AppendMap(output, group, entries.Select(e => (e.Key, Slots([.. e.Slots.Select(s => (JsonSerializer.Serialize(s.Key), (string?)schemas.Reference(s.Value)))]))));
         }
 
         AppendRoutes(output, linked, package?.Name);

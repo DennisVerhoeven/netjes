@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Netjes.TypeGen;
 
 namespace Netjes.Routing;
 
@@ -151,6 +152,35 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
         }
 
         Mount.TypesFile = full;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds an entry to an export of the package's own, in the app's generated file and in the package's:
+    /// <c>.AddTypeScriptExport("blocks", "hero", new Dictionary&lt;string, Type&gt; { ["props"] = typeof(HeroBlock) })</c>
+    /// writes <c>export const blocks = { "hero": { "props": HeroBlock } } as const;</c>, with the zod schema of each slot's
+    /// type, so the app's code and the package's read the same schemas by key. The package owns the export: the app and
+    /// other packages cannot add to it. Entries are in ordinal order of their keys, and slots of their names.
+    /// </summary>
+    /// <param name="group">
+    /// The export's name, a JavaScript identifier of ASCII letters, digits, <c>_</c> and <c>$</c>: no reserved word,
+    /// and none of the names a generated file declares or imports (<c>pages</c>, <c>Href</c>, <c>Link</c>, <c>z</c>, ...).
+    /// A C# type of that name gets another name in both files.
+    /// </param>
+    /// <param name="key">The entry's key in the export, once per export; any text but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="slots">The entry's types by name, each written as its zod schema; any name but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="group"/> is no identifier, a reserved word or a name of the generated file, <paramref name="key"/>
+    /// or a slot's name is <c>__proto__</c> or holds half a surrogate pair, or a slot has no type or one no value has (an
+    /// open generic type, a by-ref type, a pointer, <c>void</c>).
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// The export has an entry of that key already, or the app or another package added the export.
+    /// </exception>
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots)
+    {
+        _outer.ServiceProvider.GetRequiredService<TypeGenRegistry>().Add(group, key, slots, Mount.Package.Name);
         return this;
     }
 

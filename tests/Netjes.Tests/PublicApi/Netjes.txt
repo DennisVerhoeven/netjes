@@ -291,6 +291,7 @@ public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Bu
   public void Finally(Action<Microsoft.AspNetCore.Builder.EndpointBuilder> finallyConvention)
 public sealed class Netjes.Routing.PagePackageBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
   public Netjes.PagePackageMount Mount { get; }
+  public Netjes.Routing.PagePackageBuilder AddTypeScriptExport(string group, string key, System.Collections.Generic.IReadOnlyDictionary<string, Type> slots)
   public Netjes.Routing.PagePackageBuilder Override(string pattern)
   public Netjes.Routing.PagePackageBuilder WriteTypes(string path)
 public sealed class Netjes.Routing.PageRouteMetadata

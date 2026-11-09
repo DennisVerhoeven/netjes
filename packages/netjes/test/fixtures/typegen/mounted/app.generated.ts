@@ -18,6 +18,15 @@ export const AppHomeProps = z.object({
   greeting: z.string(),
 });
 export type AppHomeProps = z.infer<typeof AppHomeProps>;
+export const HeroBlock = z.object({
+  title: z.string(),
+  link: Href,
+});
+export type HeroBlock = z.infer<typeof HeroBlock>;
+export const QuoteBlock = z.object({
+  text: z.string(),
+});
+export type QuoteBlock = z.infer<typeof QuoteBlock>;
 
 /** Props of each page by URL pattern, as its C# loader returns them: `definePage(pages['/blog/[slug]'], Page)`. */
 export const pages = {
@@ -56,6 +65,11 @@ export function endpointUrl<K extends EndpointKey>(
 
 /** Form fields of page actions (`MapPageAction`), by page pattern. */
 export const forms = {} as const;
+
+export const blocks = {
+  "hero": { "props": HeroBlock },
+  "quote": { "props": QuoteBlock },
+} as const;
 
 /** Every page's URL pattern and the parameters `route()` needs for it. */
 export type RouteParams = {
