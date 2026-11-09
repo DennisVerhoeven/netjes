@@ -1,7 +1,5 @@
-import type { LayoutProps, Metadata } from 'netjes';
+import type { LayoutProps } from 'netjes';
 import { Link } from '../generated/netjes.ts';
-
-export const metadata: Metadata = { title: { default: 'Help center', template: '%s · Help center' } };
 
 const navLink =
   'rounded-full px-3 py-1 text-help-accent-ink no-underline hover:bg-help-accent-ink/15 aria-[current=page]:bg-help-accent-ink/20';
@@ -9,7 +7,8 @@ const navLink =
 /**
  * The help center's own layout, inside the app's layouts: a band with the package's name and navigation over its
  * pages. It draws no page shell of its own, so the app's header and footer stay around it. Its links are the
- * package's mounted ones, so they go below wherever the app mounted it.
+ * package's mounted ones, so they go below wherever the app mounted it. It sets no title template: the app's
+ * applies, so the pages' titles carry the app's name.
  */
 export default function HelpCenterLayout({ children }: LayoutProps) {
   return (

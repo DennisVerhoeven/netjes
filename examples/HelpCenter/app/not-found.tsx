@@ -1,7 +1,7 @@
 import type { Metadata } from 'netjes';
 import { Link, usePathname } from '../generated/netjes.ts';
 
-export const metadata: Metadata = { title: 'Not found' };
+export const metadata: Metadata = { title: 'Not found · Help center' };
 
 /**
  * An unknown URL below the mount, and Page.NotFound() from the package's loaders, such as an article that does not

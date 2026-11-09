@@ -66,7 +66,7 @@ public static class HelpCenterEndpoints
 
         help.MapPageLoader("/articles/[slug]", (string slug, string? feedback, HelpCenterStore store) =>
             store.Find(slug) is { } article
-                ? Page.Props(Article(store, article, feedback == "sent")).WithMetadata(new PageMetadata { Title = article.Title })
+                ? Page.Props(Article(store, article, feedback == "sent")).WithMetadata(new PageMetadata { Title = $"{article.Title} · Help center" })
                 : Page.NotFound());
 
         // A note about the article, from a <Form method="post"> on its page: it works with and without JavaScript.
