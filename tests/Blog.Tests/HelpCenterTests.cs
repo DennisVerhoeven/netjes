@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Netjes;
+using Netjes.Examples.HelpCenter;
 
 namespace Blog.Tests;
 
@@ -171,6 +172,24 @@ public class HelpCenterTests
         Assert.True((int?)(await sent.Content.ReadFromJsonAsync<JsonNode>(Ct))!["number"] >= 1);
         Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
         Assert.NotEqual(HttpStatusCode.OK, outside.StatusCode);
+    }
+
+    // A page action's or server action's body is limited by Netjes (ActionBodySizeLimit), an endpoint's by the server
+    // alone, so the endpoint limits what it keeps.
+    [Fact]
+    public async Task TheMessagesEndpoint_RefusesAMessageOrAnAddressOverItsLimit()
+    {
+        await using var app = new GuestbookRateLimitTests.BlogApp();
+        var client = app.CreateClient();
+        const string email = "reader@example.com";
+
+        var atTheLimit = await client.PostAsJsonAsync("/help/messages", new { email, message = new string('x', HelpCenterEndpoints.MaxMessageLength) }, Ct);
+        var tooLong = await client.PostAsJsonAsync("/help/messages", new { email, message = new string('x', HelpCenterEndpoints.MaxMessageLength + 1) }, Ct);
+        var longAddress = await client.PostAsJsonAsync("/help/messages", new { email = new string('a', HelpCenterEndpoints.MaxEmailLength - 11) + "@example.com", message = "Hello" }, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, atTheLimit.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, longAddress.StatusCode);
     }
 
     // The package's page action and server action map through its mount, and keep the antiforgery check and the

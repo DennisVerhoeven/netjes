@@ -18,6 +18,11 @@ public static class HelpCenterEndpoints
 {
     public const int MaxCommentLength = 500;
 
+    public const int MaxMessageLength = 2000;
+
+    /// <summary>The longest email address there is (RFC 5321's limit on a path, less its angle brackets).</summary>
+    public const int MaxEmailLength = 254;
+
     public sealed record ArticleLink(string Slug, string Title, string Summary);
 
     public sealed record HomeProps(IReadOnlyList<ArticleLink> Articles);
@@ -101,9 +106,13 @@ public static class HelpCenterEndpoints
         // A JSON endpoint below the mount, /help/messages where the package is mounted at /help. Its body binds from JSON
         // only, which keeps cross-site form posts out.
         help.MapPost("/messages", Results<Ok<MessageReceipt>, BadRequest> (MessageRequest request, HelpCenterStore store) =>
-            string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Message)
+        {
+            var email = request.Email?.Trim();
+            var message = request.Message?.Trim();
+            return string.IsNullOrEmpty(email) || string.IsNullOrEmpty(message) || email.Length > MaxEmailLength || message.Length > MaxMessageLength
                 ? TypedResults.BadRequest()
-                : TypedResults.Ok(new MessageReceipt(store.AddMessage(request.Email.Trim(), request.Message.Trim()))));
+                : TypedResults.Ok(new MessageReceipt(store.AddMessage(email, message)));
+        });
 
         return help;
     }

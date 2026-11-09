@@ -44,11 +44,11 @@ export function MessageForm() {
       </h2>
       <label className="grid gap-1 text-sm font-semibold">
         Your email
-        <input name="email" type="email" required className={field} />
+        <input name="email" type="email" required maxLength={254} className={field} />
       </label>
       <label className="grid gap-1 text-sm font-semibold">
         Message
-        <textarea name="message" rows={3} required className={field} />
+        <textarea name="message" rows={3} required maxLength={2000} className={field} />
       </label>
       {send.error && (
         <p role="alert" className="m-0 text-sm text-[#b42318]">
