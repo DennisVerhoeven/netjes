@@ -220,14 +220,26 @@ internal sealed class PageRenderer(
     /// The index of the first of <paramref name="segments"/> whose layout loader's authorization this user fails, or that
     /// holds a file of a page package whose mount's conventions the user fails; null when none. A layout loader mapped
     /// through a mount carries only its own conventions, and its props would otherwise reach a visitor the mount refuses.
+    /// On the not-found fallback, the authorization of <c>MapPages()</c>'s conventions guards each layout loader too, as
+    /// it guards every page's: the fallback is one of its endpoints without carrying them.
     /// </summary>
     private async Task<int?> FirstDeniedSegmentAsync(HttpContext http, IReadOnlyList<RouteSegment> segments)
     {
+        var fallback = http.GetEndpoint()?.Metadata.GetMetadata<NotFoundFallbackMetadata>();
+        bool? pages = null;
         for (var i = 0; i < segments.Count; i++)
         {
-            if (layoutLoaders.Find(segments[i].Id) is { } loader && !await loader.AuthorizesAsync(http))
+            if (layoutLoaders.Find(segments[i].Id) is { } loader)
             {
-                return i;
+                if (fallback is not null && !(pages ??= await fallback.AuthorizesAsync(http)))
+                {
+                    return i;
+                }
+
+                if (!await loader.AuthorizesAsync(http))
+                {
+                    return i;
+                }
             }
 
             foreach (var mounted in PackagesOf(segments[i]))

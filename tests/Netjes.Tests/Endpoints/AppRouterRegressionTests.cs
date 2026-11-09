@@ -413,6 +413,120 @@ public class AppRouterRegressionTests
     }
 
     [Theory]
+    [InlineData("document", false)]
+    [InlineData("data", false)]
+    [InlineData("data, holding the root segment", false)]
+    [InlineData("document", true)]
+    [InlineData("data", true)]
+    public async Task UnknownUrl_UnderMapPagesAuthorization_NeverRunsAnUnprotectedRootLayoutLoaderForAVisitorItRefuses(string request, bool signedIn)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Secret = "s3cret" });
+            }),
+            services: signedIn ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", request);
+        var ids = JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        // The page every page endpoint guards: the fallback is one of MapPages()'s, though it carries none of its
+        // conventions (an unknown URL would be challenged), so they guard the layout loaders on its chain.
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(signedIn ? 1 : 0, calls);
+        Assert.Equal(signedIn ? ["app"] : [], ids);
+        Assert.Equal(signedIn, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Who visits an unknown URL below a page package's mount whose own layout loader has no authorization: nobody, Ada
+    /// (signed in, no roles), or an admin. <c>MapPages()</c> requires a signed-in user, and the mount, in some cases, the
+    /// Admin role.
+    /// </summary>
+    public static TheoryData<string, bool> MountVisitors => new()
+    {
+        { "nobody", false },
+        { "Ada", false },
+        { "nobody", true },
+        { "Ada", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(MountVisitors))]
+    public async Task UnknownUrlBelowAMount_UnderMapPagesAuthorization_NeverRunsThePackagesLayoutLoaderForAVisitorItRefuses(string visitor, bool adminMount)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a =>
+            {
+                var mount = a.MapPagePackage(TestPagePackage.Descriptor, "/help");
+                if (adminMount)
+                {
+                    mount.RequireAuthorization(p => p.RequireRole("Admin"));
+                }
+
+                mount.MapLayoutLoader("/", () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                });
+            },
+            services: visitor == "Ada" ? Ada : Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        foreach (var url in new[] { "/help/nope", "/HELP/nope", "/help/nope/deeper" })
+        {
+            var (status, body) = await RequestAsync(app, url, "data");
+            var payload = JsonNode.Parse(body)!;
+            var ids = payload["segments"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+            var document = await RequestAsync(app, url, "document");
+
+            Assert.Equal(HttpStatusCode.NotFound, status);
+            Assert.Equal(HttpStatusCode.NotFound, document.Status);
+            if (visitor == "Ada" && !adminMount)
+            {
+                Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(["app", "app/help"], ids);
+                Assert.Contains("s3cret", body);
+            }
+            else
+            {
+                // The app's not-found inside its root layout, which has no loader: MapPages()'s authorization stops the
+                // chain at the first layout loader on it, the mount's at the first folder with the package's files.
+                Assert.Equal("app/not-found.tsx", (string?)payload["page"]);
+                Assert.Equal(["app"], ids);
+                Assert.DoesNotContain("s3cret", body);
+                Assert.DoesNotContain("s3cret", document.Payload);
+            }
+        }
+
+        Assert.Equal(visitor == "Ada" && !adminMount ? 6 : 0, calls);
+    }
+
+    [Fact]
+    public async Task UnknownUrl_UnderMapPagesAuthorization_StillRendersTheLayoutsWithoutALoader()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, "/nope", "data");
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(["app"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    [Theory]
     [InlineData("document")]
     [InlineData("data")]
     public async Task UnknownUrlUnderABasePath_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string request)
