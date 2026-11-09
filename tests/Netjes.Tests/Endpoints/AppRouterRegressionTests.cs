@@ -865,6 +865,59 @@ public class AppRouterRegressionTests
     }
 
     [Theory]
+    [InlineData("/")]
+    [InlineData("/nope")]
+    public async Task ALayoutLoaderThatAllowsAnonymousVisitors_UnderMapPagesAuthorization_RunsOnTheirNotFoundAsOnTheirPages(string url)
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            map: a => a.MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Site = "public" });
+            }).AllowAnonymous(),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        var (status, body) = await RequestAsync(app, url, "data");
+
+        // The loader's AllowAnonymous() reaches every page below it, as it would reach a page at the unknown URL.
+        Assert.Equal(url == "/" ? HttpStatusCode.OK : HttpStatusCode.NotFound, status);
+        Assert.Equal(1, calls);
+        Assert.Equal(["app"], JsonNode.Parse(body)!["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+    }
+
+    [Fact]
+    public async Task UnknownUrlBelowAMountThatAllowsAnonymousVisitors_UnderMapPagesAuthorization_RendersThePackagesNotFoundInsideItsLayouts()
+    {
+        var calls = 0;
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx", "app/page.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, "/help").AllowAnonymous().MapLayoutLoader("/", () =>
+            {
+                calls++;
+                return Page.Props(new { Nav = "help-nav" });
+            }),
+            services: Nobody,
+            configureApp: a => a.UseAuthorization(),
+            pages: p => p.RequireAuthorization());
+
+        // Every page of the package lets a visitor without a user in, and runs the loader for them; so does its 404.
+        var (pageStatus, _) = await RequestAsync(app, "/help", "data");
+        var (status, body) = await RequestAsync(app, "/help/nope", "data");
+        var payload = JsonNode.Parse(body)!;
+
+        Assert.Equal(HttpStatusCode.OK, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal($"{Help}/app/not-found.tsx", (string?)payload["page"]);
+        Assert.Equal(["app", "app/help"], payload["segments"]!.AsArray().Select(s => (string?)s!["id"]));
+        Assert.Equal(2, calls);
+    }
+
+    [Theory]
     [InlineData("document")]
     [InlineData("data")]
     public async Task UnknownUrlUnderABasePath_NeverRunsAProtectedRootLayoutLoaderForAVisitorItRefuses(string request)

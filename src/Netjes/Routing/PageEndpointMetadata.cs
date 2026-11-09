@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 
 namespace Netjes.Routing;
 
@@ -20,9 +19,8 @@ internal sealed class NotFoundFallbackMetadata(
     IReadOnlyList<Action<EndpointBuilder>> conventions,
     IReadOnlyList<Action<EndpointBuilder>> finallyConventions)
 {
-    /// <summary>Whether the user passes the authorization the conventions of <c>MapPages()</c> add.</summary>
-    public Task<bool> AuthorizesAsync(HttpContext http) =>
-        ConventionAuthorization.AuthorizesAsync(http, http.RequestServices, conventions, finallyConventions);
+    /// <summary>The conventions of <c>MapPages()</c>, its final ones last.</summary>
+    public IEnumerable<Action<EndpointBuilder>> Conventions => conventions.Concat(finallyConventions);
 }
 
 /// <summary>
