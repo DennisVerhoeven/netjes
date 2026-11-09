@@ -210,7 +210,7 @@ internal sealed class TypeScriptGenerator(
             AppendMap(output, "serverActions", actions.Select(a => (a.Name, ActionReference(a, schemas, inputs.ContainsKey(a.Name), results.ContainsKey(a.Name)))));
         }
 
-        foreach (var (group, entries) in groups)
+        foreach (var (group, _, entries) in groups)
         {
             output.Append('\n');
             // Slot names are quoted as keys are: a registered name is text, never code.
