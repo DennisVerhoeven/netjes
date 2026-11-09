@@ -173,6 +173,90 @@ public class HelpCenterTests
         Assert.NotEqual(HttpStatusCode.OK, outside.StatusCode);
     }
 
+    // The package's page action and server action map through its mount, and keep the antiforgery check and the
+    // same-origin check of every page action and server action: a post from another site is refused, and nothing is kept.
+    [Fact]
+    public async Task ANote_WithoutTheAntiforgeryToken_OrFromAnotherSite_IsRefused_AndNotKept()
+    {
+        await using var app = new GuestbookRateLimitTests.BlogApp();
+        var client = app.CreateClient(new() { AllowAutoRedirect = false });
+        var (_, page) = await PageAsync(client, "/help/articles/privacy");
+        var token = page["antiforgery"]!;
+        FormUrlEncodedContent Note(bool withToken)
+        {
+            List<KeyValuePair<string, string>> fields = [new("comment", "Posted from another site.")];
+            if (withToken)
+            {
+                fields.Add(new((string)token["formFieldName"]!, (string)token["requestToken"]!));
+            }
+
+            return new(fields);
+        }
+
+        var plain = await client.PostAsync("/help/articles/privacy", Note(withToken: false), Ct);
+        var data = new HttpRequestMessage(HttpMethod.Post, "/help/articles/privacy") { Content = Note(withToken: false) };
+        data.Headers.Add(NetjesHeaders.Data, "1");
+        var byTheRouter = await client.SendAsync(data, Ct);
+        var crossSite = new HttpRequestMessage(HttpMethod.Post, "/help/articles/privacy") { Content = Note(withToken: true) };
+        crossSite.Headers.Add("Origin", "https://evil.example");
+        var fromAnotherSite = await client.SendAsync(crossSite, Ct);
+        var (_, after) = await PageAsync(client, "/help/articles/privacy");
+
+        Assert.Equal(HttpStatusCode.BadRequest, plain.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, byTheRouter.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, fromAnotherSite.StatusCode);
+        Assert.Equal(0, (int?)after["props"]!["feedbackCount"]);
+    }
+
+    [Fact]
+    public async Task TheVoteServerAction_WithoutTheAntiforgeryToken_OrFromAnotherSite_IsRefused_AndNotCounted()
+    {
+        await using var app = new GuestbookRateLimitTests.BlogApp();
+        var client = app.CreateClient();
+        var (_, page) = await PageAsync(client, "/help/articles/privacy");
+        var token = page["antiforgery"]!;
+
+        async Task<HttpStatusCode> VoteAsync(bool withToken, string? origin = null)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/_netjes/actions/help.vote") { Content = JsonContent.Create(new { slug = "privacy", helpful = true }) };
+            request.Headers.Add(NetjesHeaders.Data, "1");
+            if (withToken)
+            {
+                request.Headers.Add((string)token["headerName"]!, (string)token["requestToken"]!);
+            }
+
+            if (origin is not null)
+            {
+                request.Headers.Add("Origin", origin);
+            }
+
+            return (await client.SendAsync(request, Ct)).StatusCode;
+        }
+
+        var withoutToken = await VoteAsync(withToken: false);
+        var fromAnotherSite = await VoteAsync(withToken: true, origin: "https://evil.example");
+        var (_, after) = await PageAsync(client, "/help/articles/privacy");
+
+        Assert.Equal(HttpStatusCode.BadRequest, withoutToken);
+        Assert.Equal(HttpStatusCode.Forbidden, fromAnotherSite);
+        Assert.Equal(0, (int?)after["props"]!["votes"]!["helpful"]);
+    }
+
+    // The endpoint takes no antiforgery token, since it binds its body from JSON only: a form on another site can send a
+    // urlencoded, multipart or text/plain body without a preflight, never application/json.
+    [Theory]
+    [InlineData("application/x-www-form-urlencoded", "email=reader%40example.com&message=Hello")]
+    [InlineData("text/plain", """{"email":"reader@example.com","message":"Hello"}""")]
+    public async Task TheMessagesEndpoint_RefusesABodyAFormOnAnotherSiteCouldSend(string contentType, string body)
+    {
+        await using var app = new GuestbookRateLimitTests.BlogApp();
+        var client = app.CreateClient();
+
+        var response = await client.PostAsync("/help/messages", new StringContent(body, System.Text.Encoding.UTF8, contentType), Ct);
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+    }
+
     /// <summary>A client navigation: the page payload as JSON.</summary>
     private static async Task<(HttpStatusCode Status, JsonNode Payload)> PageAsync(HttpClient client, string url)
     {
