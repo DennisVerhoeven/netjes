@@ -16,6 +16,7 @@ One topic each, in four groups that follow how an app is made: build its pages, 
 - [Routing](guides/routing.md): the `app/` file conventions, dynamic and catch-all segments, one URL per page, parallel and intercepting routes, the client router and its hooks, focus and announcements after a navigation, base paths, locales, endpoints next to pages and route warnings.
 - [Data loading](guides/data-loading.md): page and layout loaders, shared props, public configuration, the generated types and schemas, typed URLs for the app's endpoints, and TanStack Query seeded from C#.
 - [Actions and forms](guides/actions-and-forms.md): server actions, validation, `<Form>` and page actions, forms without JavaScript, antiforgery, revalidation, signing in and out, uploads and downloads.
+- [Page packages](guides/page-packages.md): mounting a package's pages, loaders and actions at a prefix, how its folders merge with the app's, replacing one of its pages, protecting it, its 404, and writing a page package of your own.
 
 ### Render
 
