@@ -17,7 +17,7 @@ npm run dev          # http://localhost:5080
 ## Add it to a project
 
 ```bash
-npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
 npm install -D vite tailwindcss @tailwindcss/vite
 ```
 

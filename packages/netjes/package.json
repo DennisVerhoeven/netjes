@@ -1,6 +1,6 @@
 {
   "name": "netjes",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Build React apps and sites on ASP.NET Core: the Next.js App Router conventions, C# loaders and server actions, streaming SSR and types from C# to the browser",
   "keywords": [
     "react",

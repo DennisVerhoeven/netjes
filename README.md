@@ -159,7 +159,7 @@ The three are released together under one version. An app uses the same version 
 
 ## Status
 
-Netjes is at 0.0.3. Until 1.0, a new version can change the API; the [changelog](CHANGELOG.md) says what changed and what to do about it.
+Netjes is at 0.0.4. Until 1.0, a new version can change the API; the [changelog](CHANGELOG.md) says what changed and what to do about it.
 
 Not there yet:
 

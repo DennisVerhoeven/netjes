@@ -167,7 +167,7 @@ The three are released together under one version. An app uses the same version 
 
 ## Status
 
-Netjes is at 0.0.3. Until 1.0, a new version can change the API; the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md) says what changed and what to do about it.
+Netjes is at 0.0.4. Until 1.0, a new version can change the API; the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md) says what changed and what to do about it.
 
 Not there yet:
 
@@ -216,7 +216,7 @@ npx netjes new my-app
 `netjes new` copies the app template into `my-app`, runs `npm install` in it, and prints where things are:
 
 ```text
-Created MyApp in my-app (using the Netjes 0.0.3 packages)
+Created MyApp in my-app (using the Netjes 0.0.4 packages)
 
   app/                 the pages: page.tsx is /, about/page.tsx is /about, layout.tsx wraps them
   components/          React components, each with a Vitest test
@@ -705,11 +705,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.3`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.3` with `Netjes` 0.0.3), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-suite-of-a-new-app) says):
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.4`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.4` with `Netjes` 0.0.4), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-suite-of-a-new-app) says):
 
    ```bash
-   npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+   npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
    npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```
@@ -7232,13 +7232,13 @@ netjes info
 Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise. When the app depends on [page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#page-packages), npm packages whose `package.json` has a `netjes` field, a line after the Vite config names them with their versions (`✓ page packages: @acme/help-center 1.2.0`), and a line follows for each problem with one; without them there is no such line.
 
 ```text
-netjes 0.0.3 in /home/me/my-shop
+netjes 0.0.4 in /home/me/my-shop
 
 ✓ Node.js 24.15.0
 ✓ .NET SDK 10.0.403 (MyShop.csproj targets net10.0)
 
-✓ npm packages: netjes 0.0.3, vite 8.3.5, react 19.3.1, react-dom 19.3.1
-✓ MyShop.csproj references Netjes 0.0.3, the version of the npm package
+✓ npm packages: netjes 0.0.4, vite 8.3.5, react 19.3.1, react-dom 19.3.1
+✓ MyShop.csproj references Netjes 0.0.4, the version of the npm package
 ✓ vite.config.ts uses netjes()
 ✓ package.json has a build script (dotnet publish runs it)
 ✓ app/ has 2 pages
@@ -7519,7 +7519,7 @@ npm run dev          # http://localhost:5080
 ## Add it to a project
 
 ```bash
-npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
 npm install -D vite tailwindcss @tailwindcss/vite
 ```
 
@@ -7570,11 +7570,11 @@ The ASP.NET Core half of [Netjes](https://github.com/DennisVerhoeven/netjes), a 
 npx netjes new my-app
 ```
 
-That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.3 here; the two are released together):
+That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.4 here; the two are released together):
 
 ```bash
-dotnet add package Netjes --version 0.0.3
-npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+dotnet add package Netjes --version 0.0.4
+npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
 ```
 
 ```csharp
@@ -7622,7 +7622,7 @@ Image processing for the [Netjes](https://www.nuget.org/packages/Netjes) `<Image
 ## Install
 
 ```bash
-dotnet add package Netjes.Images.SkiaSharp --version 0.0.3
+dotnet add package Netjes.Images.SkiaSharp --version 0.0.4
 ```
 
 ```csharp
@@ -7653,7 +7653,7 @@ builder.Services.AddNetjesSkiaImages(o =>
 
 This package decodes bytes that visitors and remote hosts control, with native codecs (libjpeg-turbo, libpng, libwebp and others inside SkiaSharp's Skia build). Native image codecs have a history of memory-safety vulnerabilities, so keep the SkiaSharp packages current: update `Netjes.Images.SkiaSharp` and watch SkiaSharp releases and advisories. The pixel limit and concurrency cap bound resource use but do not protect against a codec bug. Restrict `Netjes:Images:RemoteHosts` to hosts you trust and leave `AllowSvg` off.
 
-Use the same version as `Netjes` (0.0.3 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
+Use the same version as `Netjes` (0.0.4 above); the two are released together. The [images guide](https://github.com/DennisVerhoeven/netjes/blob/main/docs/guides/images.md) covers `<Image>`, the endpoint's limits and `IImageProcessor`. MIT licensed.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/SKILL.md -->
 
@@ -8269,6 +8269,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-11-09
+
 ### Added
 
 - Page packages: an npm package and a NuGet package of one version that bring pages, layouts, boundaries, loaders, actions and endpoints, which an app mounts at a prefix with one C# call and one entry in `vite.config.ts` ([Page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md), ADRs [0049](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0049-page-packages-are-mounted-into-the-route-table.md) to [0052](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0052-a-page-package-whose-versions-do-not-fit-stops-the-app.md)). An app that mounts nothing sees no change: the same route table, payloads and generated file, except that `virtual:netjes/pages` also exports `packages`, `[]`. After updating a page package, run `netjes generate`: the app's generated file lists the package's pages, and `netjes generate --check` fails until it is written again.
@@ -8401,7 +8403,8 @@ Initial release.
 - **Testing.** Vitest defaults in the Vite plugin and `createTestApp()` from `netjes/testing`, with a fake router, seeded queries and fake server actions.
 - **Tooling.** The `netjes` command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info` and `agents`. An app template with a C# loader, a validated server action, component tests, Tailwind CSS and Docker files for development and production. `AGENTS.md`, `CLAUDE.md` and a Netjes skill for coding agents in new apps, and `llms.txt` and `llms-full.txt` for the docs. The npm package ships compiled ES modules with type declarations.
 
-[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/DennisVerhoeven/netjes/releases/tag/v0.0.1
@@ -8414,8 +8417,7 @@ The work in progress, what comes next, what is planned without a date, and what 
 
 ## Now
 
-- **The releases after 0.0.3.** More 0.0.x releases of the packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. They take up the items under Next, among them what 0.0.3 left open: a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and exported files written to match `TrailingSlash`, with a `TrailingSlash.Always`. What each release changed is in the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md).
-- **Page packages.** An npm package and a NuGet package of one version that bring pages, layouts, boundaries, loaders, actions and endpoints, which an app mounts at a prefix with one C# call and one entry in `netjes({ packages })`. They are in `main` for the next release, with the [guide](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md) and the [help center example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/HelpCenter/README.md); until then their API can still change.
+- **The releases after 0.0.4.** More 0.0.x releases of the packages `netjes` on npm and `Netjes` and `Netjes.Images.SkiaSharp` on NuGet, released together under one version, with the documentation, `llms.txt` and the app template. They take up the items under Next, among them what 0.0.3 left open: a route warning for a loader that binds a query key its page's `CacheQueryKeys` leaves out, and exported files written to match `TrailingSlash`, with a `TrailingSlash.Always`. 0.0.4 brought [page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md), which the [help center example](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/HelpCenter/README.md) shows. What each release changed is in the [changelog](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/CHANGELOG.md).
 
 ## Next
 

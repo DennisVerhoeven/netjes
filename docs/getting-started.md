@@ -21,7 +21,7 @@ npx netjes new my-app
 `netjes new` copies the app template into `my-app`, runs `npm install` in it, and prints where things are:
 
 ```text
-Created MyApp in my-app (using the Netjes 0.0.3 packages)
+Created MyApp in my-app (using the Netjes 0.0.4 packages)
 
   app/                 the pages: page.tsx is /, about/page.tsx is /about, layout.tsx wraps them
   components/          React components, each with a Vitest test
@@ -510,11 +510,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.3`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.3` with `Netjes` 0.0.3), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) says):
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.4`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.4` with `Netjes` 0.0.4), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) says):
 
    ```bash
-   npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+   npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
    npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```

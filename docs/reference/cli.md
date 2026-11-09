@@ -235,13 +235,13 @@ netjes info
 Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise. When the app depends on [page packages](csharp-api.md#page-packages), npm packages whose `package.json` has a `netjes` field, a line after the Vite config names them with their versions (`✓ page packages: @acme/help-center 1.2.0`), and a line follows for each problem with one; without them there is no such line.
 
 ```text
-netjes 0.0.3 in /home/me/my-shop
+netjes 0.0.4 in /home/me/my-shop
 
 ✓ Node.js 24.15.0
 ✓ .NET SDK 10.0.403 (MyShop.csproj targets net10.0)
 
-✓ npm packages: netjes 0.0.3, vite 8.3.5, react 19.3.1, react-dom 19.3.1
-✓ MyShop.csproj references Netjes 0.0.3, the version of the npm package
+✓ npm packages: netjes 0.0.4, vite 8.3.5, react 19.3.1, react-dom 19.3.1
+✓ MyShop.csproj references Netjes 0.0.4, the version of the npm package
 ✓ vite.config.ts uses netjes()
 ✓ package.json has a build script (dotnet publish runs it)
 ✓ app/ has 2 pages
