@@ -8,11 +8,11 @@ The ASP.NET Core half of [Netjes](https://github.com/DennisVerhoeven/netjes), a 
 npx netjes new my-app
 ```
 
-That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.3 here; the two are released together):
+That writes an app with both halves set up. To add Netjes to a project you have, reference this package and install the npm half at the same version (0.0.4 here; the two are released together):
 
 ```bash
-dotnet add package Netjes --version 0.0.3
-npm install netjes@0.0.3 react react-dom zod @tanstack/react-query
+dotnet add package Netjes --version 0.0.4
+npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
 ```
 
 ```csharp

@@ -1,6 +1,6 @@
 {
   "name": "@netjes-examples/help-center",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "An example page package for Netjes: a help center that an app mounts at a prefix.",
   "type": "module",
@@ -19,7 +19,7 @@
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.105.0",
-    "netjes": "^0.0.3",
+    "netjes": "^0.0.4",
     "react": "^19.3.1",
     "zod": "^4.6.7"
   },

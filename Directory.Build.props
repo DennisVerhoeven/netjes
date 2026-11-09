@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- One version for the NuGet packages and the npm package (packages/netjes/package.json); VersionTests checks it. -->
-    <Version>0.0.3</Version>
+    <Version>0.0.4</Version>
 
     <!-- NuGet metadata shared by the packages; each csproj adds its Description and tags. -->
     <Authors>Dennis Verhoeven</Authors>
