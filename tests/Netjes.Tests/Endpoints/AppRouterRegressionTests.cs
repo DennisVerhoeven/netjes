@@ -1020,6 +1020,85 @@ public class AppRouterRegressionTests
         Assert.Empty(JsonNode.Parse(body)!["segments"]!.AsArray());
     }
 
+    /// <summary>
+    /// A policy that names its authentication scheme, which the authorization middleware authenticates in place of the
+    /// request's user: on the layout loader, on <c>MapPages()</c> or on a page package's mount, naming a scheme that
+    /// signs nobody in while the default one signs Ada in, or the other way round.
+    /// </summary>
+    public static TheoryData<string, string> SchemePolicies => new()
+    {
+        { "the loader's", "refuses Ada" },
+        { "the loader's", "signs Ada in" },
+        { "MapPages()'s", "refuses Ada" },
+        { "MapPages()'s", "signs Ada in" },
+        { "the mount's", "refuses Ada" },
+        { "the mount's", "signs Ada in" },
+    };
+
+    [Theory]
+    [MemberData(nameof(SchemePolicies))]
+    public async Task APolicyNamingItsScheme_IsJudgedOnThatScheme_OnAnUnknownUrlAsOnAPage(string guard, string scheme)
+    {
+        var calls = 0;
+        var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder("Admin").RequireAuthenticatedUser().Build();
+        var mounted = guard == "the mount's";
+        await using var app = await TestApp.StartAsync(
+            ["app/layout.tsx", "app/error.tsx", "app/not-found.tsx", "app/unauthorized.tsx", "app/page.tsx"],
+            prepareRoot: mounted ? root => TestPagePackage.Install(root, ["layout.tsx", "not-found.tsx", "page.tsx"]) : null,
+            map: a =>
+            {
+                var secret = () =>
+                {
+                    calls++;
+                    return Page.Props(new { Secret = "s3cret" });
+                };
+                if (mounted)
+                {
+                    a.MapPagePackage(TestPagePackage.Descriptor, "/help").RequireAuthorization(policy).MapLayoutLoader("/", secret);
+                }
+                else
+                {
+                    var loader = a.MapLayoutLoader("/", secret);
+                    if (guard == "the loader's")
+                    {
+                        loader.RequireAuthorization(policy);
+                    }
+                }
+            },
+            services: s =>
+            {
+                var site = scheme == "refuses Ada";
+                var builder = s.AddAuthorization().AddAuthentication("Site");
+                if (site)
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, AdaHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Admin", null);
+                }
+                else
+                {
+                    builder.AddScheme<AuthenticationSchemeOptions, NobodyHandler>("Site", null).AddScheme<AuthenticationSchemeOptions, AdaHandler>("Admin", null);
+                }
+            },
+            configureApp: a => a.UseAuthorization(),
+            pages: p =>
+            {
+                if (guard == "MapPages()'s")
+                {
+                    p.RequireAuthorization(policy);
+                }
+            });
+
+        var page = mounted ? "/help" : "/";
+        var (pageStatus, _) = await RequestAsync(app, page, "data");
+        var (status, body) = await RequestAsync(app, mounted ? "/help/nope" : "/nope", "data");
+
+        // The page and the unknown URL agree: the middleware lets Ada in only through the scheme the policy names.
+        var admitted = scheme == "signs Ada in";
+        Assert.Equal(admitted ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, pageStatus);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(admitted ? 2 : 0, calls);
+        Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("document")]
     [InlineData("data")]

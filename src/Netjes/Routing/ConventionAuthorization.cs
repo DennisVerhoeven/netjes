@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -40,7 +42,7 @@ internal static class ConventionAuthorization
     /// <summary>
     /// Whether the user passes the authorization that an endpoint carrying <paramref name="metadata"/> asks for, evaluated
     /// the way the authorization middleware would: its <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>,
-    /// else the fallback policy, unless it allows anonymous users.
+    /// else the fallback policy, unless it allows anonymous users, against the user the policy's schemes authenticate.
     /// </summary>
     public static async Task<bool> AuthorizesAsync(HttpContext http, IEnumerable<object> metadata)
     {
@@ -61,7 +63,32 @@ internal static class ConventionAuthorization
             return true;
         }
 
-        var result = await http.RequestServices.GetRequiredService<IAuthorizationService>().AuthorizeAsync(http.User, http, policy);
+        var user = await UserForAsync(http, policy);
+        var result = await http.RequestServices.GetRequiredService<IAuthorizationService>().AuthorizeAsync(user, http, policy);
         return result.Succeeded;
+    }
+
+    /// <summary>
+    /// The user a policy is checked against, as the authorization middleware's policy evaluator finds them without
+    /// replacing the request's: for a policy that names authentication schemes, what those schemes authenticate, merged,
+    /// or a user without an identity when none does; else the request's user.
+    /// </summary>
+    private static async Task<ClaimsPrincipal> UserForAsync(HttpContext http, AuthorizationPolicy policy)
+    {
+        if (policy.AuthenticationSchemes.Count == 0)
+        {
+            return http.User;
+        }
+
+        var identities = new List<ClaimsIdentity>();
+        foreach (var scheme in policy.AuthenticationSchemes)
+        {
+            if (await http.AuthenticateAsync(scheme) is { Succeeded: true, Principal: { } principal })
+            {
+                identities.AddRange(principal.Identities);
+            }
+        }
+
+        return identities.Count == 0 ? new ClaimsPrincipal(new ClaimsIdentity()) : new ClaimsPrincipal(identities);
     }
 }
