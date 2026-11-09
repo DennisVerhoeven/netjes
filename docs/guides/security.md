@@ -1,6 +1,6 @@
 # Security
 
-This guide is for app developers putting a Netjes app in front of real users. It lists what Netjes does by default and what is left to you: the security headers, Content-Security-Policy, the antiforgery and origin checks on actions, request body limits, redirects, the image endpoint, the Node sidecar, the secret that signs layout keys, host names and HTTPS, and the development server. To report a vulnerability, follow [SECURITY.md](../../SECURITY.md).
+This guide is for app developers putting a Netjes app in front of real users. It lists what Netjes does by default and what is left to you: the security headers, Content-Security-Policy, the antiforgery and origin checks on actions, request body limits, redirects, the image endpoint, the Node sidecar, the layout loaders around 404 and error pages, the secret that signs layout keys, host names and HTTPS, and the development server. To report a vulnerability, follow [SECURITY.md](../../SECURITY.md).
 
 ## Defaults at a glance
 
@@ -232,6 +232,20 @@ The Node processes that render pages listen on `127.0.0.1` only, on a random por
 
 Page code that runs on the server runs in those processes, not in .NET. It sees the environment the app was started with, except the token.
 
+## Layout loaders around 404 and error pages
+
+`RequireAuthorization()` on a layout loader protects every page below its layout: each page's endpoint carries it, and the authorization middleware checks it before any loader runs ([Layout loaders](data-loading.md#layout-loaders)). Some pages come from an endpoint that serves no page and carries none of it, yet render inside the root layout or, below a page package's mount, the layouts down to the mount:
+
+- the 404 for an unknown URL, which the fallback that `MapPages()` adds answers, in a document, a client navigation, a `HEAD` and `netjes export`'s `404.html`;
+- the page for an empty 401, 403 or other error status on that fallback or on a server action;
+- the not-found and forbidden pages a minimal API asks for with `Page.NotFound()` or `Page.Forbidden()`;
+- the error page for an exception on one of those, or for a 404 that failed to render;
+- the 404 for an unsupported locale, which `UseNetjesLocalization` answers on a page's URL, before `UseAuthorization()` when the app calls it first.
+
+On these, Netjes authorizes each layout loader on the way with the loader's own conventions before any of them runs. The fallback is one of `MapPages()`'s endpoints, so `MapPages().RequireAuthorization()` counts on its 404 too: a visitor who fails it gets no layout loader run. The locale's 404 checks the page's own authorization in the same way. The page stops above the first layout loader that refuses the visitor and renders inside the layouts above it, with the status it had: an unknown URL stays a 404, with no challenge and no login redirect, so it tells a visitor nothing about what the app protects ([ADR 0053](../decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)). A layout loader that refuses nobody runs as before, and a client navigation that claims to hold a refused layout's key gets no more than a document does.
+
+The fallback carries none of `MapPages()`'s conventions itself, so its others, such as `RequireRateLimiting(...)`, `RequireCors(...)` or `CacheOutput(...)`, do not apply to unknown URLs. Put a limit that must cover every URL in middleware, or in a policy that applies to every endpoint (a global rate limiter, a CORS default policy).
+
 ## The layout key secret
 
 On client navigations the router sends keys for the layouts it already shows, and the server skips the loaders of those layouts while the keys still match. A key is an HMAC of the layout's folder, the build, the user (authentication type, name, identifier and roles) and the layout's own route values, signed with `NetjesOptions.SegmentKeySecret`, so a client cannot make up a key for a layout it was not given, or reuse one across users.
@@ -243,7 +257,7 @@ On client navigations the router sends keys for the layouts it already shows, an
 
 A [page package's](page-packages.md) page actions and server actions get the same checks as the app's. Its server actions share one namespace with the app's, compared ignoring case, so an app cannot map a second action under a package's name, or the other way round: the second stops the app at startup, naming both.
 
-Conventions on a package's mount, such as `RequireAuthorization()`, protect the package's own pages, loaders, actions and endpoints, and not the app's pages under the prefix, which the app protects as before: with their loaders' conventions, `MapPages()`'s, or a layout loader above them. A layout loader above the mount protects the package's pages too, and a package's layout loader with `RequireAuthorization()` protects the app's pages in its folder. The mount's conventions do not reach the package's layout loaders, which keep their own: an app page in a package's folder renders the package's layouts, and runs their loaders, for every visitor it lets in, so a package puts `RequireAuthorization()` on each layout loader whose props not every visitor may see. An unknown URL below the mount authorizes the layout loaders and the package's folders on the way before anything loads, so a visitor they refuse gets a 404 from the nearest not-found above, without the package's layouts ([Protecting a mounted package](page-packages.md#protecting-a-mounted-package)).
+Conventions on a package's mount, such as `RequireAuthorization()`, protect the package's own pages, loaders, actions and endpoints, and not the app's pages under the prefix, which the app protects as before: with their loaders' conventions, `MapPages()`'s, or a layout loader above them. A layout loader above the mount protects the package's pages too, and a package's layout loader with `RequireAuthorization()` protects the app's pages in its folder. The mount's conventions do not reach the package's layout loaders, which keep their own: an app page in a package's folder renders the package's layouts, and runs their loaders, for every visitor it lets in, so a package puts `RequireAuthorization()` on each layout loader whose props not every visitor may see. An unknown URL below the mount authorizes the layout loaders and the package's folders on the way before anything loads, under `MapPages()`'s authorization too, so a visitor they refuse gets a 404 from the nearest not-found above, without the package's layouts ([Protecting a mounted package](page-packages.md#protecting-a-mounted-package)).
 
 Every page payload names each mounted package and its URL for the request in `mounts`, public pages and 404s included, and the client bundle's page module map holds the file ids of each package in `netjes({ packages })`, as it holds the app's. So `RequireAuthorization()` on a mount keeps the package's pages and their data from a visitor it refuses, not the fact that the package is there or where: anyone can read its npm name and its prefix (`/back-office`). Keep a secret out of a prefix, as out of any URL.
 
