@@ -33,6 +33,23 @@ public class HelpCenterTests
         Assert.Equal("/help", (string?)payload["mounts"]![Package]);
     }
 
+    [Theory]
+    [InlineData("/help/contact")]
+    [InlineData("/HELP/Contact")]
+    public async Task TheContactPage_IsTaskBoardsOverride_WithThePackagesProps(string url)
+    {
+        await using var app = new HelpCenterApp();
+        var client = app.CreateClient(new() { AllowAutoRedirect = true });
+
+        var (status, payload) = await PageAsync(client, url);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("app/(marketing)/help/contact/page.tsx", (string?)payload["page"]);
+        Assert.Equal("/help/contact", (string?)payload["route"]);
+        Assert.Equal(["app/layout.tsx", "app/(marketing)/layout.tsx", $"{Package}/app/layout.tsx"], Layouts(payload));
+        Assert.Equal("help@example.com", (string?)payload["props"]!["email"]);
+    }
+
     /// <summary>A client navigation: the page payload as JSON.</summary>
     private static async Task<(HttpStatusCode Status, JsonNode Payload)> PageAsync(HttpClient client, string url)
     {

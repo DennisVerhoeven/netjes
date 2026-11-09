@@ -112,8 +112,10 @@ app.MapBoard();
 app.MapTasks();
 app.MapMembers();
 // The help center page package (examples/HelpCenter), mounted in the (marketing) route group, so its pages render inside
-// the marketing chrome at /help.
-app.MapHelpCenter("/(marketing)/help");
+// the marketing chrome at /help. TaskBoard's own app/(marketing)/help/contact/page.tsx replaces the package's contact
+// page, which the package's loader still serves.
+app.MapHelpCenter("/(marketing)/help")
+    .Override("/help/contact");
 app.MapPages();
 
 app.Run();
