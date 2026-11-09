@@ -24,4 +24,19 @@ public class TypeGenRegistryTests
         var entry = Assert.Single(Assert.Single(registry.Snapshot()).Entries);
         Assert.Equal(typeof(Hero), Assert.Single(entry.Slots).Value);
     }
+
+    [Theory]
+    [InlineData("@acme/blocks", "@acme/forms", "'@acme/forms' cannot add 'quote' to the TypeScript export 'blocks', which '@acme/blocks' added.")]
+    [InlineData("@acme/blocks", null, "The app cannot add 'quote' to the TypeScript export 'blocks', which '@acme/blocks' added.")]
+    [InlineData(null, "@acme/blocks", "'@acme/blocks' cannot add 'quote' to the TypeScript export 'blocks', which the app added.")]
+    public void ASecondOwnerOfAGroup_Throws(string? first, string? second, string message)
+    {
+        var registry = new TypeGenRegistry();
+        registry.Add("blocks", "hero", Props(typeof(Hero)), owner: first);
+
+        var error = Assert.Throws<InvalidOperationException>(() => registry.Add("blocks", "quote", Props(typeof(Hero)), owner: second));
+
+        Assert.Equal(message + " Give the export a name of its own.", error.Message);
+        Assert.Equal("hero", Assert.Single(Assert.Single(registry.Snapshot()).Entries).Key);
+    }
 }

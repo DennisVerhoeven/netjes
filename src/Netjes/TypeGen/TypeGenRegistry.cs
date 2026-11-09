@@ -29,6 +29,14 @@ internal sealed class TypeGenRegistry
                 _groups[group] = entries = new Group(owner, new SortedDictionary<string, IReadOnlyList<KeyValuePair<string, Type>>>(StringComparer.Ordinal));
             }
 
+            if (entries.Owner != owner)
+            {
+                var who = Who(owner);
+                throw new InvalidOperationException(
+                    $"{char.ToUpperInvariant(who[0])}{who[1..]} cannot add '{key}' to the TypeScript export '{group}', which {Who(entries.Owner)} added. " +
+                    "Give the export a name of its own.");
+            }
+
             if (entries.Entries.ContainsKey(key))
             {
                 throw new InvalidOperationException(
