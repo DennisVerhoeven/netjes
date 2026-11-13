@@ -15,9 +15,9 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="SkiaSharp" Version="4.154.0" />
+    <PackageReference Include="SkiaSharp" Version="4.156.0" />
     <!-- Linux native library without system dependencies, so it runs in the slim ASP.NET Core images. -->
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.154.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.156.0" />
     <ProjectReference Include="..\Netjes\Netjes.csproj" />
   </ItemGroup>
 
