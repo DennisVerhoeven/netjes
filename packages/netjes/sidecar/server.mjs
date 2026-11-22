@@ -8,10 +8,13 @@
 // pings a process that has answered no render for a while; any answer will do, and a process that sends nothing back
 // within the render timeout (at least 5 s) is killed and restarted. Every request must carry the X-Netjes-Token the
 // parent passed in NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
-// NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Exits when stdin
-// closes.
-// Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. When the Vite dev server does not start,
-// it prints NETJES_FAILED and exits with code 1: {"reason":"vite-port-in-use","port"} when its port is taken, and
+// NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Reads lines on stdin:
+// `stopping`, which the parent sends in development once the app begins to stop, makes the Vite dev server let go of
+// its port and end its connections, while renders go on. Exits when stdin closes (or on SIGTERM or SIGINT), after
+// letting go of the Vite port first.
+// Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. A Vite port that is taken is tried
+// again for up to VITE_PORT_WAIT_MS, after a line on stdout that says so. When the Vite dev server does not start, it
+// prints NETJES_FAILED and exits with code 1: {"reason":"vite-port-in-use","port"} when its port is still taken, and
 // {"reason":"vite-failed","message","code"} for anything else, such as an error in vite.config or a package it imports
 // that is not installed (message in plain text; code is the error's when it has one, such as ERR_MODULE_NOT_FOUND, or
 // MODULE_NOT_FOUND from a CommonJS config).
@@ -60,8 +63,10 @@ let render;
 let renderToStream;
 /** @type {import('vite').ViteDevServer | undefined} */
 let vite;
-/** The connections to the Vite dev server (a browser's requests, its HMR socket), which releaseVitePort ends. */
-/** @type {Set<import('node:net').Socket>} */
+/**
+ * The connections to the Vite dev server (a browser's requests, its HMR socket), which releaseVitePort ends.
+ * @type {Set<import('node:net').Socket>}
+ */
 const viteSockets = new Set();
 
 /**

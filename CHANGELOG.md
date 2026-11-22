@@ -4,6 +4,10 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Fixed
+
+- In development, a C# edit that `dotnet watch` restarts the app for no longer stops the app with "Port 5173 is in use, and the Vite dev server needs it" when the app before it takes longer than `dotnet watch` waits (five seconds) to finish its requests. `dotnet watch` then kills only the process it started and leaves that app finishing them, and its sidecar kept the Vite dev server's port until it was done, so the app it started next stopped and `dotnet watch` waited for a file to change; in a development container the app stayed down. Now the app tells its sidecar when it begins to stop, before the server waits for the requests in flight, and the Vite dev server lets go of its port at once, while the old app finishes its requests and renders them. A sidecar that finds the port taken at startup waits up to five seconds for it, saying so in the log, and a port that something else keeps, such as another app's Vite dev server, is reported after that wait ([Vite plugin](docs/reference/vite-plugin.md#the-dev-server), [ADR 0055](docs/decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md)). An app has nothing to do. A sidecar script of the app's own (`Netjes:SidecarScript`) now gets the line `stopping` on its stdin in development, which it can leave unread.
+
 ## [0.0.4] - 2026-11-09
 
 ### Added
