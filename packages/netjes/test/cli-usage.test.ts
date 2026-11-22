@@ -23,8 +23,8 @@ const COMMANDS: [string, string, string[]][] = [
   ['dev', 'netjes dev [options]', ['--no-watch']],
   ['build', 'netjes build [options]', []],
   ['start', 'netjes start [options]', ['--dll <path>']],
-  ['generate', 'netjes generate [options]', ['--check']],
-  ['routes', 'netjes routes [options]', ['--json']],
+  ['generate', 'netjes generate [options]', ['--check', '-c, --configuration <name>']],
+  ['routes', 'netjes routes [options]', ['--json', '-c, --configuration <name>']],
   ['export', 'netjes export [dir] [options]', ['--no-build']],
   ['info', 'netjes info [options]', []],
 ];

@@ -48,6 +48,10 @@
       "types": "./dist/testing-setup.d.ts",
       "default": "./dist/testing-setup.js"
     },
+    "./testing/vitest": {
+      "types": "./dist/testing-vitest.d.ts",
+      "default": "./dist/testing-vitest.js"
+    },
     "./vitals": {
       "types": "./dist/vitals.d.ts",
       "default": "./dist/vitals.js"

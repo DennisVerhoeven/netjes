@@ -12,7 +12,7 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 Whatever the app's config says, it also adds two settings to it:
 
-- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- a setup file of its own (`netjes/testing/vitest`), in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
 - `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
@@ -64,6 +64,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
+| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422 ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
@@ -100,6 +101,25 @@ const app = createTestApp({
 ```
 
 The `Wrapper` puts its stand-in for the router in place before the components inside it run any effect, so an action a component calls from `useEffect` or `useLayoutEffect` as it mounts is answered and recorded like any other call. Render such a component inside the `Wrapper`: outside it there is no router to wait for, and the call fails at once with "called before the page was ready".
+
+### A page action that failed
+
+When the input of a page's action fails its DataAnnotations, the server renders the page again with a 422, and `usePageActionState()` hands the page the errors per field and the values that were posted. `pageActionState` puts that failure in the test app, without a server:
+
+```tsx
+it('shows what the page action refused, next to the field', () => {
+  const app = createTestApp({
+    route: '/guestbook',
+    pageActionState: { errors: { name: ['Tell us your name.'] }, values: { name: '', message: 'Hi' } },
+  });
+
+  render(<GuestbookForm />, { wrapper: app.Wrapper });
+
+  expect(screen.getByText('Tell us your name.')).toBeDefined();
+});
+```
+
+`usePageActionState()` reports status 422, as it does after the server's. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
 
 ### Pages
 
@@ -163,6 +183,8 @@ it('searches once the typing stops', async () => {
 - `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
 - user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, as with user-event's direct API (`userEvent.click(...)` with no `setup()`), user-event waits out its own delays on the fake clock, and the call never returns.
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+A package's component tests, which run without the `netjes()` plugin, list the setup file themselves: `setupFiles: ['netjes/testing/vitest']` in the package's Vitest config. It is the file the plugin adds to an app, so it also reads the app's query defaults when Vitest provides them, and leaves `createTestApp()` with its own when it does not.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 

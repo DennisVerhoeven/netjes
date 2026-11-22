@@ -4,6 +4,12 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+### Added
+
+- `netjes generate` and `netjes routes` take `-c, --configuration <name>` and pass it to `dotnet run -c`, so a pipeline or a container that built Release reuses that build instead of compiling a Debug one. Without the option nothing changes ([CLI](docs/reference/cli.md#netjes-generate), [ADR 0057](docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md)).
+- `netjes/testing/vitest` is an entry point: the setup file the `netjes()` plugin adds to every app, which lets Testing Library and user-event work under Vitest's fake timers. A page package's component tests, which run without the plugin, list it in `setupFiles`. An app that uses `netjes()` does nothing ([Fake timers](docs/guides/testing.md#fake-timers)).
+- `createTestApp({ pageActionState })` sets what `usePageActionState()` returns after a page action's input failed its checks: `{ errors, values }`, with status 422, for the page `route` names or else the URL's path ([A page action that failed](docs/guides/testing.md#a-page-action-that-failed)).
+
 ### Changed
 
 - The template's development stack (`docker compose up`) takes Vite's port from `VITE_PORT`, in the shell or a `.env` file, as `APP_PORT` moves the app's: `docker compose up` with `VITE_PORT=5190` publishes `127.0.0.1:5190:5190` and starts Vite on 5190 in the container (`Netjes__ViteDevPort`), because the browser loads the page's modules from that port. It keeps ASP.NET Core's Data Protection keys on a named volume, so rebuilding the image no longer fails the antiforgery tokens of pages that are open, and the development image takes the app's port from the image's `ASPNETCORE_HTTP_PORTS` instead of also setting `ASPNETCORE_URLS` ([Deployment](docs/guides/deployment.md#docker), [ADR 0056](docs/decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md)). An app made earlier keeps its own files and works as before. To get the changes, take them from the new template into its `docker-compose.override.yml`: `Netjes__ViteDevPort: "${VITE_PORT:-5173}"` under `environment`, the Vite port as `"127.0.0.1:${VITE_PORT:-5173}:${VITE_PORT:-5173}"`, and the volume `dev-dataprotection:/root/.aspnet/DataProtection-Keys` (declared under `volumes:`); and drop `ASPNETCORE_URLS=http://+:8080` from the `dev` stage of its `Dockerfile`.

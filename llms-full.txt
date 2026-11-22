@@ -4391,7 +4391,7 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 Whatever the app's config says, it also adds two settings to it:
 
-- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- a setup file of its own (`netjes/testing/vitest`), in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
 - `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#vitest-defaults)).
@@ -4443,6 +4443,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
+| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422 ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
@@ -4479,6 +4480,25 @@ const app = createTestApp({
 ```
 
 The `Wrapper` puts its stand-in for the router in place before the components inside it run any effect, so an action a component calls from `useEffect` or `useLayoutEffect` as it mounts is answered and recorded like any other call. Render such a component inside the `Wrapper`: outside it there is no router to wait for, and the call fails at once with "called before the page was ready".
+
+### A page action that failed
+
+When the input of a page's action fails its DataAnnotations, the server renders the page again with a 422, and `usePageActionState()` hands the page the errors per field and the values that were posted. `pageActionState` puts that failure in the test app, without a server:
+
+```tsx
+it('shows what the page action refused, next to the field', () => {
+  const app = createTestApp({
+    route: '/guestbook',
+    pageActionState: { errors: { name: ['Tell us your name.'] }, values: { name: '', message: 'Hi' } },
+  });
+
+  render(<GuestbookForm />, { wrapper: app.Wrapper });
+
+  expect(screen.getByText('Tell us your name.')).toBeDefined();
+});
+```
+
+`usePageActionState()` reports status 422, as it does after the server's. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
 
 ### Pages
 
@@ -4542,6 +4562,8 @@ it('searches once the typing stops', async () => {
 - `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
 - user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, as with user-event's direct API (`userEvent.click(...)` with no `setup()`), user-event waits out its own delays on the fake clock, and the call never returns.
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+A package's component tests, which run without the `netjes()` plugin, list the setup file themselves: `setupFiles: ['netjes/testing/vitest']` in the package's Vitest config. It is the file the plugin adds to an app, so it also reads the app's query defaults when Vitest provides them, and leaves `createTestApp()` with its own when it does not.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 
@@ -5260,6 +5282,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
 | [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests, and `renderDocument()` and `inlineScriptHashes()` for a page's whole document |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
+| [`netjes/testing/vitest`](#netjestestingvitest) | A Vitest setup file for fake timers and the app's query defaults |
 | [`netjes/vitals`](#netjesvitals) | Core Web Vitals: `useReportWebVitals()` and `<WebVitals />` |
 | [`netjes/vite`](#netjesvite) | The `netjes()` Vite plugin |
 | [`netjes/client-entry`, `netjes/server-entry`, `netjes/sidecar`](#internal-entry-points) | Used by the plugin and the .NET app, not by app code |
@@ -5879,6 +5902,7 @@ type TestAppOptions = {
   publicConfig?: Record<string, unknown>; // what usePublicConfig() returns
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> }; // what usePageActionState() returns, as after a 422; the page is `route`, else the URL's path
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
   defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
   queryClient?: QueryClient;        // use this client, as it is, instead of a new one
@@ -5962,7 +5986,11 @@ The hash-sources of the inline scripts in `html` that a browser runs and checks 
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
-The plugin also adds a setup file of its own to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. It is not an entry point of the package. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#vitest)).
+The plugin also adds [`netjes/testing/vitest`](#netjestestingvitest) to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`.
+
+## `netjes/testing/vitest`
+
+A Vitest setup file for what the test harness needs from the runner. The plugin adds it to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. A page package's own tests, which run without the plugin, list it in `setupFiles` themselves (`setupFiles: ['netjes/testing/vitest']`), so `createTestApp()` and Testing Library work with fake timers there too. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 
@@ -7137,7 +7165,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 ## netjes generate
 
 ```text
-netjes generate [--check]
+netjes generate [--check] [-c <name>]
 ```
 
 Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md#files-and-mode)); commit it. It also writes the generated file of each page package whose mount has `.WriteTypes(path)` ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)), and `--check` checks each of those as well, naming every file that is out of date.
@@ -7145,6 +7173,7 @@ Writes `generated/netjes.ts`: zod schemas for what the loaders and actions retur
 | Option | What it does | Default |
 |---|---|---|
 | `--check` | Write nothing, and exit 1 when `generated/netjes.ts`, or a page package's file that a mount writes, is out of date. For CI. | off |
+| `-c, --configuration <name>` | The build configuration to run the app in, such as `Release`: it is passed to `dotnet run -c`, so the command reuses an existing build of that configuration instead of making a Debug one. | `dotnet`'s own: Debug |
 
 When `--check` finds the file out of date, the error shows where it differs: the first block of changed lines, as `- 12: old line` from the committed file and `+ 12: new line` from the generated one, with line numbers, up to 20 lines and then a count of the rest. When the file differs again further down, a last line says up to which line. A missing file is reported as missing.
 
@@ -7153,7 +7182,7 @@ Like `routes`, it runs the app once in command mode: the app starts as usual, so
 ## netjes routes
 
 ```text
-netjes routes [--json]
+netjes routes [--json] [-c <name>]
 ```
 
 Prints the pages as the app maps them (pattern, file, loader, page action, props type, output caching, authorization), the other endpoints (the built-in ones such as `/_netjes/image`, your own minimal API endpoints and the [server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md) at `/_netjes/actions/<name>`), and the [route warnings](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#route-warnings). Warnings do not change the exit code. When the app mounts a [page package](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#page-packages), the table gets a Package column, after File, which names the package of each page and of each endpoint mapped through its mount, and marks a page the app's file replaces with `(override)`; a Packages list follows the endpoints, with each package's npm and NuGet versions, its prefix and its overrides. Without a mount the table is as before.
@@ -7161,6 +7190,7 @@ Prints the pages as the app maps them (pattern, file, loader, page action, props
 | Option | What it does | Default |
 |---|---|---|
 | `--json` | Print the report as JSON. | off: a table |
+| `-c, --configuration <name>` | The build configuration to run the app in, as for [`netjes generate`](#netjes-generate). | `dotnet`'s own: Debug |
 
 The report is the only thing on stdout; the build and app output go to stderr, so `netjes routes --json | jq` works. Its shape:
 
@@ -7471,7 +7501,7 @@ Under Vitest, unless `test` is `false`, the plugin sets these, each only if the 
 |---|---|
 | `environment` | `'jsdom'`, when `jsdom` is installed |
 | `exclude` | `node_modules`, `dist`, `bin`, `obj`, `e2e` (for Playwright) and `.git` folders |
-| `setupFiles` | In every app, Netjes's own setup file, which lets Testing Library work with Vitest's fake timers ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)) and hands `createTestApp()` the app's query defaults; Vite puts it after the app's own setup files. Before it, when `@testing-library/react` is installed and the app sets no `setupFiles`, a setup file that unmounts what each test rendered (Testing Library's `cleanup`, `netjes/testing/setup`); an app that sets them lists `netjes/testing/setup` there itself |
+| `setupFiles` | In every app, Netjes's own setup file (`netjes/testing/vitest`), which lets Testing Library work with Vitest's fake timers ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)) and hands `createTestApp()` the app's query defaults; Vite puts it after the app's own setup files. Before it, when `@testing-library/react` is installed and the app sets no `setupFiles`, a setup file that unmounts what each test rendered (Testing Library's `cleanup`, `netjes/testing/setup`); an app that sets them lists `netjes/testing/setup` there itself |
 | `provide` | `'netjes:query'`: the `defaultOptions` of the `query` option, `{}` when there are none, which Netjes's setup file reads with `inject()`. `createTestApp()` merges them over the Netjes defaults, with its own `retryDelay: 0`, and `gcTime: Infinity` for queries, over them ([Queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)). Not set with `query: false`. The app's own `provide` keys are kept. In Vitest's browser mode the value travels as JSON, so an `Infinity` in it arrives as `null` |
 
 It sets no `include`, so Vitest's own pattern (`*.test.*` and `*.spec.*` files) applies outside those folders. Tests then render with `createTestApp()` from `netjes/testing`; see [Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md).
@@ -8066,7 +8096,7 @@ Test first: write the test, watch it fail for the reason you expect, then change
 
 ## Components and pages: Vitest
 
-`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own, which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
+`netjes()` in `vite.config.ts` sets up Vitest: jsdom, Testing Library cleanup (a config with `setupFiles` of its own lists `netjes/testing/setup` in them), `e2e/`, `dist/`, `bin/` and `obj/` excluded, and in every app a setup file of Netjes's own (`netjes/testing/vitest`; a page package's tests, which run without the plugin, list it in `setupFiles`), which lets Testing Library work with fake timers and hands `createTestApp` the app's query defaults. Inline `test.projects` that share the root's Vite server, Vitest 5's default, get none of this: set `sharedViteServer: false` in the root's `test` options. Tests sit next to the code as `*.test.tsx` and run with `npm test`.
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -8087,11 +8117,12 @@ it('shows the validation error from C# next to the field', async () => {
 });
 ```
 
-`createTestApp({ url, params, shared, queries, defaultOptions, navigation, antiforgery, actions })` returns `{ Wrapper, navigations, queryClient }`:
+`createTestApp({ url, params, shared, queries, defaultOptions, navigation, antiforgery, pageActionState, actions })` returns `{ Wrapper, navigations, queryClient }`:
 
 - `url` and `params` set what `usePathname`, `useSearchParams` and `useParams` see; `shared` is what `useSharedProps` returns; `queries: [{ key, data }]` seeds TanStack Query as a loader's `.WithQuery` would.
 - The `QueryClient` starts from the app's `netjes({ query: { defaultOptions } })`: a failed query or mutation is tried as often as in the app, with no wait between the tries, so the test sees the error the app shows after its last try. `defaultOptions` goes over them: `{ queries: { retry: false } }` shows the error after the first request. Seeded data is fresh for the app's `staleTime` from when `createTestApp()` is called: with a `staleTime` of 0, or in a component rendered after a fake clock moved past it, a seeded query is fetched again as it mounts; answer that request (MSW) or pass `{ queries: { staleTime: 60_000 } }`.
 - `actions` answers server action calls by name: `{ ok: true, result }` or `{ ok: false, status: 422, errors }` (add `fields: ['email']` to name the fields a failed state's `values` keep, as the server does). A failure other than a 422 throws a `ServerActionError`, withheld unless the answer has the `message` the server would send: `{ ok: false, status: 403, errors: {}, message: 'Forbidden' }`. A component that calls an action, even from an effect as it mounts, must render inside `app.Wrapper`: outside it the call fails with "called before the page was ready".
+- `pageActionState: { errors, values }` is what `usePageActionState()` returns after a page action's input failed its checks, with status 422, for the page `route` names (else the URL's path).
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
@@ -8260,6 +8291,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0054 – Layout loaders around 404 and error pages are judged as the middleware judges their pages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0054-layout-loaders-around-404-and-error-pages-are-judged-as-the-middleware-judges-their-pages.md): a layout loader on those chains runs only for a visitor who passes both what every page in its folder carries, a page with a loader included, and what a file page there carries, `MapPages()`'s conventions too; authorization is read and evaluated as the middleware does it, `IAuthorizationRequirementData` and the app's `IPolicyEvaluator` included, on the default scheme's user where `UseAuthentication()` has not run; and a fallback policy still challenges an unknown URL.
 - [0055 – A development app lets go of the Vite port as soon as it begins to stop](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md): in development the app writes `stopping` on the sidecar's stdin before any hosted service stops, and the Vite dev server lets go of its port while the app finishes its requests, so the app that `dotnet watch` starts next can take it; the sidecar frees the port first when it exits, and one that finds the port taken waits up to five seconds for it before it reports `vite-port-in-use`.
 - [0056 – The template's development stack publishes Vite on the same port inside and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md): `VITE_PORT` moves Vite in the template's development Compose file, which publishes it and tells the app (`Netjes__ViteDevPort`) the same port inside and out, since the browser loads modules from that port; the development image takes the app's port from `ASPNETCORE_HTTP_PORTS`, and the Data Protection keys sit on a volume.
+- [0057 – The CLI takes a build configuration, and the test harness covers a package's tests and a page action's failure](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md): `netjes generate` and `netjes routes` take `-c` and pass it to `dotnet run`; the Vitest setup file is the entry point `netjes/testing/vitest` for a page package's tests; `createTestApp` takes a page action's failed state (`pageActionState`).
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8270,6 +8302,12 @@ A decision that a newcomer would not guess, or that was chosen over a real alter
 All notable changes to Netjes are recorded here: the `netjes` npm package and the `Netjes` and `Netjes.Images.SkiaSharp` NuGet packages, which are released together under one version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a new version can change the API; its entry says what to do.
 
 ## [Unreleased]
+
+### Added
+
+- `netjes generate` and `netjes routes` take `-c, --configuration <name>` and pass it to `dotnet run -c`, so a pipeline or a container that built Release reuses that build instead of compiling a Debug one. Without the option nothing changes ([CLI](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md#netjes-generate), [ADR 0057](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md)).
+- `netjes/testing/vitest` is an entry point: the setup file the `netjes()` plugin adds to every app, which lets Testing Library and user-event work under Vitest's fake timers. A page package's component tests, which run without the plugin, list it in `setupFiles`. An app that uses `netjes()` does nothing ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)).
+- `createTestApp({ pageActionState })` sets what `usePageActionState()` returns after a page action's input failed its checks: `{ errors, values }`, with status 422, for the page `route` names or else the URL's path ([A page action that failed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#a-page-action-that-failed)).
 
 ### Changed
 
