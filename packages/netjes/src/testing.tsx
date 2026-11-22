@@ -41,6 +41,12 @@ export type TestAppOptions = {
   defaultOptions?: DefaultOptions;
   /** What `useNavigation()` returns. Default idle. */
   navigation?: NavigationState;
+  /**
+   * What `usePageActionState()` returns after the page action's input failed its checks, as the server sends it with a
+   * 422: the errors per field and the submitted values of the fields the action declares (default none). It belongs to
+   * the page, so `route` names it; without `route`, the page is the URL's path. Default no failure.
+   */
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> };
   /** The token `<Form method="post">` adds. Default a test token; `false` for none. */
   antiforgery?: AntiforgeryToken | false;
   queryClient?: QueryClient;
@@ -174,25 +180,28 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         onCookiesChanged: () => () => {},
       };
     }, []);
-    const payload = useMemo<PagePayload>(
-      () => ({
+    const payload = useMemo<PagePayload>(() => {
+      const route = options.route ?? (options.pageActionState ? url.pathname : null);
+      return {
         kind: 'page',
-        route: options.route ?? null,
+        route,
         page: null,
         segments: [],
         props: {},
         params: options.params ?? {},
         shared: options.shared ?? null,
-        status: 200,
+        status: options.pageActionState ? 422 : 200,
         url: url.pathname + url.search,
         version: 'test',
         ...(antiforgery ? { antiforgery } : {}),
         ...(options.draftMode ? { draftMode: true } : {}),
         ...(options.locale ? { locale: options.locale } : {}),
         ...(options.mounts ? { mounts: options.mounts } : {}),
-      }),
-      [url],
-    );
+        ...(options.pageActionState && route !== null
+          ? { actionState: { action: route, errors: options.pageActionState.errors, values: options.pageActionState.values ?? {} } }
+          : {}),
+      };
+    }, [url]);
 
     return (
       <QueryClientProvider client={queryClient}>

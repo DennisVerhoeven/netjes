@@ -9,7 +9,7 @@ import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { mounted } from '../src/mounted.tsx';
 import { useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
-import { serverAction, useAction } from '../src/actions.tsx';
+import { serverAction, useAction, usePageActionState } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
 afterEach(() => {
@@ -325,6 +325,49 @@ describe('createTestApp', () => {
     expect(app.navigations).toEqual([{ type: 'push', href: '/acme/help/articles' }]);
     expect(screen.getByText('at /articles')).toBeDefined();
     expect(screen.getByRole('link', { name: 'Articles' }).getAttribute('aria-current')).toBe('page');
+  });
+});
+
+describe('createTestApp with a page action that failed', () => {
+  function Guestbook() {
+    const failed = usePageActionState();
+    return (
+      <Form method="post">
+        <label>
+          Name <input name="name" defaultValue={String(failed?.values.name ?? '')} />
+        </label>
+        {failed?.errors.name && <p role="alert">{failed.errors.name[0]}</p>}
+        <output>{failed ? `failed ${failed.status}` : 'none'}</output>
+      </Form>
+    );
+  }
+
+  it('shows no failure by default', () => {
+    render(<Guestbook />, { wrapper: createTestApp({ route: '/guestbook' }).Wrapper });
+
+    expect(screen.getByRole('status').textContent).toBe('none');
+  });
+
+  it("hands usePageActionState the failed state it is given, as the server sends it after a 422", () => {
+    const app = createTestApp({
+      route: '/guestbook',
+      pageActionState: { errors: { name: ['Tell us who you are.'] }, values: { name: 'Ada' } },
+    });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Tell us who you are.');
+    expect(screen.getByRole('status').textContent).toBe('failed 422');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Ada');
+  });
+
+  it('takes the page from the URL when no route is given, and defaults the values to none', () => {
+    const app = createTestApp({ url: '/guestbook', pageActionState: { errors: { name: ['Required.'] } } });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Required.');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
   });
 });
 
