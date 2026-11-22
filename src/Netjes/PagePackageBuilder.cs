@@ -240,9 +240,28 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// <exception cref="InvalidOperationException">
     /// The export has an entry of that key already, or the app or another package added the export.
     /// </exception>
-    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots)
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots) =>
+        AddTypeScriptExport(group, key, slots, appOnly: false);
+
+    /// <summary>
+    /// Adds an entry to an export of the package's own, as the overload without <paramref name="appOnly"/> does, and writes
+    /// the export in the app's generated file alone when <paramref name="appOnly"/> is true. Use it for what the app
+    /// registers through the package, such as the typed data of widgets the app adds: the package's own file is the same
+    /// wherever an app mounts the package, and it ships, so it holds nothing that belongs to one app. The schemas of the
+    /// entries' types are written in the app's file only, too.
+    /// </summary>
+    /// <param name="group">The export's name; its entries are all <paramref name="appOnly"/> or none. A name of the package's own file, such as <c>Link</c>, is free for an app-only export.</param>
+    /// <param name="key">The entry's key in the export, once per export; any text but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="slots">The entry's types by name, each written as its zod schema; any name but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="appOnly">True to write the export in the app's generated file alone.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="ArgumentException">As for the overload without <paramref name="appOnly"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// As for the overload without <paramref name="appOnly"/>, or another entry of the export has the other value of <paramref name="appOnly"/>.
+    /// </exception>
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots, bool appOnly)
     {
-        _outer.ServiceProvider.GetRequiredService<TypeGenRegistry>().Add(group, key, slots, Mount.Package.Name);
+        _outer.ServiceProvider.GetRequiredService<TypeGenRegistry>().Add(group, key, slots, Mount.Package.Name, appOnly);
         return this;
     }
 

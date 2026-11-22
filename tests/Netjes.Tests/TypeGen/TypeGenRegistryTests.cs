@@ -40,6 +40,34 @@ public class TypeGenRegistryTests
         Assert.Equal("hero", Assert.Single(Assert.Single(registry.Snapshot()).Entries).Key);
     }
 
+    [Fact]
+    public void AnEntryThatDiffersFromItsExportsOthers_InWhereItIsWritten_Throws()
+    {
+        var registry = new TypeGenRegistry();
+        registry.Add("widgets", "quote", Props(typeof(Hero)), owner: "@acme/blocks", appOnly: true);
+
+        var error = Assert.Throws<InvalidOperationException>(() => registry.Add("widgets", "hero", Props(typeof(Hero)), owner: "@acme/blocks"));
+
+        Assert.Equal(
+            "The TypeScript export 'widgets' is in the app's generated file alone (appOnly: true), as '@acme/blocks' added its other entries: " +
+            "add 'hero' with appOnly: true too.",
+            error.Message);
+        Assert.Equal("quote", Assert.Single(Assert.Single(registry.Snapshot()).Entries).Key);
+    }
+
+    [Fact]
+    public void AnAppOnlyExport_IsMarkedInTheSnapshot()
+    {
+        var registry = new TypeGenRegistry();
+        registry.Add("widgets", "quote", Props(typeof(Hero)), owner: "@acme/blocks", appOnly: true);
+        registry.Add("blocks", "hero", Props(typeof(Hero)), owner: "@acme/blocks");
+
+        var groups = registry.Snapshot().ToDictionary(g => g.Group, g => g.AppOnly);
+
+        Assert.True(groups["widgets"]);
+        Assert.False(groups["blocks"]);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("1blocks")]
