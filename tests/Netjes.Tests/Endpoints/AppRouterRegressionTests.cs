@@ -1620,7 +1620,7 @@ public class AppRouterRegressionTests
     [Theory]
     [InlineData("refuses Ada")]
     [InlineData("signs Ada in")]
-    public async Task APolicysHandlerThatReadsTheRequestsUser_SeesTheUserThePolicysSchemeAuthenticates_AndTheLoadersTheRequestsOwn(string scheme)
+    public async Task APolicysHandlerThatReadsTheRequestsUser_SeesTheUserThePolicysSchemeAuthenticates_AndSoDoTheLoaders(string scheme)
     {
         var calls = 0;
         bool? signedInForTheLoader = null;
@@ -1659,8 +1659,9 @@ public class AppRouterRegressionTests
         Assert.Equal(admitted, body.Contains("s3cret", StringComparison.Ordinal));
         if (admitted)
         {
-            // Once judged, the 404's loaders run for the request's own user, whom only the Site scheme signs in.
-            Assert.False(signedInForTheLoader);
+            // Once judged, the 404's loaders run as the page's do: for the user the policy's scheme signs in, not for
+            // the request's own, whom only the default scheme would sign in.
+            Assert.True(signedInForTheLoader);
         }
     }
 
