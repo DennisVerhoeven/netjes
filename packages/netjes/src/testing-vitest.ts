@@ -1,5 +1,5 @@
 // Registered by netjes() as a Vitest setup file in every app, after the app's own: what the test harness needs from the
-// runner. Named by path, not exported.
+// runner. Exported as netjes/testing/vitest, for a package's tests that run without the plugin to list in setupFiles.
 import type { DefaultOptions } from '@tanstack/react-query';
 import { inject, vi } from 'vitest';
 

@@ -40,7 +40,7 @@ describe('the npm manifest', () => {
     const { './vite': plugin, './sidecar': sidecar, ...modules } = manifest.exports as Record<string, unknown>;
     expect(plugin).toEqual({ types: './vite/plugin.d.ts', default: './vite/plugin.mjs' });
     expect(sidecar).toBe('./sidecar/server.mjs');
-    expect(Object.keys(modules).sort()).toEqual(['.', './client-entry', './server-entry', './testing', './testing/setup', './vitals', './zod']);
+    expect(Object.keys(modules).sort()).toEqual(['.', './client-entry', './server-entry', './testing', './testing/setup', './testing/vitest', './vitals', './zod']);
     for (const [entry, target] of Object.entries(modules)) {
       const file = /^\.\/dist\/([\w-]+)\.js$/.exec((target as { default?: string }).default ?? '')?.[1];
       expect(file, entry).toBeDefined();
