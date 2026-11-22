@@ -531,6 +531,49 @@ public class PagePackageTypesTests
         }
     }
 
+    [TypeScriptName("Citation")]
+    public sealed record CitationBlock(string Text);
+
+    [TypeScriptName("HomeProps")]
+    public sealed record NamedLikeAnAppType(string Text);
+
+    [Fact]
+    public async Task ANameGivenToAnExportsType_IsInBothFiles()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("blocks", "citation", new Dictionary<string, Type> { ["props"] = typeof(CitationBlock) });
+            });
+
+        foreach (var output in new[] { AppFile(app), PackageFile(app) })
+        {
+            Assert.Contains("export const Citation = z.object({\n  text: z.string(),\n});", output);
+            Assert.Contains("  \"citation\": { \"props\": Citation },\n", output);
+        }
+    }
+
+    [Fact]
+    public async Task ANameGivenToAnExportsType_ThatIsTheNameOfTheAppsOwnType_StopsTheAppsFile()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new AppTypes.HomeProps("Hi", 1))),
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("blocks", "note", new Dictionary<string, Type> { ["props"] = typeof(NamedLikeAnAppType) });
+            });
+
+        var error = Assert.Throws<InvalidOperationException>(() => AppFile(app));
+
+        Assert.Equal(
+            $"[TypeScriptName(\"HomeProps\")] on {typeof(NamedLikeAnAppType).FullName} gives the name of {typeof(AppTypes.HomeProps).FullName}, which the app's file has already. Give the type another name.",
+            error.Message);
+    }
+
     [Fact]
     public async Task AnAppOnlyExport_IsInTheAppsFileAndNotThePackagesFile_WithItsSchemas()
     {

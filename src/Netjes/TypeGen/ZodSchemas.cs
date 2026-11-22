@@ -537,15 +537,76 @@ internal sealed class ZodSchemas
             return _names;
         }
 
-        var names = Allocate([.. _named.Where(t => !_yielding.Contains(t))], _reserved);
+        // A name that [TypeScriptName] gives is kept, and the other types take none of them.
+        var given = GivenNames();
+        var reserved = new HashSet<string>(_reserved.Concat(given.Where(g => !_yielding.Contains(g.Key)).Select(g => g.Value)), StringComparer.Ordinal);
+        var names = Allocate([.. _named.Where(t => !_yielding.Contains(t) && !given.ContainsKey(t))], reserved);
+        foreach (var (type, name) in given.Where(g => !_yielding.Contains(g.Key)))
+        {
+            names[type] = name;
+        }
+
         // The types that yield take none of the names of the others, which keep the names they have without them.
-        var taken = new HashSet<string>(_reserved.Concat(names.Values), StringComparer.Ordinal);
-        foreach (var (type, name) in Allocate([.. _named.Where(_yielding.Contains)], taken))
+        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key)))
+        {
+            if (names.FirstOrDefault(n => n.Value == name).Key is { } other)
+            {
+                throw new InvalidOperationException(
+                    $"[TypeScriptName(\"{name}\")] on {type.FullName} gives the name of {other.FullName}, which the app's file has already. Give the type another name.");
+            }
+        }
+
+        var taken = new HashSet<string>(reserved.Concat(names.Values).Concat(given.Values), StringComparer.Ordinal);
+        foreach (var (type, name) in Allocate([.. _named.Where(t => _yielding.Contains(t) && !given.ContainsKey(t))], taken))
+        {
+            names[type] = name;
+        }
+
+        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key)))
         {
             names[type] = name;
         }
 
         return _names = names;
+    }
+
+    /// <summary>The names that <see cref="TypeScriptNameAttribute"/> gives, each to one type and none a name the file has.</summary>
+    private Dictionary<Type, string> GivenNames()
+    {
+        var given = new Dictionary<Type, string>();
+        var owners = new Dictionary<string, Type>(StringComparer.Ordinal);
+        foreach (var type in _named.OrderBy(t => t.FullName, StringComparer.Ordinal))
+        {
+            if (type.GetCustomAttribute<TypeScriptNameAttribute>(inherit: false) is not { } attribute)
+            {
+                continue;
+            }
+
+            var name = attribute.Name;
+            if (!TypeGenRegistry.IsIdentifier(name) || TypeGenRegistry.ReservedWords.Contains(name))
+            {
+                throw new InvalidOperationException(
+                    $"[TypeScriptName(\"{name}\")] on {type.FullName} is no name of an export: a name is ASCII letters, digits, '_' and '$', " +
+                    "does not start with a digit and is no reserved word of a JavaScript module.");
+            }
+
+            if (_reserved.Contains(name))
+            {
+                throw new InvalidOperationException(
+                    $"[TypeScriptName(\"{name}\")] on {type.FullName} names something the generated file declares or imports already. Give the type another name.");
+            }
+
+            if (owners.TryGetValue(name, out var other))
+            {
+                throw new InvalidOperationException(
+                    $"The TypeScript name '{name}' is given by [TypeScriptName] to both {other.FullName} and {type.FullName}. Give each type a name of its own.");
+            }
+
+            owners[name] = type;
+            given[type] = name;
+        }
+
+        return given;
     }
 
     /// <summary>A name for each of the types, none of them one of <paramref name="reserved"/>.</summary>

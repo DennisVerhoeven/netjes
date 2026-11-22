@@ -10,7 +10,7 @@ internal sealed class TypeGenRegistry
     /// What a module cannot declare with <c>export const</c>: JavaScript's reserved words, those of strict mode, which a
     /// module is in, <c>await</c>, and <c>arguments</c> and <c>eval</c>, which strict mode does not let a declaration take.
     /// </summary>
-    private static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
+    internal static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
     {
         "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export",
         "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
@@ -140,7 +140,7 @@ internal sealed class TypeGenRegistry
         }
     }
 
-    private static bool IsIdentifier(string name) =>
+    internal static bool IsIdentifier(string name) =>
         name.Length > 0 && !char.IsAsciiDigit(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '$');
 
     /// <summary>Whether every surrogate in the text is half of a pair.</summary>
