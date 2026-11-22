@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -44,6 +44,45 @@ function spawnSidecar(vitePort: number, appRoot = root) {
     env: { ...process.env, NETJES_MODE: 'development', NETJES_ROOT: appRoot, NETJES_TOKEN: TOKEN, NETJES_VITE_PORT: String(vitePort), NODE_ENV: 'development' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+}
+
+/**
+ * An app of its own, for a test that starts a sidecar of its own, so that two Vite dev servers never share an app's
+ * caches: a page under the root layout, this workspace's node_modules, no watcher, and `plugins` (the source of each
+ * plugin object) after netjes().
+ */
+async function ownApp(name: string, plugins: string[] = []) {
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), `netjes-sidecar-${name}-`)));
+  await symlink(NODE_MODULES, path.join(dir, 'node_modules'), 'junction');
+  await mkdir(path.join(dir, 'app'));
+  await writeFile(path.join(dir, 'app', 'layout.tsx'), 'export default function Layout({ children }) { return <main>{children}</main>; }\n');
+  await writeFile(path.join(dir, 'app', 'page.tsx'), 'export default function Home() { return <h1>Home</h1>; }\n');
+  await writeFile(
+    path.join(dir, 'vite.config.mjs'),
+    `import netjes from 'netjes/vite';\nexport default { plugins: [netjes(), ${plugins.join(', ')}], cacheDir: '.vite', logLevel: 'error', server: { watch: null } };\n`,
+  );
+  return dir;
+}
+
+/** Resolves with the sidecar's port once it is ready; `onLine` sees each line it writes to stdout until then. */
+function untilReady(spawned: ReturnType<typeof spawnSidecar>, onLine: (line: string) => void = () => {}) {
+  return new Promise<number>((resolve, reject) => {
+    let stdout = '';
+    createInterface({ input: spawned.stdout }).on('line', (line) => {
+      stdout += `${line}\n`;
+      onLine(line);
+      if (line.startsWith('NETJES_READY ')) resolve((JSON.parse(line.slice(12)) as { port: number }).port);
+    });
+    spawned.on('exit', (code) => reject(new Error(`the sidecar exited with ${code}:\n${stdout}`)));
+  });
+}
+
+/** Closes the sidecar's stdin, as .NET does when the app stops, and waits for it to exit. */
+async function stopSidecar(spawned: ReturnType<typeof spawnSidecar>) {
+  if (spawned.exitCode !== null || spawned.signalCode !== null) return;
+  const exited = once(spawned, 'exit');
+  spawned.stdin.end();
+  await exited;
 }
 
 /** Runs the sidecar until it exits, with what it wrote. */
@@ -238,17 +277,44 @@ describe('the development sidecar', () => {
     expect((await render('app/page.tsx')).status).toBe(200);
   });
 
-  it('reports in one line on stdout that the Vite port is taken, and exits', async () => {
-    // Another app's Vite dev server, on localhost as Vite binds it.
+  it('waits for a Vite port that the app before it still has, and starts once that one lets go of it', async () => {
+    // The app that ran before, which dotnet watch has started again: it is still stopping, and lets go of the port
+    // while this one waits for it.
+    const before = createServer();
+    await new Promise<void>((resolve) => before.listen(0, 'localhost', resolve));
+    const { port } = before.address() as AddressInfo;
+    const dir = await ownApp('wait');
+    const spawned = spawnSidecar(port, dir);
+    try {
+      const sidecarPort = await untilReady(spawned, (line) => {
+        if (line.startsWith(`netjes: port ${port} is in use; waiting`)) before.close();
+      });
+
+      expect((await fetch(`http://localhost:${port}/@vite/client`)).status).toBe(200);
+      expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
+    } finally {
+      before.close();
+      await stopSidecar(spawned);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('reports in one line on stdout that the Vite port is still taken after the wait, and exits', async () => {
+    // Another app's Vite dev server, on localhost as Vite binds it, which keeps the port.
     const other = createServer();
     await new Promise<void>((resolve) => other.listen(0, 'localhost', resolve));
     const { port } = other.address() as AddressInfo;
     try {
+      const started = performance.now();
       const { code, stdout, stderr } = await runToExit(spawnSidecar(port));
 
-      expect(stdout).toBe(`NETJES_FAILED {"reason":"vite-port-in-use","port":${port}}\n`);
+      const [waiting, failed, ...rest] = stdout.split('\n');
+      expect(waiting).toMatch(new RegExp(`^netjes: port ${port} is in use; waiting up to 5s for it`));
+      expect(failed).toBe(`NETJES_FAILED {"reason":"vite-port-in-use","port":${port}}`);
+      expect(rest).toEqual(['']);
       expect(stderr).toBe('');
       expect(code).toBe(1);
+      expect(performance.now() - started).toBeGreaterThanOrEqual(5_000);
     } finally {
       await new Promise((resolve) => other.close(resolve));
     }

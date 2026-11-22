@@ -18,6 +18,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 const mode = process.env.NETJES_MODE === 'development' ? 'development' : 'production';
@@ -30,6 +31,12 @@ delete process.env.NETJES_TOKEN;
 const renderTimeoutMs = Number(process.env.NETJES_RENDER_TIMEOUT_MS ?? 15_000);
 const streamTimeoutMs = Number(process.env.NETJES_STREAM_TIMEOUT_MS ?? 60_000);
 const vitePort = Number(process.env.NETJES_VITE_PORT ?? 5173);
+// How long the Vite dev server waits for its port when something has it, and how often it tries the port meanwhile.
+// dotnet watch starts an app again while the process of the one before may still have the port: that process lets go
+// of it as soon as it hears that its app is stopping, or when its stdin closes (below). A port that something else
+// keeps is reported once the wait is over.
+const VITE_PORT_WAIT_MS = 5_000;
+const VITE_PORT_RETRY_MS = 100;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const CSS_FILE = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/;
 // Terminal escape sequences (ECMA-48): CSI, as ESC [ or its one-character form (colours, as in Vite's code frames, which
@@ -90,14 +97,39 @@ if (mode === 'development') {
     dev = await viteFailed(error);
   }
   vite = dev;
-  try {
-    await dev.listen();
-  } catch (error) {
-    // Most often another app's Vite dev server: .NET names the port and how to move it.
-    if (error instanceof Error && error.message === `Port ${vitePort} is already in use`) {
-      await failStartup({ reason: 'vite-port-in-use', port: vitePort });
+  /**
+   * Starts the dev server listening. Vite adds a listener for the server's 'listening' event each time; a start that
+   * fails leaves it behind, and it goes, so that trying the port again and again (below) does not pile them up.
+   */
+  const listen = async () => {
+    const httpServer = dev.httpServer;
+    const before = new Set(httpServer?.listeners('listening'));
+    try {
+      await dev.listen();
+    } catch (error) {
+      for (const listener of httpServer?.listeners('listening') ?? []) {
+        if (!before.has(listener)) httpServer?.off('listening', /** @type {(...args: unknown[]) => void} */ (listener));
+      }
+      throw error;
     }
-    await viteFailed(error);
+  };
+  const waitUntil = performance.now() + VITE_PORT_WAIT_MS;
+  for (let waiting = false; ; ) {
+    try {
+      await listen();
+      break;
+    } catch (error) {
+      if (!(error instanceof Error && error.message === `Port ${vitePort} is already in use`)) await viteFailed(error);
+      // Still taken: most often another app's Vite dev server. .NET names the port and how to move it.
+      if (performance.now() >= waitUntil) await failStartup({ reason: 'vite-port-in-use', port: vitePort });
+      if (!waiting) {
+        waiting = true;
+        console.log(
+          `netjes: port ${vitePort} is in use; waiting up to ${VITE_PORT_WAIT_MS / 1000}s for it, in case the app that ran before is still stopping`,
+        );
+      }
+      await sleep(VITE_PORT_RETRY_MS);
+    }
   }
   const netjes = /** @type {NetjesDevApi | undefined} */ (dev.config.plugins.find((plugin) => plugin.name === 'netjes')?.api);
   /** @param {unknown} error @returns {error is Error & { file: string }} */
