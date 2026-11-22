@@ -15,7 +15,7 @@ Only document requests need the sidecar. Redirects, not-found and forbidden resu
 
 Netjes starts the Node processes when the app starts and stops them when it stops. You do not run or deploy them yourself: `UseNetjes()` and `AddNetjes()` are enough, as long as `node` is on the path (`NetjesOptions.NodeExecutable` names another one).
 
-- In development there is one process. It also runs the Vite dev server (port 5173, `ViteDevPort`), which compiles your pages on demand, so an edit shows on the next request.
+- In development there is one process. It also runs the Vite dev server (port 5173, `ViteDevPort`), which compiles your pages on demand, so an edit shows on the next request. When the app begins to stop, the dev server lets go of its port at once, while the app finishes its requests: the app that `dotnet watch` starts next can take it. A process that finds the port taken waits up to 5 seconds for it.
 - In production each process imports the server build in `dist/server/`. `NetjesOptions.SidecarProcesses` sets how many run (default 1). A process renders one page at a time on one core, so an app whose pages take real CPU time to render wants about one per core. Each render goes to the ready process with the fewest renders in flight.
 
 ```json
