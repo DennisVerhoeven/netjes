@@ -10,7 +10,9 @@ namespace Netjes.Routing;
 /// One endpoint per page file that has no explicit loader, plus a lowest-priority fallback that renders the 404 page.
 /// Rebuilt whenever the route table changes, so pages added in development are routable without a restart. A page gets
 /// the conventions of the layout loaders above it, a page package's page those of its mount, then those of MapPages().
-/// The fallback gets none of them, so MapPages().RequireAuthorization() never challenges an unknown URL. The layout
+/// The fallback gets none of them, so MapPages().RequireAuthorization() never challenges an unknown URL; below a mount
+/// whose not-found has conventions of its own (<see cref="PagePackageBuilder.ConfigureNotFound"/>), a fallback of the
+/// mount's carries those. The layout
 /// loaders around a page the request's endpoint has not let its visitor in for are judged on those of MapPages() too
 /// (<see cref="PageConventions"/>).
 /// </summary>
@@ -89,6 +91,32 @@ internal sealed class PagesEndpointDataSource(
         fallback.Metadata.Add(ReadMethods);
         fallback.Metadata.Add(new PageEndpointMetadata(null));
         endpoints.Add(fallback.Build());
+
+        // Below a mount whose not-found has conventions (ConfigureNotFound), an endpoint of its own answers the unknown
+        // URLs, with those alone. In the same last order, the mount's literal or value segments rank its route ahead of
+        // the fallback's catch-all, and a mount inside another ahead of the outer one's. Its parameter's name cannot be a
+        // prefix's value's, which is an identifier.
+        foreach (var mounted in sources.Mounts)
+        {
+            if (mounted.Mount.NotFound is not { } conventions)
+            {
+                continue;
+            }
+
+            var notFound = new RouteEndpointBuilder(
+                http => Page.NotFound().ExecuteAsync(http),
+                RoutePatternFactory.Parse(mounted.Mount.Prefix.Template + "/{**not-found:nonfile}"),
+                order: int.MaxValue)
+            {
+                DisplayName = "Page not found",
+            };
+            notFound.Metadata.Add(ReadMethods);
+            notFound.Metadata.Add(new PageEndpointMetadata(null));
+            conventions.Conventions.ForEach(convention => convention(notFound));
+            conventions.FinallyConventions.ForEach(convention => convention(notFound));
+            endpoints.Add(notFound.Build());
+        }
+
         return endpoints;
     }
 }

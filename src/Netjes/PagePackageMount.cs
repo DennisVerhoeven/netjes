@@ -114,4 +114,7 @@ public sealed class PagePackageMount
     internal List<Action<EndpointBuilder>> Conventions { get; } = [];
 
     internal List<Action<EndpointBuilder>> FinallyConventions { get; } = [];
+
+    /// <summary>The conventions of the not-found below the mount (<c>ConfigureNotFound</c>); null when the app gives it none.</summary>
+    internal NotFoundConventions? NotFound { get; set; }
 }

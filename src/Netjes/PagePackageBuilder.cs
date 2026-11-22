@@ -114,6 +114,57 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     }
 
     /// <summary>
+    /// Gives the not-found below the mount conventions of its own. An unknown URL below the mount is then answered by an
+    /// endpoint that carries them, in place of the fallback that <c>MapPages()</c> adds, which carries none and so is
+    /// covered by the app's fallback policy: <c>.ConfigureNotFound(notFound =&gt; notFound.AllowAnonymous())</c> gives a
+    /// visitor that policy refuses the package's not-found with status 404, rather than the app's challenge. The page
+    /// renders as without them, and its layout loaders are still authorized one by one before any of them runs. The
+    /// mount's own conventions do not reach it, and a mount inside this one that has none of its own takes these. Each call
+    /// adds to the conventions of the ones before. Call it before <c>MapPages()</c>.
+    /// </summary>
+    /// <param name="configure">Puts the conventions on the not-found, as on any endpoint: <c>AllowAnonymous()</c>, <c>RequireAuthorization(...)</c>.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Called after <c>MapPages()</c>; on a mount at the root URL (<c>/</c>, <c>/(site)</c>), below which every unknown URL
+    /// of the app is; or when another mount at the same URL has conventions for its not-found.
+    /// </exception>
+    public PagePackageBuilder ConfigureNotFound(Action<IEndpointConventionBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var sources = _outer.ServiceProvider.GetRequiredService<RouteSources>();
+        var name = Mount.Package.Name;
+        if (sources.PagesMapped)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' is called after MapPages(), which has mapped the endpoints. " +
+                "Call it before app.MapPages().");
+        }
+
+        if (Mount.Pattern == "/")
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: a mount at the root URL has every unknown URL " +
+                "of the app below it, which the fallback that MapPages() adds answers. Mount the package at a prefix with a " +
+                "URL of its own for a not-found with conventions of its own.");
+        }
+
+        if (sources.Mounts.FirstOrDefault(m => m.Mount != Mount && m.Mount.NotFound is not null && SameUrl(m.Mount.Prefix, Mount.Prefix)) is { } other)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: '{other.Name}' is mounted at the same URL, " +
+                $"at {other.Mount.Prefix}, and its not-found has conventions already. One endpoint answers the unknown URLs " +
+                "below a URL: configure the not-found on one of the two mounts.");
+        }
+
+        Mount.NotFound ??= new NotFoundConventions();
+        configure(Mount.NotFound);
+        return this;
+    }
+
+    /// <summary>Whether two prefixes have one URL: literals in any case, and a value against any value.</summary>
+    private static bool SameUrl(MountPrefix a, MountPrefix b) => a.Below(b.Pattern) == "/" && b.Below(a.Pattern) == "/";
+
+    /// <summary>
     /// Writes the package's own generated file at <paramref name="path"/>, for the app the package is developed in: the
     /// zod schemas of its loaders, page actions, layout loaders, server actions and endpoints, and its typed routes, all
     /// below the mount, with the links of <c>mounted()</c> typed by them. The file is the same wherever an app mounts the
