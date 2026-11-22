@@ -445,6 +445,19 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_PageActionThatReadsTheFormItself_IsTypedAsARecordOfStrings()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/files/page.tsx"],
+            map: a => a.MapPageAction("/files", (IFormCollection form) => Page.Redirect("/files")));
+
+        var output = await GenerateAsync(app);
+
+        // The fields of a form are strings (a field posted twice reads as its first value or as a list, the action's call): no list of pairs.
+        Assert.Contains("export const forms = {\n  \"/files\": z.record(z.string(), z.string()),\n} as const;", output);
+    }
+
+    [Fact]
     public async Task Generate_Routes_AreTypedWithTheirParameters()
     {
         await using var app = await TestApp.StartAsync(

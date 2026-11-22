@@ -506,6 +506,8 @@ internal sealed class ZodSchemas
         _ when type == typeof(string) || type == typeof(char) || type == typeof(Uri) || type == typeof(TimeSpan) || type == typeof(Version) => "z.string()",
         // The generated file's own schema, which also checks that a root-relative URL is one of the app's pages.
         _ when type == typeof(Href) => "Href",
+        // An action that reads the form itself: its fields by name, text as the browser posts it (the collection enumerates as pairs).
+        _ when typeof(Microsoft.AspNetCore.Http.IFormCollection).IsAssignableFrom(type) => "z.record(z.string(), z.string())",
         _ when type == typeof(bool) => "z.boolean()",
         _ when type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
             || type == typeof(int) || type == typeof(uint) => "z.number().int()",
