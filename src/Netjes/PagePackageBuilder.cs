@@ -126,7 +126,9 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// <returns>The mount, for more calls.</returns>
     /// <exception cref="InvalidOperationException">
     /// Called after <c>MapPages()</c>; on a mount at the root URL (<c>/</c>, <c>/(site)</c>), below which every unknown URL
-    /// of the app is; or when another mount at the same URL has conventions for its not-found.
+    /// of the app is; on a mount whose URL has no literal segment (<c>/[tenant]</c>), below which, since a value matches any
+    /// segment, the unknown URLs below the app's other mounts and folders are too; or when another mount at the same URL has
+    /// conventions for its not-found.
     /// </exception>
     public PagePackageBuilder ConfigureNotFound(Action<IEndpointConventionBuilder> configure)
     {
@@ -146,6 +148,15 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
                 $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: a mount at the root URL has every unknown URL " +
                 "of the app below it, which the fallback that MapPages() adds answers. Mount the package at a prefix with a " +
                 "URL of its own for a not-found with conventions of its own.");
+        }
+
+        if (!Mount.Prefix.HasLiteral)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: its URL, {Mount.Pattern}, has no literal segment, " +
+                "and a value matches any segment, so the unknown URLs below the app's other mounts and folders would be below this " +
+                "mount too. Mount the package at a prefix with a literal segment, such as /[tenant]/help, for a not-found with " +
+                "conventions of its own.");
         }
 
         if (sources.Mounts.FirstOrDefault(m => m.Mount != Mount && m.Mount.NotFound is not null && SameUrl(m.Mount.Prefix, Mount.Prefix)) is { } other)

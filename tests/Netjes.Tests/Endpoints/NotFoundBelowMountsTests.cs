@@ -394,6 +394,25 @@ public class NotFoundBelowMountsTests
         Assert.Contains(Inner, failure.Message);
     }
 
+    /// <summary>
+    /// A mount whose URL is values alone has the unknown URLs below the app's other mounts below it too: its not-found would
+    /// answer <c>/staff/nope</c> under the conventions given for <c>/[tenant]</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("/[tenant]")]
+    [InlineData("/(site)/[tenant]")]
+    [InlineData("/[tenant]/(desk)/[section]")]
+    public async Task ConfigureNotFound_OnAMountWhoseUrlHasNoLiteralSegment_StopsTheApp(string prefix)
+    {
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync(
+            ["app/layout.tsx", "app/not-found.tsx"],
+            prepareRoot: root => TestPagePackage.Install(root, ["page.tsx"]),
+            map: a => a.MapPagePackage(TestPagePackage.Descriptor, prefix).ConfigureNotFound(notFound => notFound.AllowAnonymous())));
+
+        Assert.Contains("no literal segment", failure.Message);
+        Assert.Contains(Inner, failure.Message);
+    }
+
     [Fact]
     public async Task ConfigureNotFound_AfterMapPages_StopsTheApp()
     {
