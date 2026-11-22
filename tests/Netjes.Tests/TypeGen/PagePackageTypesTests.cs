@@ -170,6 +170,25 @@ public class PagePackageTypesTests
         Assert.Contains("\"GET /articles/{slug}/feed\": \"/articles/{slug}/feed\",", files[0]);
     }
 
+    [Fact]
+    public async Task ThePackagesFile_ListsItsFormEndpointsBelowTheMountWithoutThePrefixValues()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: mount =>
+            {
+                MapHelpCenter(mount);
+                mount.MapPost("/articles/{slug}/export", (string slug, [FromForm] string? intent) => Results.File([1], "application/json", "export.json"));
+            });
+
+        var file = PackageFile(app);
+
+        Assert.Contains("\"POST /articles/{slug}/export\": { slug: string };", file);
+        Assert.Contains("\"POST /articles/{slug}/export\": \"/articles/{slug}/export\",", file);
+        Assert.DoesNotContain("tenant", file);
+    }
+
     private static void Write(string root, string file, string content)
     {
         var path = Path.Combine(root, file);

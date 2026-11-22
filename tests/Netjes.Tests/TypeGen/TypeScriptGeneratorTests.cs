@@ -330,6 +330,40 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_EndpointUrls_CoverPostEndpointsThatReadAForm()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                // A form posts to these, and a download is no JSON.
+                a.MapPost("/users/{id}/export", (string id, [FromForm] string? intent) => Results.File([1], "application/json", "export.json"));
+                a.MapPost("/uploads", (IFormFile file) => Results.Ok());
+                a.MapPost("/survey", (IFormCollection form, string? ref_) => Results.Ok());
+                // A POST that reads no form, a form endpoint's other methods (a form posts) and a webhook have no key.
+                a.MapPost("/webhooks/payments", (HttpRequest request) => Results.Ok());
+                a.MapPut("/users/{id}/export", (string id, [FromForm] string? intent) => Results.Ok());
+                a.MapPost("/ping", () => Results.Ok());
+                // A JSON endpoint has its keys already, whatever else it reads.
+                a.MapPost("/api/items", (NewItem item) => TypedResults.Ok(new Item(1, item.Name)));
+            });
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains(
+            """
+            export type EndpointParams = {
+              "POST /api/items": Record<string, never>;
+              "POST /survey": { ref_?: string | null | undefined };
+              "POST /uploads": Record<string, never>;
+              "POST /users/{id}/export": { id: string };
+            };
+            """.ReplaceLineEndings("\n"),
+            output);
+        Assert.Contains("\"POST /users/{id}/export\": \"/users/{id}/export\",\n", output);
+    }
+
+    [Fact]
     public async Task Generate_EndpointUrls_LeaveOutPagesActionsFallbacksAndNetjesEndpoints()
     {
         var site = new Uri("https://example.com");

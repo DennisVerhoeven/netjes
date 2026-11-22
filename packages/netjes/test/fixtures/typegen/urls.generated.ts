@@ -3,7 +3,7 @@ import { buildEndpointUrl, type SearchParamsInput } from '../../../src/href.ts';
 /**
  * What the app's endpoints read from their URLs, by method and route as in `api`: the route values, then the
  * query string values the handler binds. A JSON endpoint has a key for each of its methods except HEAD, and any
- * other endpoint one for GET, if it answers GET.
+ * other endpoint one for GET, if it answers GET, and one for POST, if it reads a form.
  */
 export type EndpointParams = {
   "GET /api/posts/{slug}/likes/": { slug: string };
@@ -15,6 +15,7 @@ export type EndpointParams = {
   "GET /openapi/{documentName}.json": { documentName: string };
   "GET /opt/{id?}": { id?: number | null | undefined };
   "POST /api/posts/{slug}/likes/": { slug: string };
+  "POST /users/{id}/export": { id: string };
 };
 export type EndpointKey = keyof EndpointParams;
 const endpointTemplates: Record<EndpointKey, string> = {
@@ -27,6 +28,7 @@ const endpointTemplates: Record<EndpointKey, string> = {
   "GET /openapi/{documentName}.json": "/openapi/{documentName}.json",
   "GET /opt/{id?}": "/opt/{id?}",
   "POST /api/posts/{slug}/likes/": "/api/posts/{slug}/likes",
+  "POST /users/{id}/export": "/users/{id}/export",
 };
 
 /**

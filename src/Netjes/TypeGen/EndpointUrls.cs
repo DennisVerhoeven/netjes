@@ -15,7 +15,9 @@ namespace Netjes.TypeGen;
 /// values each one reads from its URL, typed from its route template and the parameters its handler binds, and the
 /// templates <c>endpointUrl()</c> fills with <c>buildEndpointUrl</c>. A JSON endpoint (one in <c>api</c>) has a key
 /// for each of its methods but <c>HEAD</c>, and any other endpoint one for <c>GET</c>, if it answers it: a link or a
-/// fetch asks it for a page, a file or text, while what is posted to it, such as a webhook, comes from elsewhere.
+/// fetch asks it for a page, a file or text. It has one for <c>POST</c> too, if it reads a form
+/// (<see cref="ReadsAForm"/>): a form of the app posts to it. What else is posted to an endpoint, such as a webhook,
+/// comes from elsewhere.
 /// </summary>
 internal static class EndpointUrls
 {
@@ -41,7 +43,8 @@ internal static class EndpointUrls
         foreach (var endpoint in endpoints.Where(AppEndpoints.IsTheAppsOwn))
         {
             var methods = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods;
-            var keys = isJson(endpoint) ? methods.Where(m => m != HttpMethods.Head) : methods.Where(m => m == HttpMethods.Get);
+            var keys = isJson(endpoint) ? methods.Where(m => m != HttpMethods.Head)
+                : methods.Where(m => m == HttpMethods.Get || (m == HttpMethods.Post && ReadsAForm(endpoint)));
             var template = TemplateBelow(endpoint.RoutePattern, mount);
             var values = Values(endpoint, mount);
             entries.AddRange(keys.Select(method => new Entry($"{method} {Route(endpoint.RoutePattern, mount)}", template, values)));
@@ -49,6 +52,17 @@ internal static class EndpointUrls
 
         return [.. entries.DistinctBy(e => e.Key).OrderBy(e => e.Key, StringComparer.Ordinal)];
     }
+
+    /// <summary>
+    /// Whether the endpoint accepts a posted form: minimal APIs add accepts metadata (<see cref="IAcceptsMetadata"/>)
+    /// with a form content type for a <c>[FromForm]</c> parameter, an <c>IFormFile</c>, <c>IFormFileCollection</c> or
+    /// <c>IFormCollection</c>. The form's fields are not part of the URL, so the key's values are the route and query
+    /// values alone.
+    /// </summary>
+    private static bool ReadsAForm(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes.Any(type =>
+            type.Equals("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase)
+            || type.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase)) == true;
 
     /// <summary>
     /// The route as written, as the keys name it; for an endpoint mapped through a page package's mount, the part below
@@ -229,7 +243,8 @@ internal static class EndpointUrls
               /**
                * What the package's endpoints read from their URLs, by method and route below the mount as in `api`: the route
                * values below the mount, then the query string values the handler binds. A JSON endpoint has a key for each of
-               * its methods except HEAD, and any other endpoint one for GET, if it answers GET.
+               * its methods except HEAD, and any other endpoint one for GET, if it answers GET, and one for POST, if it reads a
+               * form.
                */
 
               """.ReplaceLineEndings("\n")
@@ -238,7 +253,7 @@ internal static class EndpointUrls
               /**
                * What the app's endpoints read from their URLs, by method and route as in `api`: the route values, then the
                * query string values the handler binds. A JSON endpoint has a key for each of its methods except HEAD, and any
-               * other endpoint one for GET, if it answers GET.
+               * other endpoint one for GET, if it answers GET, and one for POST, if it reads a form.
                */
 
               """.ReplaceLineEndings("\n"));
