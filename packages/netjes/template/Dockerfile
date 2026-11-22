@@ -23,8 +23,8 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 WORKDIR /src
 COPY --from=deps /src ./
+# The image's ASPNETCORE_HTTP_PORTS (8080) is the app's port.
 ENV ASPNETCORE_ENVIRONMENT=Development \
-    ASPNETCORE_URLS=http://+:8080 \
     DOTNET_USE_POLLING_FILE_WATCHER=1 \
     DOTNET_WATCH_SUPPRESS_BROWSER_REFRESH=1 \
     NETJES_VITE_HOST=0.0.0.0
