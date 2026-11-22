@@ -1681,7 +1681,7 @@ A page without a loader renders with no props, and its schema is `z.object({})`.
 | `Page.Unauthorized()` | Render the nearest `unauthorized.tsx` (else the error page) with status 401. |
 | `Page.Redirect(url, permanent: false)` | Redirect: 307, or 308 when permanent, for a GET; 303 after a form post. The client router follows it without a full page load. |
 | `Page.LocalRedirect(url, permanent: false)` | Like `Redirect`, but throws unless the URL is a path on this site. Use it for a `returnUrl` from the request. |
-| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. |
+| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. A page package renders its own page by a pattern below its mount with `mount.Render(path, props)` ([page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#the-c-half)). |
 
 On a `PageResult`:
 
@@ -2836,7 +2836,7 @@ public static class HelpCenterEndpoints
 
 The first four throw on a `MapGroup` made from the mount, and the app's own `MapPageLoader`, `MapPageAction` and `MapLayoutLoader` throw for the package's pages and layouts, naming the mount. Return the builder, so the app can add its conventions and overrides.
 
-A URL the C# side writes, for a redirect, an email or a cookie's path, comes from `PagePackageMount.Url(path, values)`, with the request's route values for the prefix's own: `mount.Url("/articles")` is `/help/articles`. A service of the package that runs outside a request finds the mount in `PagePackageMounts`, a singleton ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagemount)). Set `DrawsItsOwnShell` on the descriptor when the package's layout draws a whole page, and `RequiresNonce` when its pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out).
+A URL the C# side writes, for a redirect, an email or a cookie's path, comes from `PagePackageMount.Url(path, values)`, with the request's route values for the prefix's own: `mount.Url("/articles")` is `/help/articles`. A service of the package that runs outside a request finds the mount in `PagePackageMounts`, a singleton ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagemount)). To render one of the package's own pages from an endpoint or a handler of the package, such as a form again after a rate limiter refused it, write the pattern below the mount: `mount.Render("/sign-in", props)` renders `/help/sign-in` where the package is mounted at `/help`, wherever the app put it. Set `DrawsItsOwnShell` on the descriptor when the package's layout draws a whole page, and `RequiresNonce` when its pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out).
 
 ### Its generated file
 
@@ -2874,7 +2874,7 @@ The app's code imports it from its own file (`blocks.hero.props.parse(value)`), 
 - **Types.** The app's `npm run typecheck` does not see a package's pages, which only the page module map imports. Type-check them in the package, under the strictest flags an app may set: `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature`, with the package's `app`, `src` and `generated` folders included, as the help center's `tsconfig.json` does.
 - **Documents.** In the app the package is developed in, `renderDocument` from `netjes/testing` renders a package's page inside the app's layouts and the package's, with `mounts` naming the prefix: `renderDocument('@acme/help-center/app/contact/page.tsx', { mounts: { '@acme/help-center': '/help' }, props })` ([The document](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#the-document)).
 - **Components.** `createTestApp({ mounts: { '@acme/help-center': '/help' } })` gives the package's `Link` and `Form` the mount's URL ([Options](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#options)).
-- **The C# side.** Test the loaders and actions through the app that mounts the package, with `WebApplicationFactory`, as for the app's own ([C# tests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#c-tests-of-loaders-and-actions)).
+- **The C# side.** Test the loaders and actions through the app that mounts the package, with `WebApplicationFactory`, as for the app's own ([C# tests](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#c-tests-of-loaders-and-actions)). A service of the package that builds URLs from its mount needs no app: `PagePackageMount.ForTests(package, "/help")` makes the mount, at any prefix (`"/[tenant]/help"` included), and `PagePackageMounts.ForTests(mount)` the singleton the service takes, so a test can read the URL it builds (`mount.Url("/articles")`) without routing a request.
 
 ### Versions
 
@@ -6399,12 +6399,18 @@ public sealed class PagePackageMount
     public string Folder { get; }
     public string Pattern { get; }
     public Href Url(string path, RouteValueDictionary? values = null);
+    public PageResult Render(string path, object? props = null);
+    public static PagePackageMount ForTests(PagePackage package, string prefix);
 }
 ```
 
 Where a package is mounted. `Folder` is the prefix's folders, relative to the app directory (`support/(desk)/help`); `Pattern` is its URL pattern without groups (`/support/help`, `/[tenant]/help`).
 
 `Url(path, values)` is the app's URL of `path`, a URL below the mount, for a package's services that write links in C#, such as an email or a cookie's path. `/articles` is `/help/articles` for a package mounted at `/help`, `/` is the mount itself (`/help`), and a query or fragment stays where it is (`/?page=2` is `/help?page=2`). Like every [`Href`](#href), it has no base path. `values` holds the values of the prefix's parameters, such as the request's route values (`http.Request.RouteValues`); others are ignored. Each value is encoded as one segment, so a `/`, `?`, `#` or `%` in it stays in its segment: `acme/x` gives `/acme%2Fx/help/articles` under `/[tenant]/help`. A `path` that does not start with one `/` (another host as in `//host` or `/\host`, a scheme, a relative URL, a query or fragment on its own, or one with a control character or a space at either end), or that has a `.` or `..` segment, also written `%2e` or after a `\`, which would climb out of the mount once a browser resolves it, throws `ArgumentException`, and so does a missing value of the prefix, an empty one, `.` and `..`, which a browser would resolve away.
+
+`Render(path, props)` renders the package's page at `path`, a pattern below the mount in file syntax, from any endpoint, as [`Page.Render`](#page) does for the app's own: `mount.Render("/sign-in", props)` renders the page at `/help/sign-in` for a package mounted at `/help`, and `/` is the mount's own page. The package writes only the pattern below its mount; the mount adds the prefix the app chose, with the values of a prefix such as `/[tenant]/help` filled from the request, so a package's rate limiter or error handler can render one of its own forms again without knowing where it is mounted. Like `Page.Render`, the layout loaders of the page run under the authorization of the endpoint that returns it. A `path` that does not start with one `/`, or has a query or a fragment, throws `ArgumentException`.
+
+`ForTests(package, prefix)` makes a mount without an app, for a package's own tests: its services that build URLs from the mount, or render a page of the package, run against a mount made at any prefix, `/help`, `/support/(desk)/help` or `/[tenant]/help`, with no routing and no host. It takes the prefix as `MapPagePackage` does and throws `ArgumentException` for one that call would refuse. It is for tests: an app's mounts come from `MapPagePackage`.
 
 Each page payload carries, in `mounts`, every mounted package's URL for the request, by npm name: `/help`, `/acme/help`, or `null` when the request has no value for one of the prefix's parameters, or one that is empty, `.` or `..`. The package's links in the browser go below it ([`mounted`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#mounted)). An app that mounts nothing sends no `mounts`.
 
@@ -6415,10 +6421,11 @@ public sealed class PagePackageMounts
 {
     public IReadOnlyList<PagePackageMount> All { get; }
     public PagePackageMount Get(string name);
+    public static PagePackageMounts ForTests(params PagePackageMount[] mounts);
 }
 ```
 
-A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted.
+A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted. `ForTests(mounts)` is the same lookup over the mounts made with [`PagePackageMount.ForTests`](#pagepackagemount), in the order given, for the tests of a package's services that take `PagePackageMounts`; it throws `ArgumentException` for one package twice, as `MapPagePackage` does.
 
 ## Metadata, sitemap and robots
 
@@ -8292,6 +8299,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0055 – A development app lets go of the Vite port as soon as it begins to stop](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md): in development the app writes `stopping` on the sidecar's stdin before any hosted service stops, and the Vite dev server lets go of its port while the app finishes its requests, so the app that `dotnet watch` starts next can take it; the sidecar frees the port first when it exits, and one that finds the port taken waits up to five seconds for it before it reports `vite-port-in-use`.
 - [0056 – The template's development stack publishes Vite on the same port inside and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md): `VITE_PORT` moves Vite in the template's development Compose file, which publishes it and tells the app (`Netjes__ViteDevPort`) the same port inside and out, since the browser loads modules from that port; the development image takes the app's port from `ASPNETCORE_HTTP_PORTS`, and the Data Protection keys sit on a volume.
 - [0057 – The CLI takes a build configuration, and the test harness covers a package's tests and a page action's failure](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md): `netjes generate` and `netjes routes` take `-c` and pass it to `dotnet run`; the Vitest setup file is the entry point `netjes/testing/vitest` for a page package's tests; `createTestApp` takes a page action's failed state (`pageActionState`).
+- [0058 – A package makes its own mount in its tests, and renders its pages through it](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md): `PagePackageMount.ForTests` and `PagePackageMounts.ForTests` make a package's mounts in its own tests, with no app; `PagePackageMount.Render(path, props)` renders the package's page by its pattern below the mount, whatever prefix the app chose.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8308,6 +8316,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `netjes generate` and `netjes routes` take `-c, --configuration <name>` and pass it to `dotnet run -c`, so a pipeline or a container that built Release reuses that build instead of compiling a Debug one. Without the option nothing changes ([CLI](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md#netjes-generate), [ADR 0057](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md)).
 - `netjes/testing/vitest` is an entry point: the setup file the `netjes()` plugin adds to every app, which lets Testing Library and user-event work under Vitest's fake timers. A page package's component tests, which run without the plugin, list it in `setupFiles`. An app that uses `netjes()` does nothing ([Fake timers](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#fake-timers)).
 - `createTestApp({ pageActionState })` sets what `usePageActionState()` returns after a page action's input failed its checks: `{ errors, values }`, with status 422, for the page `route` names or else the URL's path ([A page action that failed](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#a-page-action-that-failed)).
+- A page package's own tests can make the mount an app would give it: `PagePackageMount.ForTests(package, prefix)` takes a prefix as `MapPagePackage` does, `/help`, `/support/(desk)/help` or `/[tenant]/help`, and `PagePackageMounts.ForTests(mounts)` the list a service that takes `PagePackageMounts` reads. A package no longer needs an app, or a fake of its own paths, to test the URLs it builds from its mount ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagemount), [ADR 0058](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md)).
+- `PagePackageMount.Render(path, props)` renders a page of a package from any endpoint by its pattern below the mount, `mount.Render("/sign-in", props)`, where a package had to build the mounted pattern for `Page.Render` itself. The mount puts the prefix the app chose in front, with a prefix's values filled from the request. A package that wrote the prefix of its own pages can use it in place; an app has nothing to do ([Page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#the-c-half)).
 
 ### Changed
 

@@ -111,6 +111,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0055 – A development app lets go of the Vite port as soon as it begins to stop](decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md)
 - [0056 – The template's development stack publishes Vite on the same port inside and out](decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md)
 - [0057 – The CLI takes a build configuration, and the test harness covers a package's tests and a page action's failure](decisions/0057-tooling-for-packages-tests-and-ci-commands.md)
+- [0058 – A package makes its own mount in its tests, and renders its pages through it](decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md)
 
 ## The project
 
