@@ -392,6 +392,39 @@ internal sealed partial class NodeSidecar(
     }
 
     /// <summary>
+    /// In development, tells the process that the app has begun to stop, with a line on its stdin (<c>stopping</c>),
+    /// and its Vite dev server lets go of its port at once; renders go on until <see cref="StopAsync"/>. The app can
+    /// take a while to finish its requests, and dotnet watch waits for that only so long: then it kills the process it
+    /// started (dotnet run), leaves this app finishing them, and starts the app again, which needs the port. A sidecar
+    /// script of the app's own can leave the line unread.
+    /// </summary>
+    public void Stopping()
+    {
+        if (context.Mode != NetjesMode.Development)
+        {
+            return;
+        }
+
+        // Under the lock, so the stop cannot close stdin meanwhile; a pipe takes a line without waiting.
+        lock (_gate)
+        {
+            if (_stopping || _process is not { } process)
+            {
+                return;
+            }
+
+            try
+            {
+                process.StandardInput.Write("stopping\n");
+            }
+            catch (IOException)
+            {
+                // It has exited, and its restart is on its way: there is nothing to let go of.
+            }
+        }
+    }
+
+    /// <summary>
     /// Stops the process, once: every call, a dispose's included, waits for the same stop. A host can be stopped twice
     /// at once (WebApplicationFactory does), and disposed as soon as one of those stops returns.
     /// </summary>
@@ -495,6 +528,8 @@ internal sealed partial class NodeSidecar(
             // code page, and a code frame's box drawing or a page's own non-ASCII output would come out garbled.
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
+            // What it writes (Stopping), without the byte order mark that Encoding.UTF8 puts before the first line.
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             UseShellExecute = false,
         };
         start.ArgumentList.Add(context.SidecarScript);

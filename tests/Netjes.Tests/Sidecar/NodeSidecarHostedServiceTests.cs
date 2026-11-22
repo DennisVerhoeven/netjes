@@ -42,6 +42,31 @@ public sealed class NodeSidecarHostedServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task StopAsync_InDevelopment_TellsTheSidecarThatTheAppIsStoppingFirst()
+    {
+        // dotnet watch starts the app again, with the Vite dev server's port, while this one may still be finishing
+        // its requests: told first, the sidecar lets go of the port at once, and renders until it is stopped.
+        var logs = new ListLoggerProvider();
+        await using var app = await StartAsync("Development", "stdin-sidecar.mjs", logs);
+
+        await app.StopAsync(Ct);
+
+        Assert.Equal(["stdin: stopping", "stdin ended"], StdinLines(logs));
+    }
+
+    [Fact]
+    public async Task StopAsync_InProduction_TellsTheSidecarNothing()
+    {
+        // No Vite dev server, so no port to let go of: the process only sees its stdin close.
+        var logs = new ListLoggerProvider();
+        await using var app = await StartAsync("Production", "stdin-sidecar.mjs", logs);
+
+        await app.StopAsync(Ct);
+
+        Assert.Equal(["stdin ended"], StdinLines(logs));
+    }
+
+    [Fact]
     public async Task StartAsync_WhenTheVitePortIsTaken_SaysSoInOneLineAndStopsTheApp()
     {
         // Started with dotnet run or from an IDE, the app would otherwise fail to start in two stack traces and abort.
@@ -189,6 +214,26 @@ public sealed class NodeSidecarHostedServiceTests : IDisposable
         });
         services?.Invoke(builder.Services);
         return new Failing(builder.Build(), logs, () => exitCode);
+    }
+
+    /// <summary>What the sidecar of <c>stdin-sidecar.mjs</c> said it read on its stdin, as its output was logged.</summary>
+    private static List<string> StdinLines(ListLoggerProvider logs) =>
+        [.. logs.Entries.Select(e => e.Message).Where(m => m.StartsWith("stdin", StringComparison.Ordinal))];
+
+    /// <summary>A started app in <paramref name="environment"/>, with the sidecar script <paramref name="script"/>.</summary>
+    private async Task<WebApplication> StartAsync(string environment, string script, ListLoggerProvider logs)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment, ContentRootPath = _root });
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders().AddProvider(logs);
+        builder.Services.AddNetjes(o =>
+        {
+            o.SidecarScript = Script(script);
+            o.TypesFile = null;
+        });
+        var app = builder.Build();
+        await app.StartAsync(Ct);
+        return app;
     }
 
     private async Task<WebApplication> StartAsync()

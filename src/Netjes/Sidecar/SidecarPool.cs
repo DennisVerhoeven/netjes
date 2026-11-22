@@ -57,6 +57,15 @@ internal sealed class SidecarPool : ISsrRenderer, IAsyncDisposable
     public Task StartAsync(CancellationToken cancellationToken) =>
         Task.WhenAll(_members.Select(m => m.Sidecar.StartAsync(cancellationToken)));
 
+    /// <summary>Tells each process that the app has begun to stop (see <see cref="NodeSidecar.Stopping"/>).</summary>
+    public void Stopping()
+    {
+        foreach (var member in _members)
+        {
+            member.Sidecar.Stopping();
+        }
+    }
+
     public Task StopAsync() => Task.WhenAll(_members.Select(m => m.Sidecar.StopAsync()));
 
     public async Task<string> RenderAsync(string payloadJson, CancellationToken cancellationToken) =>

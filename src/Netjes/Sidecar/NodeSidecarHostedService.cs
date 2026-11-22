@@ -70,6 +70,9 @@ internal sealed class NodeSidecarHostedService(IServiceProvider services) : IHos
             services.GetRequiredService<ILogger<NodeSidecarHostedService>>().LogCritical("{Message}", failure.Message);
         }
 
+        // Before any hosted service stops, the server's included, which waits for the requests in flight: in
+        // development the Vite dev server lets go of its port now, for the app that dotnet watch starts next.
+        _started?.Stopping();
         return Task.CompletedTask;
     }
 
