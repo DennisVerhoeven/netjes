@@ -506,6 +506,8 @@ internal sealed class ZodSchemas
         _ when type == typeof(string) || type == typeof(char) || type == typeof(Uri) || type == typeof(TimeSpan) || type == typeof(Version) => "z.string()",
         // The generated file's own schema, which also checks that a root-relative URL is one of the app's pages.
         _ when type == typeof(Href) => "Href",
+        // An action that reads the form itself: its fields by name, text as the browser posts it (the collection enumerates as pairs).
+        _ when typeof(Microsoft.AspNetCore.Http.IFormCollection).IsAssignableFrom(type) => "z.record(z.string(), z.string())",
         _ when type == typeof(bool) => "z.boolean()",
         _ when type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
             || type == typeof(int) || type == typeof(uint) => "z.number().int()",
@@ -535,15 +537,70 @@ internal sealed class ZodSchemas
             return _names;
         }
 
-        var names = Allocate([.. _named.Where(t => !_yielding.Contains(t))], _reserved);
-        // The types that yield take none of the names of the others, which keep the names they have without them.
-        var taken = new HashSet<string>(_reserved.Concat(names.Values), StringComparer.Ordinal);
-        foreach (var (type, name) in Allocate([.. _named.Where(_yielding.Contains)], taken))
+        // A name that [TypeScriptName] gives is kept, and the other types take none of them.
+        var given = GivenNames();
+        var reserved = new HashSet<string>(_reserved.Concat(given.Where(g => !_yielding.Contains(g.Key)).Select(g => g.Value)), StringComparer.Ordinal);
+        var names = Allocate([.. _named.Where(t => !_yielding.Contains(t) && !given.ContainsKey(t))], reserved);
+        foreach (var (type, name) in given.Where(g => !_yielding.Contains(g.Key)))
+        {
+            names[type] = name;
+        }
+
+        // The types that yield take none of the names of the others, which keep the names they have without them: a name
+        // given to a yielding type gives way to one of the others' names as a name of its own type would, and is kept
+        // where nothing else has it.
+        var displaced = given.Where(g => _yielding.Contains(g.Key) && names.Values.Contains(g.Value, StringComparer.Ordinal)).Select(g => g.Key).ToHashSet();
+        var taken = new HashSet<string>(reserved.Concat(names.Values).Concat(given.Where(g => !displaced.Contains(g.Key)).Select(g => g.Value)), StringComparer.Ordinal);
+        foreach (var (type, name) in Allocate([.. _named.Where(t => _yielding.Contains(t) && (!given.ContainsKey(t) || displaced.Contains(t)))], taken))
+        {
+            names[type] = name;
+        }
+
+        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key) && !displaced.Contains(g.Key)))
         {
             names[type] = name;
         }
 
         return _names = names;
+    }
+
+    /// <summary>The names that <see cref="TypeScriptNameAttribute"/> gives, each to one type and none a name the file has.</summary>
+    private Dictionary<Type, string> GivenNames()
+    {
+        var given = new Dictionary<Type, string>();
+        var owners = new Dictionary<string, Type>(StringComparer.Ordinal);
+        foreach (var type in _named.OrderBy(t => t.FullName, StringComparer.Ordinal))
+        {
+            if (type.GetCustomAttribute<TypeScriptNameAttribute>(inherit: false) is not { } attribute)
+            {
+                continue;
+            }
+
+            var name = attribute.Name;
+            if (!TypeGenRegistry.IsIdentifier(name) || TypeGenRegistry.ReservedWords.Contains(name))
+            {
+                throw new InvalidOperationException(
+                    $"[TypeScriptName(\"{name}\")] on {type.FullName} is no name of an export: a name is ASCII letters, digits, '_' and '$', " +
+                    "does not start with a digit and is no reserved word of a JavaScript module.");
+            }
+
+            if (_reserved.Contains(name))
+            {
+                throw new InvalidOperationException(
+                    $"[TypeScriptName(\"{name}\")] on {type.FullName} names something the generated file declares or imports already. Give the type another name.");
+            }
+
+            if (owners.TryGetValue(name, out var other))
+            {
+                throw new InvalidOperationException(
+                    $"The TypeScript name '{name}' is given by [TypeScriptName] to both {other.FullName} and {type.FullName}. Give each type a name of its own.");
+            }
+
+            owners[name] = type;
+            given[type] = name;
+        }
+
+        return given;
     }
 
     /// <summary>A name for each of the types, none of them one of <paramref name="reserved"/>.</summary>

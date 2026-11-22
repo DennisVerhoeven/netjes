@@ -1909,11 +1909,34 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `sharedProps` | The type given to `UseSharedProps<T>` |
 | `api` | Request and response schemas of JSON minimal APIs, by method and route: `api['GET /api/projects/{slug}/stats']` |
 | `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
-| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']` |
+| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']`; an action that reads the `IFormCollection` itself is a record of strings, `z.record(z.string(), z.string())` |
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
 
 The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`, `EndpointParams`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0006-types-and-zod-from-csharp-contracts.md)).
+
+#### Naming a type
+
+A type is named by its own name, so a nested record `AuditFilters.Values` is written as `Values`; the declaring type's name and then the namespace's come in only where two types would share a name. To name a type yourself, put `[TypeScriptName("AuditFilterValues")]` on it: its schema and its type are then `AuditFilterValues`, for a class, a record, a struct, an enum or an interface. The attribute is opt-in, so no type is renamed until you ask. The name is an identifier of ASCII letters, digits, `_` and `$`, no reserved word of a JavaScript module and none of the file's own names (`pages`, `Href`, `z`, ...); two types that ask for one name stop the generator, naming both, and a type that would have had the name by its own name takes another. A type of a page package's export that is given the name of one of the app's own types takes another name in the app's file and keeps the given one in the package's ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#typescriptnameattribute), [ADR 0061](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
+
+#### Derived types added at startup
+
+The union of a polymorphic type is read from the System.Text.Json contract of the app's JSON options, resolver modifiers included, not from attributes alone. A package or an app that adds derived types to a base it does not own does it where it configures the options, and the generated file holds them:
+
+```csharp
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver =
+    (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver()).WithAddedModifier(info =>
+    {
+        if (info.Type == typeof(Block))
+        {
+            info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+        }
+    }));
+```
+
+`WithAddedModifier` keeps the resolver the options already have (an app's source-generated context, its own modifiers), so a package can add its types without replacing what the app set; assigning a new `DefaultJsonTypeInfoResolver` would drop them.
+
+`Block` needs `[JsonPolymorphic]` (a discriminator name, or the default `$type`) and the modifier adds its derived types, so `Block` is written as `z.discriminatedUnion("kind", [...])` with every member. The modifier runs before the file is written, so a type added this way is in the union as one with `[JsonDerivedType]` is. For the types of a page package that no loader of the app returns, `AddTypeScriptExport` is the way ([Schemas the app reads too](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#schemas-the-app-reads-too)).
 
 The app writes the file when it starts in development mode (`Netjes:Mode` is `Development`, the default in the Development environment, and in a test host that sets it), when its content changed, so a running `npm run dev` picks up a C# change on its next restart. `npx netjes generate` writes it on demand, also while `npm run dev` runs, and `npx netjes generate --check` exits 1 when it is out of date: run that in CI ([the netjes command](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/cli.md#netjes-generate)). Commit the file and never edit it by hand. `NetjesOptions.TypesFile` moves it; `null` turns generation off.
 
@@ -2363,7 +2386,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries, err
 - The DataAnnotations of its inputs are checked before the delegate runs, as for a server action; a failure renders the page again with the errors ([Validation in page actions](#validation-in-page-actions)). Checks the delegate makes itself, such as one that needs data, return the page's props with the errors and values, as above.
 - A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other, as for a server action.
 - The delegate binds like a minimal API POST handler: route values, `[FromForm]` fields, services. One minimal APIs cannot bind, such as one with two inferred bodies, form fields next to a JSON body, or a `[FromRoute]` naming no route value, stops the app at startup, naming the page file and its URL. So does a form input that form binding could never build ([Validation](#validation)).
-- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`.
+- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`. An action that takes the `IFormCollection` and reads its fields itself is typed there as a record of strings (`z.record(z.string(), z.string())`), the fields by name as the browser posts them; a field posted twice is one entry of it, so read the collection in C# when you need every value.
 - A page with a page action cannot be exported to static files.
 
 ### Validation in page actions
@@ -2876,7 +2899,15 @@ export const blocks = {
 } as const;
 ```
 
-The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs. `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it, so apps run `netjes generate` after updating the package ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)).
+The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs, also when its name is given by `[TypeScriptName]` (the package's file keeps the given name). `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it, so apps run `netjes generate` after updating the package ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)).
+
+An export that holds what the app registers through the package, such as the typed data of the widgets an app adds, is for that app alone: the package's file ships with the package, so it must not hold it. Pass `appOnly: true`, and the export and the schemas of its types are written in the app's file and left out of the package's:
+
+```csharp
+mount.AddTypeScriptExport("widgets", "new-users", new Dictionary<string, Type> { ["data"] = typeof(NewUsersData) }, appOnly: true);
+```
+
+Every entry of one export has the same `appOnly`; an export that mixes them throws at startup, naming the entry.
 
 ### Checking it
 
@@ -6084,7 +6115,7 @@ A page package has a generated file of its own, which the app it is developed in
 | `Link`, `Form`, `SubmitButton`, `useRouter`, `usePathname`, `useHref` | [`mounted`](#mounted)`<MountHref>(name)` for the package, which put the mount in front of each href. |
 | `Href`, `isHref` | The core [`Href`](#href) type, which is the app's once the app's file has registered it, and a check of the shape alone, by the rules of [`isHrefShape`](#ishrefshape): a URL from the C# side is one of the app's, the mount in it. Pass it to the core `Link`. |
 
-An export the package adds with `AddTypeScriptExport` on its mount, such as `blocks`, is in both files, the package's and the app's ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)). The file declares no `module 'netjes'`, so it and the app's file type-check in one program. Its names `MountHref`, `Link`, `Form`, `SubmitButton`, `useRouter`, `usePathname`, `useHref`, `mounted` and `isHrefShape` are taken in it alone: a C# type named so gets another name in the package's file only.
+An export the package adds with `AddTypeScriptExport` on its mount, such as `blocks`, is in both files, the package's and the app's, unless it is added with `appOnly: true`, which writes it in the app's alone ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagebuilder)). The file declares no `module 'netjes'`, so it and the app's file type-check in one program. Its names `MountHref`, `Link`, `Form`, `SubmitButton`, `useRouter`, `usePathname`, `useHref`, `mounted` and `isHrefShape` are taken in it alone: a C# type named so gets another name in the package's file only.
 
 <!-- Source: https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md -->
 
@@ -6348,6 +6379,7 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     public PagePackageBuilder Override(string pattern);
     public PagePackageBuilder WriteTypes(string path);
     public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots);
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots, bool appOnly);
     public PagePackageBuilder ConfigureNotFound(Action<IEndpointConventionBuilder> configure);
 }
 ```
@@ -6369,7 +6401,9 @@ Conventions on it, such as `RequireAuthorization()`, `ExcludeFromExport()` and `
 `AddTypeScriptExport(group, key, slots)` adds an entry to an export of the package's own, in the app's generated file and in the package's, for schemas that the app's code and the package's both read by key, such as the props of each kind of block a package stores and the app's pages render too: `.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) })` writes `export const blocks = { "hero": { "props": HeroBlock } } as const;` with the zod schema of each slot's type ([Schemas the app reads too](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#schemas-the-app-reads-too)). Entries are in ordinal order of their keys, slots of their names, and both are quoted. The package owns the export. These throw at startup:
 
 - `ArgumentException`: a `group` that is no JavaScript identifier of ASCII letters, digits, `_` and `$`, a reserved word of a JavaScript module (`class`, `default`, `await`, `let`, `eval`, ...), or a name a page package's generated file declares or imports (`pages`, `layouts`, `serverActions`, `Href`, `route`, `Link`, `useRouter`, `MountHref`, `z`, ...); a `key` or slot name `__proto__`, which an object literal takes for its prototype, or one with half a surrogate pair, which a JSON string writes as U+FFFD; a slot without a type, or of a type no value has: an open generic type, a by-ref type, a pointer or `void`;
-- `InvalidOperationException`: a second entry of one key in the export, and an entry in an export that another package added.
+- `InvalidOperationException`: a second entry of one key in the export, an entry in an export that another package added, and an entry of the other kind of `appOnly` than the export's others.
+
+The overload with `appOnly: true` writes the export in the app's generated file alone, with the schemas of its types, and leaves it out of the package's file. Use it for what the app registers through the package, such as the typed data of the widgets an app adds: the package's file is the same wherever an app mounts the package and ships with it, so it cannot hold one app's entries. Every entry of an export has the same `appOnly`. The names the package's file takes (`Link`, `useRouter`, `MountHref`, ...) are free for such an export, which the app's file holds alone; the names of the app's file are not.
 
 A C# type named like the export gets another name in both files, as one named like the file's own exports does. The app's own schemas keep their names: a slot's type named like one of the app's types gets another name in the app's file, and keeps its own in the package's.
 
@@ -6655,6 +6689,18 @@ public static class NetjesContentSecurityPolicy
 ## Options
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/options.md).
+
+### TypeScriptNameAttribute
+
+```csharp
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
+public sealed class TypeScriptNameAttribute(string name) : Attribute
+{
+    public string Name { get; }
+}
+```
+
+Names the TypeScript schema and type that the generated file writes for a C# type, in place of the type's own name: `[TypeScriptName("AuditFilterValues")]` on the record `AuditFilters.Values` writes `export const AuditFilterValues` and `export type AuditFilterValues`, where it would have been `Values`. Only types that carry it are renamed. The name is an identifier of ASCII letters, digits, `_` and `$` that does not start with a digit, is no reserved word of a JavaScript module and is none of the names the generated file declares or imports (`pages`, `Href`, `z`, ...). The generator stops, naming the types, for a name that is none of these, for one name given to two types (a generic type's closed forms all take it, so name a non-generic type), and for a name that a type of the file's own names already has. In the app's file, a type of a page package's export that is given the name of one of the app's own types takes another name there, as the package's types do, and keeps the given name in the package's file. A type of another name that would have had the name by its own takes another ([Naming a type](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#naming-a-type)).
 
 ### TrailingSlash
 
@@ -7976,7 +8022,7 @@ const nameError = state?.ok === false ? state.errors.name?.[0] : undefined;
 
 ## Page packages
 
-A mounted page package's loaders, layout loaders, actions and endpoints are mapped by the package's extension, through its mount, and typed in the package's own generated file, not in the app's. The app's `generated/netjes.ts` routes the package's pages (`route('/help/contact')`) and holds only what the app maps itself; run `npx netjes generate` after updating a package. The app's `MapPageLoader`, `MapPageAction` and `MapLayoutLoader` refuse a package's page or layout, naming the mount. A page the app replaces with `.Override` renders with the package's loader, so it reads its props from the package's file: `definePage(pages['/contact'], ...)` with `pages` from `'@acme/help-center/generated'`. The app's own pages under the prefix, and their loaders, are the app's as before. Schemas both sides read by key, such as an export a package adds with `AddTypeScriptExport`, are in both files.
+A mounted page package's loaders, layout loaders, actions and endpoints are mapped by the package's extension, through its mount, and typed in the package's own generated file, not in the app's. The app's `generated/netjes.ts` routes the package's pages (`route('/help/contact')`) and holds only what the app maps itself; run `npx netjes generate` after updating a package. The app's `MapPageLoader`, `MapPageAction` and `MapLayoutLoader` refuse a package's page or layout, naming the mount. A page the app replaces with `.Override` renders with the package's loader, so it reads its props from the package's file: `definePage(pages['/contact'], ...)` with `pages` from `'@acme/help-center/generated'`. The app's own pages under the prefix, and their loaders, are the app's as before. Schemas both sides read by key, such as an export a package adds with `AddTypeScriptExport`, are in both files; with `appOnly: true` an export is in the app's alone.
 
 ## JSON endpoints and TanStack Query
 
@@ -8314,6 +8360,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0058 – A package makes its own mount in its tests, and renders its pages through it](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md): `PagePackageMount.ForTests` and `PagePackageMounts.ForTests` make a package's mounts in its own tests, with no app; `PagePackageMount.Render(path, props)` renders the package's page by its pattern below the mount, whatever prefix the app chose.
 - [0059 – A not-found's layout loaders run for the user their policies sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md): once the chain of an endpoint that serves no page (an unknown URL's not-found, at the root or below a mount, and a server action's or a minimal API's status pages) is judged, the user that the policies of what the visitor passed authenticate stays on the request, as the middleware leaves it for a page there, so the layout loaders, the segment keys and the antiforgery token see it; a chain whose policies name no scheme keeps the request's user.
 - [0060 – The not-found below a mount takes conventions of its own](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md): `ConfigureNotFound(...)` on a mount gives its unknown URLs an endpoint of their own that carries only the conventions it is given, so `AllowAnonymous()` there answers them with the package's 404 under the app's fallback policy; a mount inside it without its own takes them, and a mount at the root URL, one whose URL has no literal segment or a second one at the same URL cannot have one.
+- [0061 – Typegen names a type by attribute, reads a form as a record and keeps an export in the app's file](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md): `[TypeScriptName("...")]` gives a type's schema its name, only where an app asks; a form read as `IFormCollection` is a record of strings, not a list of pairs; `AddTypeScriptExport(..., appOnly: true)` writes an export in the app's file alone; derived types added through the app's JSON options at startup are documented and pinned.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8333,9 +8380,13 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - A page package's own tests can make the mount an app would give it: `PagePackageMount.ForTests(package, prefix)` takes a prefix as `MapPagePackage` does, `/help`, `/support/(desk)/help` or `/[tenant]/help`, and `PagePackageMounts.ForTests(mounts)` the list a service that takes `PagePackageMounts` reads. A package no longer needs an app, or a fake of its own paths, to test the URLs it builds from its mount ([C# API](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/csharp-api.md#pagepackagemount), [ADR 0058](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md)).
 - `PagePackageMount.Render(path, props)` renders a page of a package from any endpoint by its pattern below the mount, `mount.Render("/sign-in", props)`, where a package had to build the mounted pattern for `Page.Render` itself. The mount puts the prefix the app chose in front, with a prefix's values filled from the request. A package that wrote the prefix of its own pages can use it in place; an app has nothing to do ([Page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#the-c-half)).
 - `ConfigureNotFound(...)` on a page package's mount gives the unknown URLs below it an endpoint of their own with the conventions you put on it, and only those. The fallback that answers unknown URLs carries no authorization metadata, so an app's fallback policy challenged an unknown URL below a mount with the app's scheme, and a package that signs its users in through a scheme of its own sent its own staff to the site's login for a mistyped URL. `.ConfigureNotFound(notFound => notFound.AllowAnonymous())` answers those URLs with the package's not-found and status 404, and the rest of the app keeps its policy. The layout loaders on the way are still authorized one by one. A mount inside it without its own takes its conventions. A mount at the root URL cannot have one, and neither can a second mount at the same URL or a mount whose URL has no literal segment, such as `/[tenant]`: a value matches any segment, so its not-found would also answer the unknown URLs below the app's other mounts. Without the call nothing changes ([Page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#404-and-error-pages-under-a-mount), [ADR 0060](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)).
+- `[TypeScriptName("AuditFilterValues")]` names a type's schema and TypeScript type in the generated file, where a nested record `AuditFilters.Values` was written as `Values`. It is opt-in: no type is renamed until you put the attribute on it, so nothing changes in an app's generated file. Two types that ask for one name, a name the file takes and a name that is no identifier stop the generator, naming the types. A name given to a type of a page package's export that is also the name of one of the app's own types does not stop the app's file: the package's type takes another name there and keeps the given one in the package's file ([Naming a type](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#naming-a-type), [ADR 0061](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
+- `AddTypeScriptExport(group, key, slots, appOnly: true)` on a mount writes the export, and the schemas of its types, in the app's generated file alone and leaves it out of the package's own file, which ships and is the same wherever an app mounts the package. The overload without `appOnly` is unchanged, and every entry of one export has the same `appOnly` ([Schemas the app reads too](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#schemas-the-app-reads-too)).
+- Derived types that a package or an app adds to a polymorphic type through the app's JSON options at startup (a resolver modifier) are documented as written into the union, and a test pins it ([Derived types added at startup](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#derived-types-added-at-startup)). Nothing changes.
 
 ### Changed
 
+- The generated `forms` map types an action that reads the `IFormCollection` itself as `z.record(z.string(), z.string())`, the form's fields by name, where it was a list of key and value pairs that no post has. Run `npx netjes generate`: a page that read `forms['/files']` of such an action as pairs has to read the record; an action that takes a `[FromForm]` type is unchanged ([Actions and forms](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md)).
 - The template's development stack (`docker compose up`) takes Vite's port from `VITE_PORT`, in the shell or a `.env` file, as `APP_PORT` moves the app's: `docker compose up` with `VITE_PORT=5190` publishes `127.0.0.1:5190:5190` and starts Vite on 5190 in the container (`Netjes__ViteDevPort`), because the browser loads the page's modules from that port. It keeps ASP.NET Core's Data Protection keys on a named volume, so rebuilding the image no longer fails the antiforgery tokens of pages that are open, and the development image takes the app's port from the image's `ASPNETCORE_HTTP_PORTS` instead of also setting `ASPNETCORE_URLS` ([Deployment](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#docker), [ADR 0056](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md)). An app made earlier keeps its own files and works as before. To get the changes, take them from the new template into its `docker-compose.override.yml`: `Netjes__ViteDevPort: "${VITE_PORT:-5173}"` under `environment`, the Vite port as `"127.0.0.1:${VITE_PORT:-5173}:${VITE_PORT:-5173}"`, and the volume `dev-dataprotection:/root/.aspnet/DataProtection-Keys` (declared under `volumes:`); and drop `ASPNETCORE_URLS=http://+:8080` from the `dev` stage of its `Dockerfile`.
 
 ### Fixed

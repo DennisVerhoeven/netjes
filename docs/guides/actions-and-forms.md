@@ -267,7 +267,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries, err
 - The DataAnnotations of its inputs are checked before the delegate runs, as for a server action; a failure renders the page again with the errors ([Validation in page actions](#validation-in-page-actions)). Checks the delegate makes itself, such as one that needs data, return the page's props with the errors and values, as above.
 - A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other, as for a server action.
 - The delegate binds like a minimal API POST handler: route values, `[FromForm]` fields, services. One minimal APIs cannot bind, such as one with two inferred bodies, form fields next to a JSON body, or a `[FromRoute]` naming no route value, stops the app at startup, naming the page file and its URL. So does a form input that form binding could never build ([Validation](#validation)).
-- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`.
+- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`. An action that takes the `IFormCollection` and reads its fields itself is typed there as a record of strings (`z.record(z.string(), z.string())`), the fields by name as the browser posts them; a field posted twice is one entry of it, so read the collection in C# when you need every value.
 - A page with a page action cannot be exported to static files.
 
 ### Validation in page actions
