@@ -313,27 +313,24 @@ The schemas are written from the System.Text.Json contract the app serializes wi
 
 #### Naming a type
 
-A type is named by its own name, so a nested record `AuditFilters.Values` is written as `Values`; the declaring type's name and then the namespace's come in only where two types would share a name. To name a type yourself, put `[TypeScriptName("AuditFilterValues")]` on it: its schema and its type are then `AuditFilterValues`, for a class, a record, a struct, an enum or an interface. The attribute is opt-in, so no type is renamed until you ask. The name is an identifier of ASCII letters, digits, `_` and `$`, no reserved word of a JavaScript module and none of the file's own names (`pages`, `Href`, `z`, ...); two types that ask for one name stop the generator, naming both, and a type that would have had the name by its own name takes another ([C# API](../reference/csharp-api.md#typescriptnameattribute), [ADR 0061](../decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
+A type is named by its own name, so a nested record `AuditFilters.Values` is written as `Values`; the declaring type's name and then the namespace's come in only where two types would share a name. To name a type yourself, put `[TypeScriptName("AuditFilterValues")]` on it: its schema and its type are then `AuditFilterValues`, for a class, a record, a struct, an enum or an interface. The attribute is opt-in, so no type is renamed until you ask. The name is an identifier of ASCII letters, digits, `_` and `$`, no reserved word of a JavaScript module and none of the file's own names (`pages`, `Href`, `z`, ...); two types that ask for one name stop the generator, naming both, and a type that would have had the name by its own name takes another. A type of a page package's export that is given the name of one of the app's own types takes another name in the app's file and keeps the given one in the package's ([C# API](../reference/csharp-api.md#typescriptnameattribute), [ADR 0061](../decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
 
 #### Derived types added at startup
 
 The union of a polymorphic type is read from the System.Text.Json contract of the app's JSON options, resolver modifiers included, not from attributes alone. A package or an app that adds derived types to a base it does not own does it where it configures the options, and the generated file holds them:
 
 ```csharp
-builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver = new DefaultJsonTypeInfoResolver
-{
-    Modifiers =
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver =
+    (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver()).WithAddedModifier(info =>
     {
-        info =>
+        if (info.Type == typeof(Block))
         {
-            if (info.Type == typeof(Block))
-            {
-                info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
-            }
-        },
-    },
-});
+            info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+        }
+    }));
 ```
+
+`WithAddedModifier` keeps the resolver the options already have (an app's source-generated context, its own modifiers), so a package can add its types without replacing what the app set; assigning a new `DefaultJsonTypeInfoResolver` would drop them.
 
 `Block` needs `[JsonPolymorphic]` (a discriminator name, or the default `$type`) and the modifier adds its derived types, so `Block` is written as `z.discriminatedUnion("kind", [...])` with every member. The modifier runs before the file is written, so a type added this way is in the union as one with `[JsonDerivedType]` is. For the types of a page package that no loader of the app returns, `AddTypeScriptExport` is the way ([Schemas the app reads too](page-packages.md#schemas-the-app-reads-too)).
 
