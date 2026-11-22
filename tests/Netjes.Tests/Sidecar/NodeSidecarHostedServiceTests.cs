@@ -45,12 +45,21 @@ public sealed class NodeSidecarHostedServiceTests : IDisposable
     public async Task StopAsync_InDevelopment_TellsTheSidecarThatTheAppIsStoppingFirst()
     {
         // dotnet watch starts the app again, with the Vite dev server's port, while this one may still be finishing
-        // its requests: told first, the sidecar lets go of the port at once, and renders until it is stopped.
+        // its requests: told first, the sidecar lets go of the port at once, and renders until it is stopped. First
+        // means before any hosted service stops, the server's included: told only when its own service stops, the
+        // sidecar would hear it after the services the host stops before that one.
         var logs = new ListLoggerProvider();
-        await using var app = await StartAsync("Development", "stdin-sidecar.mjs", logs);
+        var told = new LogSignal("stdin: stopping");
+        var probe = new StopProbe(told.Logged);
+        await using var app = await StartAsync("Development", "stdin-sidecar.mjs", logs, s =>
+        {
+            s.AddSingleton<ILoggerProvider>(told);
+            s.AddSingleton<IHostedService>(probe);
+        });
 
         await app.StopAsync(Ct);
 
+        Assert.True(probe.ToldBeforeItStopped, "The sidecar read `stopping` only after a hosted service had stopped.");
         Assert.Equal(["stdin: stopping", "stdin ended"], StdinLines(logs));
     }
 
@@ -216,12 +225,75 @@ public sealed class NodeSidecarHostedServiceTests : IDisposable
         return new Failing(builder.Build(), logs, () => exitCode);
     }
 
+    /// <summary>A log sink whose <see cref="Logged"/> completes once a message equal to <paramref name="message"/> is logged.</summary>
+    private sealed class LogSignal(string message) : ILoggerProvider
+    {
+        private readonly TaskCompletionSource _logged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Logged => _logged.Task;
+
+        public ILogger CreateLogger(string categoryName) => new Logger(this);
+
+        public void Dispose()
+        {
+        }
+
+        private void Saw(string logged)
+        {
+            if (logged == message)
+            {
+                _logged.TrySetResult();
+            }
+        }
+
+        private sealed class Logger(LogSignal signal) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                signal.Saw(formatter(state, exception));
+        }
+    }
+
+    /// <summary>
+    /// A hosted service registered after Netjes's, so the host stops it before the sidecar's: hosted services stop one
+    /// at a time, in the reverse order of their registration. Its stop waits, ten seconds at most, for
+    /// <paramref name="told"/>.
+    /// </summary>
+    private sealed class StopProbe(Task told) : IHostedService
+    {
+        /// <summary>Whether <c>told</c> completed before this service's stop returned.</summary>
+        public bool ToldBeforeItStopped { get; private set; }
+
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await told.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                ToldBeforeItStopped = true;
+            }
+            catch (TimeoutException)
+            {
+                // Not yet: the sidecar's own stop, which comes after this one, would be the first to tell it.
+            }
+        }
+    }
+
     /// <summary>What the sidecar of <c>stdin-sidecar.mjs</c> said it read on its stdin, as its output was logged.</summary>
     private static List<string> StdinLines(ListLoggerProvider logs) =>
         [.. logs.Entries.Select(e => e.Message).Where(m => m.StartsWith("stdin", StringComparison.Ordinal))];
 
-    /// <summary>A started app in <paramref name="environment"/>, with the sidecar script <paramref name="script"/>.</summary>
-    private async Task<WebApplication> StartAsync(string environment, string script, ListLoggerProvider logs)
+    /// <summary>
+    /// A started app in <paramref name="environment"/>, with the sidecar script <paramref name="script"/>, and what
+    /// <paramref name="services"/> registers after Netjes's own services.
+    /// </summary>
+    private async Task<WebApplication> StartAsync(
+        string environment, string script, ListLoggerProvider logs, Action<IServiceCollection>? services = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment, ContentRootPath = _root });
         builder.WebHost.UseTestServer();
@@ -231,6 +303,7 @@ public sealed class NodeSidecarHostedServiceTests : IDisposable
             o.SidecarScript = Script(script);
             o.TypesFile = null;
         });
+        services?.Invoke(builder.Services);
         var app = builder.Build();
         await app.StartAsync(Ct);
         return app;
