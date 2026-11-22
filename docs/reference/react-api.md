@@ -10,6 +10,7 @@ This is the reference for the npm package `netjes`: every export of every entry 
 | [`netjes/zod`](#netjeszod) | `deferred()`, the zod schema for `Page.Defer` values |
 | [`netjes/testing`](#netjestesting) | `createTestApp()`, the harness for component and page tests, and `renderDocument()` and `inlineScriptHashes()` for a page's whole document |
 | [`netjes/testing/setup`](#netjestestingsetup) | A Vitest setup file that unmounts what each test rendered |
+| [`netjes/testing/vitest`](#netjestestingvitest) | A Vitest setup file for fake timers and the app's query defaults |
 | [`netjes/vitals`](#netjesvitals) | Core Web Vitals: `useReportWebVitals()` and `<WebVitals />` |
 | [`netjes/vite`](#netjesvite) | The `netjes()` Vite plugin |
 | [`netjes/client-entry`, `netjes/server-entry`, `netjes/sidecar`](#internal-entry-points) | Used by the plugin and the .NET app, not by app code |
@@ -629,6 +630,7 @@ type TestAppOptions = {
   publicConfig?: Record<string, unknown>; // what usePublicConfig() returns
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> }; // what usePageActionState() returns, as after a 422; the page is `route`, else the URL's path
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
   defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
   queryClient?: QueryClient;        // use this client, as it is, instead of a new one
@@ -712,7 +714,11 @@ The hash-sources of the inline scripts in `html` that a browser runs and checks 
 
 A Vitest setup file that runs Testing Library's `cleanup()` after each test. The `netjes()` plugin registers it when `@testing-library/react` is installed and the app's Vitest config sets no `setupFiles` of its own; list it in `setupFiles` yourself when it does.
 
-The plugin also adds a setup file of its own to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. It is not an entry point of the package. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](../guides/testing.md#vitest)).
+The plugin also adds [`netjes/testing/vitest`](#netjestestingvitest) to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`.
+
+## `netjes/testing/vitest`
+
+A Vitest setup file for what the test harness needs from the runner. The plugin adds it to the `setupFiles` of every app whose Vitest config uses `netjes()`, unless it passes `test: false`, after the app's own setup files, whatever they are. A page package's own tests, which run without the plugin, list it in `setupFiles` themselves (`setupFiles: ['netjes/testing/vitest']`), so `createTestApp()` and Testing Library work with fake timers there too. It defines a `jest` global through which Testing Library moves Vitest's fake timers on, so `waitFor` and `findBy…` work under `vi.useFakeTimers()`, and so does user-event when its user is created with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. With real timers the global reads `undefined`, though `'jest' in globalThis` stays true ([Fake timers](../guides/testing.md#fake-timers)). It also reads the app's query defaults from `inject('netjes:query')`, which the plugin provides, for `createTestApp()`. Under Vitest 5, an inline project in `test.projects` that shares the Vite server of the config declaring it gets neither setup file; with `sharedViteServer: false` in the root's `test` options it gets them as any config does ([Vitest](../guides/testing.md#vitest)).
 
 ## `netjes/vitals`
 
