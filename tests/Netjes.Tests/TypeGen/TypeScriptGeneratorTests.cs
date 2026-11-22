@@ -66,20 +66,15 @@ public class TypeScriptGeneratorTests
 
     /// <summary>What a package does to the app's JSON options: derived types of a base it does not own.</summary>
     private static void AddBlocks(IServiceCollection services) =>
-        services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver = new DefaultJsonTypeInfoResolver
-        {
-            Modifiers =
+        services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver =
+            (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver()).WithAddedModifier(info =>
             {
-                info =>
+                if (info.Type == typeof(Block))
                 {
-                    if (info.Type == typeof(Block))
-                    {
-                        info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Heading), "heading"));
-                        info.PolymorphismOptions.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
-                    }
-                },
-            },
-        });
+                    info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Heading), "heading"));
+                    info.PolymorphismOptions.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+                }
+            }));
 
     public enum TaskState
     {
