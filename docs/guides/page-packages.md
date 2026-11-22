@@ -156,7 +156,16 @@ A package brings its own `not-found.tsx` and `error.tsx`. An unknown URL below t
 
 The URL is below the mount when its path starts with the prefix's URL, literals in any case: `/HELP/nope` is, and `/helpx/nope` and `/help%2Fnope` are not. With a mount inside another, the deepest one takes the URL. A mount at the root URL leaves unknown URLs to the app's own `not-found.tsx`, and renders its own only in an app that has none.
 
-Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them. A fallback policy that refuses them challenges the unknown URL first, as everywhere.
+Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them. The loaders that do run, run for the user a page there would have: the schemes that the policies on the way name sign the visitor in, and that user stays on the request, as the authorization middleware leaves it for a page. So a package mounted inside a back office's section, behind a policy that names the back office's own scheme, renders its not-found inside that section for the back office's staff, still signed in ([ADR 0059](../decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md)).
+
+A fallback policy that refuses a visitor challenges the unknown URL first, as everywhere: the fallback that answers unknown URLs carries no authorization of its own. A package that signs its users in through a scheme of its own would then send its staff, and everyone else, to the site's login for a mistyped URL. `ConfigureNotFound(...)` on the mount gives the unknown URLs below it an endpoint of their own with the conventions you give it, and only those:
+
+```csharp
+app.MapHelpCenter("/help")
+    .ConfigureNotFound(notFound => notFound.AllowAnonymous());
+```
+
+Under the fallback policy, `/help/nope` is then the package's not-found with status 404, and the rest of the app keeps its policy. The layout loaders on the way are still authorized one by one, so a visitor the package refuses gets the not-found above its protected folders. A mount inside this one that has no `ConfigureNotFound` of its own takes these conventions. Call it before `MapPages()`; a mount at the root URL cannot have one ([C# API](../reference/csharp-api.md#pagepackagebuilder), [ADR 0060](../decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)).
 
 ## The app's root layout
 
