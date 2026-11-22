@@ -74,7 +74,12 @@ function start(): Promise<typeof sidecar> {
 
 /** The payload .NET sends for a page under the root layout, or under these segments. */
 function render(page: string, segments: Array<{ id: string; layout?: string }> = [{ id: 'app', layout: 'app/layout.tsx' }]) {
-  return fetch(`http://127.0.0.1:${sidecar.port}/render`, {
+  return renderAt(sidecar.port, page, segments);
+}
+
+/** Like `render`, to the sidecar that listens on `port`. */
+function renderAt(port: number, page: string, segments: Array<{ id: string; layout?: string }> = [{ id: 'app', layout: 'app/layout.tsx' }]) {
+  return fetch(`http://127.0.0.1:${port}/render`, {
     method: 'POST',
     headers: { 'X-Netjes-Token': TOKEN, 'Content-Type': 'application/json' },
     body: JSON.stringify({
