@@ -115,6 +115,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0059 – A not-found's layout loaders run for the user their policies sign in](decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md)
 - [0060 – The not-found below a mount takes conventions of its own](decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)
 - [0061 – Typegen names a type by attribute, reads a form as a record and keeps an export in the app's file](decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)
+- [0062 – `endpointUrl()` has a key for a POST endpoint that reads a form](decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md)
 
 ## The project
 

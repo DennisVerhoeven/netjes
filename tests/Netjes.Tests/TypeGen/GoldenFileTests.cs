@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Netjes.Tests.Endpoints;
@@ -149,6 +150,7 @@ public class GoldenFileTests
                 a.MapGet("/list/{page=1}", (int page) => Results.Text($"{page}"));
                 a.MapGet("/openapi/{documentName}.json", (string documentName) => Results.Text(documentName));
                 a.MapGet("/feed.xml", http => http.Response.WriteAsync("<rss/>"));
+                a.MapPost("/users/{id}/export", (string id, [FromForm] string? intent) => Results.File([1], "application/json", "export.json"));
             });
         var endpoints = app.App.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
 
