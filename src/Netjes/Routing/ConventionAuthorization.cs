@@ -63,27 +63,7 @@ internal static class ConventionAuthorization
             return true;
         }
 
-        var data = items.OfType<IAuthorizeData>().ToList();
-        var policies = items.OfType<AuthorizationPolicy>().ToList();
-        var requirements = items.OfType<IAuthorizationRequirementData>().SelectMany(r => r.GetRequirements()).ToList();
-        // Without authorization services nothing is authorized, and only an endpoint that asks for none can be served.
-        var provider = data.Count == 0 && policies.Count == 0 && requirements.Count == 0
-            ? http.RequestServices.GetService<IAuthorizationPolicyProvider>()
-            : http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-        if (provider is null)
-        {
-            return true;
-        }
-
-        var policy = await AuthorizationPolicy.CombineAsync(provider, data, policies);
-        if (requirements.Count > 0)
-        {
-            // As the middleware does: the stated requirements join the policy, or stand alone.
-            var stated = new AuthorizationPolicyBuilder().AddRequirements([.. requirements]).Build();
-            policy = policy is null ? stated : AuthorizationPolicy.Combine(policy, stated);
-        }
-
-        if (policy is null)
+        if (await PolicyOfAsync(http, items) is not { } policy)
         {
             return true;
         }
@@ -111,6 +91,61 @@ internal static class ConventionAuthorization
         {
             http.User = requestUser;
         }
+    }
+
+    /// <summary>
+    /// Puts on the request the user the authorization middleware puts there for an endpoint carrying
+    /// <paramref name="metadata"/>, before it decides: the app's <see cref="IPolicyEvaluator"/> authenticates the schemes
+    /// the endpoint's policy names and merges the users they give, and that user stays on the request for the rest of it,
+    /// as after the middleware. An <see cref="IAllowAnonymous"/> does not keep the middleware from it. A policy that names
+    /// no scheme, or no policy, leaves the request's user as it is.
+    /// </summary>
+    public static async Task AuthenticateAsync(HttpContext http, IEnumerable<object> metadata)
+    {
+        if (await PolicyOfAsync(http, metadata as IReadOnlyCollection<object> ?? [.. metadata]) is not { } policy)
+        {
+            return;
+        }
+
+        var evaluator = http.RequestServices.GetService<IPolicyEvaluator>()
+            ?? new PolicyEvaluator(http.RequestServices.GetRequiredService<IAuthorizationService>());
+        var authenticated = await evaluator.AuthenticateAsync(policy, http);
+        if (authenticated.Succeeded && http.Features.Get<IAuthenticateResultFeature>() is { } result)
+        {
+            // As the middleware records it, for what reads the request's authentication after it.
+            result.AuthenticateResult = authenticated;
+        }
+    }
+
+    /// <summary>
+    /// The policy the authorization middleware builds for an endpoint carrying <paramref name="items"/>: its
+    /// <see cref="IAuthorizeData"/> and <see cref="AuthorizationPolicy"/>, else the fallback policy, joined by the
+    /// requirements its metadata states (<see cref="IAuthorizationRequirementData"/>); null when it asks for none and the
+    /// app has no fallback policy.
+    /// </summary>
+    private static async Task<AuthorizationPolicy?> PolicyOfAsync(HttpContext http, IReadOnlyCollection<object> items)
+    {
+        var data = items.OfType<IAuthorizeData>().ToList();
+        var policies = items.OfType<AuthorizationPolicy>().ToList();
+        var requirements = items.OfType<IAuthorizationRequirementData>().SelectMany(r => r.GetRequirements()).ToList();
+        // Without authorization services nothing is authorized, and only an endpoint that asks for none can be served.
+        var provider = data.Count == 0 && policies.Count == 0 && requirements.Count == 0
+            ? http.RequestServices.GetService<IAuthorizationPolicyProvider>()
+            : http.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
+        if (provider is null)
+        {
+            return null;
+        }
+
+        var policy = await AuthorizationPolicy.CombineAsync(provider, data, policies);
+        if (requirements.Count > 0)
+        {
+            // As the middleware does: the stated requirements join the policy, or stand alone.
+            var stated = new AuthorizationPolicyBuilder().AddRequirements([.. requirements]).Build();
+            policy = policy is null ? stated : AuthorizationPolicy.Combine(policy, stated);
+        }
+
+        return policy;
     }
 
     /// <summary>
