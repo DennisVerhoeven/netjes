@@ -14,7 +14,7 @@ A page package that protects itself with a scheme of its own opens its sign-in p
 - The endpoint's route is the mount's URL with a catch-all, `/help/{**not-found:nonfile}`, in the fallback's last order. ASP.NET Core's route precedence ranks its literal and value segments ahead of the fallback's catch-all, and a mount inside another ahead of the outer one. The parameter's name cannot be a prefix value's, which is an identifier.
 - It renders as the fallback does: on the mount's chain, each layout loader authorized before any runs (ADRs 0049, 0053 and 0054), for the user [ADR 0059](0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md) describes. The mount's own conventions and `MapPages()`'s do not reach it, as they do not reach the fallback.
 - A mount inside one whose not-found has conventions takes those when it has none of its own: its URLs are below the outer mount.
-- It throws after `MapPages()`, on a mount at the root URL (`/`, `/(site)`), below which every unknown URL of the app is, and on a second mount at the same URL whose not-found has conventions: two endpoints of one route would fail every such request as ambiguous.
+- It throws after `MapPages()`; on a mount at the root URL (`/`, `/(site)`), below which every unknown URL of the app is; on a mount whose URL has no literal segment (`/[tenant]`, `/(site)/[tenant]`), since a value matches any segment, so `/{tenant}/{**not-found:nonfile}` would take the unknown URLs below the app's other mounts and folders too, such as `/staff/nope` below a mount at `/staff` that gave its not-found no conventions, and give them the conventions the app meant for one package; and on a second mount at the same URL whose not-found has conventions, since two endpoints of one route would fail every such request as ambiguous. A literal segment keeps the endpoint to the URLs of the mount's shape, the ones its pages route.
 - Without the call nothing changes: the app keeps one fallback endpoint.
 
 ## Alternatives considered
@@ -27,4 +27,4 @@ A page package that protects itself with a scheme of its own opens its sign-in p
 
 - `PagePackageBuilder` has one more public member, and the public API listing grows by it.
 - Below a mount with one, the not-found is a second endpoint named "Page not found", with its own route template in telemetry and diagnostics.
-- A mount at the root URL cannot have one; its unknown URLs stay with the fallback.
+- A mount at the root URL, or at a URL of values alone, cannot have one; its unknown URLs stay with the fallback.

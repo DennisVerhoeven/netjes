@@ -165,7 +165,7 @@ app.MapHelpCenter("/help")
     .ConfigureNotFound(notFound => notFound.AllowAnonymous());
 ```
 
-Under the fallback policy, `/help/nope` is then the package's not-found with status 404, and the rest of the app keeps its policy. The layout loaders on the way are still authorized one by one, so a visitor the package refuses gets the not-found above its protected folders. A mount inside this one that has no `ConfigureNotFound` of its own takes these conventions. Call it before `MapPages()`; a mount at the root URL cannot have one ([C# API](../reference/csharp-api.md#pagepackagebuilder), [ADR 0060](../decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)).
+Under the fallback policy, `/help/nope` is then the package's not-found with status 404, and the rest of the app keeps its policy. The layout loaders on the way are still authorized one by one, so a visitor the package refuses gets the not-found above its protected folders. A mount inside this one that has no `ConfigureNotFound` of its own takes these conventions. Call it before `MapPages()`. A mount at the root URL cannot have one, and neither can a mount whose URL is values alone, such as `/[tenant]`: a value matches any segment, so its not-found would answer the unknown URLs below the app's other mounts too ([C# API](../reference/csharp-api.md#pagepackagebuilder), [ADR 0060](../decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)).
 
 ## The app's root layout
 
