@@ -304,7 +304,7 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `layouts` | Each layout loader's props by folder: `layouts['app/docs']` |
 | `sharedProps` | The type given to `UseSharedProps<T>` |
 | `api` | Request and response schemas of JSON minimal APIs, by method and route: `api['GET /api/projects/{slug}/stats']` |
-| `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
+| `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, and of each `POST` endpoint that reads a form, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
 | `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']`; an action that reads the `IFormCollection` itself is a record of strings, `z.record(z.string(), z.string())` |
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
@@ -432,7 +432,7 @@ A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slu
 
 ## Endpoint URLs
 
-`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. A value that would make a `.`, `..` or empty segment throws, since the browser and `fetch` would resolve the URL to another endpoint, or under `/{**path}` to another site. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`. A `POST` endpoint that is not JSON, such as a webhook, has none.
+`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. A value that would make a `.`, `..` or empty segment throws, since the browser and `fetch` would resolve the URL to another endpoint, or under `/{**path}` to another site. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`, and one for `POST`, if it accepts a posted form: it binds a `[FromForm]` parameter, an `IFormFile`, an `IFormFileCollection` or an `IFormCollection`. A `POST` endpoint that reads no form, such as a webhook, has none, and nor has another method of a form endpoint, since a form posts with `get` or `post` ([a form that downloads](actions-and-forms.md#a-form-that-downloads)).
 
 ```tsx
 import { useHref } from 'netjes';

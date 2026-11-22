@@ -420,3 +420,27 @@ app.MapPageAction("/photos", async (IFormFile photo, PhotoStore photos, Cancella
 A server action called with `FormData` that holds a file sends it as multipart as well, so `useAction` uploads with JavaScript. Without JavaScript the browser sends files only from a form with `encType="multipart/form-data"`, and React warns about an `encType` on a form whose action is a function, which is why the page action is the way for uploads that must work either way.
 
 A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).
+
+### A form that downloads
+
+A page action answers with a page or a redirect, so a form that downloads, such as a person's data as a file, posts to a minimal API endpoint of its own. The endpoint binds a form field, so that ASP.NET Core checks the antiforgery token, and answers the file:
+
+```csharp
+app.MapPost("/users/{id}/export", (string id, [FromForm] string? intent) =>
+    Results.File(ExportOf(id), "application/json", $"user-{id}.json"))
+    .RequireAuthorization();
+```
+
+A minimal API refuses a form post with no body, so the form always posts a field, here `intent`. After `netjes generate`, the endpoint has a key in `endpointUrl()`, by method and route as written, and the form posts to its typed URL:
+
+```tsx
+import { Form } from 'netjes';
+import { endpointUrl } from '../generated/netjes.ts';
+
+<Form method="post" action={endpointUrl('POST /users/{id}/export', { id })}>
+  <input type="hidden" name="intent" value="export" />
+  <button type="submit">Download</button>
+</Form>
+```
+
+`<Form>` puts the base path in front and adds the token, and the browser saves the attachment. A page package's own `Form`, from its generated file, also puts the mount in front. Only a `POST` endpoint that accepts a form has a key: one that reads no form, such as a webhook, has none ([Endpoint URLs](data-loading.md#endpoint-urls)).
