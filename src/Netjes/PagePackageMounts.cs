@@ -8,12 +8,39 @@ namespace Netjes;
 /// </summary>
 public sealed class PagePackageMounts
 {
-    private readonly RouteSources _sources;
+    private readonly Func<IReadOnlyList<PagePackageMount>> _mounts;
 
-    internal PagePackageMounts(RouteSources sources) => _sources = sources;
+    internal PagePackageMounts(RouteSources sources) => _mounts = () => [.. sources.Mounts.Select(m => m.Mount)];
+
+    private PagePackageMounts(IReadOnlyList<PagePackageMount> mounts) => _mounts = () => mounts;
 
     /// <summary>Every mount, in the order the app mounted them.</summary>
-    public IReadOnlyList<PagePackageMount> All => [.. _sources.Mounts.Select(m => m.Mount)];
+    public IReadOnlyList<PagePackageMount> All => _mounts();
+
+    /// <summary>
+    /// The mounts a package's own tests give its services in place of an app's: the same lookup, from the mounts made with
+    /// <see cref="PagePackageMount.ForTests"/>, in the order given. No app starts, and nothing is routed.
+    /// </summary>
+    /// <exception cref="ArgumentException">One package is in the list twice: an app mounts a package once.</exception>
+    public static PagePackageMounts ForTests(params PagePackageMount[] mounts)
+    {
+        ArgumentNullException.ThrowIfNull(mounts);
+        var copy = new List<PagePackageMount>(mounts.Length);
+        foreach (var mount in mounts)
+        {
+            ArgumentNullException.ThrowIfNull(mount);
+            if (copy.Find(m => m.Package.Name == mount.Package.Name) is { } existing)
+            {
+                throw new ArgumentException(
+                    $"'{mount.Package.Name}' is in the list twice, at {existing.Pattern} and at {mount.Pattern}. A page package is mounted once.",
+                    nameof(mounts));
+            }
+
+            copy.Add(mount);
+        }
+
+        return new PagePackageMounts(copy);
+    }
 
     /// <summary>The mount of the package named <paramref name="name"/>, its npm name.</summary>
     /// <exception cref="InvalidOperationException">The app did not mount that package.</exception>
