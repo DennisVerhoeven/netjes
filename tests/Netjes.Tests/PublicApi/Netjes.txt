@@ -196,9 +196,12 @@ public sealed class Netjes.PagePackageMount
   public string Folder { get; }
   public Netjes.PagePackage Package { get; }
   public string Pattern { get; }
+  public static Netjes.PagePackageMount ForTests(Netjes.PagePackage package, string prefix)
+  public Netjes.PageResult Render(string path, object? props = null)
   public Netjes.Href Url(string path, Microsoft.AspNetCore.Routing.RouteValueDictionary? values = null)
 public sealed class Netjes.PagePackageMounts
   public System.Collections.Generic.IReadOnlyList<Netjes.PagePackageMount> All { get; }
+  public static Netjes.PagePackageMounts ForTests(params Netjes.PagePackageMount[] mounts)
   public Netjes.PagePackageMount Get(string name)
 public sealed class Netjes.PageResult : Microsoft.AspNetCore.Http.IResult
   public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)

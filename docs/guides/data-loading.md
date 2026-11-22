@@ -77,7 +77,7 @@ A page without a loader renders with no props, and its schema is `z.object({})`.
 | `Page.Unauthorized()` | Render the nearest `unauthorized.tsx` (else the error page) with status 401. |
 | `Page.Redirect(url, permanent: false)` | Redirect: 307, or 308 when permanent, for a GET; 303 after a form post. The client router follows it without a full page load. |
 | `Page.LocalRedirect(url, permanent: false)` | Like `Redirect`, but throws unless the URL is a path on this site. Use it for a `returnUrl` from the request. |
-| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. |
+| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. A page package renders its own page by a pattern below its mount with `mount.Render(path, props)` ([page packages](page-packages.md#the-c-half)). |
 
 On a `PageResult`:
 

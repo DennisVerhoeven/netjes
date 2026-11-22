@@ -318,12 +318,18 @@ public sealed class PagePackageMount
     public string Folder { get; }
     public string Pattern { get; }
     public Href Url(string path, RouteValueDictionary? values = null);
+    public PageResult Render(string path, object? props = null);
+    public static PagePackageMount ForTests(PagePackage package, string prefix);
 }
 ```
 
 Where a package is mounted. `Folder` is the prefix's folders, relative to the app directory (`support/(desk)/help`); `Pattern` is its URL pattern without groups (`/support/help`, `/[tenant]/help`).
 
 `Url(path, values)` is the app's URL of `path`, a URL below the mount, for a package's services that write links in C#, such as an email or a cookie's path. `/articles` is `/help/articles` for a package mounted at `/help`, `/` is the mount itself (`/help`), and a query or fragment stays where it is (`/?page=2` is `/help?page=2`). Like every [`Href`](#href), it has no base path. `values` holds the values of the prefix's parameters, such as the request's route values (`http.Request.RouteValues`); others are ignored. Each value is encoded as one segment, so a `/`, `?`, `#` or `%` in it stays in its segment: `acme/x` gives `/acme%2Fx/help/articles` under `/[tenant]/help`. A `path` that does not start with one `/` (another host as in `//host` or `/\host`, a scheme, a relative URL, a query or fragment on its own, or one with a control character or a space at either end), or that has a `.` or `..` segment, also written `%2e` or after a `\`, which would climb out of the mount once a browser resolves it, throws `ArgumentException`, and so does a missing value of the prefix, an empty one, `.` and `..`, which a browser would resolve away.
+
+`Render(path, props)` renders the package's page at `path`, a pattern below the mount in file syntax, from any endpoint, as [`Page.Render`](#page) does for the app's own: `mount.Render("/sign-in", props)` renders the page at `/help/sign-in` for a package mounted at `/help`, and `/` is the mount's own page. The package writes only the pattern below its mount; the mount adds the prefix the app chose, with the values of a prefix such as `/[tenant]/help` filled from the request, so a package's rate limiter or error handler can render one of its own forms again without knowing where it is mounted. Like `Page.Render`, the layout loaders of the page run under the authorization of the endpoint that returns it. A `path` that does not start with one `/`, or has a query or a fragment, throws `ArgumentException`.
+
+`ForTests(package, prefix)` makes a mount without an app, for a package's own tests: its services that build URLs from the mount, or render a page of the package, run against a mount made at any prefix, `/help`, `/support/(desk)/help` or `/[tenant]/help`, with no routing and no host. It takes the prefix as `MapPagePackage` does and throws `ArgumentException` for one that call would refuse. It is for tests: an app's mounts come from `MapPagePackage`.
 
 Each page payload carries, in `mounts`, every mounted package's URL for the request, by npm name: `/help`, `/acme/help`, or `null` when the request has no value for one of the prefix's parameters, or one that is empty, `.` or `..`. The package's links in the browser go below it ([`mounted`](react-api.md#mounted)). An app that mounts nothing sends no `mounts`.
 
@@ -334,10 +340,11 @@ public sealed class PagePackageMounts
 {
     public IReadOnlyList<PagePackageMount> All { get; }
     public PagePackageMount Get(string name);
+    public static PagePackageMounts ForTests(params PagePackageMount[] mounts);
 }
 ```
 
-A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted.
+A singleton, for a package's own services, such as the URLs in its emails or the path of its cookie: every mount, in the order the app mounted them. `Get` throws `InvalidOperationException` for a package that is not mounted. `ForTests(mounts)` is the same lookup over the mounts made with [`PagePackageMount.ForTests`](#pagepackagemount), in the order given, for the tests of a package's services that take `PagePackageMounts`; it throws `ArgumentException` for one package twice, as `MapPagePackage` does.
 
 ## Metadata, sitemap and robots
 
