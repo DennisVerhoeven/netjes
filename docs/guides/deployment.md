@@ -55,14 +55,14 @@ docker compose up                                                     # developm
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image, on port 8080
 ```
 
-Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way, and Vite's port, 5173, does not move.
+Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way. Development also publishes Vite's port, 5173, which `VITE_PORT` moves, the same way: `VITE_PORT=5190 docker compose up` serves the app's modules from http://localhost:5190. Vite listens on that port inside the container too, because the browser loads the page's modules from it (Compose sets `Netjes__ViteDevPort` to the same number), so set `VITE_PORT` instead of mapping the port by hand. Two apps in development at once need a different `APP_PORT` and `VITE_PORT` each.
 
 The `Dockerfile` has these stages:
 
 | Stage | What it does |
 |---|---|
 | `deps` | `npm ci`, cached until `package.json` or the lockfile changes. |
-| `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. |
+| `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. The app listens on the image's `ASPNETCORE_HTTP_PORTS`, 8080. |
 | `client` | `npm run build`: `dist/client` and `dist/server`. |
 | `build` | `dotnet publish` with `-p:NetjesSkipClientBuild=true`, taking `dist/` from `client`. |
 | `tini` | Ubuntu's `tini` package, installed in the SDK image, for the static binary that `production` copies. |
@@ -71,7 +71,7 @@ The `Dockerfile` has these stages:
 The Compose files:
 
 - `docker-compose.yml` defines the `app` service from the `production` stage, with `pull_policy: build`, so `up -d` always builds and never reuses a stale or development image.
-- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes the app's port (8080, or `APP_PORT`) and Vite's 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
+- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, publishes the app's port (8080, or `APP_PORT`) and Vite's (5173, or `VITE_PORT`) on `127.0.0.1` only, since development error pages show stack traces and Vite serves the source, and keeps ASP.NET Core's Data Protection keys for the container's root user on a named volume, so rebuilding the image does not fail the antiforgery tokens of pages that are open. `docker compose down -v` removes the volume.
 - `docker-compose.prod.yml` publishes the app on port 8080, or `APP_PORT`, and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
 
 ASP.NET Core logs a warning at startup that those keys are not encrypted at rest. Encrypt them with one of the `ProtectKeysWith...` methods (a certificate, Azure Key Vault) if that matters where you run.

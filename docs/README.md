@@ -109,6 +109,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0053 – An unknown URL stays a 404 and runs only the layout loaders the visitor may see](decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)
 - [0054 – Layout loaders around 404 and error pages are judged as the middleware judges their pages](decisions/0054-layout-loaders-around-404-and-error-pages-are-judged-as-the-middleware-judges-their-pages.md)
 - [0055 – A development app lets go of the Vite port as soon as it begins to stop](decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md)
+- [0056 – The template's development stack publishes Vite on the same port inside and out](decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md)
 
 ## The project
 
