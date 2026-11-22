@@ -12,7 +12,7 @@ A page action answers a post with a page or a redirect. A page whose form downlo
 - The values are the endpoint's route values and the query values its handler binds, as for any key. The form's fields are not in the URL, so they are not part of the type.
 - Only `POST`. `<Form>` posts with `get` or `post`, and a browser form does no more, so the other methods of such an endpoint get no key.
 - Nothing else changes: an endpoint that reads no form (a webhook, a `POST` that takes a header or nothing) has no key, and a JSON endpoint has its keys as before.
-- A form uses the URL as its action: `<Form method="post" action={endpointUrl('POST /users/{id}/export', { id })}>`. `<Form>` puts the base path in front and adds the antiforgery token, and a page package's `Form` puts the mount in front too.
+- A form uses the URL as its action: `<Form method="post" action={endpointUrl('POST /users/{id}/export', { id })}>`. `<Form>` puts the base path in front and adds the antiforgery token. A page package's own `Form` takes only the package's pages, so a package's page uses the core `<Form>` with the package's `useHref`, which puts the mount and the base path in front of the endpoint's URL; the core `<Form>` does not add the base path again.
 
 ## Alternatives considered
 

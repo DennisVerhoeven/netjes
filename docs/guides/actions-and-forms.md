@@ -443,4 +443,4 @@ import { endpointUrl } from '../generated/netjes.ts';
 </Form>
 ```
 
-`<Form>` puts the base path in front and adds the token, and the browser saves the attachment. A page package's own `Form`, from its generated file, also puts the mount in front. Only a `POST` endpoint that accepts a form has a key: one that reads no form, such as a webhook, has none ([Endpoint URLs](data-loading.md#endpoint-urls)).
+`<Form>` puts the base path in front and adds the token, and the browser saves the attachment. A page package's own `Form` takes only its pages' routes, so a page of a package posts to an endpoint with the core `Form` and the package's `useHref`, which puts the mount and the base path in front (`<Form method="post" action={useHref(endpointUrl('POST /users/{id}/export', { id }))}>`, with `Form` from `'netjes'` and `useHref` and `endpointUrl` from the package's generated file); the core `Form` does not add the base path a second time. Only a `POST` endpoint that accepts a form has a key: one that reads no form, such as a webhook, has none ([Endpoint URLs](data-loading.md#endpoint-urls)).
