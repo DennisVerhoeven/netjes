@@ -556,7 +556,7 @@ public class PagePackageTypesTests
     }
 
     [Fact]
-    public async Task ANameGivenToAnExportsType_ThatIsTheNameOfTheAppsOwnType_StopsTheAppsFile()
+    public async Task ANameGivenToAnExportsType_ThatIsTheNameOfTheAppsOwnType_GivesWayInTheAppsFileAndKeepsItInThePackages()
     {
         await using var app = await StartAsync(
             ["app/page.tsx"],
@@ -567,11 +567,14 @@ public class PagePackageTypesTests
                 m.AddTypeScriptExport("blocks", "note", new Dictionary<string, Type> { ["props"] = typeof(NamedLikeAnAppType) });
             });
 
-        var error = Assert.Throws<InvalidOperationException>(() => AppFile(app));
+        var appFile = AppFile(app);
+        var package = PackageFile(app);
 
-        Assert.Equal(
-            $"[TypeScriptName(\"HomeProps\")] on {typeof(NamedLikeAnAppType).FullName} gives the name of {typeof(AppTypes.HomeProps).FullName}, which the app's file has already. Give the type another name.",
-            error.Message);
+        Assert.Contains("export const HomeProps = z.object({\n  greeting: z.string(),\n  visits: z.number().int(),\n});", appFile);
+        Assert.Contains("export const NamedLikeAnAppType = z.object({\n  text: z.string(),\n});", appFile);
+        Assert.Contains("  \"note\": { \"props\": NamedLikeAnAppType },\n", appFile);
+        Assert.Contains("export const HomeProps = z.object({\n  text: z.string(),\n});", package);
+        Assert.Contains("  \"note\": { \"props\": HomeProps },\n", package);
     }
 
     [Fact]

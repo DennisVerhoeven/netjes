@@ -546,23 +546,17 @@ internal sealed class ZodSchemas
             names[type] = name;
         }
 
-        // The types that yield take none of the names of the others, which keep the names they have without them.
-        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key)))
-        {
-            if (names.FirstOrDefault(n => n.Value == name).Key is { } other)
-            {
-                throw new InvalidOperationException(
-                    $"[TypeScriptName(\"{name}\")] on {type.FullName} gives the name of {other.FullName}, which the app's file has already. Give the type another name.");
-            }
-        }
-
-        var taken = new HashSet<string>(reserved.Concat(names.Values).Concat(given.Values), StringComparer.Ordinal);
-        foreach (var (type, name) in Allocate([.. _named.Where(t => _yielding.Contains(t) && !given.ContainsKey(t))], taken))
+        // The types that yield take none of the names of the others, which keep the names they have without them: a name
+        // given to a yielding type gives way to one of the others' names as a name of its own type would, and is kept
+        // where nothing else has it.
+        var displaced = given.Where(g => _yielding.Contains(g.Key) && names.Values.Contains(g.Value, StringComparer.Ordinal)).Select(g => g.Key).ToHashSet();
+        var taken = new HashSet<string>(reserved.Concat(names.Values).Concat(given.Where(g => !displaced.Contains(g.Key)).Select(g => g.Value)), StringComparer.Ordinal);
+        foreach (var (type, name) in Allocate([.. _named.Where(t => _yielding.Contains(t) && (!given.ContainsKey(t) || displaced.Contains(t)))], taken))
         {
             names[type] = name;
         }
 
-        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key)))
+        foreach (var (type, name) in given.Where(g => _yielding.Contains(g.Key) && !displaced.Contains(g.Key)))
         {
             names[type] = name;
         }
