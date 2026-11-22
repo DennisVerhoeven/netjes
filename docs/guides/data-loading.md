@@ -305,11 +305,37 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `sharedProps` | The type given to `UseSharedProps<T>` |
 | `api` | Request and response schemas of JSON minimal APIs, by method and route: `api['GET /api/projects/{slug}/stats']` |
 | `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
-| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']` |
+| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']`; an action that reads the `IFormCollection` itself is a record of strings, `z.record(z.string(), z.string())` |
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
 
 The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`, `EndpointParams`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](../decisions/0006-types-and-zod-from-csharp-contracts.md)).
+
+#### Naming a type
+
+A type is named by its own name, so a nested record `AuditFilters.Values` is written as `Values`; the declaring type's name and then the namespace's come in only where two types would share a name. To name a type yourself, put `[TypeScriptName("AuditFilterValues")]` on it: its schema and its type are then `AuditFilterValues`, for a class, a record, a struct, an enum or an interface. The attribute is opt-in, so no type is renamed until you ask. The name is an identifier of ASCII letters, digits, `_` and `$`, no reserved word of a JavaScript module and none of the file's own names (`pages`, `Href`, `z`, ...); two types that ask for one name stop the generator, naming both, and a type that would have had the name by its own name takes another ([C# API](../reference/csharp-api.md#typescriptnameattribute), [ADR 0061](../decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
+
+#### Derived types added at startup
+
+The union of a polymorphic type is read from the System.Text.Json contract of the app's JSON options, resolver modifiers included, not from attributes alone. A package or an app that adds derived types to a base it does not own does it where it configures the options, and the generated file holds them:
+
+```csharp
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver = new DefaultJsonTypeInfoResolver
+{
+    Modifiers =
+    {
+        info =>
+        {
+            if (info.Type == typeof(Block))
+            {
+                info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+            }
+        },
+    },
+});
+```
+
+`Block` needs `[JsonPolymorphic]` (a discriminator name, or the default `$type`) and the modifier adds its derived types, so `Block` is written as `z.discriminatedUnion("kind", [...])` with every member. The modifier runs before the file is written, so a type added this way is in the union as one with `[JsonDerivedType]` is. For the types of a page package that no loader of the app returns, `AddTypeScriptExport` is the way ([Schemas the app reads too](page-packages.md#schemas-the-app-reads-too)).
 
 The app writes the file when it starts in development mode (`Netjes:Mode` is `Development`, the default in the Development environment, and in a test host that sets it), when its content changed, so a running `npm run dev` picks up a C# change on its next restart. `npx netjes generate` writes it on demand, also while `npm run dev` runs, and `npx netjes generate --check` exits 1 when it is out of date: run that in CI ([the netjes command](../reference/cli.md#netjes-generate)). Commit the file and never edit it by hand. `NetjesOptions.TypesFile` moves it; `null` turns generation off.
 

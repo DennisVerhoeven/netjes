@@ -357,6 +357,14 @@ export const blocks = {
 
 The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs. `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it, so apps run `netjes generate` after updating the package ([C# API](../reference/csharp-api.md#pagepackagebuilder)).
 
+An export that holds what the app registers through the package, such as the typed data of the widgets an app adds, is for that app alone: the package's file ships with the package, so it must not hold it. Pass `appOnly: true`, and the export and the schemas of its types are written in the app's file and left out of the package's:
+
+```csharp
+mount.AddTypeScriptExport("widgets", "new-users", new Dictionary<string, Type> { ["data"] = typeof(NewUsersData) }, appOnly: true);
+```
+
+Every entry of one export has the same `appOnly`; an export that mixes them throws at startup, naming the entry.
+
 ### Checking it
 
 - **Types.** The app's `npm run typecheck` does not see a package's pages, which only the page module map imports. Type-check them in the package, under the strictest flags an app may set: `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature`, with the package's `app`, `src` and `generated` folders included, as the help center's `tsconfig.json` does.

@@ -258,6 +258,7 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     public PagePackageBuilder Override(string pattern);
     public PagePackageBuilder WriteTypes(string path);
     public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots);
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots, bool appOnly);
     public PagePackageBuilder ConfigureNotFound(Action<IEndpointConventionBuilder> configure);
 }
 ```
@@ -279,7 +280,9 @@ Conventions on it, such as `RequireAuthorization()`, `ExcludeFromExport()` and `
 `AddTypeScriptExport(group, key, slots)` adds an entry to an export of the package's own, in the app's generated file and in the package's, for schemas that the app's code and the package's both read by key, such as the props of each kind of block a package stores and the app's pages render too: `.AddTypeScriptExport("blocks", "hero", new Dictionary<string, Type> { ["props"] = typeof(HeroBlock) })` writes `export const blocks = { "hero": { "props": HeroBlock } } as const;` with the zod schema of each slot's type ([Schemas the app reads too](../guides/page-packages.md#schemas-the-app-reads-too)). Entries are in ordinal order of their keys, slots of their names, and both are quoted. The package owns the export. These throw at startup:
 
 - `ArgumentException`: a `group` that is no JavaScript identifier of ASCII letters, digits, `_` and `$`, a reserved word of a JavaScript module (`class`, `default`, `await`, `let`, `eval`, ...), or a name a page package's generated file declares or imports (`pages`, `layouts`, `serverActions`, `Href`, `route`, `Link`, `useRouter`, `MountHref`, `z`, ...); a `key` or slot name `__proto__`, which an object literal takes for its prototype, or one with half a surrogate pair, which a JSON string writes as U+FFFD; a slot without a type, or of a type no value has: an open generic type, a by-ref type, a pointer or `void`;
-- `InvalidOperationException`: a second entry of one key in the export, and an entry in an export that another package added.
+- `InvalidOperationException`: a second entry of one key in the export, an entry in an export that another package added, and an entry of the other kind of `appOnly` than the export's others.
+
+The overload with `appOnly: true` writes the export in the app's generated file alone, with the schemas of its types, and leaves it out of the package's file. Use it for what the app registers through the package, such as the typed data of the widgets an app adds: the package's file is the same wherever an app mounts the package and ships with it, so it cannot hold one app's entries. Every entry of an export has the same `appOnly`. The names the package's file takes (`Link`, `useRouter`, `MountHref`, ...) are free for such an export, which the app's file holds alone; the names of the app's file are not.
 
 A C# type named like the export gets another name in both files, as one named like the file's own exports does. The app's own schemas keep their names: a slot's type named like one of the app's types gets another name in the app's file, and keeps its own in the package's.
 
@@ -565,6 +568,18 @@ public static class NetjesContentSecurityPolicy
 ## Options
 
 `NetjesOptions`, `NetjesMode` (`Development`, `Production`), `NetjesImageOptions`, `NetjesSecurityHeaderOptions`, `NetjesLocalizationOptions` and `SkiaImageOptions` are described in the [options reference](options.md).
+
+### TypeScriptNameAttribute
+
+```csharp
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
+public sealed class TypeScriptNameAttribute(string name) : Attribute
+{
+    public string Name { get; }
+}
+```
+
+Names the TypeScript schema and type that the generated file writes for a C# type, in place of the type's own name: `[TypeScriptName("AuditFilterValues")]` on the record `AuditFilters.Values` writes `export const AuditFilterValues` and `export type AuditFilterValues`, where it would have been `Values`. Only types that carry it are renamed. The name is an identifier of ASCII letters, digits, `_` and `$` that does not start with a digit, is no reserved word of a JavaScript module and is none of the names the generated file declares or imports (`pages`, `Href`, `z`, ...). The generator stops, naming the types, for a name that is none of these, for one name given to two types (a generic type's closed forms all take it, so name a non-generic type), and, in the app's file, for a type of a page package's export that takes the name of one of the app's own types. A type of another name that would have had the name by its own takes another ([Naming a type](../guides/data-loading.md#naming-a-type)).
 
 ### TrailingSlash
 
