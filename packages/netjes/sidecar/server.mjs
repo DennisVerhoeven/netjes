@@ -17,6 +17,7 @@
 // MODULE_NOT_FOUND from a CommonJS config).
 import http from 'node:http';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -59,6 +60,9 @@ let render;
 let renderToStream;
 /** @type {import('vite').ViteDevServer | undefined} */
 let vite;
+/** The connections to the Vite dev server (a browser's requests, its HMR socket), which releaseVitePort ends. */
+/** @type {Set<import('node:net').Socket>} */
+const viteSockets = new Set();
 
 /**
  * Says why the Vite dev server did not start, for .NET to report in a line of its own (Node's report of an uncaught
@@ -97,6 +101,10 @@ if (mode === 'development') {
     dev = await viteFailed(error);
   }
   vite = dev;
+  dev.httpServer?.on('connection', (/** @type {import('node:net').Socket} */ socket) => {
+    viteSockets.add(socket);
+    socket.once('close', () => viteSockets.delete(socket));
+  });
   /**
    * Starts the dev server listening. Vite adds a listener for the server's 'listening' event each time; a start that
    * fails leaves it behind, and it goes, so that trying the port again and again (below) does not pile them up.
@@ -435,7 +443,22 @@ server.listen(0, '127.0.0.1', () => {
   process.stdout.write(`NETJES_READY ${JSON.stringify({ port, viteOrigin })}\n`);
 });
 
+/**
+ * Stops the Vite dev server listening, so that its port is free for the app that replaces this one, and ends the
+ * connections browsers have to it: their Vite client then waits for a dev server to answer on the port again, and
+ * reloads the page. Renders go on, since they load modules through Vite and not over its port. Once is enough.
+ */
+function releaseVitePort() {
+  const httpServer = vite?.httpServer;
+  if (!httpServer?.listening) return;
+  // The port is free once close returns; the connections are not waited for.
+  httpServer.close();
+  for (const socket of viteSockets) socket.destroy();
+}
+
 async function shutdown() {
+  // The port first: Vite's own close comes to its HTTP server last.
+  releaseVitePort();
   server.close();
   await vite?.close();
   process.exit(0);
@@ -444,8 +467,14 @@ async function shutdown() {
 // A promise rejected by page code without a handler would otherwise kill every render in flight.
 process.on('unhandledRejection', (reason) => console.error('netjes: unhandled promise rejection', reason));
 
-// The parent keeps our stdin open for as long as it lives; EOF means it is gone.
-process.stdin.on('end', shutdown);
+// What the parent says, a line at a time. `stopping`: the app has begun to stop, and may take a while to finish the
+// requests it has (in development; NodeSidecar.cs). The app that replaces it needs the Vite dev server's port now.
+createInterface({ input: process.stdin }).on('line', (line) => {
+  if (line.trim() === 'stopping') releaseVitePort();
+});
+// The parent keeps our stdin open for as long as it lives; EOF means it is gone. Ahead of the handlers Vite adds for
+// the same events, which close the dev server with its port last.
+process.stdin.prependListener('end', shutdown);
 process.stdin.resume();
-process.on('SIGTERM', shutdown);
+process.prependListener('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

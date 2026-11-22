@@ -2,7 +2,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
-import { type AddressInfo, createServer } from 'node:net';
+import { type AddressInfo, connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -64,7 +64,11 @@ async function ownApp(name: string, plugins: string[] = []) {
   return dir;
 }
 
-/** Resolves with the sidecar's port once it is ready; `onLine` sees each line it writes to stdout until then. */
+/** A Vite plugin, as source, that prints the port its dev server listens on: `VITE_PORT <port>`. */
+const VITE_PORT_PLUGIN =
+  "{ name: 'port', configureServer(server) { server.httpServer.once('listening', () => console.log(`VITE_PORT ${server.httpServer.address().port}`)); } }";
+
+/** Resolves with the sidecar's port once it is ready; `onLine` sees each line it writes to stdout, then and later. */
 function untilReady(spawned: ReturnType<typeof spawnSidecar>, onLine: (line: string) => void = () => {}) {
   return new Promise<number>((resolve, reject) => {
     let stdout = '';
@@ -294,6 +298,56 @@ describe('the development sidecar', () => {
       expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
     } finally {
       before.close();
+      await stopSidecar(spawned);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('lets go of the Vite port as soon as its app is stopping, and still renders', async () => {
+    const dir = await ownApp('stopping', [VITE_PORT_PLUGIN]);
+    const spawned = spawnSidecar(0, dir);
+    try {
+      let vitePort = 0;
+      const sidecarPort = await untilReady(spawned, (line) => {
+        if (line.startsWith('VITE_PORT ')) vitePort = Number(line.slice(10));
+      });
+      // A browser's connection to the dev server, such as its HMR socket: it ends, and the browser waits for the
+      // dev server to come back.
+      const browser = connect(vitePort, 'localhost');
+      await once(browser, 'connect');
+      const ended = once(browser, 'close');
+
+      // What .NET writes once the app begins to stop, before the requests in flight are done.
+      spawned.stdin.write('stopping\n');
+      await ended;
+
+      // The app that replaces this one takes the port, while this one renders the requests it still has.
+      const next = createServer();
+      await new Promise<void>((resolve, reject) => next.once('error', reject).listen(vitePort, 'localhost', resolve));
+      await new Promise((resolve) => next.close(resolve));
+      expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
+    } finally {
+      await stopSidecar(spawned);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('lets go of the Vite port first when its stdin closes, before Vite closes anything else', async () => {
+    // Vite closes its watcher first, and its HTTP server last.
+    const watcherClose =
+      "{ name: 'watcher-close', configureServer(server) { const close = server.watcher.close.bind(server.watcher); server.watcher.close = () => { console.log(`WATCHER_CLOSE listening=${server.httpServer.listening}`); return close(); }; } }";
+    const dir = await ownApp('shutdown', [watcherClose]);
+    const spawned = spawnSidecar(0, dir);
+    try {
+      const lines: string[] = [];
+      await untilReady(spawned, (line) => lines.push(line));
+      const closed = once(spawned, 'close');
+
+      spawned.stdin.end();
+      await closed;
+
+      expect(lines.filter((line) => line.startsWith('WATCHER_CLOSE'))).toEqual(['WATCHER_CLOSE listening=false']);
+    } finally {
       await stopSidecar(spawned);
       await rm(dir, { recursive: true, force: true });
     }
