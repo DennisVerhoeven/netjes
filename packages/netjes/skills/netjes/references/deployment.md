@@ -22,7 +22,7 @@ For these startup failures the app logs one critical entry, saying what is wrong
 
 - `docker compose up`: development, with `dotnet watch` and Vite HMR, ports bound to localhost.
 - `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`: the production image, a non-root user on a read-only filesystem, with a health check on `/healthz` and Data Protection keys in a named volume.
-- Both publish the app on host port 8080; `APP_PORT` (in the shell or a `.env` file) moves it. Vite's 5173 stays.
+- Both publish the app on host port 8080; `APP_PORT` (in the shell or a `.env` file) moves it. Development also publishes Vite on 5173, which `VITE_PORT` moves (the same port inside and out, with `Netjes__ViteDevPort` set to it).
 - The production image runs `tini -s -- dotnet MyApp.dll`: tini is PID 1, passes `docker stop`'s SIGTERM on, and exits with the app's code, so a crash ends the container (134) and `restart: always` acts. When .NET itself is a container's PID 1, its abort does not end it. On arm64 it spins at 100% CPU and never exits; after a crash later than startup the rest of the app keeps serving and `/healthz` still passes. On x86-64 under emulation it has been seen to exit after a few seconds, with 139 instead of 134. An image of the app's own, or one from an older template, needs an init too: the template's `tini` stage, its `COPY` and the `ENTRYPOINT`, or the host's (`docker run --init`, Compose `init: true`, ECS `initProcessEnabled`).
 
 The image restores Netjes from NuGet and npm, so the app must reference the packages, as an app made with `npx netjes new` does (from a Netjes checkout, pass `--packages`).
