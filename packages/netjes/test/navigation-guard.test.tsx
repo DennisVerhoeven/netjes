@@ -90,8 +90,6 @@ function Editor() {
 }
 
 function Other() {
-  const router = useRouter();
-  otherRouter = router;
   return (
     <>
       <h1>Other</h1>
@@ -100,9 +98,6 @@ function Other() {
     </>
   );
 }
-
-/** The router as the other page sees it. */
-let otherRouter: Router | undefined;
 
 const modules = {
   '/app/editor/page.tsx': async () => ({ default: Editor }),
