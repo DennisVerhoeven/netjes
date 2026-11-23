@@ -21,7 +21,8 @@ async function onTask(page: Page, task: string) {
   return slug;
 }
 
-const board = (page: Page) => page.getByRole('heading', { level: 1, name: 'Held' });
+// The board's own form: the project's name is a heading on every page of the project, the task's too.
+const board = (page: Page) => page.getByRole('form', { name: 'Filter tasks' });
 const question = (page: Page) => page.getByRole('alertdialog', { name: 'Leave without saving?' });
 
 /** Types into a field after clicking it, so the page has the user's activation, which browsers want before they ask on unload. */
