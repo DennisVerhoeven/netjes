@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Netjes;
 
@@ -34,6 +35,36 @@ public sealed record PageMetadata
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ThemeColor { get; init; }
     /// <summary>Further <c>&lt;meta name content&gt;</c> tags, by name.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyDictionary<string, string>? Other { get; init; }
+
+    private readonly string? _lang;
+
+    /// <summary>
+    /// The <c>lang</c> of the document's <c>&lt;html&gt;</c> element: a BCP 47 language tag, such as <c>nl</c> or
+    /// <c>en-GB</c>. A page loader's wins over its layout loaders', and the innermost layout loader's over those above
+    /// it; a page none of them gives one has <see cref="NetjesOptions.Lang"/>, or the locale with localization. The
+    /// server writes it in the first response, and a client navigation updates the attribute. A value that does not
+    /// have the shape of a language tag throws <see cref="ArgumentException"/>.
+    /// </summary>
+    [JsonIgnore]
+    public string? Lang
+    {
+        get => _lang;
+        init => _lang = value is null || LanguageTag.IsValid(value)
+            ? value
+            : throw new ArgumentException($"'{value}' is not a BCP 47 language tag, such as 'nl' or 'en-GB'.", nameof(Lang));
+    }
+}
+
+/// <summary>The shape of a BCP 47 language tag (RFC 5646), which <see cref="PageMetadata.Lang"/> must have.</summary>
+internal static partial class LanguageTag
+{
+    // A primary subtag of two to eight letters, or x (private use) or i (grandfathered) with at least one subtag after
+    // it, then subtags of one to eight letters and digits, each after one hyphen. ASCII only, so no quote, angle bracket,
+    // space or ampersand can reach an attribute. \z, not $, which also matches before a final newline.
+    [GeneratedRegex(@"^(?:[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*|[xXiI](?:-[A-Za-z0-9]{1,8})+)\z", RegexOptions.CultureInvariant)]
+    private static partial Regex Shape();
+
+    public static bool IsValid(string value) => Shape().IsMatch(value);
 }
 
 /// <summary>Whether search engines may index the page and follow its links.</summary>

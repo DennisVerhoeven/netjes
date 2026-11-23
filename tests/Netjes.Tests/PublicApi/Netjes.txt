@@ -154,6 +154,7 @@ public sealed record Netjes.PageMetadata : IEquatable<Netjes.PageMetadata>
   public Netjes.PageMetadataAlternates? Alternates { get; init; }
   public string? Description { get; init; }
   public System.Collections.Generic.IReadOnlyList<string>? Keywords { get; init; }
+  public string? Lang { get; init; }
   public Netjes.PageMetadataOpenGraph? OpenGraph { get; init; }
   public System.Collections.Generic.IReadOnlyDictionary<string, string>? Other { get; init; }
   public Netjes.PageMetadataRobots? Robots { get; init; }

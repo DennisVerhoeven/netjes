@@ -94,4 +94,64 @@ public class MetadataTests
 
         Assert.Null((await app.GetDataJsonAsync("/"))["metadata"]);
     }
+
+    [Fact]
+    public async Task WithMetadata_ALang_TravelsAsThePagesLang_OutsideTheTags()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props().WithMetadata(new PageMetadata { Title = "Thuis", Lang = "nl" })));
+
+        var payload = await app.GetDataJsonAsync("/");
+
+        Assert.Equal("nl", (string?)payload["lang"]);
+        Assert.Equal("""{"title":"Thuis"}""", payload["metadata"]!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Payload_WithoutALangFromTheLoader_OmitsIt()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props().WithMetadata(new PageMetadata { Title = "Home" })));
+
+        var payload = await app.GetDataJsonAsync("/");
+
+        Assert.False(payload.AsObject().ContainsKey("lang"));
+    }
+
+    [Theory]
+    [InlineData("nl")]
+    [InlineData("en-GB")]
+    [InlineData("zh-Hant-TW")]
+    [InlineData("sr-Latn-RS")]
+    [InlineData("de-CH-1996")]
+    [InlineData("en-US-u-ca-gregory")]
+    [InlineData("x-private")]
+    [InlineData("i-klingon")]
+    [InlineData("NL")]
+    public void Lang_ALanguageTag_IsKept(string tag) => Assert.Equal(tag, new PageMetadata { Lang = tag }.Lang);
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("n")]
+    [InlineData("x")]
+    [InlineData("nl_NL")]
+    [InlineData("-nl")]
+    [InlineData("nl-")]
+    [InlineData("nl--BE")]
+    [InlineData("toolongtag")]
+    [InlineData("nl-toolongsub")]
+    [InlineData("nl\n")]
+    [InlineData("nl\" onmouseover=\"alert(1)")]
+    [InlineData("nl><script>alert(1)</script>")]
+    [InlineData("nl&amp;")]
+    [InlineData("ｎｌ")]
+    public void Lang_ThatIsNoLanguageTag_Throws(string value)
+    {
+        var error = Assert.Throws<ArgumentException>(() => new PageMetadata { Lang = value });
+
+        Assert.Equal("Lang", error.ParamName);
+    }
 }
