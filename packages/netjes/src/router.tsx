@@ -1177,6 +1177,18 @@ export function RouterProvider({
     html.setAttribute(HYDRATED_ATTRIBUTE, '');
     return () => html.removeAttribute(HYDRATED_ATTRIBUTE);
   }, []);
+  // After the effects of the page that Back or Forward put back, which subscribe as it mounts: a parent's effects run
+  // after its children's.
+  useEffect(() => {
+    if (view.restored) for (const listener of [...restoreListeners]) listener();
+  }, [view, restoreListeners]);
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) for (const listener of [...restoreListeners]) listener();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, [restoreListeners]);
   // The key of the page on screen before this commit.
   const committedPageKey = useRef(pageKeyOf(view.loaded));
   // In the commit that shows the page, before the browser paints it, and after the layout effects of the page and its
@@ -1459,4 +1471,19 @@ export function useHistoryState<T>(name: string, initial: T): [T, SetHistoryStat
     [set, key, name, fallback],
   );
   return [value, setValue];
+}
+
+/**
+ * Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router kept
+ * (it asks the server nothing), or the whole document the browser kept in its back-forward cache. What the page shows
+ * is as old as the visit it is from, so the page can refresh itself (`router.refresh()`) or a part of it. A page the
+ * router loads from the server, and Back over a fragment link of the page on screen, do not call it.
+ */
+export function useHistoryRestore(callback: () => void): void {
+  const { onRestore } = useHistory();
+  const latest = useRef(callback);
+  useEffect(() => {
+    latest.current = callback;
+  });
+  useEffect(() => onRestore(() => latest.current()), [onRestore]);
 }

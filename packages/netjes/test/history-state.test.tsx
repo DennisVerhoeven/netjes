@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
-import { type Router, RouterProvider, useHistoryState, useRouter } from '../src/router.tsx';
+import { type Router, RouterProvider, useHistoryRestore, useHistoryState, usePathname, useRouter, useSearchParams } from '../src/router.tsx';
 
 const origin = window.location.origin;
 const server = setupServer();
@@ -71,8 +71,22 @@ function List(props: Record<string, unknown>) {
         Bottom in place
       </Link>
       <Note />
+      <Restores />
     </>
   );
+}
+
+/** Each time a page was shown from memory: the path it was shown at. */
+const restores: string[] = [];
+afterEach(() => {
+  restores.length = 0;
+});
+
+function Restores() {
+  const pathname = usePathname();
+  const search = useSearchParams();
+  useHistoryRestore(() => restores.push(pathname + (search.size > 0 ? `?${search}` : '')));
+  return null;
 }
 
 function Note() {
@@ -86,6 +100,8 @@ function Record() {
       <h1>Record</h1>
       <Ticks />
       <Note />
+      <Restores />
+      <Link href="/list">List</Link>
     </>
   );
 }
@@ -336,6 +352,74 @@ describe('useHistoryState', () => {
     await screen.findByRole('heading', { name: 'List' });
 
     expect(screen.getByRole('button', { name: 'ticks 0' })).toBeDefined();
+  });
+});
+
+describe('useHistoryRestore', () => {
+  it('tells the page it was shown from memory after Back or Forward, once each time', async () => {
+    const requests = pages(['/list', '/record']);
+    const user = await renderApp(payload('list', '/list'));
+    await user.click(screen.getByRole('link', { name: 'Record' }));
+    await screen.findByRole('heading', { name: 'Record' });
+    const asked = requests.length;
+
+    act(() => window.history.back());
+    await screen.findByRole('heading', { name: 'List' });
+    act(() => window.history.forward());
+    await screen.findByRole('heading', { name: 'Record' });
+
+    await waitFor(() => expect(restores).toEqual(['/list', '/record']));
+    expect(requests).toHaveLength(asked);
+  });
+
+  it('says nothing for a page that came from the server: a link, a refresh, Back to an entry the router forgot', async () => {
+    const requests = pages(['/list', '/record']);
+    const user = await renderApp(payload('list', '/list'));
+    await user.click(screen.getByRole('link', { name: 'Record' }));
+    await screen.findByRole('heading', { name: 'Record' });
+    await user.click(screen.getByRole('link', { name: 'List' }));
+    await screen.findByRole('heading', { name: 'List' });
+    await act(() => capturedRouter!.refresh());
+    // An entry from before a reload: Back loads its page from the server.
+    const asked = requests.length;
+    act(() => {
+      window.history.pushState(null, '', `${origin}/record`);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    });
+    await screen.findByRole('heading', { name: 'Record' });
+    expect(requests.slice(asked)).toEqual(['/record']);
+
+    expect(restores).toEqual([]);
+  });
+
+  it('says nothing when Back stays on the page as it is (over a fragment link), and speaks to a page that stays after Back to another query', async () => {
+    pages(['/list']);
+    const user = await renderApp(payload('list', '/list'));
+    await user.click(screen.getByRole('link', { name: 'Bottom' }));
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(restores).toEqual([]);
+
+    await user.click(screen.getByRole('link', { name: 'Second tab' }));
+    await waitFor(() => expect(window.location.search).toBe('?tab=2'));
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.search).toBe(''));
+    await waitFor(() => expect(restores).toEqual(['/list']));
+
+    // The callback of the render that shows the entry.
+    act(() => window.history.forward());
+    await waitFor(() => expect(restores).toEqual(['/list', '/list?tab=2']));
+  });
+
+  it("speaks when the browser shows the whole document again from its back-forward cache", async () => {
+    await renderApp(payload('list', '/list'));
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    });
+
+    expect(restores).toEqual(['/list']);
   });
 });
 

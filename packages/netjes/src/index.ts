@@ -46,6 +46,7 @@ export {
   type SubmitError,
   type Router,
   useBasePath,
+  useHistoryRestore,
   useHistoryState,
   useHref,
   useNavigation,
