@@ -320,12 +320,18 @@ describe('the development sidecar', () => {
       // What .NET writes once the app begins to stop, before the requests in flight are done.
       spawned.stdin.write('stopping\n');
       await ended;
+      // The connection ends a moment before the port is free: http.Server's close() ends the idle connections, then
+      // closes the listener, in one turn of the sidecar's event loop. A render it answers after that comes once it has.
+      expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
 
       // The app that replaces this one takes the port, while this one renders the requests it still has.
       const next = createServer();
       await new Promise<void>((resolve, reject) => next.once('error', reject).listen(vitePort, 'localhost', resolve));
-      await new Promise((resolve) => next.close(resolve));
-      expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
+      try {
+        expect(await (await renderAt(sidecarPort, 'app/page.tsx')).text()).toContain('<h1>Home</h1>');
+      } finally {
+        await new Promise((resolve) => next.close(resolve));
+      }
     } finally {
       await stopSidecar(spawned);
       await rm(dir, { recursive: true, force: true });
