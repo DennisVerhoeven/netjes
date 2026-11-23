@@ -350,6 +350,8 @@ type LoadOptions = {
   onCookiesChanged?: (() => void) | undefined;
   /** A redirect led to the URL: one that no page answers loads as a document. */
   redirected?: boolean | undefined;
+  /** Called with each URL on this origin a redirect leads the load to, before it asks for that URL. */
+  onRedirect?: ((target: URL) => void) | undefined;
 };
 
 async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal, options: FetchOptions = {}): Promise<FetchResult> {
@@ -984,6 +986,17 @@ class Navigator {
     this.deps.setPending({ state: options.pending, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search });
     let committed = false;
     let failure: NavigationError | undefined;
+    // The request a failure belongs to. Once a form post is answered with a redirect, the post went through: from there
+    // on the router is on its way to that URL, and a failure is that navigation's, not the post's, so the form does not
+    // offer to send it again.
+    const at: { url: URL; request: PageRequest } = { url, request };
+    const onRedirect =
+      request.method === 'POST'
+        ? (target: URL) => {
+            at.url = target;
+            at.request = { method: 'GET' };
+          }
+        : undefined;
     try {
       const prefetched = options.usePrefetch ? this.takePrefetched(url, controller.signal) : undefined;
       const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal) : undefined;
@@ -993,6 +1006,7 @@ class Navigator {
           reuseSegments: options.reuseSegments,
           onCookiesChanged: () => this.cookiesChanged(navigation),
           redirected: options.redirected,
+          onRedirect,
         }));
       // Superseded by another navigation, or started over because cookies changed: then it ends with the new attempt.
       if (controller.signal.aborted) return navigation.restarted;
@@ -1016,12 +1030,12 @@ class Navigator {
       if ('failed' in result) {
         // Keep the page, and what the user typed, as it is; useNavigation() tells the page.
         console.error(
-          request.method === 'POST'
+          at.request.method === 'POST'
             ? `netjes: the form submission failed with status ${result.failed}`
-            : `netjes: loading ${url.pathname}${url.search} failed with status ${result.failed}, keeping the page`,
+            : `netjes: loading ${at.url.pathname}${at.url.search} failed with status ${result.failed}, keeping the page`,
         );
-        if (!this.keepPage(url, request, options)) return;
-        failure = this.failure(url, request, options, result.failed);
+        if (!this.keepPage(at.url, at.request, options)) return;
+        failure = this.failure(at.url, at.request, options, result.failed);
         return;
       }
 
@@ -1058,10 +1072,10 @@ class Navigator {
       this.deps.commit(shown, scroll, focusedAtStart, { lineage: this.lineage, values, restored: false });
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
-      if (request.method === 'POST') {
+      if (at.request.method === 'POST') {
         // Never turn a failed submission into a GET: keep the page, and what the user typed, as it is.
         console.error('netjes: the form could not be submitted', error);
-        failure = this.failure(url, request, options, null);
+        failure = this.failure(at.url, at.request, options, null);
         return;
       }
       // No answer while the browser is online: keep the page, unless the URL redirects somewhere fetch cannot follow.
@@ -1070,14 +1084,14 @@ class Navigator {
         const redirects = await answersWithRedirect(error, controller.signal);
         if (controller.signal.aborted) return navigation.restarted;
         if (!redirects) {
-          console.error(`netjes: no answer for ${url.pathname}${url.search}, keeping the page`, error.cause);
-          if (!this.keepPage(url, request, options)) return;
-          failure = this.failure(url, request, options, null);
+          console.error(`netjes: no answer for ${at.url.pathname}${at.url.search}, keeping the page`, error.cause);
+          if (!this.keepPage(at.url, at.request, options)) return;
+          failure = this.failure(at.url, at.request, options, null);
           return;
         }
       }
       console.error('netjes: navigation failed, loading the page from the server instead', error);
-      this.hard(url, options.letThrough);
+      this.hard(at.url, options.letThrough);
     } finally {
       if (this.active === navigation) {
         this.active = null;
@@ -1145,6 +1159,7 @@ class Navigator {
         if (current.method !== 'GET') keys = [];
         current = { method: 'GET' };
         redirected = true;
+        options.onRedirect?.(target);
         continue;
       }
       // A URL no page answers, such as a file: the browser loads it, and its endpoint runs once.

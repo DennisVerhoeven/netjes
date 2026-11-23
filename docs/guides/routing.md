@@ -486,7 +486,7 @@ type NavigationError = {
 };
 ```
 
-- **What failed.** `kind` is `'navigate'` for a link, a GET form, `push`, `replace`, Back and Forward, `'refresh'` for `router.refresh()`, the one a server action asks for included, and `'submit'` for a form post. `status` is the status of the server's answer, or `null` when none came. It holds no exception: the browser console has the details.
+- **What failed.** `kind` is `'navigate'` for a link, a GET form, `push`, `replace`, Back and Forward, `'refresh'` for `router.refresh()`, the one a server action asks for included, and `'submit'` for a form post. A form post the server answered with a redirect went through, so when the page the redirect leads to fails, `kind` is `'navigate'` and `location` is that page's, and the form has nothing to send again. `status` is the status of the server's answer, or `null` when none came. It holds no exception: the browser console has the details.
 - **How long.** The error stays until the next navigation, refresh or form post starts, the one that tries again included. A Back or Forward that shows a page from memory, and a link to a fragment of the page, clear it too.
 - **`refresh()` does not reject.** Its promise resolves once the refresh has ended, failed or not, so code after `await router.refresh()` reads the outcome from `useNavigation()` in its next render, not from a `catch`.
 - **Back and Forward.** The browser has moved to the entry the reader chose before the router knows the page did not come, so the router steps back to the entry of the page on screen, and the address bar shows that page's URL again. A step to or from an entry an app or a library added itself (`history.pushState`), whose place the router does not know, loads the URL as a document instead.

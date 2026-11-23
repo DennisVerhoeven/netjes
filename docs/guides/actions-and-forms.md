@@ -436,6 +436,7 @@ The other props are those of a `<form>`, and a `ref` gets the `<form>` element. 
 - A response with `Content-Disposition: attachment` is saved as a download.
 - A redirect to a URL of the app that no page answers, such as a file, is loaded by the browser, once ([A post that redirects to a file](#a-post-that-redirects-to-a-file)).
 - Anything else, or no answer, leaves the page and what was typed as they are, and `useNavigation()` reports the failure, with `kind: 'submit'` and its status ([When a navigation fails](routing.md#when-a-navigation-fails)).
+- A redirect means the post went through. When the page it leads to then fails, the page and what was typed stay too, and `useNavigation()` reports a navigation that failed (`kind: 'navigate'`, with that page's location), not the post, so a form that shows its failures does not invite a second post.
 
 A submit button's `formaction`, `formmethod` and `formtarget` are honoured. A form or button whose target is not `_self`, and an action on another origin, are left to the browser. Under a base path, use `<SubmitButton formAction="/x">` instead of a plain button with `formAction`, so the base path is added with and without JavaScript.
 

@@ -312,6 +312,71 @@ describe('a form post that fails', () => {
   });
 });
 
+describe('a form post the server took, whose redirect leads to a page that fails', () => {
+  /** The post went through: the server answers it with a redirect to /about. */
+  const accepted = () => http.post(`${origin}/live`, () => HttpResponse.json({ kind: 'redirect', location: '/about?saved=1', version: 'v1' }));
+  const post = () =>
+    (pageRouter as unknown as { submit(action: URL, body: { contentType: string; body: string }): Promise<void> }).submit(new URL(`${origin}/live`), {
+      contentType: 'application/x-www-form-urlencoded',
+      body: 'a=1',
+    });
+
+  it('reports the navigation to that page, not the post, and keeps the page', async () => {
+    quiet();
+    server.use(
+      accepted(),
+      http.get(`${origin}/about`, () => new HttpResponse('<h1>Bad gateway</h1>', { status: 502, headers: { 'Content-Type': 'text/html' } })),
+    );
+    const { hardNavigate } = await renderApp();
+
+    await act(post);
+
+    expect(screen.getByRole('status').textContent).toBe(`failed ${JSON.stringify({ kind: 'navigate', status: 502, location: '/about?saved=1' })}`);
+    expect(screen.getByRole('heading', { name: 'Live 0' })).toBeDefined();
+    expect(window.location.pathname).toBe('/live');
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+
+  it('asks once more without following redirects when that page gets no answer, then keeps the page', async () => {
+    quiet();
+    const asked: string[] = [];
+    server.use(
+      accepted(),
+      http.get(`${origin}/about`, () => {
+        asked.push('/about');
+        return HttpResponse.error();
+      }),
+    );
+    const { hardNavigate } = await renderApp();
+    const modes = redirectModes();
+
+    await act(post);
+
+    expect(asked).toHaveLength(2);
+    expect(modes().at(-1)).toBe('manual');
+    expect(screen.getByRole('status').textContent).toBe(`failed ${JSON.stringify({ kind: 'navigate', status: null, location: '/about?saved=1' })}`);
+    expect(screen.getByRole('heading', { name: 'Live 0' })).toBeDefined();
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+
+  it('loads that page as a document when it redirects somewhere fetch cannot follow', async () => {
+    quiet();
+    let answers = 0;
+    server.use(
+      accepted(),
+      http.get(`${origin}/about`, () =>
+        ++answers === 1 ? HttpResponse.error() : new HttpResponse(null, { status: 302, headers: { Location: 'https://id.example/sign-in' } }),
+      ),
+    );
+    const { hardNavigate } = await renderApp();
+
+    await act(post);
+
+    expect(hardNavigate).toHaveBeenCalledExactlyOnceWith(`${origin}/about?saved=1`);
+    expect(screen.getByRole('status').textContent).toBe('idle');
+  });
+});
+
 describe('a redirect to a URL that is no page', () => {
   /** The server's answer to the router's request for a URL no page answers, after a redirect. */
   const noPage = () => HttpResponse.json({ kind: 'document' });
