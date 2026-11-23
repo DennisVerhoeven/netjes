@@ -113,6 +113,10 @@ internal sealed class LayoutLoader(RouteSegment segment, Delegate handler, IServ
     private static RequestDelegate Build(RouteSegment segment, Delegate handler, IServiceProvider services)
     {
         var endpoint = NewEndpoint(services);
+        // Outermost, so the span holds the loader's own filters too; the package is the one the layout file is of.
+        var package = services.GetService<RouteSources>()?.OwnerOf(segment.Layout)?.Name;
+        endpoint.FilterFactories.Add((_, next) => context => NetjesTelemetry.TraceAsync(
+            () => NetjesTelemetry.StartLayoutLoader(segment.Pattern, segment.Layout).WithPackage(package), context, next));
         endpoint.FilterFactories.Add((_, next) => async context =>
         {
             context.HttpContext.Items[ResultKey] = await next(context);

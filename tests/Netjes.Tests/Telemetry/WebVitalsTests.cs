@@ -11,6 +11,7 @@ public sealed class WebVitalsTests : IDisposable
 {
     private readonly ConcurrentQueue<(string Instrument, double Value, Dictionary<string, object?> Tags)> _measurements = new();
     private readonly MeterListener _listener = new();
+    private readonly ConcurrentQueue<Instrument> _instruments = new();
 
     public WebVitalsTests()
     {
@@ -18,6 +19,7 @@ public sealed class WebVitalsTests : IDisposable
         {
             if (instrument.Meter.Name == NetjesTelemetry.Name && instrument.Name.StartsWith("netjes.web_vitals.", StringComparison.Ordinal))
             {
+                _instruments.Enqueue(instrument);
                 listener.EnableMeasurementEvents(instrument);
             }
         };
@@ -43,6 +45,33 @@ public sealed class WebVitalsTests : IDisposable
         var measurement = Assert.Single(_measurements, m => m.Instrument == "netjes.web_vitals.lcp" && (string?)m.Tags["netjes.route"] == "/vitals/[id]");
         Assert.Equal(1234.5, measurement.Value);
         Assert.Equal("good", measurement.Tags["netjes.web_vitals.rating"]);
+    }
+
+    [Fact]
+    public async Task AReportedMetric_CarriesTheRouteTemplate_AndAnUnknownRouteNone()
+    {
+        await using var app = await StartAsync();
+
+        await PostAsync(app, """{"name":"TTFB","value":120,"rating":"good","route":"/vitals/[id]"}""");
+        await PostAsync(app, """{"name":"TTFB","value":121,"rating":"good","route":"/made/up/42"}""");
+
+        Assert.Equal("/vitals/{id}", Assert.Single(_measurements, m => m.Instrument == "netjes.web_vitals.ttfb" && m.Value == 120).Tags["http.route"]);
+        Assert.DoesNotContain("http.route", Assert.Single(_measurements, m => m.Instrument == "netjes.web_vitals.ttfb" && m.Value == 121).Tags.Keys);
+    }
+
+    [Fact]
+    public async Task TheHistograms_AdviseBoundariesThatSuitWhatTheyMeasure()
+    {
+        await using var app = await StartAsync();
+        await PostAsync(app, """{"name":"LCP","value":1,"rating":"good","route":"/vitals/[id]"}""");
+
+        double[] times = [50, 100, 200, 300, 500, 800, 1000, 1500, 1800, 2500, 3000, 4000, 6000, 10000];
+        double[] shift = [0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5];
+        foreach (var name in new[] { "lcp", "inp", "fcp", "ttfb", "cls" })
+        {
+            var histogram = Assert.IsType<Histogram<double>>(Assert.Single(_instruments.Distinct(), i => i.Name == $"netjes.web_vitals.{name}"));
+            Assert.Equal(name == "cls" ? shift : times, histogram.Advice?.HistogramBucketBoundaries);
+        }
     }
 
     [Fact]

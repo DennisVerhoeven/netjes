@@ -199,6 +199,13 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string pattern, string? package) =>
         (context, next) => NetjesTelemetry.TraceAsync(() => NetjesTelemetry.StartActivity(operation, pattern).WithPackage(package), context, next);
 
+    /// <summary>
+    /// A span around a server action (<c>netjes.server_action</c>), with its name and the page package that maps it. It
+    /// has no route of its own: every call goes to <c>/_netjes/actions/{name}</c>.
+    /// </summary>
+    private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> TracedServerAction(string name, string? package) =>
+        (context, next) => NetjesTelemetry.TraceAsync(() => NetjesTelemetry.StartServerAction(name).WithPackage(package), context, next);
+
     // The antiforgery middleware only records its verdict (none when it did not judge the request, which happens only
     // when the app suppresses the endpoint security-metadata check); ASP.NET Core acts on it
     // only when a parameter binds form data. Page actions enforce it regardless, so an action without form fields (a
@@ -356,6 +363,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         return builder
             .AddEndpointFilter(CookieChanges.Mark)
             .AddEndpointFilter(ActionCallFailures)
+            .AddEndpointFilter(TracedServerAction(name, package))
             .AddEndpointFilter(RejectCrossSiteCalls)
             .AddEndpointFilter(RejectInvalidAntiforgeryToken)
             .AddEndpointFilterFactory(EmptyFormInputs.Filter)

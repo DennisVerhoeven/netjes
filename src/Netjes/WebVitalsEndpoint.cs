@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -21,11 +22,11 @@ internal static class WebVitalsEndpoint
 
     private static readonly Dictionary<string, (Histogram<double> Histogram, double Max)> Metrics = new(StringComparer.Ordinal)
     {
-        ["LCP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.lcp", "ms", "Largest Contentful Paint"), 120_000),
-        ["INP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.inp", "ms", "Interaction to Next Paint"), 120_000),
-        ["CLS"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.cls", null, "Cumulative Layout Shift"), 100),
-        ["FCP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.fcp", "ms", "First Contentful Paint"), 120_000),
-        ["TTFB"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.ttfb", "ms", "Time to First Byte"), 120_000),
+        ["LCP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.lcp", "ms", "Largest Contentful Paint", tags: null, NetjesTelemetry.Advise(NetjesTelemetry.MillisecondsBuckets)), 120_000),
+        ["INP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.inp", "ms", "Interaction to Next Paint", tags: null, NetjesTelemetry.Advise(NetjesTelemetry.MillisecondsBuckets)), 120_000),
+        ["CLS"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.cls", null, "Cumulative Layout Shift", tags: null, NetjesTelemetry.Advise(NetjesTelemetry.LayoutShiftBuckets)), 100),
+        ["FCP"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.fcp", "ms", "First Contentful Paint", tags: null, NetjesTelemetry.Advise(NetjesTelemetry.MillisecondsBuckets)), 120_000),
+        ["TTFB"] = (NetjesTelemetry.Meter.CreateHistogram<double>("netjes.web_vitals.ttfb", "ms", "Time to First Byte", tags: null, NetjesTelemetry.Advise(NetjesTelemetry.MillisecondsBuckets)), 120_000),
     };
 
     private static readonly HashSet<string> Ratings = ["good", "needs-improvement", "poor"];
@@ -77,11 +78,12 @@ internal static class WebVitalsEndpoint
         }
 
         // Only route patterns the app has: anything else would let a client invent unlimited tag values.
-        var route = report.Route is { } pattern && routes.Current.Find(pattern) is not null ? pattern : "unknown";
-        metric.Histogram.Record(
-            value,
-            new KeyValuePair<string, object?>("netjes.route", route),
-            new KeyValuePair<string, object?>("netjes.web_vitals.rating", rating));
+        var tags = report.Route is { } pattern && routes.Current.Find(pattern) is not null
+            ? NetjesTelemetry.RouteTags(pattern)
+            : new TagList { { "netjes.route", "unknown" } };
+
+        tags.Add("netjes.web_vitals.rating", rating);
+        metric.Histogram.Record(value, tags);
         return Results.NoContent();
     }
 }
