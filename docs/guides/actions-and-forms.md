@@ -412,13 +412,32 @@ app.MapAction("auth.logout", async (HttpContext http) =>
 
 The header follows these rules:
 
-- Cookies the action writes count, its own `OnStarting` callbacks included. The antiforgery cookie does not, and neither do cookies a middleware wrote before the action ran or as the response starts, such as cookie authentication's sliding renewal.
+- Cookies the action writes count, its own `OnStarting` callbacks included. The antiforgery cookie does not, nor do the cookies `NoReloadCookies` names ([below](#cookies-that-change-nothing-on-screen)), and neither do cookies a middleware wrote before the action ran or as the response starts, such as cookie authentication's sliding renewal.
 - Server actions and page actions are both marked, when the client router made the call. A post without JavaScript is not marked; the browser loads the next page in full anyway.
 - A sign-in that changes no cookie, such as one kept in a server-side session, is not seen. Set or delete a cookie in the action to mark it.
 - Only the tab that made the call sees the header, and it tells the app's other tabs (those under the same base path) on a `BroadcastChannel`, which every current browser has. In a browser without one, another tab keeps its router's memory and its query cache until it makes such a call itself.
 - A proxy in front of the app must pass `X-Netjes-Cookies` and `X-Netjes-Antiforgery` through.
 
 A form post is never sent twice: one still on its way when another call's header arrives shows what it answered, and the router keeps that page for no history entry, so it comes from the server when the user returns to it. Pages also go out with `Cache-Control: no-store, private` by default, so the browser's own cache does not show the previous user's pages on Back after a full page load ([Caching](caching.md)).
+
+### Cookies that change nothing on screen
+
+Some cookies change nothing another page shows, such as a cart's, which an action writes at the first add to the cart. By the rules above it would load the page again in every tab. Name such cookies in `NoReloadCookies`, and an action that writes only them, or them and the antiforgery cookie, is treated as one that writes no cookie: the router keeps its pages and the query cache, refreshes nothing unless the action asks, and the other tabs are not told ([ADR 0066](../decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)).
+
+```csharp
+builder.Services.AddNetjes(options => options.NoReloadCookies = ["cart"]);
+
+app.MapAction("cart.add", async ([FromForm] AddToCart input, HttpContext http, Carts carts) =>
+{
+    var cart = await carts.AddAsync(http, input); // writes the "cart" cookie the first time
+    return ServerAction.Ok(cart);                 // the page shows the answer; no tab loads again
+});
+```
+
+- Names are compared with their case, as browsers compare cookie names. A response that also writes a cookie outside the list is marked, as before.
+- The cookie of every cookie authentication scheme, ASP.NET Core Identity's included, counts whatever the list says, compared in any case: signing in or out always reloads. Netjes knows only cookie authentication's names, so keep any other cookie that holds who is signed in out of the list.
+- When the page on screen shows what the cookie changed, return it from the action, or ask for a refresh (`.Refresh()`, `.Revalidate(...)`).
+- In configuration the list is `Netjes:NoReloadCookies` (`Netjes__NoReloadCookies__0=cart` in an environment variable); a list set in the `AddNetjes` delegate replaces it ([options](../reference/options.md#where-options-come-from)).
 
 ## `<Form>` in detail
 
