@@ -1816,7 +1816,11 @@ export function usePagePayload(): PagePayload {
   return useView().payload;
 }
 
-/** The router's state: `loading` during a navigation, `submitting` during a form post, else `idle` (with `error` after a post that produced no page). */
+/**
+ * The router's state: `loading` during a navigation or a refresh, `submitting` during a form post, else `idle`, with
+ * `error` after a navigation, a refresh or a form post that kept the page because it got no page (its `kind` says
+ * which), until the next one starts.
+ */
 export function useNavigation(): NavigationState {
   return useContext(NavigationContext);
 }
