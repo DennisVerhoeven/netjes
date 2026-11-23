@@ -568,7 +568,7 @@ class Navigator {
   /**
    * The place of the entry of the page on screen. It is `index`, but while Back or Forward loads the page of the entry
    * it went to: a Back or Forward whose page does not come steps back to it, also one that went from an entry whose
-   * page was still loading.
+   * page was still loading, and a step back of the router's that lands on it has the browser on the page's entry.
    */
   private shownIndex: number | undefined;
   /**
@@ -893,9 +893,9 @@ class Navigator {
     // of the entry it was on again.
     if (puttingBack && index === puttingBack.index) {
       // That is the entry of the page on screen, unless a guard held Back while the page of the entry the browser was on
-      // still loads: the browser is back on that entry, which the page on screen must not write into. The keys tell,
-      // also when that page has come meanwhile.
-      this.betweenEntries = readKey(event.state) !== this.currentKey;
+      // still loads: the browser is back on that entry, which the page on screen must not write into. The places tell,
+      // also when that page has come meanwhile, or a refresh gave the page on screen a new key.
+      this.betweenEntries = index !== this.shownIndex;
       puttingBack.ask();
       return;
     }

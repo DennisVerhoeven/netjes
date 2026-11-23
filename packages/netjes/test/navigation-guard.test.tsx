@@ -547,6 +547,33 @@ describe('useNavigationGuard and the browser history', () => {
     expect(window.history.state).toEqual({ __netjes: 'slow', __netjesIndex: 51 });
   });
 
+  it('writes into the entry on screen again once it is put back, also after a refresh landed meanwhile', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    // The router's step back is on its way while a refresh lands: a page that polls, or another tab that signed in.
+    const go = window.history.go.bind(window.history);
+    let stepBack: number | undefined;
+    vi.spyOn(window.history, 'go').mockImplementationOnce((delta) => {
+      stepBack = delta;
+    });
+    const left = popped();
+    window.history.back();
+    await act(() => left);
+    expect(stepBack).toBe(1);
+    await act(() => editorRouter!.refresh());
+
+    const asking = nextAttempt();
+    const returned = popped();
+    go(stepBack!);
+    await act(() => returned);
+    (await act(() => asking)).stay();
+
+    expect(where()).toBe('/editor');
+    act(() => setEditorTab!(5));
+    expect(window.history.state).toMatchObject({ __netjesState: { tab: 5 } });
+  });
+
   it('drops an attempt still waiting when Back goes on once no guard holds', async () => {
     pages(['/editor', '/other']);
     const user = await renderApp(payload('other', '/other'));
