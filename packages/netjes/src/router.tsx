@@ -41,12 +41,28 @@ import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schem
 
 export type { NavigationAttempt, NavigationAttemptType, NavigationGuardOptions } from './navigation-guard.ts';
 
-/** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
-export type SubmitError = { status: number | null; action: string };
+/**
+ * A navigation, a refresh or a form post that ended without a page, while the page on screen stayed. `useNavigation()`
+ * holds it until the next navigation, refresh or form post starts.
+ */
+export type NavigationError = {
+  /**
+   * What failed: a navigation to another URL (a link, a GET form, `push`, `replace`, Back or Forward), `router.refresh()`
+   * (also the one a server action asks for), or a form post.
+   */
+  kind: 'navigate' | 'refresh' | 'submit';
+  /** The status of an answer that was no page, or `null` when no answer came (the connection failed). */
+  status: number | null;
+  /** Where it went: the path and query, without the base path. */
+  location: string;
+};
+
+/** @deprecated The name `NavigationError` had while only form posts reported a failure. */
+export type SubmitError = NavigationError;
 
 /** What the router is doing: idle, or on its way to `location` for a navigation (`loading`) or a form post (`submitting`). */
 export type NavigationState =
-  | { state: 'idle'; error?: SubmitError }
+  | { state: 'idle'; error?: NavigationError }
   | { state: 'loading' | 'submitting'; location: string };
 
 /** What `router.push` and `router.replace` take besides the href. */
@@ -266,6 +282,41 @@ function withHash(url: URL, hash: string): URL {
 
 type FetchResult = NavigationPayload | { html: string; url: string } | { file: Blob; name: string } | { failed: number } | null;
 
+/**
+ * No answer came for a request: the connection failed, the browser is offline, or the browser refused to follow a
+ * redirect (one to another origin that does not allow this one). `headers` are the request's, to ask again with.
+ */
+class NoAnswer extends Error {
+  override name = 'NoAnswer';
+  readonly url: URL;
+  readonly headers: Readonly<Record<string, string>>;
+
+  constructor(url: URL, headers: Readonly<Record<string, string>>, cause: unknown) {
+    super(`netjes: no answer from ${url.href}`, { cause });
+    this.url = url;
+    this.headers = headers;
+  }
+}
+
+/** The browser says it has no network. `navigator.onLine` is true when it cannot tell, so only `false` counts. */
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/**
+ * Whether `failed` answers with a redirect, asked again without following it. A redirect to another origin that does
+ * not allow this one, such as an identity provider's sign-in page, fails `fetch` as a lost connection does; the browser
+ * follows it itself when it loads the URL as a document.
+ */
+async function answersWithRedirect(failed: NoAnswer, signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(failed.url.href, { headers: failed.headers, credentials: 'same-origin', redirect: 'manual', signal });
+    void response.body?.cancel().catch(() => {});
+    // A browser hides the redirect behind an opaque answer; other runtimes hand over the 3xx itself.
+    return response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400);
+  } catch {
+    return false;
+  }
+}
+
 function attachmentName(disposition: string): string {
   const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
   if (encoded) {
@@ -296,7 +347,13 @@ async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal,
   if (request.method === 'POST' && request.contentType) headers['Content-Type'] = request.contentType;
   const init: RequestInit = { method: request.method, headers, credentials: 'same-origin', signal };
   if (request.method === 'POST' && request.body !== undefined) init.body = request.body;
-  const response = await fetch(url.href, init);
+  let response: Response;
+  try {
+    response = await fetch(url.href, init);
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new NoAnswer(url, headers, error);
+  }
   // A form post that signed someone in or out; script cannot read Set-Cookie itself.
   if (request.method === 'POST' && response.headers.get(COOKIES_HEADER) === 'changed') onCookiesChanged?.();
   const type = response.headers.get('content-type') ?? '';
@@ -326,15 +383,26 @@ async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal,
     return withClockOffset(revivePayload(payload, registry.source), Number.isFinite(serverNow) ? serverNow : undefined);
   }
   if (type.includes('application/json')) {
-    const payload = parseNavigationPayload(await response.json());
+    let payload: NavigationPayload;
+    try {
+      payload = parseNavigationPayload(await response.json());
+    } catch (error) {
+      // A server error that is no Netjes page, such as a gateway's JSON error, fails a GET; anything else is a bug.
+      if (request.method === 'GET' && response.status >= 500 && !signal.aborted) return { failed: response.status };
+      throw error;
+    }
     if (payload.kind !== 'page') return payload;
     // Without the header (a cache in front of UseNetjes) there is no fresh server time: take the timestamps as they
     // are. Falling back to renderedAt would make a cached payload look brand new.
     const serverNow = Number(response.headers.get(SERVER_TIME_HEADER) ?? Number.NaN);
     return withClockOffset(payload, Number.isFinite(serverNow) ? serverNow : undefined);
   }
-  // Something other than a Netjes page answered. A GET can simply be loaded by the browser instead.
-  if (request.method === 'GET') return null;
+  // Something other than a Netjes page answered. A GET that failed on the server (a gateway's 502 while the app
+  // restarts, say) fails; any other the browser loads instead, so the router stops reading it (a file, say).
+  if (request.method === 'GET') {
+    void response.body?.cancel().catch(() => {});
+    return response.status >= 500 ? { failed: response.status } : null;
+  }
   // A POST must not be sent again. Show what a native submission would have shown, where that is safe.
   if (!response.ok) return { failed: response.status };
   if (type.includes('text/html')) return { html: await response.text(), url: response.url || url.href };
@@ -427,6 +495,13 @@ type GoOptions = {
   focusedAtStart?: Element | null;
   /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
   letThrough?: boolean;
+  /** `router.refresh()`: a failure is reported as the refresh's. */
+  refresh?: boolean;
+  /**
+   * Back or Forward from the entry at this place: when the page does not come, the router steps back to that entry,
+   * whose page stays on screen.
+   */
+  putBack?: number | undefined;
 };
 
 /**
@@ -649,6 +724,7 @@ class Navigator {
       pending: 'loading',
       usePrefetch: false,
       reuseSegments: false,
+      refresh: true,
       ...(base ? { interceptOver: withHash(base.url, '') } : {}),
     });
   }
@@ -802,6 +878,7 @@ class Navigator {
     // entry on screen; one counted long could send it past the end of the history. Either way the entry gets a key,
     // so the steps to it, from it and from the entries pushed after it are counted as any others.
     const fragment = index === undefined && samePage(url, this.current.url);
+    const from = this.index;
     this.index = !fragment ? index : url.href === this.href ? this.index : this.nextIndex();
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
@@ -828,6 +905,7 @@ class Navigator {
       reuseSegments: true,
       entryValues: values,
       letThrough,
+      putBack: from,
     });
   }
 
@@ -885,7 +963,7 @@ class Navigator {
     this.active = navigation;
     this.deps.setPending({ state: options.pending, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search });
     let committed = false;
-    let failure: SubmitError | undefined;
+    let failure: NavigationError | undefined;
     try {
       const prefetched = options.usePrefetch ? this.takePrefetched(url, controller.signal) : undefined;
       const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal, false) : undefined;
@@ -912,8 +990,13 @@ class Navigator {
       }
       if ('failed' in result) {
         // Keep the page, and what the user typed, as it is; useNavigation() tells the page.
-        console.error(`netjes: the form submission failed with status ${result.failed}`);
-        failure = { status: result.failed, action: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
+        console.error(
+          request.method === 'POST'
+            ? `netjes: the form submission failed with status ${result.failed}`
+            : `netjes: loading ${url.pathname}${url.search} failed with status ${result.failed}, keeping the page`,
+        );
+        if (!this.keepPage(url, request, options)) return;
+        failure = this.failure(url, request, options, result.failed);
         return;
       }
 
@@ -953,8 +1036,20 @@ class Navigator {
       if (request.method === 'POST') {
         // Never turn a failed submission into a GET: keep the page, and what the user typed, as it is.
         console.error('netjes: the form could not be submitted', error);
-        failure = { status: null, action: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
+        failure = this.failure(url, request, options, null);
         return;
+      }
+      // No answer while the browser is online: keep the page, unless the URL redirects somewhere fetch cannot follow.
+      // An offline browser loads the URL as a document, as any other failure does.
+      if (error instanceof NoAnswer && !offline()) {
+        const redirects = await answersWithRedirect(error, controller.signal);
+        if (controller.signal.aborted) return navigation.restarted;
+        if (!redirects) {
+          console.error(`netjes: no answer for ${url.pathname}${url.search}, keeping the page`, error.cause);
+          if (!this.keepPage(url, request, options)) return;
+          failure = this.failure(url, request, options, null);
+          return;
+        }
       }
       console.error('netjes: navigation failed, loading the page from the server instead', error);
       this.hard(url, options.letThrough);
@@ -964,6 +1059,34 @@ class Navigator {
         if (!committed) this.deps.setPending(failure ? { state: 'idle', error: failure } : IDLE);
       }
     }
+  }
+
+  /**
+   * Keeps the page on screen after a navigation failed. Back or Forward has moved the browser to the entry it went to
+   * already: the router steps back to the entry of the page on screen, so the address is the page's again, and a
+   * page's history values and a refresh go to that entry. Where it cannot tell that entry's place (a step from or to an
+   * entry an app or a library added itself), it loads the URL as a document instead and returns false.
+   */
+  private keepPage(url: URL, request: PageRequest, options: GoOptions): boolean {
+    if (request.method !== 'GET' || options.history !== 'none') return true;
+    const now = this.index;
+    const back = options.putBack;
+    if (now === undefined || back === undefined || now === back) {
+      this.hard(url, options.letThrough);
+      return false;
+    }
+    this.index = back;
+    this.betweenEntries = false;
+    // The step back is the router's own: once there, nothing more happens.
+    this.puttingBack = { index: back, ask: () => {} };
+    window.history.go(back - now);
+    return true;
+  }
+
+  /** What `useNavigation()` reports for a navigation that kept the page on screen. */
+  private failure(url: URL, request: PageRequest, options: GoOptions, status: number | null): NavigationError {
+    const kind = request.method === 'POST' ? 'submit' : options.refresh ? 'refresh' : 'navigate';
+    return { kind, status, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
   }
 
   private async load(
@@ -1086,7 +1209,12 @@ class Navigator {
     if (Date.now() - hit.at >= PREFETCH_TTL_MS) return undefined;
     return hit.result.then(
       (result) =>
-        'payload' in result ? { ...result, url: samePage(result.url, url) ? withHash(result.url, url.hash) : result.url } : result,
+        // A page that failed on the server is asked for again: it may answer now.
+        'failed' in result
+          ? this.load(url, { method: 'GET' }, signal, true)
+          : 'payload' in result
+            ? { ...result, url: samePage(result.url, url) ? withHash(result.url, url.hash) : result.url }
+            : result,
       () => this.load(url, { method: 'GET' }, signal, true),
     );
   }
