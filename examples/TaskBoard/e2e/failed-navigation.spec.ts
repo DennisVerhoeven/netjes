@@ -16,6 +16,10 @@ async function cutRouterRequests(page: Page, path: string): Promise<() => Promis
   return () => page.unroute(matches, handler);
 }
 
+// The board's own form: the project's name is a heading on every page of the project, and a column with no task is an
+// empty list, which takes no room.
+const board = (page: Page) => page.getByRole('form', { name: 'Filter tasks' });
+
 /** A user on their project's board, reached by a client navigation from the projects page. */
 async function onBoard(page: Page) {
   await register(page, 'Lost Connection');
@@ -38,7 +42,7 @@ test.describe('a failed refresh or navigation', () => {
     await expect(alert).toBeVisible();
     await expect(alert).toContainText('No answer came.');
     await expect(page).toHaveURL(new RegExp(`/projects/${slug}$`));
-    await expect(page.getByRole('list', { name: 'Todo', exact: true })).toBeVisible();
+    await expect(board(page)).toBeVisible();
     expect(await isMarked(page)).toBe(true);
 
     await reconnect();
@@ -58,7 +62,7 @@ test.describe('a failed refresh or navigation', () => {
 
     await expect(page.getByRole('alert').filter({ hasText: 'That page could not be opened.' })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/projects/${slug}$`));
-    await expect(page.getByRole('list', { name: 'Todo', exact: true })).toBeVisible();
+    await expect(board(page)).toBeVisible();
     expect(await isMarked(page)).toBe(true);
 
     await reconnect();

@@ -54,7 +54,9 @@ test.describe('history state', () => {
     await markWindow(page);
     await expect(backToBoard(page)).toHaveAttribute('href', board);
 
-    // Opened another way, the task has no board in its entry.
+    // Opened another way, the task has no board in its entry. (Going to the URL on screen would be a reload, which
+    // keeps the entry.)
+    await page.goto('/projects');
     await page.goto(`/projects/${slug}/tasks/1`);
     await markWindow(page);
     await expect(backToBoard(page)).toHaveAttribute('href', `/projects/${slug}`);

@@ -557,8 +557,9 @@ class Navigator {
    */
   private lineage = 0;
   /**
-   * Back or Forward went to an entry whose page is still loading: the browser is on that entry while the page before
-   * is on screen, which must not write its values into it.
+   * The browser is on another entry than the page on screen: Back or Forward went to one whose page is still loading,
+   * or the router is stepping back to the page's entry (a guard held Back, or the page did not come). The page must not
+   * write its values into that entry.
    */
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
@@ -645,7 +646,7 @@ class Navigator {
   /**
    * Sets a `useHistoryState` value of the entry on screen, computed from the entry's values, in its `history.state`,
    * for a setter of the values' `lineage`. A setter of a page that has left (setting a value as it unmounts), or of the
-   * entry before Back or Forward, changes nothing.
+   * entry before Back or Forward, changes nothing, and so does any setter while the browser is on another entry.
    */
   setValue(lineage: number, name: string, compute: (values: HistoryValues) => unknown) {
     if (lineage !== this.lineage || this.betweenEntries) return;
@@ -884,6 +885,7 @@ class Navigator {
     this.puttingBack = null;
     // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
     if (puttingBack && index === puttingBack.index) {
+      this.betweenEntries = false;
       puttingBack.ask();
       return;
     }
@@ -908,13 +910,15 @@ class Navigator {
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
     const cached = this.entries.get(key);
     const known = cached && samePage(cached.url, url) ? cached : samePage(url, this.current.url) ? this.current : null;
-    const values = readValues(event.state);
+    // A fragment the browser moved to itself keeps the page, and so its values, as a fragment link does; the entry
+    // starts with none of its own. Back or Forward shows the values of the entry it went to.
+    const values = fragment ? withCarried(this.values, readValues(event.state)) : readValues(event.state);
     if (fragment) window.history.replaceState(entryState(key, this.index, values, event.state), '');
     if (known) {
       this.active?.controller.abort();
       // From memory, unless the page on screen simply stays (Back over a fragment link).
       const restored = known.payload !== this.current.payload;
-      this.setCurrent(key, { ...known, url }, values, false);
+      this.setCurrent(key, { ...known, url }, values, fragment);
       this.deps.commit(this.current, scroll, document.activeElement, { lineage: this.lineage, values, restored });
       return;
     }
@@ -955,6 +959,7 @@ class Navigator {
           window.history.go(index - now);
         }),
     };
+    this.betweenEntries = true;
     window.history.go(-steps);
     return true;
   }
@@ -1116,8 +1121,9 @@ class Navigator {
       return false;
     }
     this.index = back;
-    this.betweenEntries = false;
-    // The step back is the router's own: once there, nothing more happens.
+    // The step back is the router's own: once there, nothing more happens. Until then the browser is on the entry Back
+    // went to.
+    this.betweenEntries = true;
     this.puttingBack = { index: back, ask: () => {} };
     window.history.go(back - now);
     return true;
@@ -1810,7 +1816,11 @@ export function usePagePayload(): PagePayload {
   return useView().payload;
 }
 
-/** The router's state: `loading` during a navigation, `submitting` during a form post, else `idle` (with `error` after a post that produced no page). */
+/**
+ * The router's state: `loading` during a navigation or a refresh, `submitting` during a form post, else `idle`, with
+ * `error` after a navigation, a refresh or a form post that kept the page because it got no page (its `kind` says
+ * which), until the next one starts.
+ */
 export function useNavigation(): NavigationState {
   return useContext(NavigationContext);
 }
@@ -1892,7 +1902,8 @@ export function useHistoryRestore(callback: () => void): void {
  * whenever it is called, also once `when` is false (after a save), and a navigation that comes while one waits takes its
  * place. While it holds, `beforeunload` has the browser ask before the document unloads: a reload, closing the tab, a
  * link to another site. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a
- * form post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that
+ * form post, a server action or `router.refresh()`, nor the page the server's redirect in their answer leads to (the
+ * sign-in page after the session expired). With several guards holding, each is asked in turn, the one that
  * started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a
  * Netjes page.
  */

@@ -39,14 +39,14 @@ function SetsAsItLeaves() {
 let cleared: Promise<void> | undefined;
 
 /**
- * Clears the ticks, with the setter of the render that was clicked, once `first` has ended: what a list does after a
- * server action on its ticked rows, which loads the page again before it resolves.
+ * Clears the ticks (or sets them `to` a count), with the setter of the render that was clicked, once `first` has ended:
+ * what a list does after a server action on its ticked rows, which loads the page again before it resolves.
  */
-function ClearsTicks({ label, first }: { label: string; first: (router: Router) => Promise<void> }) {
+function ClearsTicks({ label, first, to = 0 }: { label: string; first: (router: Router) => Promise<void>; to?: number }) {
   const router = useRouter();
   const [, setTicks] = useHistoryState('ticks', 0);
   return (
-    <button type="button" onClick={() => (cleared = first(router).then(() => setTicks(0)))}>
+    <button type="button" onClick={() => (cleared = first(router).then(() => setTicks(to)))}>
       {label}
     </button>
   );
@@ -102,9 +102,12 @@ function List(props: Record<string, unknown>) {
       <Link href="#bottom" replace>
         Bottom in place
       </Link>
+      {/* Not a Link: the browser moves to the fragment itself, as in Markdown content or a table of contents. */}
+      <a href="#plain">Plain fragment</a>
       <ClearsTicks label="Clear the ticks after a refresh" first={(router) => router.refresh()} />
       <ClearsTicks label="Clear the ticks on the second page" first={(router) => router.push('/list?page=2')} />
       <ClearsTicks label="Clear the ticks at the bottom" first={(router) => router.push('#bottom')} />
+      <ClearsTicks label="Set the ticks at a fragment the browser moves to" first={() => fragmentByBrowser('plain')} to={7} />
       <ClearsTicks label="Clear the ticks on the record" first={(router) => router.push('/record', { historyState: { ticks: 5 } })} />
       <ClearsTicks label="Clear the ticks after Back" first={(router) => backDone(router)} />
       <CountsSetterEffects />
@@ -118,6 +121,13 @@ function List(props: Record<string, unknown>) {
 function backDone(router: Router): Promise<void> {
   const popped = new Promise<void>((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
   router.back();
+  return popped;
+}
+
+/** Moves to a fragment as the browser does itself (`location.hash`), and resolves once it has told the router. */
+function fragmentByBrowser(hash: string): Promise<void> {
+  const popped = new Promise<void>((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
+  window.location.hash = hash;
   return popped;
 }
 
@@ -289,6 +299,33 @@ describe('useHistoryState', () => {
     expect(screen.getByRole('button', { name: 'ticks 0' })).toBeDefined();
   });
 
+  it('keeps the values when the browser moves to a fragment itself, and each entry keeps its own after', async () => {
+    pages(['/list']);
+    const user = await renderApp(payload('list', '/list'));
+    await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+
+    // A plain link: the browser adds the entry itself, with no state, and fires popstate.
+    const moved = new Promise<void>((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
+    await user.click(screen.getByRole('link', { name: 'Plain fragment' }));
+    await act(() => moved);
+    expect(window.location.hash).toBe('#plain');
+    expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    // The same link followed again replaces the entry, with no state (jsdom does nothing there).
+    act(() => {
+      window.history.replaceState(null, '', window.location.href);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    });
+    expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    await user.click(screen.getByRole('button', { name: 'ticks 1' }));
+
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.location.hash).toBe('#plain'));
+    expect(screen.getByRole('button', { name: 'ticks 2' })).toBeDefined();
+  });
+
   it('writes nothing into the next entry from a page that sets a value as it unmounts', async () => {
     pages(['/record']);
     const user = await renderApp(payload('list', '/list'));
@@ -318,6 +355,17 @@ describe('useHistoryState', () => {
         expect(screen.getByRole('button', { name: 'ticks 0' })).toBeDefined();
       });
     }
+
+    it('sets the value of the entry on screen after the browser moved to a fragment itself', async () => {
+      pages(['/list']);
+      const user = await renderApp(payload('list', '/list'));
+
+      await user.click(screen.getByRole('button', { name: 'Set the ticks at a fragment the browser moves to' }));
+      await act(() => cleared);
+
+      expect(window.location.hash).toBe('#plain');
+      expect(screen.getByRole('button', { name: 'ticks 7' })).toBeDefined();
+    });
 
     it('leaves the entry before as it was when the page left it', async () => {
       pages(['/list']);

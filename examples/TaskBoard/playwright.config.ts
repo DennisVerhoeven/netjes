@@ -5,8 +5,9 @@ import { dbPort } from './e2e/db-config.mjs';
 // `npm run build` output, migrated by the explicit `migrate` command first). Both use a throwaway Postgres in
 // Docker (e2e/db.mjs, removed again by e2e/global-teardown.mjs), with a database each. E2E_DB_PORT moves it
 // (default 8432); the container is named after the port, so concurrent runs never share one. Every spec runs in
-// Chromium against both; the guard spec also runs in Firefox and WebKit against the production server, since holding
-// Back and Forward depends on when each browser fires popstate.
+// Chromium against both; the guard spec also runs in Firefox and WebKit, since holding Back and Forward depends on when
+// each browser fires popstate: Firefox against the production server, WebKit against the development one, as WebKit
+// keeps no Secure cookie over plain http, not even from 127.0.0.1, and the production sign-in cookie is Secure.
 const DEV_PORT = Number(process.env.E2E_DEV_PORT ?? 8090);
 const PROD_PORT = Number(process.env.E2E_PROD_PORT ?? 8091);
 const VITE_PORT = Number(process.env.E2E_VITE_PORT ?? 8190);
@@ -29,7 +30,7 @@ export default defineConfig({
     { name: 'development', use: { baseURL: DEV_URL } },
     { name: 'production', use: { baseURL: PROD_URL } },
     { name: 'firefox', use: { ...devices['Desktop Firefox'], baseURL: PROD_URL }, testMatch: /guard\.spec\.ts/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'], baseURL: PROD_URL }, testMatch: /guard\.spec\.ts/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'], baseURL: DEV_URL }, testMatch: /guard\.spec\.ts/ },
   ],
   webServer: [
     {
