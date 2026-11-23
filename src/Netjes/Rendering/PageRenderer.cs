@@ -704,7 +704,7 @@ internal sealed class PageRenderer(
             logger.LogWarning(
                 "No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.",
                 route ?? "(no route)", http.Request.Path.Value);
-            NetjesTelemetry.SidecarFallbacks.Add(1, new KeyValuePair<string, object?>("netjes.route", route));
+            NetjesTelemetry.SidecarFallbacks.Add(1, NetjesTelemetry.RouteTags(route));
             await WriteClientShellAsync(http, status, payload.Document!, metadata, json, collector);
             return;
         }

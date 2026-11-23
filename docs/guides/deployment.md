@@ -198,22 +198,42 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.layout_loader` | A layout's loader, once for each render that runs it (not for a client navigation that reuses its props) | `netjes.route` and `http.route` (the layout's URL), `netjes.layout` (the layout file's id), and `netjes.package` for a page package's layout |
+| `netjes.server_action` | A server action (`MapAction`), the call's checks included | `netjes.server_action.name`, and `netjes.package` for a page package's action |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `http.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
+
+A span that an exception ends has the status `Error` and the exception as an event. A server action has no route of its own: ASP.NET Core's request span for the call names the action's own path, such as `/_netjes/actions/posts.save`, as its `http.route`.
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
 
 | Metric | Unit | Tags |
 |---|---|---|
-| `netjes.render.duration` | s | `netjes.route`, `netjes.response`, `http.response.status_code` |
+| `netjes.render.duration` | s | `netjes.route`, `http.route`, `netjes.response`, `http.response.status_code` |
 | `netjes.sidecar.render.duration` | s | |
-| `netjes.sidecar.fallbacks` | documents | `netjes.route` |
-| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `netjes.web_vitals.rating` |
-| `netjes.web_vitals.cls` | | `netjes.route`, `netjes.web_vitals.rating` |
+| `netjes.sidecar.fallbacks` | documents | `netjes.route`, `http.route` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
+| `netjes.web_vitals.cls` | | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
 
-Tags carry route patterns (`/blog/[slug]`), never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
+### Routes in two notations
+
+`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has no `http.route`: a web vitals report with a route the app lacks is still recorded, under `netjes.route` of `unknown`, without one.
+
+### Bucket boundaries
+
+The histograms advise explicit bucket boundaries (`InstrumentAdvice<T>.HistogramBucketBoundaries`), which the OpenTelemetry SDK uses unless a view of the app says otherwise; OpenTelemetry's defaults (0, 5, 10, 25 ... 10000) are made for milliseconds, and put nearly every render in seconds in the first bucket.
+
+| Histogram | Boundaries |
+|---|---|
+| `netjes.render.duration`, `netjes.sidecar.render.duration` | 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 seconds, those ASP.NET Core advises for `http.server.request.duration` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | 50, 100, 200, 300, 500, 800, 1000, 1500, 1800, 2500, 3000, 4000, 6000, 10000 ms, with the vitals' own limits among them (INP 200 and 500, TTFB 800 and 1800, FCP 1800 and 3000, LCP 2500 and 4000) |
+| `netjes.web_vitals.cls` | 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5, with 0.1 and 0.25 the limits of good and poor |
+
+An app that registers a view for one of them (`AddView("netjes.render.duration", new ExplicitBucketHistogramConfiguration { ... })`) keeps its own boundaries, and exporters that do not read advice are not affected.
+
+Tags carry route patterns and templates, never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
 
 ### Web vitals
 
