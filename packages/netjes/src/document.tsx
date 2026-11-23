@@ -2,7 +2,13 @@ import type { ReactNode } from 'react';
 import { DEFERRED_BOOTSTRAP } from './deferred.ts';
 import { DATA_ELEMENT_ID, type DocumentInfo, SHELL_END_ID } from './payload.ts';
 
-type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode };
+type DocumentProps = {
+  info: DocumentInfo;
+  /** The `lang` of `<html>`: the first page's (`documentLang`), or else the document's own. */
+  lang?: string | undefined;
+  dataJson: string;
+  children: ReactNode;
+};
 
 /**
  * The `<html>` shell around every page. React renders and hydrates the whole document, so `<title>`, `<meta>`
@@ -13,7 +19,7 @@ type DocumentProps = { info: DocumentInfo; dataJson: string; children: ReactNode
  * the head, the payload first in the body. The empty element at the end of the body is the last thing in the shell,
  * which the client entry waits for before it hydrates: a cached entry can run long before the parser gets there.
  */
-export function Document({ info, dataJson, children }: DocumentProps) {
+export function Document({ info, lang = info.lang, dataJson, children }: DocumentProps) {
   const { nonce } = info;
   // Netjes owns <html> and <body>: the app's layout renders inside the body, so its markup cannot give either one an
   // attribute. A script that runs before hydration can (a theme, a browser extension, a translator), and in development
@@ -23,9 +29,10 @@ export function Document({ info, dataJson, children }: DocumentProps) {
   // the body, and a mismatch there is neither reported nor repaired. The elements in the body are checked as before,
   // their attributes and their text. React does not write the prop into the markup, and production does not check
   // attributes at all. The check is off for `lang` too: the server and the client read it from the same payload, so it
-  // differs only when a script changed it, or when Netjes has a bug.
+  // differs only when a script changed it, or when Netjes has a bug. This element keeps the first page's `lang`: after
+  // a client navigation the router sets the attribute itself (RouterProvider's `documentLang`).
   return (
-    <html lang={info.lang} suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

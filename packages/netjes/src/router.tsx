@@ -16,6 +16,7 @@ import { actionRequest, expectActionClient, fetchAction, setActionClient } from 
 import { deferredRegistry, revivePayload } from './deferred.ts';
 import type { EncodedForm } from './form-data.ts';
 import type { Href } from './href.ts';
+import { documentLang as langOf } from './lang.ts';
 import { type ErrorPageProps, MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
 import { moveFocusAfterNavigation } from './navigation-focus.ts';
 import {
@@ -783,7 +784,7 @@ class Navigator {
     return this.current.payload.segments.flatMap((segment) => (segment.key && segment.props && !segment.reused ? [segment.key] : []));
   }
 
-  /** Fills in the props of segments the server marked reused from the current page, or null if one is missing. */
+  /** Fills in the props and lang of segments the server marked reused from the current page, or null if one is missing. */
   private withReusedSegments(payload: PagePayload): PagePayload | null {
     if (!payload.segments.some((segment) => segment.reused)) return payload;
     const held = this.current.payload.segments;
@@ -795,7 +796,7 @@ class Navigator {
       }
       const known = held.find((h) => h.id === segment.id && h.key === segment.key && h.props);
       if (!known) return null;
-      segments.push({ ...segment, props: known.props, reused: undefined });
+      segments.push({ ...segment, props: known.props, lang: known.lang, reused: undefined });
     }
     return { ...payload, segments };
   }
@@ -897,6 +898,12 @@ export type RouterProviderProps = {
   download?: (file: Blob, name: string) => void;
   /** Wraps every page and the error page, inside the router: where app-wide providers such as the QueryClient go. */
   shell?: ComponentType<{ children: ReactNode }> | undefined;
+  /**
+   * The `lang` the app's root gave the document (`DocumentInfo.lang`: the locale it was rendered in, or
+   * `NetjesOptions.Lang`). With it, the router keeps `<html lang>` with the page on screen: the page loader's lang,
+   * else the innermost layout loader's, else the page's locale, else this. Without it, it leaves `<html lang>` alone.
+   */
+  documentLang?: string | undefined;
 };
 
 function PassThrough({ children }: { children: ReactNode }) {
@@ -935,6 +942,7 @@ export function RouterProvider({
   showDocument = defaultShowDocument,
   download = defaultDownload,
   shell: Shell = PassThrough,
+  documentLang,
 }: RouterProviderProps) {
   const [view, setView] = useState<View>(() => ({
     loaded: {
@@ -1064,6 +1072,16 @@ export function RouterProvider({
   );
   const { payload, modules, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
+  // <html lang> for the page on screen. The server wrote the first page's, and Document keeps it as written, so the
+  // attribute changes only when the lang does: an app that sets it itself, on pages none of whose loaders give one,
+  // keeps its value. In the commit that shows the page, before it is painted.
+  const lang = documentLang === undefined ? undefined : langOf(payload, documentLang);
+  const shownLang = useRef(lang);
+  useLayoutEffect(() => {
+    if (lang === undefined || lang === shownLang.current) return;
+    shownLang.current = lang;
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   return (
     <RouterContext value={router}>

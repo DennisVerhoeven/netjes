@@ -537,6 +537,7 @@ public partial class ClientRenderFallbackTests
                 Title = "Fish & <chips>",
                 Description = "Say \"hi\"",
                 Robots = new PageMetadataRobots(Index: false),
+                Lang = "nl",
             })).WithMetadata(new OmitAntiforgeryTokenMetadata()));
 
         var response = await app.GetDocumentAsync("/posts/7");
