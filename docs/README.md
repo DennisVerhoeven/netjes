@@ -118,6 +118,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0062 – `endpointUrl()` has a key for a POST endpoint that reads a form](decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md)
 - [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md)
 - [0064 – A title from C# can be absolute](decisions/0064-a-title-from-c-sharp-can-be-absolute.md)
+- [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
 
 ## The project
 

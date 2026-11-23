@@ -5245,22 +5245,42 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.layout_loader` | A layout's loader, once for each render that runs it (not for a client navigation that reuses its props) | `netjes.route` and `http.route` (the layout's URL), `netjes.layout` (the layout file's id), and `netjes.package` for a page package's layout |
+| `netjes.server_action` | A server action (`MapAction`), the call's checks included | `netjes.server_action.name`, and `netjes.package` for a page package's action |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `http.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
+
+A span that an exception ends has the status `Error` and the exception as an event. A server action has no route: every call goes to `/_netjes/actions/{name}`, which ASP.NET Core's own request span names as its `http.route`.
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
 
 | Metric | Unit | Tags |
 |---|---|---|
-| `netjes.render.duration` | s | `netjes.route`, `netjes.response`, `http.response.status_code` |
+| `netjes.render.duration` | s | `netjes.route`, `http.route`, `netjes.response`, `http.response.status_code` |
 | `netjes.sidecar.render.duration` | s | |
-| `netjes.sidecar.fallbacks` | documents | `netjes.route` |
-| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `netjes.web_vitals.rating` |
-| `netjes.web_vitals.cls` | | `netjes.route`, `netjes.web_vitals.rating` |
+| `netjes.sidecar.fallbacks` | documents | `netjes.route`, `http.route` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
+| `netjes.web_vitals.cls` | | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
 
-Tags carry route patterns (`/blog/[slug]`), never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
+### Routes in two notations
+
+`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has neither: the `unknown` that a web vitals report with a route the app lacks is recorded under has no `http.route`.
+
+### Bucket boundaries
+
+The histograms advise explicit bucket boundaries (`InstrumentAdvice<T>.HistogramBucketBoundaries`), which the OpenTelemetry SDK uses unless a view of the app says otherwise; OpenTelemetry's defaults (0, 5, 10, 25 ... 10000) are made for milliseconds, and put nearly every render in seconds in the first bucket.
+
+| Histogram | Boundaries |
+|---|---|
+| `netjes.render.duration`, `netjes.sidecar.render.duration` | 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 seconds, those ASP.NET Core advises for `http.server.request.duration` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | 50, 100, 200, 300, 500, 800, 1000, 1500, 1800, 2500, 3000, 4000, 6000, 10000 ms, with the vitals' own limits among them (INP 200 and 500, TTFB 800 and 1800, FCP 1800 and 3000, LCP 2500 and 4000) |
+| `netjes.web_vitals.cls` | 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5, with 0.1 and 0.25 the limits of good and poor |
+
+An app that registers a view for one of them (`AddView("netjes.render.duration", new ExplicitBucketHistogramConfiguration { ... })`) keeps its own boundaries, and exporters that do not read advice are not affected.
+
+Tags carry route patterns and templates, never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
 
 ### Web vitals
 
@@ -8461,6 +8481,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0062 – `endpointUrl()` has a key for a POST endpoint that reads a form](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md): a `POST` endpoint that is not JSON and accepts a form (`[FromForm]`, `IFormFile`, `IFormCollection`) is in `endpointUrl()` by its route, so a `<Form>` can post to a download by its typed URL; a webhook still has none.
 - [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md): `Page.RedirectToSignIn` in an authentication event redirects a document and a client navigation to the sign-in page with the request's local URL to come back to, and gives a server action's call a 401; `Page.TooManyRequests` as the rate limiter's `OnRejected` answers a post that passes the action's own checks like a failed validation, with status 429, and the failed state says its status.
 - [0064 – A title from C# can be absolute](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0064-a-title-from-c-sharp-can-be-absolute.md): `PageMetadata.AbsoluteTitle` is a document title that no layout's title template wraps; it travels as the title's `{ absolute }` form, so the client needs no change, and it wins over `Title` when both are set.
+- [0065 – Telemetry names the route template and traces server actions and layout loaders](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md): the route template joins the route pattern as `http.route`, the histograms advise bucket boundaries, and server actions and layout loaders get spans from the filter that traces loaders.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8487,6 +8508,9 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `Page.RedirectToSignIn(context, path)` sends a visitor who has to sign in to the app's sign-in page from an authentication event: `cookie.Events.OnRedirectToLogin = context => Page.RedirectToSignIn(context.HttpContext, "/sign-in")`. A document gets a 307, or a 303 after a form post, and a client navigation a redirect payload the router follows without a full page load, to `/sign-in?returnUrl=<path and query>`; a call to a server action, or any request below `/_netjes`, gets an empty 401, which reaches a script as a `ServerActionError`. The URL to come back to is encoded as the browser sent it and has no base path, which `Page.LocalRedirect` adds back; one that is not a local URL is left out. A third parameter names the query value, and the answer goes out `Cache-Control: no-store, private`. An app that executed `Page.Redirect` in `OnRedirectToLogin` itself can use it in place; the sign-in page still checks `returnUrl` with `Page.IsLocalUrl` before it redirects ([Sending a visitor to sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#sending-a-visitor-to-sign-in), [ADR 0063](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md)).
 - `Page.TooManyRequests(context, message)` as the rate limiter's `OnRejected` gives a refused form back, where the visitor got the error page: `limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts.")`. A page action's post renders its page again from its loader with status 429, with and without JavaScript, and `usePageActionState()` reports `{ ok: false, status: 429, errors, values }`, with the message under `errors['']` and the declared fields' values, never a private one such as a password; a server action's form posted without JavaScript gets the page it came from again in the same way, through `useAction`; a script's call to a server action gets a failure with status 429 and the message, which throws a `ServerActionError` as before. `Retry-After` comes from the lease. Only a post that passes the action's origin and antiforgery checks is handed back; any other request gets an empty 429, as without it. Put the limit on the action and `UseRateLimiter()` after `UseNetjes()` ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)). The failed state in the page payload now carries its status, 422 after a failed validation, and `createTestApp({ pageActionState: { status: 429, ... } })` tests a refused form; an app has nothing to change.
 - `PageMetadata.AbsoluteTitle` sets a document title that no layout's title template wraps, the counterpart of `title: { absolute }` in a page file, where `Title` from C# always went through the nearest template: `.WithMetadata(new PageMetadata { AbsoluteTitle = "Users · Back office" })` is `Users · Back office` under a root layout whose template is `%s · My app`. It wins over `Title` when both are set. A page file that exported `title: { default, template: '%s' }` only to end the app's template for a title from C# can drop it and send an absolute title; an app that sets none sees no change ([Metadata from C#](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md#metadata-from-c), [ADR 0064](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0064-a-title-from-c-sharp-can-be-absolute.md)).
+- Netjes's histograms advise bucket boundaries (`InstrumentAdvice<T>.HistogramBucketBoundaries`): `netjes.render.duration` and `netjes.sidecar.render.duration`, which are in seconds, the ones ASP.NET Core advises for `http.server.request.duration` (5 ms to 10 s), and the web vitals' limits for `netjes.web_vitals.*`. With the OpenTelemetry SDK's default boundaries, made for milliseconds, nearly every render fell in the first bucket and the percentiles meant nothing. An app that registered a view for them keeps it, as a view wins over advice; one that did so only for these boundaries can drop it ([Bucket boundaries](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#bucket-boundaries), [ADR 0065](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)).
+- Netjes's spans and metrics that have a route carry `http.route`, the route template in ASP.NET Core's notation (`/blog/{slug}`), beside `netjes.route`, the pattern in page-file syntax (`/blog/[slug]`), so a render time joins the request that waited for it and a trace is found by either. An app that converted one into the other can use the tag in place ([Routes in two notations](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#routes-in-two-notations)).
+- Server actions and layout loaders have spans, as page loaders and page actions do: `netjes.server_action` (tagged `netjes.server_action.name`) and `netjes.layout_loader` (`netjes.route` and `http.route` of the layout's URL, `netjes.layout`, and `netjes.package` for a page package's), both with `netjes.package` where it applies and the status `Error` when they throw. An app that exports Netjes's traces sees them with no change of its own; a dashboard that counts spans by name may want the two new names ([Telemetry](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#telemetry)).
 
 ### Changed
 
