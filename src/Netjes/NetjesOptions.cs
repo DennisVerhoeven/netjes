@@ -119,6 +119,17 @@ public sealed class NetjesOptions
     ];
 
     /// <summary>
+    /// Names of cookies an action may set or delete without making every tab load its page again. A client call to a
+    /// server action or page action whose response writes only these, or the antiforgery cookie, is not marked
+    /// <c>X-Netjes-Cookies: changed</c>: the router keeps the pages it holds for Back and Forward and the query cache,
+    /// and the app's other tabs are not told, as after an action that writes no cookie. For a cookie that changes nothing
+    /// another page shows, such as a cart's. Compared with their case, as browsers compare cookie names.
+    /// The cookie of every cookie authentication scheme counts whatever this list says, in any case, so signing in or
+    /// out always reloads.
+    /// </summary>
+    public IReadOnlyList<string> NoReloadCookies { get; set; } = [];
+
+    /// <summary>
     /// The secret that signs layout segment keys (partial navigation), at least 32 bytes. Default: random per process,
     /// so instances do not share keys and simply load segments in full. Set the same value on every instance to share them.
     /// On an output-cache store the instances share, a cached client payload that reuses a segment is keyed by a

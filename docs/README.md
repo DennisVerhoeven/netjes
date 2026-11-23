@@ -119,6 +119,8 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md)
 - [0064 – A title from C# can be absolute](decisions/0064-a-title-from-c-sharp-can-be-absolute.md)
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
+- [0066 – Cookies the app names change without reloading every tab](decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)
+- [0067 – A link can compare the whole query to mark the current page](decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)
 
 ## The project
 
