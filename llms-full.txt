@@ -1075,6 +1075,8 @@ options.Events.OnRedirectToLogin = context =>
 };
 ```
 
+To send the visitor to a sign-in page instead, with the URL to come back to, answer `OnRedirectToLogin` with `Page.RedirectToSignIn(context.HttpContext, "/sign-in")`: a document gets a redirect, a client navigation a redirect payload the router follows, and a server action's call keeps its 401 ([Sending a visitor to sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#sending-a-visitor-to-sign-in)).
+
 An unknown URL renders the root `not-found.tsx` inside the root layout, with status 404. Its endpoint, the fallback that `MapPages()` adds, serves no page and carries none of the layout loaders' conventions, so Netjes authorizes the layout loaders on the way first, each as the pages in its folder would be: with its own conventions and those of the loaders above it, which every page there carries, and for a file page `MapPages()`'s too, or the fallback policy. A visitor one of them refuses gets the not-found page inside the layouts above that loader's layout, still with 404, since `MapPages()`'s conventions never challenge an unknown URL: with `app.MapLayoutLoader("/", ...).RequireAuthorization()`, or with `app.MapPages().RequireAuthorization()` and any root layout loader, a signed-out visitor of `/nope` gets `app/not-found.tsx` without the root layout. The pages of other endpoints that serve no page, such as a server action's empty 401 or a minimal API's `Page.NotFound()`, a page's `unauthorized.tsx` and `forbidden.tsx`, and a page's status and error pages from before its authorization ran, such as a rate limiter's 429, render the same way, with their own status ([Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#layout-loaders-around-404-and-error-pages)). A fallback policy is different: it covers the fallback as every endpoint without authorization metadata, so a visitor it refuses gets its challenge for an unknown URL, a 401 or a login redirect, before any page renders. Below a page package's mount, `ConfigureNotFound(...)` gives the unknown URLs an endpoint with conventions of their own, such as `AllowAnonymous()` ([Page packages](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#404-and-error-pages-under-a-mount)).
 
 Netjes has built-in 404 and error pages for apps that have neither file. Special pages can export `metadata` like any page, and the layouts' title templates apply to them ([Metadata](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/metadata.md)).
@@ -1846,7 +1848,7 @@ app.MapLayoutLoader("/dashboard", ...).RequireAuthorization();      // every pag
 app.MapPages().RequireAuthorization();                              // every page without a loader of its own
 ```
 
-A fallback policy (`AddAuthorizationBuilder().SetFallbackPolicy(...)`) covers every endpoint without authorization metadata, the not-found fallback included, so it challenges a visitor it refuses on an unknown URL too, and `.AllowAnonymous()` makes an exception. Authorization runs before any loader. `MapPages()`'s authorization and the fallback policy guard the layout loaders as well as the pages: on the 401 or 403 page of a visitor they refuse, and under `MapPages()`'s authorization on the 404 for an unknown URL, which no page's endpoint serves, that visitor gets the page without running any layout loader, the root layout's included. An empty 401 or 403 from authorization renders `unauthorized.tsx` or `forbidden.tsx` ([Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#error-not-found-forbidden-and-unauthorized-pages)); with cookie authentication, answer those statuses from `OnRedirectToLogin` and `OnRedirectToAccessDenied` instead of redirecting. Checks that depend on data go in the loader, which returns `Page.Forbidden()` or `Page.NotFound()`.
+A fallback policy (`AddAuthorizationBuilder().SetFallbackPolicy(...)`) covers every endpoint without authorization metadata, the not-found fallback included, so it challenges a visitor it refuses on an unknown URL too, and `.AllowAnonymous()` makes an exception. Authorization runs before any loader. `MapPages()`'s authorization and the fallback policy guard the layout loaders as well as the pages: on the 401 or 403 page of a visitor they refuse, and under `MapPages()`'s authorization on the 404 for an unknown URL, which no page's endpoint serves, that visitor gets the page without running any layout loader, the root layout's included. An empty 401 or 403 from authorization renders `unauthorized.tsx` or `forbidden.tsx` ([Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#error-not-found-forbidden-and-unauthorized-pages)); with cookie authentication, answer those statuses from `OnRedirectToLogin` and `OnRedirectToAccessDenied` instead of redirecting, or send the visitor to a sign-in page from `OnRedirectToLogin` with `Page.RedirectToSignIn` ([Sending a visitor to sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#sending-a-visitor-to-sign-in)). Checks that depend on data go in the loader, which returns `Page.Forbidden()` or `Page.NotFound()`.
 
 Call `app.UseAuthentication()` and `app.UseAuthorization()` after `app.UseNetjes()`, and `app.UseAntiforgery()` after them.
 
@@ -2169,7 +2171,7 @@ That is the form `netjes new` writes. With JavaScript it calls the action with `
 - Every action answers at `/_netjes/actions/{name}`, the one URL the client posts to, so `MapAction` in a route group with a prefix, such as `app.MapGroup("/api")`, throws at startup. Map it on the app, or on a group without a prefix (`app.MapGroup("")`) to give a set of actions the same conventions.
 - A [page package](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md) maps its actions through its mount, at the same URLs, with the mount's conventions. They share one namespace with the app's and every other package's, so a package starts its actions' names with its own (`help.vote`), and a name the app maps again, in any case, stops the app, naming the package and the app. A package's actions are typed in the package's own generated file, not in the app's.
 - The delegate binds like any minimal API handler. A `[FromForm]` parameter binds form fields, which a `<Form>` posts and which also work without JavaScript. A parameter without it binds a JSON body, for calls from code. Services, `ClaimsPrincipal`, `HttpContext` and `CancellationToken` bind as usual. A delegate minimal APIs cannot bind, such as one with two inferred bodies or with `[FromForm]` fields next to a JSON body, stops the app at startup with an `InvalidOperationException` that names the action and gives minimal APIs' reason.
-- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint. Check what the user may do inside the action as well, as for any endpoint that changes data.
+- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint ([Rate limits](#rate-limits)). Check what the user may do inside the action as well, as for any endpoint that changes data.
 - Under `npm run dev`, `dotnet watch` applies a change inside an action to the running app, but maps a new `MapAction` only after a restart (Ctrl+R): until then a post to it answers 405, and `generated/netjes.ts` gains its reference on that start or with `npx netjes generate`.
 
 ### Results
@@ -2425,7 +2427,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries }) {
 });
 ```
 
-`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
+`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. After the rate limiter refused the post, it is the same failure with status 429 ([Rate limits](#rate-limits)). It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
 
 ## Antiforgery and the origin check
 
@@ -2453,6 +2455,50 @@ app.MapAction("photos.upload", [RequestSizeLimit(20 * 1024 * 1024)] (IFormFile p
 ```
 
 Page actions keep the server's limit (30 MB with Kestrel).
+
+## Rate limits
+
+ASP.NET Core's rate limiter guards an action like any endpoint: `.RequireRateLimiting(policy)` on `MapAction` or `MapPageAction`, and `app.UseRateLimiter()` after `app.UseNetjes()`, so the limiter sees the endpoint routing chose. On its own, a refused post gets an empty status (503, or the limiter's `RejectionStatusCode`), which Netjes answers with the error page, so the visitor loses the form. `Page.TooManyRequests` as the limiter's `OnRejected` gives the form back instead:
+
+```csharp
+builder.Services.AddRateLimiter(limiter =>
+{
+    limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts. Try again in a minute.");
+    limiter.AddFixedWindowLimiter("sign-in", window =>
+    {
+        window.PermitLimit = 5;
+        window.Window = TimeSpan.FromMinutes(1);
+    });
+});
+
+app.MapPageAction("/sign-in", ([FromForm] SignInForm form, ...) => ...).RequireRateLimiting("sign-in");
+```
+
+It answers with status 429, `Retry-After` when the limiter says when to come back (a window or a token bucket does), and `Cache-Control: no-store`:
+
+- **A page action's post** gets its page again from its loader, with and without JavaScript, as after a [failed validation](#validation-in-page-actions): `usePageActionState()` returns `{ ok: false, status: 429, errors, values }`, with the message under `errors['']` (default "Too many requests. Try again later.") and the submitted values of the fields the action declares, never a password or another private field ([What a failed post hands back](#what-a-failed-post-hands-back)).
+- **A server action's form posted without JavaScript** gets the page it was posted from again, in the same way, and `useAction`'s state starts as that failure.
+- **A server action called by script**, `useAction`'s form with JavaScript included, gets a failure with status 429 and the message, which throws a `ServerActionError` whose `message` is that text, as a 429 always has ([`ServerActionError`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#serveractionerror)).
+- **Any other request**, such as a page's `GET` behind a limit, gets an empty 429, which Netjes answers with the error page, or with a failure for a script's call.
+
+A post is handed back only when it passes the checks the action itself makes before it runs, which the limiter comes before: its origin and its antiforgery token ([Antiforgery and the origin check](#antiforgery-and-the-origin-check)). One that fails them gets the empty 429, and nothing it posted is written into a page. The message can depend on the request, such as its language: `(context, _) => Page.TooManyRequests(context, Texts.TooMany(context.HttpContext))`. A policy of your own (`IRateLimiterPolicy<T>`) returns it from its `OnRejected`, which the limiter calls in place of the global one.
+
+```tsx
+// app/sign-in/page.tsx
+export default definePage(pages['/sign-in'], function SignIn() {
+  const failed = usePageActionState();
+  return (
+    <Form method="post">
+      {failed?.errors['']?.map((message) => <p role="alert" key={message}>{message}</p>)}
+      <input name="email" type="email" defaultValue={String(failed?.values.email ?? '')} />
+      <input name="password" type="password" />
+      <button type="submit">Sign in</button>
+    </Form>
+  );
+});
+```
+
+Put the limit on the action, not on the page: the page rendered again goes through the limiter as a `GET` of its own, and a limit there refuses it too. Every refused post that is handed back renders its page, loaders included, so a limit that refuses a flood of posts renders a page for each.
 
 ## Revalidation
 
@@ -4356,6 +4402,8 @@ A server action's request body may be at most 1 MB (`NetjesOptions.ActionBodySiz
 
 A form whose action fails validation comes back with what was typed, so the user does not type it again. Only the fields the action declares come back, never files, and never a field whose name contains one of the words in `NetjesOptions.PrivateFormFields` (`password`, `token`, `card`, `pin`, `iban` and more). What comes back goes out `Cache-Control: no-store`: the page rendered again, or a server action's answer to a call from the client. [What a failed post hands back](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#what-a-failed-post-hands-back) has the default words, how they match and the size limits.
 
+A post the rate limiter refused, with `Page.TooManyRequests` as its `OnRejected`, comes back the same way, with status 429 ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)). The limiter runs before the action's own checks, so `Page.TooManyRequests` makes the origin and token checks first, as the action would: a post from another site, or with a missing or wrong token, gets an empty 429, and nothing it posted is written into a page.
+
 The return page of a post without JavaScript is always a page of the app: a return URL that routes anywhere else renders the home page (or the error page with 422, where `/` is no page either). Middleware registered before `UseNetjes()` does not run again for that render, so protect pages with endpoint authorization, not with middleware ahead of `UseNetjes()` ([Forms without JavaScript](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#forms-without-javascript)).
 
 ## Redirects
@@ -4371,6 +4419,25 @@ return Page.IsLocalUrl(returnUrl) ? Page.LocalRedirect(returnUrl) : Page.Redirec
 The client router never loads a page from another origin: a redirect or link to another site is a full page load, handed to the browser.
 
 Netjes's own redirect of another spelling of a page's URL ([One URL per page](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#one-url-per-page)) is built from the URL the client sent, and never sends a location that could lead off the site. Under a root catch-all with `TrailingSlash.Never`, `//other.example/` would go to `//other.example`, `/\other.example/` to `/\other.example`, and `/%5Cother.example/` to a location that a client which decodes it reads as `/\other.example`: each of them is answered as it was sent, without a redirect. So is a URL whose location would hold a backslash, which browsers read as a slash, a `#`, which ends the path, a control character such as a tab, which browsers drop, or a character beyond ASCII, and one whose base path comes from a header, such as an `X-Forwarded-Prefix` taken from anyone, and would make the location start with `//` or `/\`.
+
+### Sending a visitor to sign in
+
+Cookie authentication answers a visitor it challenges with a redirect to its `LoginPath`. The client router follows that only with a full page load, and a server action's call gets the sign-in page's HTML in place of a failure. `Page.RedirectToSignIn(context, path)` in its `OnRedirectToLogin` answers as Netjes's own redirect does:
+
+```csharp
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(cookie =>
+{
+    cookie.Events.OnRedirectToLogin = context => Page.RedirectToSignIn(context.HttpContext, "/sign-in");
+});
+```
+
+- A document gets a 307 to `/sign-in?returnUrl=...`, or a 303 after a form post; a client navigation or a page action's post from the client router gets a redirect payload, which the router follows without a full page load.
+- A call to a server action, and any other request below `/_netjes`, has no page to come back to: it gets an empty 401, which Netjes answers with a failure that throws a `ServerActionError` (status 401), or with the 401 page for a form posted without JavaScript.
+- The URL to come back to is the request's path and query, encoded as the browser sent it, without the base path, which `Page.LocalRedirect` puts back. A path that is no local URL, such as a request target that starts with `//`, gets none. The sign-in page reads it as a `returnUrl` query value and checks it with `Page.IsLocalUrl` before it redirects, as above, since anyone can write a link to the sign-in page with a `returnUrl` of their own.
+- `path` must be a local URL, and may have a query (`/sign-in?as=staff`); the third parameter names the query value (`returnUrl` by default). The answer goes out `Cache-Control: no-store, private`.
+- Every other request, an app's own endpoint included, is redirected as a document. Give an endpoint that scripts call, such as a JSON API, a policy whose scheme answers 401 instead.
+
+The answer of `OnRedirectToAccessDenied` stays the app's: answer 403 there, so that `forbidden.tsx` renders ([Routing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#error-not-found-forbidden-and-unauthorized-pages)).
 
 ## The image endpoint
 
@@ -4507,7 +4574,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
-| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422 ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
+| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422, or with `status`, such as 429 for a post the rate limiter refused ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
@@ -4562,7 +4629,7 @@ it('shows what the page action refused, next to the field', () => {
 });
 ```
 
-`usePageActionState()` reports status 422, as it does after the server's. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
+`usePageActionState()` reports status 422, as it does after the server's. A post the rate limiter refused ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)) comes back with status 429 and the limiter's message under `''`: give `status: 429` and `errors: { '': ['Too many requests. Try again later.'] }` to test how the page shows it. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
 
 ### Pages
 
@@ -5578,7 +5645,7 @@ type UseActionOptions<TResult> = {
 };
 ```
 
-React's `useActionState` for a server action. Pass `formAction` to `<Form action>`. After a failed post without JavaScript, `state` starts as that failure, with the submitted values. `onSubmit` is where `useOptimistic` updates go: React keeps them until the action and the page refresh after it have finished. See [`useAction` and `<Form>`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#useaction-and-form).
+React's `useActionState` for a server action. Pass `formAction` to `<Form action>`. After a failed post without JavaScript, `state` starts as that failure, with the submitted values: status 422 after a failed validation, 429 after a rate limiter refused it with `Page.TooManyRequests`. `onSubmit` is where `useOptimistic` updates go: React keeps them until the action and the page refresh after it have finished. See [`useAction` and `<Form>`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#useaction-and-form).
 
 #### `ActionState`
 
@@ -5598,7 +5665,7 @@ function usePageActionState(): PageActionFailure | null;
 type PageActionFailure = { ok: false; status: number; errors: Record<string, string[]>; values: Record<string, string | string[]> };
 ```
 
-After the input of the page's action (`MapPageAction`) failed its DataAnnotations or `IValidatableObject` checks: the errors per field (status 422) and the submitted values of the fields the action declares, in the shape of `ActionState`'s failure. The page has been rendered again from its loader, with or without JavaScript, so a field takes its value with `defaultValue={String(failed?.values.name ?? '')}`. Null on every other render, also after a server action's failure, which `useAction` reads. See [validation in page actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#validation-in-page-actions).
+After the input of the page's action (`MapPageAction`) failed its DataAnnotations or `IValidatableObject` checks: the errors per field (status 422) and the submitted values of the fields the action declares, in the shape of `ActionState`'s failure. The page has been rendered again from its loader, with or without JavaScript, so a field takes its value with `defaultValue={String(failed?.values.name ?? '')}`. After the rate limiter refused the post, with `Page.TooManyRequests` as its `OnRejected`, the same with status 429 and the limiter's message under `errors['']` ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)). Null on every other render, also after a server action's failure, which `useAction` reads. See [validation in page actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#validation-in-page-actions).
 
 #### `ServerActionError`
 
@@ -5610,7 +5677,7 @@ class ServerActionError extends Error {
 }
 ```
 
-Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429.
+Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429. A rate limiter whose `OnRejected` is `Page.TooManyRequests` sends its message with the 429, so `message` can be shown as it is.
 
 `status` is the status of the server's answer. `message` is the message the server sent: the exception's (for a 4xx always, for a 5xx only with error details on), or the reason phrase for a call the server refused, such as `Forbidden`. `withheld` is true when the server sent no message, as for a 5xx with error details off; `message` is then `Server action <name> failed with status <status>`. An answer that is not JSON, such as a proxy's 502 page, gets that message too, but is not withheld.
 
@@ -5966,7 +6033,7 @@ type TestAppOptions = {
   publicConfig?: Record<string, unknown>; // what usePublicConfig() returns
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
-  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> }; // what usePageActionState() returns, as after a 422; the page is `route`, else the URL's path
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]>; status?: number }; // what usePageActionState() returns, as after a 422 (or `status`, such as 429); the page is `route`, else the URL's path
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
   defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
   queryClient?: QueryClient;        // use this client, as it is, instead of a new one
@@ -6264,10 +6331,12 @@ public static class Page
     public static bool IsLocalUrl(string? url);
     public static Deferred<T> Defer<T>(Task<T> task);
     public static Deferred<T> Defer<T>(Func<IServiceProvider, Task<T>> load);
+    public static Task RedirectToSignIn(HttpContext context, string path, string returnUrlParameter = "returnUrl");
+    public static ValueTask TooManyRequests(OnRejectedContext context, string? message = null);
 }
 ```
 
-Results for page loaders, layout loaders and page actions.
+Results for page loaders, layout loaders and page actions, and the answers of an authentication event and a rate limiter's refusal.
 
 | Member | What it does |
 |---|---|
@@ -6282,6 +6351,8 @@ Results for page loaders, layout loaders and page actions.
 | `IsLocalUrl(url)` | Whether `url` is a path on this site by ASP.NET Core's rules (`/path`, not `//host` or `/\host`), after dropping what browsers drop. Check a `returnUrl` with it and fall back instead of throwing. |
 | `Defer(task)` | A prop that is still being computed: the page renders without waiting, and the task's result streams to it when it completes. Read it with `use()` inside a Suspense boundary. |
 | `Defer(load)` | The same, with the work started once the page's payload is written, in a DI scope of its own: for work that needs scoped services such as a `DbContext`. |
+| `RedirectToSignIn(context, path, returnUrlParameter)` | For an authentication event, such as cookie authentication's `OnRedirectToLogin`: sends the visitor to the sign-in page at `path` (a path on this site without the base path, with or without a query), with the request's path and query as `returnUrl` (or `returnUrlParameter`). A document gets a redirect, 307 or 303 after a form post, and a client navigation a redirect payload the router follows. A call to a server action, or any other request below `/_netjes`, gets an empty 401, which Netjes answers with a failure (a `ServerActionError` in the browser) or the 401 page. The URL to come back to has no base path, is encoded as the browser sent it, and is left out when it is not a local URL. The answer goes out `Cache-Control: no-store, private`. Throws `ArgumentException` for a `path` that is not a local URL ([Sending a visitor to sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#sending-a-visitor-to-sign-in)). |
+| `TooManyRequests(context, message)` | For the rate limiter's `OnRejected`, or a policy's: answers with status 429, `Retry-After` from the lease and `Cache-Control: no-store`. A page action's post gets its page again from its loader, with and without JavaScript, and `usePageActionState()` reports status 429 with `message` (default "Too many requests. Try again later.") under `""` and the fields the action declares, never a secret; a server action's form posted without JavaScript gets the page it was posted from again, for `useAction`; a script's call to a server action gets a failure with status 429 and the message. A post is handed back only when it passes the action's origin and antiforgery checks; any other request gets an empty 429, which Netjes answers with the error page or a failure ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)). |
 
 See [rendering and streaming](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/rendering-and-streaming.md#slow-data-with-pagedefer) for `Defer`.
 
@@ -7941,7 +8012,7 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 
 ## Protecting sections
 
-`app.MapLayoutLoader("/dashboard", ...).RequireAuthorization()` protects every page below `app/dashboard/`; `app.MapPages().RequireAuthorization()` protects every page that has no loader of its own; a page loader takes `.RequireAuthorization()` itself. With cookie authentication, answer 401/403 instead of redirecting (`OnRedirectToLogin`, `OnRedirectToAccessDenied`) so `unauthorized.tsx` and `forbidden.tsx` render. `MapPages()`'s conventions never challenge an unknown URL, which stays a 404; a fallback policy covers the not-found fallback too, and challenges a visitor it refuses there. The not-found page, like the status and error pages of server actions and minimal APIs and a page's 401, 403 and pre-authorization status pages (a rate limiter's 429), runs a layout loader only for a visitor the pages in its folder would let in (its conventions and those above it, which pages with a loader carry too, and for file pages `MapPages()`'s or the fallback policy), and renders inside the layouts above it for the rest. So under `MapPages().RequireAuthorization()` the root `unauthorized.tsx` renders without the root layout when that has a loader: make it stand on its own, and never put `.AllowAnonymous()` on a layout loader to keep it, since that opens every page below. `Page.Render(pattern)` from a minimal API runs the page's layout loaders under that endpoint's authorization: protect it as the page is.
+`app.MapLayoutLoader("/dashboard", ...).RequireAuthorization()` protects every page below `app/dashboard/`; `app.MapPages().RequireAuthorization()` protects every page that has no loader of its own; a page loader takes `.RequireAuthorization()` itself. With cookie authentication, answer 401/403 instead of redirecting (`OnRedirectToLogin`, `OnRedirectToAccessDenied`) so `unauthorized.tsx` and `forbidden.tsx` render, or send the visitor to a sign-in page with `cookie.Events.OnRedirectToLogin = context => Page.RedirectToSignIn(context.HttpContext, "/sign-in")`: a document gets a redirect and a client navigation a redirect payload, to `/sign-in?returnUrl=<path and query>`, and a server action's call keeps an empty 401; the sign-in page checks `returnUrl` with `Page.IsLocalUrl` before `Page.LocalRedirect`. `MapPages()`'s conventions never challenge an unknown URL, which stays a 404; a fallback policy covers the not-found fallback too, and challenges a visitor it refuses there. The not-found page, like the status and error pages of server actions and minimal APIs and a page's 401, 403 and pre-authorization status pages (a rate limiter's 429), runs a layout loader only for a visitor the pages in its folder would let in (its conventions and those above it, which pages with a loader carry too, and for file pages `MapPages()`'s or the fallback policy), and renders inside the layouts above it for the rest. So under `MapPages().RequireAuthorization()` the root `unauthorized.tsx` renders without the root layout when that has a loader: make it stand on its own, and never put `.AllowAnonymous()` on a layout loader to keep it, since that opens every page below. `Page.Render(pattern)` from a minimal API runs the page's layout loaders under that endpoint's authorization: protect it as the page is.
 
 A check that depends on data (is this user a member of this project?) goes in the page loader as well as in the layout loader: a page's loader runs before its layouts' loaders, and a layout loader is skipped on client navigations within its section while its own route values, the user and the roles stay the same. A layout loader also binds only the route values of its own URL, so it cannot check a deeper one.
 
@@ -8042,6 +8113,7 @@ const nameError = state?.ok === false ? state.errors.name?.[0] : undefined;
 - Every action needs `app.UseAntiforgery()` (after authentication) and checks the origin; `<Form>` and `serverActions` send the token. `MapAction` bodies are limited to 1 MB (`ActionBodySizeLimit`); an upload action sets `[RequestSizeLimit(bytes)]`. Page actions keep the server's limit.
 - Name actions `feature.verb`. Names are compared ignoring case, and a second `MapAction` of a name, the app's or a page package's, stops the app at startup. Every action answers at `/_netjes/actions/{name}`, so `MapAction` in a `MapGroup` with a prefix throws; map it on the app, or on `MapGroup("")` for shared conventions. Check authorization inside the action, or with `.RequireAuthorization()`, as for any endpoint.
 - `app.MapPageAction("/guestbook", ...)` is the other kind: a POST to the page's own URL from `<Form method="post">`, fields typed in `forms['/guestbook']`. Its input's DataAnnotations and `IValidatableObject` are checked as for `MapAction`: on a failure the delegate does not run, the page renders again from its loader (422), and `const failed = usePageActionState()` gives `failed.errors` and `failed.values` (null otherwise). Checks that need data stay in the delegate: return `Page.Props(...)` with your own errors and the typed values (`.WithStatus(422)`), or `Page.Redirect(...)` after a change.
+- A rate limit goes on the action (`.RequireRateLimiting("sign-in")`, `app.UseRateLimiter()` after `app.UseNetjes()`), with `limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts.")`: a refused page action renders its page again with 429, and `usePageActionState()` gives `failed.status === 429`, the message in `failed.errors['']` and the declared fields' values (never a password); a server action's form without JavaScript gets the same through `useAction`, and a script's call throws `ServerActionError` (429, the message). Without it, a refused post gets the error page.
 - An action or post that sets or deletes a cookie (signing in or out) makes the client router forget the pages it keeps for back and forward, reload the page on screen and clear the query cache, in every tab of the app in that browser. Nothing to do in the action; a proxy must pass `X-Netjes-Cookies` through.
 
 ## Page packages
@@ -8211,7 +8283,7 @@ it('shows the validation error from C# next to the field', async () => {
 - `url` and `params` set what `usePathname`, `useSearchParams` and `useParams` see; `shared` is what `useSharedProps` returns; `queries: [{ key, data }]` seeds TanStack Query as a loader's `.WithQuery` would.
 - The `QueryClient` starts from the app's `netjes({ query: { defaultOptions } })`: a failed query or mutation is tried as often as in the app, with no wait between the tries, so the test sees the error the app shows after its last try. `defaultOptions` goes over them: `{ queries: { retry: false } }` shows the error after the first request. Seeded data is fresh for the app's `staleTime` from when `createTestApp()` is called: with a `staleTime` of 0, or in a component rendered after a fake clock moved past it, a seeded query is fetched again as it mounts; answer that request (MSW) or pass `{ queries: { staleTime: 60_000 } }`.
 - `actions` answers server action calls by name: `{ ok: true, result }` or `{ ok: false, status: 422, errors }` (add `fields: ['email']` to name the fields a failed state's `values` keep, as the server does). A failure other than a 422 throws a `ServerActionError`, withheld unless the answer has the `message` the server would send: `{ ok: false, status: 403, errors: {}, message: 'Forbidden' }`. A component that calls an action, even from an effect as it mounts, must render inside `app.Wrapper`: outside it the call fails with "called before the page was ready".
-- `pageActionState: { errors, values }` is what `usePageActionState()` returns after a page action's input failed its checks, with status 422, for the page `route` names (else the URL's path).
+- `pageActionState: { errors, values }` is what `usePageActionState()` returns after a page action's input failed its checks, with status 422 (or `status: 429` for a post the rate limiter refused), for the page `route` names (else the URL's path).
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
@@ -8386,6 +8458,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0060 – The not-found below a mount takes conventions of its own](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md): `ConfigureNotFound(...)` on a mount gives its unknown URLs an endpoint of their own that carries only the conventions it is given, so `AllowAnonymous()` there answers them with the package's 404 under the app's fallback policy; a mount inside it without its own takes them, and a mount at the root URL, one whose URL has no literal segment or a second one at the same URL cannot have one.
 - [0061 – Typegen names a type by attribute, reads a form as a record and keeps an export in the app's file](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md): `[TypeScriptName("...")]` gives a type's schema its name, only where an app asks; a form read as `IFormCollection` is a record of strings, not a list of pairs; `AddTypeScriptExport(..., appOnly: true)` writes an export in the app's file alone; derived types added through the app's JSON options at startup are documented and pinned.
 - [0062 – `endpointUrl()` has a key for a POST endpoint that reads a form](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md): a `POST` endpoint that is not JSON and accepts a form (`[FromForm]`, `IFormFile`, `IFormCollection`) is in `endpointUrl()` by its route, so a `<Form>` can post to a download by its typed URL; a webhook still has none.
+- [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md): `Page.RedirectToSignIn` in an authentication event redirects a document and a client navigation to the sign-in page with the request's local URL to come back to, and gives a server action's call a 401; `Page.TooManyRequests` as the rate limiter's `OnRejected` answers a post that passes the action's own checks like a failed validation, with status 429, and the failed state says its status.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8409,6 +8482,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `AddTypeScriptExport(group, key, slots, appOnly: true)` on a mount writes the export, and the schemas of its types, in the app's generated file alone and leaves it out of the package's own file, which ships and is the same wherever an app mounts the package. The overload without `appOnly` is unchanged, and every entry of one export has the same `appOnly` ([Schemas the app reads too](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md#schemas-the-app-reads-too)).
 - `endpointUrl()` has a key for a `POST` endpoint that accepts a posted form (`[FromForm]`, `IFormFile`, `IFormCollection`) and is no JSON endpoint, in the app's generated file and in a page package's own: a form that downloads a file posts to the endpoint's typed URL, `<Form method="post" action={endpointUrl('POST /users/{id}/export', { id })}>`, where the URL was written by hand from the route. A page of a page package posts with the core `Form` and the package's `useHref(endpointUrl(...))`: the package's own `Form` takes only its pages' routes. Run `npx netjes generate`: the file lists the new keys, and its comment above `EndpointParams` changes. A webhook or another `POST` endpoint that reads no form still has none, and no other app code changes ([A form that downloads](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#a-form-that-downloads), [ADR 0062](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md)).
 - Derived types that a package or an app adds to a polymorphic type through the app's JSON options at startup (a resolver modifier) are documented as written into the union, and a test pins it ([Derived types added at startup](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#derived-types-added-at-startup)). Nothing changes.
+- `Page.RedirectToSignIn(context, path)` sends a visitor who has to sign in to the app's sign-in page from an authentication event: `cookie.Events.OnRedirectToLogin = context => Page.RedirectToSignIn(context.HttpContext, "/sign-in")`. A document gets a 307, or a 303 after a form post, and a client navigation a redirect payload the router follows without a full page load, to `/sign-in?returnUrl=<path and query>`; a call to a server action, or any request below `/_netjes`, gets an empty 401, which reaches a script as a `ServerActionError`. The URL to come back to is encoded as the browser sent it and has no base path, which `Page.LocalRedirect` adds back; one that is not a local URL is left out. A third parameter names the query value, and the answer goes out `Cache-Control: no-store, private`. An app that executed `Page.Redirect` in `OnRedirectToLogin` itself can use it in place; the sign-in page still checks `returnUrl` with `Page.IsLocalUrl` before it redirects ([Sending a visitor to sign in](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#sending-a-visitor-to-sign-in), [ADR 0063](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md)).
+- `Page.TooManyRequests(context, message)` as the rate limiter's `OnRejected` gives a refused form back, where the visitor got the error page: `limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts.")`. A page action's post renders its page again from its loader with status 429, with and without JavaScript, and `usePageActionState()` reports `{ ok: false, status: 429, errors, values }`, with the message under `errors['']` and the declared fields' values, never a private one such as a password; a server action's form posted without JavaScript gets the page it came from again in the same way, through `useAction`; a script's call to a server action gets a failure with status 429 and the message, which throws a `ServerActionError` as before. `Retry-After` comes from the lease. Only a post that passes the action's origin and antiforgery checks is handed back; any other request gets an empty 429, as without it. Put the limit on the action and `UseRateLimiter()` after `UseNetjes()` ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)). The failed state in the page payload now carries its status, 422 after a failed validation, and `createTestApp({ pageActionState: { status: 429, ... } })` tests a refused form; an app has nothing to change.
 
 ### Changed
 
