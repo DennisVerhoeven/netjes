@@ -785,13 +785,19 @@ class Navigator {
     const letThrough = this.letThrough !== null && index === this.letThrough;
     this.letThrough = null;
     if (!letThrough && this.holdTraversal(url, index)) return;
-    this.index = index;
+    // An entry with no place on the page on screen: a fragment the browser moved to itself (a plain `<a href="#…">`, a
+    // fragment typed in the address bar, `location.hash`), which adds an entry after the one on screen and fires
+    // `popstate` with no state. It gets the next place, and a key, so the steps to it, from it and from the entries
+    // pushed after it are counted as any others.
+    const fragment = index === undefined && samePage(url, this.current.url);
+    this.index = fragment ? this.nextIndex() : index;
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
     const cached = this.entries.get(key);
     const known = cached && samePage(cached.url, url) ? cached : samePage(url, this.current.url) ? this.current : null;
     const values = readValues(event.state);
+    if (fragment) window.history.replaceState(entryState(key, this.index, values, event.state), '');
     if (known) {
       this.active?.controller.abort();
       // From memory, unless the page on screen simply stays (Back over a fragment link).

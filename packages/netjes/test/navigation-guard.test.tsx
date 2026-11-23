@@ -71,6 +71,8 @@ function Editor() {
       <Uploads />
       <Link href="/other">Other</Link>
       <Link href="#notes">Notes</Link>
+      {/* Not a Link: the browser moves to the fragment itself, as in Markdown content or a skip link. */}
+      <a href="#plain">Plain</a>
       <Link href="https://example.com/">Elsewhere</Link>
       <Form method="get" action="/other">
         <label>
@@ -401,6 +403,29 @@ describe('useNavigationGuard and the browser history', () => {
 
     expect(where()).toBe('/other');
     expect(screen.getByRole('heading', { name: 'Other' })).toBeDefined();
+  });
+
+  it('keeps holding Back after the browser moved to a fragment itself, from a plain link', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    // The browser adds the entry itself, and fires popstate with no state.
+    const moved = popped();
+    await user.click(screen.getByRole('link', { name: 'Plain' }));
+    await act(() => moved);
+    expect(window.location.hash).toBe('#plain');
+    // Leaves by a link the guard lets go on, and comes back by a link.
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    await act(async () => onlyAttempt().proceed());
+    await screen.findByRole('heading', { name: 'Other' });
+    await toEditor(user);
+
+    const asking = nextAttempt();
+    await go(-1);
+
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeDefined();
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
   });
 
   it("holds router.back() as the browser's Back", async () => {
