@@ -63,7 +63,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`, merged over the app's own and the harness's. Failed queries and mutations are tried as often as in the app, with no wait between the tries ([Queries that fail](#queries-that-fail)). |
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
-| `navigation` | What `useNavigation()` returns. Default idle. |
+| `navigation` | What `useNavigation()` returns. Default idle. `{ state: 'idle', error: { kind: 'refresh', status: null, location: '/x' } }` renders a page after a refresh that failed ([When a navigation fails](routing.md#when-a-navigation-fails)). |
 | `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422, or with `status`, such as 429 for a post the rate limiter refused ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |

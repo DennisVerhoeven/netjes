@@ -106,7 +106,7 @@ type NavigateOptions = {
 };
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. While a [`useNavigationGuard`](#usenavigationguard) holds, `push`, `replace`, `back` and `forward` ask it first; the promise of a push or a replace resolves once a guard keeps the page, or as without a guard once one lets it go on. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. While a [`useNavigationGuard`](#usenavigationguard) holds, `push`, `replace`, `back` and `forward` ask it first; the promise of a push or a replace resolves once a guard keeps the page, or as without a guard once one lets it go on. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL, a failure that kept the page, which [`useNavigation`](#usenavigation) reports), so the old page can still be on screen then; `refresh` does not reject when it fails; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -114,13 +114,17 @@ The client router. `push` and `replace` navigate, adding or replacing a history 
 function useNavigation(): NavigationState;
 
 type NavigationState =
-  | { state: 'idle'; error?: SubmitError }
+  | { state: 'idle'; error?: NavigationError }
   | { state: 'loading' | 'submitting'; location: string };
 
-type SubmitError = { status: number | null; action: string };
+type NavigationError = {
+  kind: 'navigate' | 'refresh' | 'submit';
+  status: number | null;
+  location: string;
+};
 ```
 
-The router's state: `'loading'` during a navigation and `'submitting'` during a form post, with the path and query on their way (without the base path). After a form post that did not produce a page, `'idle'` carries `error` until the next navigation: the status of the error response, or `null` when nothing answered, and the URL posted to.
+The router's state: `'loading'` during a navigation and `'submitting'` during a form post, with the path and query on their way (without the base path). After a navigation, a refresh or a form post that ended without a page, while the page on screen stayed, `'idle'` carries `error` until the next navigation, refresh or form post starts. `kind` is what failed: `'navigate'` (a link, a GET form, `push`, `replace`, Back or Forward), `'refresh'` (`router.refresh()`, the one a server action asks for included) or `'submit'` (a form post). `status` is the status of the server's answer, or `null` when no answer came, and `location` is the path and query it went to, without the base path. A navigation or a refresh fails this way when no answer comes while the browser is online, or the server answers with a server error (5xx) that is no page; a form post also on any other answer that is no page: an error, or one that is neither an HTML document nor an attachment. While the browser is offline, a navigation or a refresh that gets no answer loads the URL as a document instead. `SubmitError`, its name while only form posts reported a failure, is kept as a deprecated alias; its `action` is now `location`. See [When a navigation fails](../guides/routing.md#when-a-navigation-fails).
 
 #### `useHistoryState`
 

@@ -121,6 +121,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
 - [0066 – A page keeps values with its history entry, and hears when Back shows it from memory](decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)
 - [0067 – A page can hold a navigation and ask, Back and Forward included](decisions/0067-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md)
+- [0068 – A navigation that fails keeps the page, and a redirect to no page loads a document](decisions/0068-a-navigation-that-fails-keeps-the-page-and-a-redirect-to-no-page-loads-a-document.md)
 
 ## The project
 
