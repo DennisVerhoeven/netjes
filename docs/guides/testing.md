@@ -46,7 +46,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 
 | Entry | For |
 |---|---|
-| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace` |
+| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace`; with `historyState` when it carried [history state](#history-state) |
 | `{ type: 'refresh' \| 'back' \| 'forward' }` | `router.refresh()`, `router.back()`, `router.forward()` |
 | `{ type: 'submit', action, data }` | A `<Form method="post">` post, with its fields as `URLSearchParams` or `FormData` |
 | `{ type: 'action', name, input }` | A server action call, with its input (an object, or the form's `FormData`) |
@@ -69,6 +69,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
 | `draftMode` | What `useDraftMode()` reports. |
+| `historyState` | The `useHistoryState` values of the history entry on screen, by name: what a navigation carried into it, or an earlier visit left there ([History state](#history-state)). Default none. |
 | `mounts` | Each mounted [page package's](page-packages.md) URL for the page, by npm name and without the base path, as the server sends it: `{ '@acme/help-center': '/help' }`. The `Link`, `Form` and hooks of a package's generated file put it in front of their hrefs, and throw for a package it leaves out. |
 
 `createTestApp()` returns `{ Wrapper, navigations, queryClient }`. The [React API reference](../reference/react-api.md#createtestapp) has the types.
@@ -120,6 +121,19 @@ it('shows what the page action refused, next to the field', () => {
 ```
 
 `usePageActionState()` reports status 422, as it does after the server's. A post the rate limiter refused ([Rate limits](actions-and-forms.md#rate-limits)) comes back with status 429 and the limiter's message under `''`: give `status: 429` and `errors: { '': ['Too many requests. Try again later.'] }` to test how the page shows it. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
+
+### History state
+
+A page that reads [`useHistoryState`](routing.md#state-per-history-entry) gets the values of the entry on screen from `historyState`, as a navigation carried them or an earlier visit left them. A record page opened from a list:
+
+```tsx
+const app = createTestApp({ url: '/orders/7', historyState: { list: '/orders?status=open' } });
+render(<OrderPage {...props} />, { wrapper: app.Wrapper });
+
+expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('href')).toBe('/orders?status=open');
+```
+
+A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
 
 ### Pages
 

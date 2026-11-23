@@ -80,10 +80,11 @@ type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   scroll?: boolean;             // default true: scroll to the top, or to the #fragment and focus it
   prefetch?: 'intent' | 'none'; // default 'intent': fetch the page on hover, focus and touch
   reloadDocument?: boolean;     // let the browser load the URL with a full page load
+  historyState?: Readonly<Record<string, unknown>>; // useHistoryState values the entry it opens starts with
 };
 ```
 
-An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region, when its name differs from the previous page's, and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. See [Links](../guides/routing.md#links) and [Focus and announcements](../guides/routing.md#focus-and-announcements).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region, when its name differs from the previous page's, and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. `historyState` gives the entry the link opens its first [`useHistoryState`](#usehistorystate) values. See [Links](../guides/routing.md#links) and [Focus and announcements](../guides/routing.md#focus-and-announcements).
 
 #### `useRouter`
 
@@ -91,16 +92,21 @@ An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts i
 function useRouter(): Router;
 
 type Router = {
-  push(href: Href, options?: { scroll?: boolean }): Promise<void>;
-  replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  push(href: Href, options?: NavigateOptions): Promise<void>;
+  replace(href: Href, options?: NavigateOptions): Promise<void>;
   prefetch(href: Href): void;
   refresh(): Promise<void>;
   back(): void;
   forward(): void;
 };
+
+type NavigateOptions = {
+  scroll?: boolean;                                 // default true
+  historyState?: Readonly<Record<string, unknown>>; // useHistoryState values the new entry starts with
+};
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -115,6 +121,29 @@ type SubmitError = { status: number | null; action: string };
 ```
 
 The router's state: `'loading'` during a navigation and `'submitting'` during a form post, with the path and query on their way (without the base path). After a form post that did not produce a page, `'idle'` carries `error` until the next navigation: the status of the error response, or `null` when nothing answered, and the URL posted to.
+
+#### `useHistoryState`
+
+```ts
+function useHistoryState<T>(name: string, initial: T): [T, SetHistoryState<T>];
+function useHistoryState<Schema extends StandardSchemaV1>(
+  name: string,
+  initial: StandardSchemaV1.InferOutput<Schema>,
+  schema: Schema,
+): [StandardSchemaV1.InferOutput<Schema>, SetHistoryState<StandardSchemaV1.InferOutput<Schema>>];
+
+type SetHistoryState<T> = (next: T | ((previous: T) => T)) => void;
+```
+
+A value kept with the history entry on screen, by `name`, set like `useState`'s: Back, Forward and a reload bring the entry's value back. A new entry starts from `initial`, or from the value a navigation carried into it (`historyState` on `Link`, `push` and `replace`). A navigation that keeps the page on screen (another query, a fragment, a refresh, a post that stays) keeps its values; one to another page starts over. The value is `initial` on the server and in the render that hydrates the page, so hydration matches; an entry's values show in the same commit, before the browser paints. With a schema, the stored value is parsed by it, and a value it rejects gives `initial`. Values are what `structuredClone` copies, and a value it cannot copy throws in the setter. Only the entry on screen is written: a setter called after its page left the entry (as the page unmounts) changes nothing. Like `useState`, `initial` is read on the first render only. The router keeps the keys an app or a library puts in `history.state` itself. See [State per history entry](../guides/routing.md#state-per-history-entry). Throws outside a Netjes page.
+
+#### `useHistoryRestore`
+
+```ts
+function useHistoryRestore(callback: () => void): void;
+```
+
+Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router remembered, which it shows without a request, or the whole document the browser kept in its back-forward cache. A page the router loads from the server does not call it, nor does Back over a fragment link of the page on screen. It calls the `callback` of the latest render, after the page's own effects, so a page that mounts from memory hears it too. A page that has to show what is current calls `router.refresh()` from it ([Refreshing a page Back shows](../guides/routing.md#refreshing-a-page-back-shows)). Throws outside a Netjes page.
 
 #### `usePathname`
 
@@ -637,6 +666,7 @@ type TestAppOptions = {
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
   mounts?: Record<string, string | null>;  // each mounted page package's URL, as the payload's mounts: { '@acme/help-center': '/help' }
+  historyState?: Record<string, unknown>;  // the useHistoryState values of the entry on screen, default none
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
 };
 
@@ -647,7 +677,7 @@ type TestApp = {
 };
 
 type TestNavigation =
-  | { type: 'push' | 'replace'; href: string }
+  | { type: 'push' | 'replace'; href: string; historyState?: Readonly<Record<string, unknown>> } // historyState when it carried any
   | { type: 'refresh' | 'back' | 'forward' }
   | { type: 'submit'; action: string; data: URLSearchParams | FormData }
   | { type: 'action'; name: string; input: unknown };
@@ -673,7 +703,7 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)). `mounts` gives each mounted page package's URL for the page, by npm name and without the base path, as the server sends it, for the components and hooks of [`mounted`](#mounted).
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](../guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](../guides/testing.md#queries-that-fail)). `mounts` gives each mounted page package's URL for the page, by npm name and without the base path, as the server sends it, for the components and hooks of [`mounted`](#mounted). `historyState` seeds the [`useHistoryState`](#usehistorystate) values of the entry on screen; a value a component sets is kept, and a push or a replace keeps the values of a page that stays (the same path), starts another page over, and sets what it carries on top, as the router does ([History state](../guides/testing.md#history-state)). `useHistoryRestore` never calls back: the fake router shows no page from memory.
 
 #### `renderDocument`
 

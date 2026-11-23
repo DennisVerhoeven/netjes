@@ -273,6 +273,7 @@ import { route } from '../generated/netjes.ts';
 - An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
+- `historyState={{ name: value }}` starts the entry the link opens with those [`useHistoryState`](#state-per-history-entry) values, such as the list a record was opened from.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a page of the app that must load in full or a page on another site. For a file or another endpoint of the app, see the next bullet.
 - An endpoint of the app, such as a feed or a file, is not a page, and `href` refuses the `string` that the generated `endpointUrl()` returns for it. Link it with a plain `<a>` under the base path: `<a href={useHref(endpointUrl('GET /feed.xml'))}>` ([Endpoint URLs](data-loading.md#endpoint-urls)).
@@ -304,6 +305,55 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)).
 
 A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
+
+### State per history entry
+
+`useHistoryState(name, initial)` is `useState` with the value kept in the history entry: Back, Forward and a reload bring back the value the entry had. A list keeps what the reader ticked, and a record knows which list opened it:
+
+```tsx
+// app/orders/page.tsx: the ticks belong to this visit of the list, and come back with it.
+const [ticked, setTicked] = useHistoryState<string[]>('ticked', []);
+// Each row's link carries the list's address, with its filters, into the record's entry.
+const pathname = usePathname();
+const query = useSearchParams().toString();
+const here = query ? `${pathname}?${query}` : pathname;
+
+<Link href={route('/orders/[id]', { id: order.id })} historyState={{ list: here }}>
+  {order.number}
+</Link>;
+```
+
+```tsx
+// app/orders/[id]/page.tsx: the way back, still there after a reload. The schema checks what the entry holds.
+import { Href } from '../../../generated/netjes.ts';
+
+const listHref = Href.nullable();
+
+const [list] = useHistoryState('list', null, listHref);
+<Link href={list ?? '/orders'}>Back to the orders</Link>;
+```
+
+- **Each entry has its own values.** A new entry starts from `initial`, or from what the navigation that opened it carried: `historyState` on `<Link>`, `router.push(href, { historyState })` and `router.replace(href, { historyState })`. Two visits to one list are two entries, and a record opened from its URL has no list in its entry.
+- **A page that stays keeps them.** A navigation that keeps the page on screen, such as another query (a filter, a tab, `?page=2`), a fragment, `router.refresh()` or a form post that stays, gives the entry it adds or replaces the values the page has, as the page keeps its React state; what it carries is set on top. A navigation to another page starts over, layouts included. Back to an earlier entry gives that entry's values, as they were when it was left.
+- **Server rendering.** The value is `initial` on the server and in the render that hydrates the page, so the HTML and the first render match. The router shows the entry's values in the same commit, before the browser paints. A value that changes what the server rendered, such as a link's `href`, is in the HTML as `initial`.
+- **Small values.** The browser copies values with `structuredClone`, so keep to ids, names, numbers and arrays or objects of them: a function or an element cannot be copied, and the setter or the navigation throws, and a class instance comes back as a plain object. Browsers limit the size of an entry's state, so keep rows and pages of data in their loader. The router copies what a navigation carries when it starts, so changing the object afterwards changes nothing.
+- **One set of names per entry.** The page, its layouts and the components of a page package share the entry's names: a page package prefixes its own (`'help:query'`).
+- **A schema** (the third argument, at module level) parses what the entry holds, and a value it rejects gives `initial`: after a deploy, a reload brings back what the older build put there.
+- **Only the entry on screen is written.** A page that sets a value as it unmounts, or while Back loads the page before it, changes nothing: set values while the page is on screen.
+- **Other keys stay.** The router keeps its entry key and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
+
+### Refreshing a page Back shows
+
+Back and Forward show a page the router remembered as it was when the reader left it. When something on the next page changed what it shows, such as a record's state on a list, the page can load itself again: `useHistoryRestore(callback)` calls back each time the page on screen was shown from memory.
+
+```tsx
+import { useHistoryRestore, useRouter } from 'netjes';
+
+const router = useRouter();
+useHistoryRestore(() => void router.refresh());
+```
+
+It also calls back when the browser shows the whole document again from its back-forward cache, after the reader went to another site and came back. A page the router loads from the server does not call it (a link, a refresh, Back to an entry the router does not remember, such as one from before a reload), and neither does Back over a fragment link, where the page stays as it was. `router.refresh()` keeps the entry, its values and the scroll position. TaskBoard's board refreshes itself this way, and its task page goes back to the board as it was filtered ([`e2e/history.spec.ts`](../../examples/TaskBoard/e2e/history.spec.ts)).
 
 ### Focus and announcements
 

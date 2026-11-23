@@ -1230,6 +1230,7 @@ import { route } from '../generated/netjes.ts';
 - An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
+- `historyState={{ name: value }}` starts the entry the link opens with those [`useHistoryState`](#state-per-history-entry) values, such as the list a record was opened from.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a page of the app that must load in full or a page on another site. For a file or another endpoint of the app, see the next bullet.
 - An endpoint of the app, such as a feed or a file, is not a page, and `href` refuses the `string` that the generated `endpointUrl()` returns for it. Link it with a plain `<a>` under the base path: `<a href={useHref(endpointUrl('GET /feed.xml'))}>` ([Endpoint URLs](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/data-loading.md#endpoint-urls)).
@@ -1261,6 +1262,55 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#signing-in-and-out)).
 
 A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
+
+### State per history entry
+
+`useHistoryState(name, initial)` is `useState` with the value kept in the history entry: Back, Forward and a reload bring back the value the entry had. A list keeps what the reader ticked, and a record knows which list opened it:
+
+```tsx
+// app/orders/page.tsx: the ticks belong to this visit of the list, and come back with it.
+const [ticked, setTicked] = useHistoryState<string[]>('ticked', []);
+// Each row's link carries the list's address, with its filters, into the record's entry.
+const pathname = usePathname();
+const query = useSearchParams().toString();
+const here = query ? `${pathname}?${query}` : pathname;
+
+<Link href={route('/orders/[id]', { id: order.id })} historyState={{ list: here }}>
+  {order.number}
+</Link>;
+```
+
+```tsx
+// app/orders/[id]/page.tsx: the way back, still there after a reload. The schema checks what the entry holds.
+import { Href } from '../../../generated/netjes.ts';
+
+const listHref = Href.nullable();
+
+const [list] = useHistoryState('list', null, listHref);
+<Link href={list ?? '/orders'}>Back to the orders</Link>;
+```
+
+- **Each entry has its own values.** A new entry starts from `initial`, or from what the navigation that opened it carried: `historyState` on `<Link>`, `router.push(href, { historyState })` and `router.replace(href, { historyState })`. Two visits to one list are two entries, and a record opened from its URL has no list in its entry.
+- **A page that stays keeps them.** A navigation that keeps the page on screen, such as another query (a filter, a tab, `?page=2`), a fragment, `router.refresh()` or a form post that stays, gives the entry it adds or replaces the values the page has, as the page keeps its React state; what it carries is set on top. A navigation to another page starts over, layouts included. Back to an earlier entry gives that entry's values, as they were when it was left.
+- **Server rendering.** The value is `initial` on the server and in the render that hydrates the page, so the HTML and the first render match. The router shows the entry's values in the same commit, before the browser paints. A value that changes what the server rendered, such as a link's `href`, is in the HTML as `initial`.
+- **Small values.** The browser copies values with `structuredClone`, so keep to ids, names, numbers and arrays or objects of them: a function or an element cannot be copied, and the setter or the navigation throws, and a class instance comes back as a plain object. Browsers limit the size of an entry's state, so keep rows and pages of data in their loader. The router copies what a navigation carries when it starts, so changing the object afterwards changes nothing.
+- **One set of names per entry.** The page, its layouts and the components of a page package share the entry's names: a page package prefixes its own (`'help:query'`).
+- **A schema** (the third argument, at module level) parses what the entry holds, and a value it rejects gives `initial`: after a deploy, a reload brings back what the older build put there.
+- **Only the entry on screen is written.** A page that sets a value as it unmounts, or while Back loads the page before it, changes nothing: set values while the page is on screen.
+- **Other keys stay.** The router keeps its entry key and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
+
+### Refreshing a page Back shows
+
+Back and Forward show a page the router remembered as it was when the reader left it. When something on the next page changed what it shows, such as a record's state on a list, the page can load itself again: `useHistoryRestore(callback)` calls back each time the page on screen was shown from memory.
+
+```tsx
+import { useHistoryRestore, useRouter } from 'netjes';
+
+const router = useRouter();
+useHistoryRestore(() => void router.refresh());
+```
+
+It also calls back when the browser shows the whole document again from its back-forward cache, after the reader went to another site and came back. A page the router loads from the server does not call it (a link, a refresh, Back to an entry the router does not remember, such as one from before a reload), and neither does Back over a fragment link, where the page stays as it was. `router.refresh()` keeps the entry, its values and the scroll position. TaskBoard's board refreshes itself this way, and its task page goes back to the board as it was filtered ([`e2e/history.spec.ts`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/e2e/history.spec.ts)).
 
 ### Focus and announcements
 
@@ -4556,7 +4606,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 
 | Entry | For |
 |---|---|
-| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace` |
+| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace`; with `historyState` when it carried [history state](#history-state) |
 | `{ type: 'refresh' \| 'back' \| 'forward' }` | `router.refresh()`, `router.back()`, `router.forward()` |
 | `{ type: 'submit', action, data }` | A `<Form method="post">` post, with its fields as `URLSearchParams` or `FormData` |
 | `{ type: 'action', name, input }` | A server action call, with its input (an object, or the form's `FormData`) |
@@ -4579,6 +4629,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
 | `draftMode` | What `useDraftMode()` reports. |
+| `historyState` | The `useHistoryState` values of the history entry on screen, by name: what a navigation carried into it, or an earlier visit left there ([History state](#history-state)). Default none. |
 | `mounts` | Each mounted [page package's](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/page-packages.md) URL for the page, by npm name and without the base path, as the server sends it: `{ '@acme/help-center': '/help' }`. The `Link`, `Form` and hooks of a package's generated file put it in front of their hrefs, and throw for a package it leaves out. |
 
 `createTestApp()` returns `{ Wrapper, navigations, queryClient }`. The [React API reference](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/react-api.md#createtestapp) has the types.
@@ -4630,6 +4681,19 @@ it('shows what the page action refused, next to the field', () => {
 ```
 
 `usePageActionState()` reports status 422, as it does after the server's. A post the rate limiter refused ([Rate limits](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#rate-limits)) comes back with status 429 and the limiter's message under `''`: give `status: 429` and `errors: { '': ['Too many requests. Try again later.'] }` to test how the page shows it. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
+
+### History state
+
+A page that reads [`useHistoryState`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#state-per-history-entry) gets the values of the entry on screen from `historyState`, as a navigation carried them or an earlier visit left them. A record page opened from a list:
+
+```tsx
+const app = createTestApp({ url: '/orders/7', historyState: { list: '/orders?status=open' } });
+render(<OrderPage {...props} />, { wrapper: app.Wrapper });
+
+expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('href')).toBe('/orders?status=open');
+```
+
+A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
 
 ### Pages
 
@@ -5503,10 +5567,11 @@ type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   scroll?: boolean;             // default true: scroll to the top, or to the #fragment and focus it
   prefetch?: 'intent' | 'none'; // default 'intent': fetch the page on hover, focus and touch
   reloadDocument?: boolean;     // let the browser load the URL with a full page load
+  historyState?: Readonly<Record<string, unknown>>; // useHistoryState values the entry it opens starts with
 };
 ```
 
-An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region, when its name differs from the previous page's, and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. See [Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links) and [Focus and announcements](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#focus-and-announcements).
+An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts its `href` under the base path, and sets `aria-current="page"` when it goes to the page on screen: the same path, with one trailing slash ignored, and the page's values for every query parameter the link names, in any order. Parameters the link leaves out do not count, and a link with a `#` or with a scheme or host of its own is never marked. An `aria-current` prop wins, `undefined` included. Modified clicks, other mouse buttons, a `target` other than `_self`, `download` and URLs on another origin behave like a plain link. After a navigation to another page, the router announces the page in a live region, when its name differs from the previous page's, and starts the focus over at the top of the document; the element a `#fragment` names takes the focus instead, and `scroll={false}` keeps it on the link while the link has it. `historyState` gives the entry the link opens its first [`useHistoryState`](#usehistorystate) values. See [Links](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#links) and [Focus and announcements](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#focus-and-announcements).
 
 #### `useRouter`
 
@@ -5514,16 +5579,21 @@ An `<a>` that navigates on the client; a `ref` gets the `<a>` element. It puts i
 function useRouter(): Router;
 
 type Router = {
-  push(href: Href, options?: { scroll?: boolean }): Promise<void>;
-  replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  push(href: Href, options?: NavigateOptions): Promise<void>;
+  replace(href: Href, options?: NavigateOptions): Promise<void>;
   prefetch(href: Href): void;
   refresh(): Promise<void>;
   back(): void;
   forward(): void;
 };
+
+type NavigateOptions = {
+  scroll?: boolean;                                 // default true
+  historyState?: Readonly<Record<string, unknown>>; // useHistoryState values the new entry starts with
+};
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#userouter)). Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -5538,6 +5608,29 @@ type SubmitError = { status: number | null; action: string };
 ```
 
 The router's state: `'loading'` during a navigation and `'submitting'` during a form post, with the path and query on their way (without the base path). After a form post that did not produce a page, `'idle'` carries `error` until the next navigation: the status of the error response, or `null` when nothing answered, and the URL posted to.
+
+#### `useHistoryState`
+
+```ts
+function useHistoryState<T>(name: string, initial: T): [T, SetHistoryState<T>];
+function useHistoryState<Schema extends StandardSchemaV1>(
+  name: string,
+  initial: StandardSchemaV1.InferOutput<Schema>,
+  schema: Schema,
+): [StandardSchemaV1.InferOutput<Schema>, SetHistoryState<StandardSchemaV1.InferOutput<Schema>>];
+
+type SetHistoryState<T> = (next: T | ((previous: T) => T)) => void;
+```
+
+A value kept with the history entry on screen, by `name`, set like `useState`'s: Back, Forward and a reload bring the entry's value back. A new entry starts from `initial`, or from the value a navigation carried into it (`historyState` on `Link`, `push` and `replace`). A navigation that keeps the page on screen (another query, a fragment, a refresh, a post that stays) keeps its values; one to another page starts over. The value is `initial` on the server and in the render that hydrates the page, so hydration matches; an entry's values show in the same commit, before the browser paints. With a schema, the stored value is parsed by it, and a value it rejects gives `initial`. Values are what `structuredClone` copies, and a value it cannot copy throws in the setter. Only the entry on screen is written: a setter called after its page left the entry (as the page unmounts) changes nothing. Like `useState`, `initial` is read on the first render only. The router keeps the keys an app or a library puts in `history.state` itself. See [State per history entry](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#state-per-history-entry). Throws outside a Netjes page.
+
+#### `useHistoryRestore`
+
+```ts
+function useHistoryRestore(callback: () => void): void;
+```
+
+Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router remembered, which it shows without a request, or the whole document the browser kept in its back-forward cache. A page the router loads from the server does not call it, nor does Back over a fragment link of the page on screen. It calls the `callback` of the latest render, after the page's own effects, so a page that mounts from memory hears it too. A page that has to show what is current calls `router.refresh()` from it ([Refreshing a page Back shows](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#refreshing-a-page-back-shows)). Throws outside a Netjes page.
 
 #### `usePathname`
 
@@ -6060,6 +6153,7 @@ type TestAppOptions = {
   navigation?: NavigationState;     // what useNavigation() returns, default idle
   antiforgery?: AntiforgeryToken | false; // the token <Form method="post"> adds; false for none
   mounts?: Record<string, string | null>;  // each mounted page package's URL, as the payload's mounts: { '@acme/help-center': '/help' }
+  historyState?: Record<string, unknown>;  // the useHistoryState values of the entry on screen, default none
   actions?: Record<string, (input: unknown) => TestActionAnswer | Promise<TestActionAnswer>>;
 };
 
@@ -6070,7 +6164,7 @@ type TestApp = {
 };
 
 type TestNavigation =
-  | { type: 'push' | 'replace'; href: string }
+  | { type: 'push' | 'replace'; href: string; historyState?: Readonly<Record<string, unknown>> } // historyState when it carried any
   | { type: 'refresh' | 'back' | 'forward' }
   | { type: 'submit'; action: string; data: URLSearchParams | FormData }
   | { type: 'action'; name: string; input: unknown };
@@ -6096,7 +6190,7 @@ await userEvent.click(screen.getByRole('button', { name: 'Say hello' }));
 expect(await screen.findByText('Tell us your name.')).toBeDefined();
 ```
 
-Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)). `mounts` gives each mounted page package's URL for the page, by npm name and without the base path, as the server sends it, for the components and hooks of [`mounted`](#mounted).
+Links and `router.push` move to the new URL, so hooks see it, and are recorded. Form posts are recorded with their fields. Server action calls are recorded and answered by `actions[name]`; an action without an answer succeeds with no result, and a failure other than a 422 throws a `ServerActionError` with the answer's `message`, withheld when it has none. Components inside the `Wrapper` can call actions from the effects they run as they mount, layout effects included; a call outside any `Wrapper` throws at once ([answering server actions](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#answering-server-actions)). The default antiforgery token is a test token. The `QueryClient` starts from the app's `netjes({ query })` defaults, which the plugin hands to the tests, with the harness's over them: failed queries and mutations are tried as often as in the app, with no wait between the tries (`retryDelay: 0`), and no query's data is garbage-collected (`gcTime: Infinity`). The test's `defaultOptions` go over both ([queries that fail](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#queries-that-fail)). `mounts` gives each mounted page package's URL for the page, by npm name and without the base path, as the server sends it, for the components and hooks of [`mounted`](#mounted). `historyState` seeds the [`useHistoryState`](#usehistorystate) values of the entry on screen; a value a component sets is kept, and a push or a replace keeps the values of a page that stays (the same path), starts another page over, and sets what it carries on top, as the router does ([History state](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#history-state)). `useHistoryRestore` never calls back: the fake router shows no page from memory.
 
 #### `renderDocument`
 
@@ -7935,7 +8029,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 
 - Decisions live in C#: data access, validation, authorization (`.RequireAuthorization()`, `Page.Forbidden()`), redirects, caching. React renders what it is sent.
 - Loaders and actions return Netjes results (`Page.Props(...)`, `Page.NotFound()`, `ServerAction.Ok(...)`), so their types reach `generated/netjes.ts`. Use records for everything that crosses to the browser.
-- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `api[...].response.parse(...)` for fetched JSON (from `useHref(endpointUrl(...))`, never a hand-built URL), `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
+- zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `useHistoryState(name, initial, schema)` for what a history entry holds, `api[...].response.parse(...)` for fetched JSON (from `useHref(endpointUrl(...))`, never a hand-built URL), `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
 - Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
 - Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in the root layout, `app/layout.tsx`, that takes the focus, also when the root layout is kept bare and the site's chrome is in a group layout such as `app/(site)/layout.tsx`: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/routing.md)).
@@ -8022,6 +8116,8 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 - `usePathname()`, `useSearchParams(schema?)`, `useParams(schema?)`: with a schema the values are parsed; catch-all params are arrays. Search values a schema rejects are dropped so its defaults apply; a rejected route param goes to the error page, so constrain route params in C#.
 - `useSelectedLayoutSegment()`, `useSelectedLayoutSegments()`: the active child segment in a layout (tabs).
 - `useNavigation()`: `idle`, `loading` or `submitting`, for progress indicators.
+- `useHistoryState(name, initial, schema?)`: `useState` kept with the history entry, through Back, Forward and a reload, for what a page keeps of a visit (a list's ticks, the list a record was opened from). `initial` on the server and while hydrating. A new entry starts from `initial` or from what its navigation carried (`historyState` on `<Link>`, `router.push(href, { historyState })`, `router.replace`); a navigation that keeps the page on screen (a query, a fragment, a refresh) keeps the values, one to another page starts over. Small values `structuredClone` can copy (ids, not rows); a page package prefixes its names. A schema at module level turns a value it rejects into `initial`. `createTestApp({ historyState })` seeds them in a test.
+- `useHistoryRestore(callback)`: called when Back or Forward shows the page from memory (the router's, or the browser's back-forward cache), as it was when left; `useHistoryRestore(() => void router.refresh())` for a page that must show what is current, such as a list after its record changed.
 - External URLs, `target`, `download` and modified clicks behave like a plain `<a>`; `reloadDocument` forces a full load.
 
 ## Metadata
@@ -8482,6 +8578,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md): `Page.RedirectToSignIn` in an authentication event redirects a document and a client navigation to the sign-in page with the request's local URL to come back to, and gives a server action's call a 401; `Page.TooManyRequests` as the rate limiter's `OnRejected` answers a post that passes the action's own checks like a failed validation, with status 429, and the failed state says its status.
 - [0064 – A title from C# can be absolute](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0064-a-title-from-c-sharp-can-be-absolute.md): `PageMetadata.AbsoluteTitle` is a document title that no layout's title template wraps; it travels as the title's `{ absolute }` form, so the client needs no change, and it wins over `Title` when both are set.
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md): the route template joins the route pattern as `http.route`, the histograms advise bucket boundaries, and server actions and layout loaders get spans from the filter that traces loaders.
+- [0066 – A page keeps values with its history entry, and hears when Back shows it from memory](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md): `useHistoryState` keeps values by name in `history.state`, carried over while the page stays on screen and set by a navigation's `historyState`, initial while hydrating; the router keeps the keys of others; `useHistoryRestore` calls back when Back or Forward shows a page from memory.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8511,6 +8608,9 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - Netjes's histograms advise bucket boundaries (`InstrumentAdvice<T>.HistogramBucketBoundaries`): `netjes.render.duration` and `netjes.sidecar.render.duration`, which are in seconds, the ones ASP.NET Core advises for `http.server.request.duration` (5 ms to 10 s), and the web vitals' limits for `netjes.web_vitals.*`. With the OpenTelemetry SDK's default boundaries, made for milliseconds, nearly every render fell in the first bucket and the percentiles meant nothing. An app that registered a view for them keeps it, as a view wins over advice; one that did so only for these boundaries can drop it ([Bucket boundaries](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#bucket-boundaries), [ADR 0065](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)).
 - Netjes's spans and metrics that have a route carry `http.route`, the route template in ASP.NET Core's notation (`/blog/{slug}`), beside `netjes.route`, the pattern in page-file syntax (`/blog/[slug]`), so a render time joins the request that waited for it and a trace is found by either. An app that converted one into the other can use the tag in place ([Routes in two notations](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#routes-in-two-notations)).
 - Server actions and layout loaders have spans, as page loaders and page actions do: `netjes.server_action` (tagged `netjes.server_action.name`) and `netjes.layout_loader` (`netjes.route` and `http.route` of the layout's URL, `netjes.layout`, and `netjes.package` for a page package's), both with `netjes.package` where it applies and the status `Error` when they throw. An app that exports Netjes's traces sees them with no change of its own; a dashboard that counts spans by name may want the two new names ([Telemetry](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/deployment.md#telemetry)).
+- `useHistoryState(name, initial)` keeps a value with the history entry on screen, set like `useState`'s: Back, Forward and a reload bring back the value the entry had, so a list keeps what the reader ticked and a record knows which list opened it. A navigation carries the new entry's first values with `historyState` on `<Link>`, `router.push(href, { historyState })` and `router.replace(href, { historyState })`, a page package's router included; a navigation that keeps the page on screen (another query, a fragment, a refresh) keeps its values, and one to another page starts over. The value is the initial one on the server and in the render that hydrates the page, so hydration matches. A schema as the third argument turns a value it rejects, such as one an older build left, into the initial value. Values are what `structuredClone` copies: ids and names, not rows. An app that kept such values by URL in `sessionStorage`, or tracked the page before in memory, can keep them here instead ([State per history entry](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#state-per-history-entry), [ADR 0066](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)).
+- `useHistoryRestore(callback)` calls back each time Back or Forward showed the page from memory, the router's or the browser's back-forward cache, as it was when the reader left it, so a page can load itself again: `useHistoryRestore(() => void router.refresh())`. A page the router loads from the server does not call it ([Refreshing a page Back shows](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#refreshing-a-page-back-shows)).
+- `createTestApp({ historyState })` seeds the `useHistoryState` values of the entry on screen, and `app.navigations` records the `historyState` a push or a replace carries ([History state](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#history-state)). A test that compared the entries with `toEqual` is unchanged: the field is there only when a navigation carried values.
 
 ### Changed
 
@@ -8519,6 +8619,7 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ### Fixed
 
+- The router no longer overwrites what an app or a library put in `history.state`. It wrote `{ __netjes: key }` over the whole state of an entry it replaced, after `router.refresh()`, `router.replace` or a fragment link with `replace`, so those keys were lost. Now it writes its own keys, `__netjes` and `__netjesState`, over the entry's state and keeps the rest; an entry it adds starts with none of the entry before, as the browser's does. An app has nothing to do, and one that put its keys back after the router's writes can stop.
 - In development, a C# edit that `dotnet watch` restarts the app for no longer stops the app with "Port 5173 is in use, and the Vite dev server needs it" when the app before it takes longer than `dotnet watch` waits (five seconds) to finish its requests. `dotnet watch` then kills only the process it started and leaves that app finishing them, and its sidecar kept the Vite dev server's port until it was done, so the app it started next stopped and `dotnet watch` waited for a file to change; in a development container the app stayed down. Now the app tells its sidecar when it begins to stop, before the server waits for the requests in flight, and the Vite dev server lets go of its port at once, while the old app finishes its requests and renders them. A sidecar that finds the port taken at startup waits up to five seconds for it, saying so in the log, and a port that something else keeps, such as another app's Vite dev server, is reported after that wait ([Vite plugin](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/reference/vite-plugin.md#the-dev-server), [ADR 0055](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md)). An app has nothing to do. A sidecar script of the app's own (`Netjes:SidecarScript`) now gets the line `stopping` on its stdin in development, which it can leave unread.
 - The not-found of an unknown URL, at the root and below a page package's mount, ran its layout loaders for the request's own user, after judging each of them on the user its policy's schemes sign in. A package mounted inside a back office's section, behind a policy that names the back office's own scheme, so had the section's layout loader run without the staffer's user, which could end their session or send them to sign in. Now, once the chain is judged, the user that the policies of what the visitor passed sign in stays on the request, as the authorization middleware leaves it for a page there, on every chain of an endpoint that serves no page (the not-found fallback, a server action's or a minimal API's status pages): the layout loaders run for that user, and the segment keys and the payload's antiforgery token are built for it. What an app notices: where a policy on such a chain names a scheme other than the default, its layout loaders see that scheme's user, as on the pages; a chain whose policies name no scheme keeps the request's user, so an app whose policies name none sees no change. A package's catch-all pages that kept its unknown URLs on its own endpoints for this can go ([Security](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/security.md#layout-loaders-around-404-and-error-pages), [ADR 0059](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md)).
 - A render in draft mode that read a request cookie other than the draft cookie, an editor's session for instance, on an output-cached page logged "rendering it read the request cookie ... The render was stored and will be served to every visitor", though a draft render is never stored. The warning stays for renders that are stored, and the false one no longer uses up the page's one warning. An app has nothing to do ([Caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#shared-props-and-cookies)).
