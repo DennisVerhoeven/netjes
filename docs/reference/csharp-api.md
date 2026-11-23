@@ -134,7 +134,7 @@ Results for page loaders, layout loaders and page actions, and the answers of an
 | `NotFound()` | Render the nearest `not-found.tsx`, inside the layouts above it, else the root not-found page, with status 404. From an app page whose folders do not reach a page package's mount that the URL is below, such as a catch-all, the mount's, unless the page's own is at the mount's URL or below it ([MapPagePackage](#mappagepackage)). |
 | `Forbidden()` | Render the nearest `forbidden.tsx`, else the error page, with status 403. |
 | `Unauthorized()` | Render the nearest `unauthorized.tsx`, else the error page, with status 401. |
-| `Redirect(location, permanent)` | Redirect: 307 (308 when `permanent`) for `GET` and `HEAD`, 303 after a `POST`. The client router follows it without a full page load. Accepts relative URLs and `http`/`https` URLs, and throws for any other scheme and for a `%` before the first `:` or `/`. |
+| `Redirect(location, permanent)` | Redirect: 307 (308 when `permanent`) for `GET` and `HEAD`, 303 after a `POST`. The client router follows it without a full page load, and loads a URL of the app that no page answers, such as a file, as a document, once. Accepts relative URLs and `http`/`https` URLs, and throws for any other scheme and for a `%` before the first `:` or `/`. |
 | `LocalRedirect(location, permanent)` | Like `Redirect`, but throws unless `location` is a path on this site. Use it for URLs that come from the request, such as a `returnUrl`. |
 | `IsLocalUrl(url)` | Whether `url` is a path on this site by ASP.NET Core's rules (`/path`, not `//host` or `/\host`), after dropping what browsers drop. Check a `returnUrl` with it and fall back instead of throwing. |
 | `Defer(task)` | A prop that is still being computed: the page renders without waiting, and the task's result streams to it when it completes. Read it with `use()` inside a Suspense boundary. |
@@ -626,6 +626,7 @@ public static class NetjesHeaders
     public const string Segments = "X-Netjes-Segments";
     public const string Antiforgery = "X-Netjes-Antiforgery";
     public const string Cookies = "X-Netjes-Cookies";
+    public const string Redirected = "X-Netjes-Redirected";
 }
 ```
 
@@ -638,6 +639,7 @@ The headers between the client router and the server, for tests and proxies.
 | `Segments` | Sent by the client router with the keys of the layouts it holds. |
 | `Antiforgery` | `invalid` on the 400 a client's action call gets when its antiforgery token was refused. |
 | `Cookies` | `changed` on the response to a client's action call or form post that set or deleted a cookie other than the antiforgery cookie. |
+| `Redirected` | `1`, with `Data`, on the client router's request for the URL a redirect sent it to. Where no page answers that URL, the server answers `{ "kind": "document" }` without running the endpoint, and the router loads the URL as a document ([When the router hands over to the browser](../guides/routing.md#when-the-router-hands-over-to-the-browser)). |
 
 ## Images
 

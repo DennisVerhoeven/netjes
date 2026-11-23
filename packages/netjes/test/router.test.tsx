@@ -290,15 +290,6 @@ describe('client navigation', () => {
     await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith(`${origin}/about`));
   });
 
-  it('falls back to a full page load when the request fails', async () => {
-    server.use(http.get(`${origin}/about`, () => HttpResponse.error()));
-    const { user, hardNavigate } = await renderApp();
-
-    await user.click(screen.getByRole('link', { name: 'About' }));
-
-    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith(`${origin}/about`));
-  });
-
   it("loads the page in full, once, when its module fails to load, and says which module", async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     server.use(pageHandler('/about', payload('unreachable', '/about')));

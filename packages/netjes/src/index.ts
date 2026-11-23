@@ -43,6 +43,7 @@ export {
   type NavigateOptions,
   type NavigationAttempt,
   type NavigationAttemptType,
+  type NavigationError,
   type NavigationGuardOptions,
   type NavigationState,
   type SetHistoryState,

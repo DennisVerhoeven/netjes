@@ -303,7 +303,7 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 
 ### Back and forward
 
-The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)).
+The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)). When such a page does not come, the router steps back to the entry of the page on screen, which stays ([When a navigation fails](#when-a-navigation-fails)).
 
 A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
 
@@ -458,7 +458,7 @@ router.back();
 router.forward();
 ```
 
-`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. `push`, `replace` and `refresh` return promises that resolve once the router has handed the new page to React, or once the navigation has ended another way: another navigation took its place, the browser loads the URL with a full page load, or the router refused the URL. When a promise resolves, the old page can still be on screen: React shows the new one when it commits it, and inside a transition of the app's own, such as a form action, only once that transition has ended ([ADR 0034](../decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)). Code that needs the new page runs in an effect of that page, or in an effect that depends on `usePathname()` and `useSearchParams()`; a link to a fragment moves the focus to its element without any code.
+`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. A refresh that fails keeps the page as it is and does not reject: `useNavigation()` reports it ([When a navigation fails](#when-a-navigation-fails)). `push`, `replace` and `refresh` return promises that resolve once the router has handed the new page to React, or once the navigation has ended another way: another navigation took its place, the browser loads the URL with a full page load, or the router refused the URL. When a promise resolves, the old page can still be on screen: React shows the new one when it commits it, and inside a transition of the app's own, such as a form action, only once that transition has ended ([ADR 0034](../decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)). Code that needs the new page runs in an effect of that page, or in an effect that depends on `usePathname()` and `useSearchParams()`; a link to a fragment moves the focus to its element without any code.
 
 ### Navigation state
 
@@ -473,11 +473,59 @@ export function ProgressBar() {
 }
 ```
 
-`state` is `'idle'`, `'loading'` (a navigation) or `'submitting'` (a form post), and while it is not idle, `location` is the path and query on their way. After a form post that did not produce a page (an error response, or no response at all), `state` is `'idle'` with `error: { status, action }` until the next navigation; `status` is `null` when nothing answered.
+`state` is `'idle'`, `'loading'` (a navigation) or `'submitting'` (a form post), and while it is not idle, `location` is the path and query on their way. After a navigation, a refresh or a form post that ended without a page, `state` is `'idle'` with an `error` until the next one starts ([When a navigation fails](#when-a-navigation-fails)).
+
+### When a navigation fails
+
+A link, a GET form, `router.push` or `replace`, Back or Forward, `router.refresh()` and a form post can end without a page: the server could not be reached while the browser is online, or it answered with a server error that is no Netjes page, such as a proxy's 502 while the app restarts. The router keeps the page on screen, with its state and what was typed, and `useNavigation()` reports the failure:
+
+```ts
+type NavigationError = {
+  kind: 'navigate' | 'refresh' | 'submit';
+  status: number | null; // null: no answer came
+  location: string; // the path and query it went to, without the base path
+};
+```
+
+- **What failed.** `kind` is `'navigate'` for a link, a GET form, `push`, `replace`, Back and Forward, `'refresh'` for `router.refresh()`, the one a server action asks for included, and `'submit'` for a form post. A form post the server answered with a redirect went through, so when the page the redirect leads to fails, `kind` is `'navigate'` and `location` is that page's, and the form has nothing to send again. `status` is the status of the server's answer, or `null` when none came. It holds no exception: the browser console has the details.
+- **How long.** The error stays until the next navigation, refresh or form post starts, the one that tries again included. A Back or Forward that shows a page from memory, and a link to a fragment of the page, clear it too.
+- **`refresh()` does not reject.** Its promise resolves once the refresh has ended, failed or not, so code after `await router.refresh()` reads the outcome from `useNavigation()` in its next render, not from a `catch`.
+- **Back and Forward.** The browser has moved to the entry the reader chose before the router knows the page did not come, so the router steps back to the entry of the page on screen, and the address bar shows that page's URL again. A step to or from an entry an app or a library added itself (`history.pushState`), whose place the router does not know, loads the URL as a document instead.
+- **What still loads a document.** When the browser says it is offline (`navigator.onLine` is false), the router loads the URL as a document, as it did before, so the browser's own offline page shows, or a service worker's. So does an answer that is no Netjes page and no server error (see the next section), and a URL that redirects somewhere `fetch` cannot follow, such as an identity provider's sign-in page on another origin: that fails as a lost connection does, so before it keeps the page the router asks once more without following redirects, and a redirect it finds there is left to the browser.
+- **Prefetched pages.** A prefetch that failed is not used: following the link asks the server again.
+
+Show the failure where the app's shell is. TaskBoard's app layout renders this above every page (`components/navigation-failed.tsx`):
+
+```tsx
+import { useNavigation, useRouter } from 'netjes';
+
+export function NavigationFailed() {
+  const navigation = useNavigation();
+  const router = useRouter();
+  const error = navigation.state === 'idle' ? navigation.error : undefined;
+  // A failed form post is the form's to show.
+  if (!error || error.kind === 'submit') return null;
+  return (
+    <div role="alert">
+      <p>{error.kind === 'refresh' ? 'This page could not be brought up to date.' : 'That page could not be opened.'}</p>
+      <p>{error.status === null ? 'No answer came. Check your connection.' : `The server answered ${error.status}.`}</p>
+      {error.kind === 'refresh' && (
+        <button type="button" onClick={() => void router.refresh()}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+A screen that refreshes itself on a timer reads `error?.kind === 'refresh'` to say that it is paused, and its next refresh that succeeds clears it. While the browser is offline a refresh still loads the page as a document, so such a screen skips its refresh while `navigator.onLine` is false and starts again on the `online` event. A component test renders the failure with `createTestApp({ navigation: { state: 'idle', error } })` ([Testing](testing.md)).
 
 ### When the router hands over to the browser
 
-The router falls back to a full page load when a navigation fails, when the server's answer is not a Netjes page, and when the page comes from another build of the app (after a deploy) or names a page this build does not have. A redirect to another site, from a loader or an action, is a full page load too. The router only ever loads pages from the document's own origin, and never navigates to a URL that is not http or https.
+The router loads the URL as a document, with a full page load, when the server's answer is not a Netjes page and no server error (a file, a page of another framework, a proxy's 404), when the page comes from another build of the app (after a deploy) or names a page this build does not have, and when a navigation fails while the browser is offline ([When a navigation fails](#when-a-navigation-fails)). A redirect to another site, from a loader or an action, is a full page load too. The router only ever loads pages from the document's own origin, and never navigates to a URL that is not http or https.
+
+A redirect from a loader, a page action or a server action to a URL of the app that no page answers loads that URL as a document, once: a signed file URL, another endpoint of the app, a minimal API that renders a page with `Page.Render`, or a URL that matches nothing. The router asks for the URL it was sent to with the `X-Netjes-Redirected` header, and there the server answers `{ "kind": "document" }` without running the endpoint, so a download starts once and a link that counts its uses is used once. Whatever the URL then answers is the browser's: a file is saved, and a redirect back to a page of the app loads that page, where the router starts again. A form whose page action redirects to a file needs no `reloadDocument` ([A post that redirects to a file](actions-and-forms.md#a-post-that-redirects-to-a-file)). A link to such a URL is no redirect: link files and endpoints with a plain `<a>` ([Links](#links)).
 
 A navigation also fails when a module of the next page does not load: the request for its chunk was dropped, or a deploy removed the chunk. The browser then loads that page in full. On the first page of a document, a module that fails to load is tried once more, half a second later. If it fails again, the page stays as the server rendered it, without the client router, and the browser console names the module. Its links and forms work as plain HTML, so the next page the visitor opens is a full page load, and that document starts the router again. The [client-rendered fallback](rendering-and-streaming.md#when-no-sidecar-is-ready) has no page HTML to fall back on, so it stays blank.
 

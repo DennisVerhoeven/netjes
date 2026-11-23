@@ -29,6 +29,7 @@ import {
   type NavigationPayload,
   type PagePayload,
   type Params,
+  REDIRECTED_HEADER,
   SEGMENTS_HEADER,
   SERVER_TIME_HEADER,
   type SegmentRef,
@@ -42,12 +43,28 @@ import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schem
 
 export type { NavigationAttempt, NavigationAttemptType, NavigationGuardOptions } from './navigation-guard.ts';
 
-/** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
-export type SubmitError = { status: number | null; action: string };
+/**
+ * A navigation, a refresh or a form post that ended without a page, while the page on screen stayed. `useNavigation()`
+ * holds it until the next navigation, refresh or form post starts.
+ */
+export type NavigationError = {
+  /**
+   * What failed: a navigation to another URL (a link, a GET form, `push`, `replace`, Back or Forward), `router.refresh()`
+   * (also the one a server action asks for), or a form post.
+   */
+  kind: 'navigate' | 'refresh' | 'submit';
+  /** The status of an answer that was no page, or `null` when no answer came (the connection failed). */
+  status: number | null;
+  /** Where it went: the path and query, without the base path. */
+  location: string;
+};
+
+/** @deprecated The name `NavigationError` had while only form posts reported a failure. */
+export type SubmitError = NavigationError;
 
 /** What the router is doing: idle, or on its way to `location` for a navigation (`loading`) or a form post (`submitting`). */
 export type NavigationState =
-  | { state: 'idle'; error?: SubmitError }
+  | { state: 'idle'; error?: NavigationError }
   | { state: 'loading' | 'submitting'; location: string };
 
 /** What `router.push` and `router.replace` take besides the href. */
@@ -267,6 +284,41 @@ function withHash(url: URL, hash: string): URL {
 
 type FetchResult = NavigationPayload | { html: string; url: string } | { file: Blob; name: string } | { failed: number } | null;
 
+/**
+ * No answer came for a request: the connection failed, the browser is offline, or the browser refused to follow a
+ * redirect (one to another origin that does not allow this one). `headers` are the request's, to ask again with.
+ */
+class NoAnswer extends Error {
+  override name = 'NoAnswer';
+  readonly url: URL;
+  readonly headers: Readonly<Record<string, string>>;
+
+  constructor(url: URL, headers: Readonly<Record<string, string>>, cause: unknown) {
+    super(`netjes: no answer from ${url.href}`, { cause });
+    this.url = url;
+    this.headers = headers;
+  }
+}
+
+/** The browser says it has no network. `navigator.onLine` is true when it cannot tell, so only `false` counts. */
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/**
+ * Whether `failed` answers with a redirect, asked again without following it. A redirect to another origin that does
+ * not allow this one, such as an identity provider's sign-in page, fails `fetch` as a lost connection does; the browser
+ * follows it itself when it loads the URL as a document.
+ */
+async function answersWithRedirect(failed: NoAnswer, signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(failed.url.href, { headers: failed.headers, credentials: 'same-origin', redirect: 'manual', signal });
+    void response.body?.cancel().catch(() => {});
+    // A browser hides the redirect behind an opaque answer; other runtimes hand over the 3xx itself.
+    return response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400);
+  } catch {
+    return false;
+  }
+}
+
 function attachmentName(disposition: string): string {
   const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
   if (encoded) {
@@ -279,21 +331,46 @@ function attachmentName(disposition: string): string {
   return /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? 'download';
 }
 
-async function fetchPayload(
-  url: URL,
-  request: PageRequest,
-  signal: AbortSignal,
-  segmentKeys: readonly string[] = [],
-  token?: AntiforgeryToken,
-  onCookiesChanged?: () => void,
-): Promise<FetchResult> {
+/** What a request for a page sends besides its method and body. */
+type FetchOptions = {
+  /** The keys of the layout segments the router holds, whose loaders the server may skip (GETs only). */
+  segmentKeys?: readonly string[];
+  /** The antiforgery token a post sends as a header. */
+  token?: AntiforgeryToken | undefined;
+  /** Called as soon as a post's answer says it set or deleted a cookie. */
+  onCookiesChanged?: (() => void) | undefined;
+  /** A redirect led to this URL: the server answers `{ kind: 'document' }` where no page answers it. */
+  redirected?: boolean;
+};
+
+/** What `Navigator.load` takes besides the URL, the request and the signal. */
+type LoadOptions = {
+  /** Send the keys of the layout segments the router holds, whose loaders the server may skip (GETs only). */
+  reuseSegments?: boolean | undefined;
+  /** Called as soon as a post's answer says it set or deleted a cookie; by default the router's own handling. */
+  onCookiesChanged?: (() => void) | undefined;
+  /** A redirect led to the URL: one that no page answers loads as a document. */
+  redirected?: boolean | undefined;
+  /** Called with each URL on this origin a redirect leads the load to, before it asks for that URL. */
+  onRedirect?: ((target: URL) => void) | undefined;
+};
+
+async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal, options: FetchOptions = {}): Promise<FetchResult> {
+  const { segmentKeys = [], token, onCookiesChanged, redirected = false } = options;
   const headers: Record<string, string> = { [DATA_HEADER]: '1', Accept: 'application/json' };
+  if (request.method === 'GET' && redirected) headers[REDIRECTED_HEADER] = '1';
   if (request.method === 'POST' && token?.headerName && token.requestToken) headers[token.headerName] = token.requestToken;
   if (request.method === 'GET' && segmentKeys.length > 0) headers[SEGMENTS_HEADER] = segmentKeys.join(',');
   if (request.method === 'POST' && request.contentType) headers['Content-Type'] = request.contentType;
   const init: RequestInit = { method: request.method, headers, credentials: 'same-origin', signal };
   if (request.method === 'POST' && request.body !== undefined) init.body = request.body;
-  const response = await fetch(url.href, init);
+  let response: Response;
+  try {
+    response = await fetch(url.href, init);
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new NoAnswer(url, headers, error);
+  }
   // A form post that signed someone in or out; script cannot read Set-Cookie itself.
   if (request.method === 'POST' && response.headers.get(COOKIES_HEADER) === 'changed') onCookiesChanged?.();
   const type = response.headers.get('content-type') ?? '';
@@ -323,15 +400,26 @@ async function fetchPayload(
     return withClockOffset(revivePayload(payload, registry.source), Number.isFinite(serverNow) ? serverNow : undefined);
   }
   if (type.includes('application/json')) {
-    const payload = parseNavigationPayload(await response.json());
+    let payload: NavigationPayload;
+    try {
+      payload = parseNavigationPayload(await response.json());
+    } catch (error) {
+      // A server error that is no Netjes page, such as a gateway's JSON error, fails a GET; anything else is a bug.
+      if (request.method === 'GET' && response.status >= 500 && !signal.aborted) return { failed: response.status };
+      throw error;
+    }
     if (payload.kind !== 'page') return payload;
     // Without the header (a cache in front of UseNetjes) there is no fresh server time: take the timestamps as they
     // are. Falling back to renderedAt would make a cached payload look brand new.
     const serverNow = Number(response.headers.get(SERVER_TIME_HEADER) ?? Number.NaN);
     return withClockOffset(payload, Number.isFinite(serverNow) ? serverNow : undefined);
   }
-  // Something other than a Netjes page answered. A GET can simply be loaded by the browser instead.
-  if (request.method === 'GET') return null;
+  // Something other than a Netjes page answered. A GET that failed on the server (a gateway's 502 while the app
+  // restarts, say) fails; any other the browser loads instead, so the router stops reading it (a file, say).
+  if (request.method === 'GET') {
+    void response.body?.cancel().catch(() => {});
+    return response.status >= 500 ? { failed: response.status } : null;
+  }
   // A POST must not be sent again. Show what a native submission would have shown, where that is safe.
   if (!response.ok) return { failed: response.status };
   if (type.includes('text/html')) return { html: await response.text(), url: response.url || url.href };
@@ -404,6 +492,8 @@ type NavigateCall = {
   historyState?: HistoryValues | undefined;
   /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
   letThrough?: boolean | undefined;
+  /** A server action's redirect: a URL that no page answers loads as a document. */
+  redirected?: boolean | undefined;
 };
 
 type GoOptions = {
@@ -424,6 +514,15 @@ type GoOptions = {
   focusedAtStart?: Element | null;
   /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
   letThrough?: boolean;
+  /** `router.refresh()`: a failure is reported as the refresh's. */
+  refresh?: boolean;
+  /** A server action's redirect led to the URL: one that no page answers loads as a document. */
+  redirected?: boolean;
+  /**
+   * Back or Forward from the entry at this place: when the page does not come, the router steps back to that entry,
+   * whose page stays on screen.
+   */
+  putBack?: number | undefined;
 };
 
 /**
@@ -558,7 +657,7 @@ class Navigator {
   }
 
   async navigate(href: string, history: 'push' | 'replace', options: NavigateCall = {}): Promise<void> {
-    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false } = options;
+    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false, redirected = false } = options;
     // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
     // browser cannot keep throws here, before the navigation starts.
     const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
@@ -602,6 +701,7 @@ class Navigator {
       reuseSegments: true,
       focusedAtStart,
       letThrough,
+      redirected,
       ...(carried ? { historyState: carried } : {}),
     });
   }
@@ -646,6 +746,7 @@ class Navigator {
       pending: 'loading',
       usePrefetch: false,
       reuseSegments: false,
+      refresh: true,
       ...(base ? { interceptOver: withHash(base.url, '') } : {}),
     });
   }
@@ -757,7 +858,8 @@ class Navigator {
 
   private startPrefetch(url: URL) {
     const controller = new AbortController();
-    const prefetch: Prefetch = { at: Date.now(), result: this.load(url, { method: 'GET' }, controller.signal, true), controller, loading: true };
+    const result = this.load(url, { method: 'GET' }, controller.signal, { reuseSegments: true });
+    const prefetch: Prefetch = { at: Date.now(), result, controller, loading: true };
     prefetch.result.then(
       () => {
         prefetch.loading = false;
@@ -799,6 +901,7 @@ class Navigator {
     // entry on screen; one counted long could send it past the end of the history. Either way the entry gets a key,
     // so the steps to it, from it and from the entries pushed after it are counted as any others.
     const fragment = index === undefined && samePage(url, this.current.url);
+    const from = this.index;
     this.index = !fragment ? index : url.href === this.href ? this.index : this.nextIndex();
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
@@ -825,6 +928,7 @@ class Navigator {
       reuseSegments: true,
       entryValues: values,
       letThrough,
+      putBack: from,
     });
   }
 
@@ -882,12 +986,29 @@ class Navigator {
     this.active = navigation;
     this.deps.setPending({ state: options.pending, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search });
     let committed = false;
-    let failure: SubmitError | undefined;
+    let failure: NavigationError | undefined;
+    // The request a failure belongs to. Once a form post is answered with a redirect, the post went through: from there
+    // on the router is on its way to that URL, and a failure is that navigation's, not the post's, so the form does not
+    // offer to send it again.
+    const at: { url: URL; request: PageRequest } = { url, request };
+    const onRedirect =
+      request.method === 'POST'
+        ? (target: URL) => {
+            at.url = target;
+            at.request = { method: 'GET' };
+          }
+        : undefined;
     try {
       const prefetched = options.usePrefetch ? this.takePrefetched(url, controller.signal) : undefined;
-      const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal, false) : undefined;
+      const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal) : undefined;
       under?.catch(() => {});
-      const result = await (prefetched ?? this.load(url, request, controller.signal, options.reuseSegments, () => this.cookiesChanged(navigation)));
+      const result = await (prefetched ??
+        this.load(url, request, controller.signal, {
+          reuseSegments: options.reuseSegments,
+          onCookiesChanged: () => this.cookiesChanged(navigation),
+          redirected: options.redirected,
+          onRedirect,
+        }));
       // Superseded by another navigation, or started over because cookies changed: then it ends with the new attempt.
       if (controller.signal.aborted) return navigation.restarted;
       // A post may have changed what other pages show; do not serve them from before it. One that changed cookies has
@@ -909,8 +1030,13 @@ class Navigator {
       }
       if ('failed' in result) {
         // Keep the page, and what the user typed, as it is; useNavigation() tells the page.
-        console.error(`netjes: the form submission failed with status ${result.failed}`);
-        failure = { status: result.failed, action: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
+        console.error(
+          at.request.method === 'POST'
+            ? `netjes: the form submission failed with status ${result.failed}`
+            : `netjes: loading ${at.url.pathname}${at.url.search} failed with status ${result.failed}, keeping the page`,
+        );
+        if (!this.keepPage(at.url, at.request, options)) return;
+        failure = this.failure(at.url, at.request, options, result.failed);
         return;
       }
 
@@ -947,14 +1073,26 @@ class Navigator {
       this.deps.commit(shown, scroll, focusedAtStart, { lineage: this.lineage, values, restored: false });
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
-      if (request.method === 'POST') {
+      if (at.request.method === 'POST') {
         // Never turn a failed submission into a GET: keep the page, and what the user typed, as it is.
         console.error('netjes: the form could not be submitted', error);
-        failure = { status: null, action: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
+        failure = this.failure(at.url, at.request, options, null);
         return;
       }
+      // No answer while the browser is online: keep the page, unless the URL redirects somewhere fetch cannot follow.
+      // An offline browser loads the URL as a document, as any other failure does.
+      if (error instanceof NoAnswer && !offline()) {
+        const redirects = await answersWithRedirect(error, controller.signal);
+        if (controller.signal.aborted) return navigation.restarted;
+        if (!redirects) {
+          console.error(`netjes: no answer for ${at.url.pathname}${at.url.search}, keeping the page`, error.cause);
+          if (!this.keepPage(at.url, at.request, options)) return;
+          failure = this.failure(at.url, at.request, options, null);
+          return;
+        }
+      }
       console.error('netjes: navigation failed, loading the page from the server instead', error);
-      this.hard(url, options.letThrough);
+      this.hard(at.url, options.letThrough);
     } finally {
       if (this.active === navigation) {
         this.active = null;
@@ -963,25 +1101,54 @@ class Navigator {
     }
   }
 
-  private async load(
-    url: URL,
-    request: PageRequest,
-    signal: AbortSignal,
-    reuseSegments: boolean,
-    onCookiesChanged = () => this.cookiesChanged(),
-  ): Promise<LoadResult> {
+  /**
+   * Keeps the page on screen after a navigation failed. Back or Forward has moved the browser to the entry it went to
+   * already: the router steps back to the entry of the page on screen, so the address is the page's again, and a
+   * page's history values and a refresh go to that entry. Where it cannot tell that entry's place (a step from or to an
+   * entry an app or a library added itself), it loads the URL as a document instead and returns false.
+   */
+  private keepPage(url: URL, request: PageRequest, options: GoOptions): boolean {
+    if (request.method !== 'GET' || options.history !== 'none') return true;
+    const now = this.index;
+    const back = options.putBack;
+    if (now === undefined || back === undefined || now === back) {
+      this.hard(url, options.letThrough);
+      return false;
+    }
+    this.index = back;
+    this.betweenEntries = false;
+    // The step back is the router's own: once there, nothing more happens.
+    this.puttingBack = { index: back, ask: () => {} };
+    window.history.go(back - now);
+    return true;
+  }
+
+  /** What `useNavigation()` reports for a navigation that kept the page on screen. */
+  private failure(url: URL, request: PageRequest, options: GoOptions, status: number | null): NavigationError {
+    const kind = request.method === 'POST' ? 'submit' : options.refresh ? 'refresh' : 'navigate';
+    return { kind, status, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
+  }
+
+  private async load(url: URL, request: PageRequest, signal: AbortSignal, options: LoadOptions = {}): Promise<LoadResult> {
+    const { reuseSegments = false, onCookiesChanged = () => this.cookiesChanged() } = options;
     let target = url;
     let current = request;
+    let redirected = options.redirected ?? false;
     // After a form post everything is loaded again: the post may have changed what any layout shows.
     let keys = reuseSegments && request.method === 'GET' ? this.heldSegmentKeys() : [];
     // Output-cached pages carry no token; a post from one needs a fetched one (as a header).
     const token = request.method === 'POST' && !this.current.payload.antiforgery ? await this.fetchedToken() : undefined;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      let payload = await fetchPayload(target, current, signal, keys, current.method === 'POST' ? token : undefined, onCookiesChanged);
+      let payload = await fetchPayload(target, current, signal, {
+        segmentKeys: keys,
+        token: current.method === 'POST' ? token : undefined,
+        onCookiesChanged,
+        redirected,
+      });
       if (payload !== null && 'kind' in payload && payload.kind === 'page' && keys.length > 0) {
         const resolved = this.withReusedSegments(payload);
         // The server reused a segment this page no longer has (it changed meanwhile): load it in full.
-        payload = resolved ?? (await fetchPayload(target, current, signal));
+        payload = resolved ?? (await fetchPayload(target, current, signal, { redirected }));
       }
       if (payload === null) return { hard: target };
       if ('html' in payload) return { document: payload.html, url: payload.url };
@@ -992,8 +1159,12 @@ class Navigator {
         if (target.origin !== window.location.origin) return { hard: target };
         if (current.method !== 'GET') keys = [];
         current = { method: 'GET' };
+        redirected = true;
+        options.onRedirect?.(target);
         continue;
       }
+      // A URL no page answers, such as a file: the browser loads it, and its endpoint runs once.
+      if (payload.kind === 'document') return { hard: target };
 
       const finalUrl = pageUrl(payload.url, target);
       if (finalUrl.origin !== window.location.origin) throw new Error(`netjes: the page payload names another origin (${finalUrl.origin})`);
@@ -1079,8 +1250,13 @@ class Navigator {
     if (Date.now() - hit.at >= PREFETCH_TTL_MS) return undefined;
     return hit.result.then(
       (result) =>
-        'payload' in result ? { ...result, url: samePage(result.url, url) ? withHash(result.url, url.hash) : result.url } : result,
-      () => this.load(url, { method: 'GET' }, signal, true),
+        // A page that failed on the server is asked for again: it may answer now.
+        'failed' in result
+          ? this.load(url, { method: 'GET' }, signal, { reuseSegments: true })
+          : 'payload' in result
+            ? { ...result, url: samePage(result.url, url) ? withHash(result.url, url.hash) : result.url }
+            : result,
+      () => this.load(url, { method: 'GET' }, signal, { reuseSegments: true }),
     );
   }
 
@@ -1315,7 +1491,7 @@ export function RouterProvider({
           // The user may have moved on while the action ran: then neither pull them back (redirect) nor reload the
           // page they left (refresh, which would also cancel their navigation).
           const movedOn = navigator.page !== page || navigator.navigating;
-          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push');
+          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push', { redirected: true });
           else if (!movedOn && response.revalidate) await navigator.refresh();
           // After signing in or out (an action that set or deleted a cookie), the page on screen shows whoever was
           // signed in before until a page comes from the server: refresh it, like Next.js. That is the action's page

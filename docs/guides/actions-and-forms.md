@@ -454,7 +454,9 @@ The other props are those of a `<form>`, and a `ref` gets the `<form>` element. 
 - A page, or a redirect to one, is shown as a navigation.
 - An HTML document that is not a Netjes page is shown as the browser would show it, and is never requested again as a GET.
 - A response with `Content-Disposition: attachment` is saved as a download.
-- Anything else, or no answer, leaves the page and what was typed as they are, and `useNavigation()` reports the failure with its status ([Navigation state](routing.md#navigation-state)).
+- A redirect to a URL of the app that no page answers, such as a file, is loaded by the browser, once ([A post that redirects to a file](#a-post-that-redirects-to-a-file)).
+- Anything else, or no answer, leaves the page and what was typed as they are, and `useNavigation()` reports the failure, with `kind: 'submit'` and its status ([When a navigation fails](routing.md#when-a-navigation-fails)).
+- A redirect means the post went through. When the page it leads to then fails, the page and what was typed stay too, and `useNavigation()` reports a navigation that failed (`kind: 'navigate'`, with that page's location), not the post, so a form that shows its failures does not invite a second post.
 
 A submit button's `formaction`, `formmethod` and `formtarget` are honoured. A form or button whose target is not `_self`, and an action on another origin, are left to the browser. Under a base path, use `<SubmitButton formAction="/x">` instead of a plain button with `formAction`, so the base path is added with and without JavaScript.
 
@@ -483,7 +485,7 @@ app.MapPageAction("/photos", async (IFormFile photo, PhotoStore photos, Cancella
 
 A server action called with `FormData` that holds a file sends it as multipart as well, so `useAction` uploads with JavaScript. Without JavaScript the browser sends files only from a form with `encType="multipart/form-data"`, and React warns about an `encType` on a form whose action is a function, which is why the page action is the way for uploads that must work either way.
 
-A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).
+A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, have the post redirect to the file's URL ([A post that redirects to a file](#a-post-that-redirects-to-a-file)), or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).
 
 ### A form that downloads
 
@@ -508,3 +510,21 @@ import { endpointUrl } from '../generated/netjes.ts';
 ```
 
 `<Form>` puts the base path in front and adds the token, and the browser saves the attachment. A page package's own `Form` takes only its pages' routes, so a page of a package posts to an endpoint with the core `Form` and the package's `useHref`, which puts the mount and the base path in front (`<Form method="post" action={useHref(endpointUrl('POST /users/{id}/export', { id }))}>`, with `Form` from `'netjes'` and `useHref` and `endpointUrl` from the package's generated file); the core `Form` does not add the base path a second time. Only a `POST` endpoint that accepts a form has a key: one that reads no form, such as a webhook, has none ([Endpoint URLs](data-loading.md#endpoint-urls)).
+
+### A post that redirects to a file
+
+A page action can answer a form with a redirect to the file's own URL, such as a signed link that expires or counts its uses:
+
+```csharp
+app.MapPageAction("/files", ([FromForm] Guid id, FileStore files) => Page.Redirect(files.SignedUrl(id)));
+```
+
+```tsx
+<Form method="post">
+  <input type="hidden" name="id" value={file.id} />
+  <button type="submit">Download</button>
+</Form>
+```
+
+Without JavaScript the browser follows the redirect. With it, the client router asks for the URL it was sent to as a redirect's target (`X-Netjes-Redirected`); no page answers that URL, so the server tells the router to load it as a document, without running its endpoint, and the browser loads it once. A file sent as an attachment (`Content-Disposition: attachment`) is streamed to disk while the page stays on screen. The form needs no `reloadDocument`. The same goes for a server action that redirects to such a URL ([When the router hands over to the browser](routing.md#when-the-router-hands-over-to-the-browser)).
+

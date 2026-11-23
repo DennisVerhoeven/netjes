@@ -299,6 +299,7 @@ A proxy in front of a Netjes app must pass these headers through unchanged:
 | Header | Direction | Why |
 |---|---|---|
 | `X-Netjes-Data`, `X-Netjes-Segments` | request | Client navigations ask for the page payload, and name the layouts they hold. |
+| `X-Netjes-Redirected` | request | The client router asks for the URL a redirect sent it to; where no page answers it, the server tells the router to load it as a document, so its endpoint runs once. Without it, such a URL is requested twice. |
 | `X-Netjes-Cookies` | response | Tells the client router that an action signed someone in or out, so it forgets the pages it keeps for Back and Forward and clears the query cache. |
 | `X-Netjes-Antiforgery` | response | Marks a 400 for a refused antiforgery token, the only one the client sends again. |
 | `X-Netjes-Now` | response | The server's clock, which the client uses to judge how fresh seeded data is. |

@@ -23,7 +23,7 @@ function Page(props: Record<string, unknown>) {
   return (
     <main>
       <h1>{`${String(props.title)} at ${pathname}`}</h1>
-      <p role="status">{navigation.state === 'idle' ? (navigation.error ? `failed ${navigation.error.action}` : 'idle') : `${navigation.state} ${navigation.location}`}</p>
+      <p role="status">{navigation.state === 'idle' ? (navigation.error ? `failed ${navigation.error.location}` : 'idle') : `${navigation.state} ${navigation.location}`}</p>
       <Link href="/about">About</Link>
       <Link href="/base/contact">Prefixed</Link>
       <a href={useHref('/about')}>Plain</a>

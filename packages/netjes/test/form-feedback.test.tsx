@@ -28,7 +28,7 @@ function Page() {
       </Form>
       <Link href="/other">Other</Link>
       {navigation.state === 'idle' && navigation.error && (
-        <p role="alert">{`Could not send to ${navigation.error.action} (${navigation.error.status ?? 'network error'})`}</p>
+        <p role="alert">{`Could not send to ${navigation.error.location} (${navigation.error.status ?? 'network error'})`}</p>
       )}
     </main>
   );
