@@ -364,6 +364,7 @@ A singleton, for a package's own services, such as the URLs in its emails or the
 public sealed record PageMetadata
 {
     public string? Title { get; init; }
+    public string? AbsoluteTitle { get; init; }
     public string? Description { get; init; }
     public IReadOnlyList<string>? Keywords { get; init; }
     public PageMetadataRobots? Robots { get; init; }

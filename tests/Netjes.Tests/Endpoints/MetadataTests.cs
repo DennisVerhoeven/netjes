@@ -54,6 +54,40 @@ public class MetadataTests
     }
 
     [Fact]
+    public async Task WithMetadata_AnAbsoluteTitle_TravelsAsTheTitlesAbsoluteForm()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props().WithMetadata(new PageMetadata { AbsoluteTitle = "Users · Back office", Description = "d" })));
+
+        var metadata = (await app.GetDataJsonAsync("/"))["metadata"]!;
+
+        Assert.Equal("""{"title":{"absolute":"Users · Back office"},"description":"d"}""", metadata.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+    }
+
+    [Fact]
+    public async Task WithMetadata_AnAbsoluteTitleAndATitle_SendsTheAbsoluteOne()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props().WithMetadata(new PageMetadata { Title = "Plain", AbsoluteTitle = "Bare" })));
+
+        var title = (await app.GetDataJsonAsync("/"))["metadata"]!["title"]!;
+
+        Assert.Equal("Bare", (string?)title["absolute"]);
+    }
+
+    [Fact]
+    public async Task WithMetadata_ATitleAlone_StaysAString()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props().WithMetadata(new PageMetadata { Title = "Plain" })));
+
+        Assert.Equal("""{"title":"Plain"}""", (await app.GetDataJsonAsync("/"))["metadata"]!.ToJsonString());
+    }
+
+    [Fact]
     public async Task Payload_WithoutMetadata_OmitsIt()
     {
         await using var app = await TestApp.StartAsync(["app/page.tsx"]);

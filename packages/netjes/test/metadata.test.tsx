@@ -56,6 +56,12 @@ describe('resolveMetadata', () => {
       expect(resolveMetadata([root], { title: { default: 'Intro', absolute: 'Start here' } }).title).toBe('Start here');
     });
 
+    it("keeps a C# loader's absolute title out of every template, as the payload carries it", () => {
+      // PageMetadata.AbsoluteTitle travels as { title: { absolute } }; a string title from C# goes through the template.
+      expect(resolveMetadata([root, { title: { template: '%s · Docs · Site' } }], { title: 'Intro' }, { title: { absolute: 'Users · Back office' } }).title).toBe('Users · Back office');
+      expect(resolveMetadata([root, { title: { template: '%s · Docs · Site' } }], { title: 'Intro' }, { title: 'Users' }).title).toBe('Users · Docs · Site');
+    });
+
     it('leaves the title from above alone when a layout sets only a template', () => {
       expect(resolveMetadata([root, { title: { template: '%s · Docs · Site' } }], {}).title).toBe('Site');
     });

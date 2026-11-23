@@ -4,12 +4,20 @@ namespace Netjes;
 
 /// <summary>
 /// Page metadata from C#, the counterpart of Next.js <c>generateMetadata</c>: merged over the page's and layouts'
-/// <c>export const metadata</c> (layout title templates still apply to <see cref="Title"/>).
+/// <c>export const metadata</c> (layout title templates still apply to <see cref="Title"/> but not to <see cref="AbsoluteTitle"/>).
 /// </summary>
 public sealed record PageMetadata
 {
-    /// <summary>The document title; a layout's title template still applies.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Title { get; init; }
+    /// <summary>The document title; a layout's title template still applies. <see cref="AbsoluteTitle"/> wins when both are set.</summary>
+    [JsonIgnore] public string? Title { get; init; }
+    /// <summary>
+    /// A document title that no layout's title template wraps, the counterpart of <c>title: { absolute }</c> in a page
+    /// file's metadata. It is the whole title: <c>Users · Back office</c> stays that, whatever the layouts' templates are.
+    /// </summary>
+    [JsonIgnore] public string? AbsoluteTitle { get; init; }
+    /// <summary>The title as the payload carries it: a string, or <c>{ "absolute": … }</c>, the form the client's metadata takes.</summary>
+    [JsonPropertyName("title"), JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal object? WireTitle => AbsoluteTitle is { } absolute ? new Dictionary<string, string> { ["absolute"] = absolute } : Title;
     /// <summary>The <c>description</c> meta tag.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; init; }
     /// <summary>The <c>keywords</c> meta tag.</summary>

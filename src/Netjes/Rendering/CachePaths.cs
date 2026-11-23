@@ -119,11 +119,15 @@ internal sealed class CachePaths(ILogger<CachePaths> logger, IHostEnvironment en
         var cookies = features.Get<IRequestCookiesFeature>() ?? new RequestCookiesFeature(features);
         features.Set<IRequestCookiesFeature>(new CachedRenderCookies(cookies, name =>
         {
-            // Draft mode decides lookup and storage itself, and its cookie is no per-visitor value to warn about.
-            // The output cache removes its feature when it is done: a later read (a middleware outside it, after the
-            // response was stored or served) changes nothing that is stored. Whether the render will be stored is
-            // read now, not when the watch went in: policies after this one could still change it then.
-            if (name == DraftMode.CookieName || !context.EnableOutputCaching || !context.AllowCacheStorage
+            // Draft mode decides lookup and storage itself, and its cookie is no per-visitor value to warn about. A
+            // draft render is never stored (the draft policy refuses it once the response is known), so no other
+            // visitor gets what it read; ASP.NET Core's default policy after the draft one allows storage again until
+            // then, which is why AllowCacheStorage cannot tell. The output cache removes its feature when it is done: a
+            // later read (a middleware outside it, after the response was stored or served) changes nothing that is
+            // stored. Whether the render will be stored is read now, not when the watch went in: policies after this
+            // one could still change it then.
+            if (name == DraftMode.CookieName || CacheBypass.Applied(context, CacheBypass.Draft)
+                || !context.EnableOutputCaching || !context.AllowCacheStorage
                 || features.Get<IOutputCacheFeature>()?.Context != context)
             {
                 return;

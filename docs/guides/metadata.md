@@ -96,7 +96,7 @@ app.MapPageLoader("/blog", (string? tag, PostStore store) =>
         .WithMetadata(new PageMetadata { Title = tag is null ? "Blog" : $"Posts tagged {tag}" }));
 ```
 
-It is merged over the files' metadata, so the layouts' title templates still apply: `Posts tagged dotnet · Netjes Blog`. `PageMetadata` has `Title`, `Description`, `Keywords`, `Robots` (`new PageMetadataRobots(Index: false)`), `Alternates` (`Canonical`, `Languages`), `OpenGraph` (`Title`, `Description`, `Url`, `SiteName`, `Type`, `Locale`, `Images`), `Twitter` (`Card`, `Site`, `Creator`, `Images`; each image is a `PageMetadataImage`, and a plain URL string converts to one), `ThemeColor` and `Other`. Icons and authors are set in the files only.
+It is merged over the files' metadata, so the layouts' title templates still apply: `Posts tagged dotnet · Netjes Blog`. A title that is the whole document title, one the layouts' templates must not wrap, is `AbsoluteTitle`, the counterpart of `title: { absolute }`: `new PageMetadata { AbsoluteTitle = "Users · Back office" }` is `Users · Back office` under a root layout with the template `%s · Netjes Blog`. A page package that sends its own full titles, or a loader that composes the whole title, uses it. When both `Title` and `AbsoluteTitle` are set, `AbsoluteTitle` is the title. `PageMetadata` has `Title`, `AbsoluteTitle`, `Description`, `Keywords`, `Robots` (`new PageMetadataRobots(Index: false)`), `Alternates` (`Canonical`, `Languages`), `OpenGraph` (`Title`, `Description`, `Url`, `SiteName`, `Type`, `Locale`, `Images`), `Twitter` (`Card`, `Site`, `Creator`, `Images`; each image is a `PageMetadataImage`, and a plain URL string converts to one), `ThemeColor` and `Other`. Icons and authors are set in the files only.
 
 ```csharp
 .WithMetadata(new PageMetadata
@@ -110,7 +110,7 @@ It is merged over the files' metadata, so the layouts' title templates still app
 
 A layout loader's result can carry metadata too, but only the page loader's reaches the head.
 
-If no Node sidecar is ready and the browser renders the page itself, the document Netjes writes has the title, description and robots from C# only; the layouts' templates and the files' metadata apply once the page has rendered ([Rendering and streaming](rendering-and-streaming.md)).
+If no Node sidecar is ready and the browser renders the page itself, the document Netjes writes has the title (`AbsoluteTitle` first, else `Title`), description and robots from C# only; the layouts' templates and the files' metadata apply once the page has rendered ([Rendering and streaming](rendering-and-streaming.md)).
 
 ## The `lang` attribute
 
