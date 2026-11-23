@@ -426,6 +426,113 @@ public class CookieChangeTests
     }
 
     [Theory]
+    [InlineData("set")]
+    [InlineData("delete")]
+    public async Task ACookieAPrefixInNoReloadCookiesCovers_DoesNotMarkTheResponse(string action)
+    {
+        // A cart per store, named after the store, where the stores are rows in a database: no list of names can hold them.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                a.MapAction("set", (HttpContext http) =>
+                {
+                    http.Response.Cookies.Append(".app.cart.amsterdam", "1");
+                    http.Response.Cookies.Append(".app.cart.", "1"); // the text before the '*' alone
+                    http.Response.Cookies.Append("cart", "1");
+                    return ServerAction.Ok();
+                });
+                a.MapAction("delete", (HttpContext http) =>
+                {
+                    http.Response.Cookies.Delete(".app.cart.utrecht");
+                    return ServerAction.Ok();
+                });
+            },
+            configure: o => o.NoReloadCookies = [".app.cart.*", "cart"]);
+        var token = await TokenAsync(app);
+
+        var response = await app.Client.SendAsync(Call(action, token), Ct);
+
+        Assert.Contains(SetCookies(response), c => c.StartsWith(".app.cart.", StringComparison.Ordinal));
+        Assert.Null(Marker(response));
+    }
+
+    [Theory]
+    [InlineData(".App.cart.amsterdam")] // compared with their case, as the exact names are
+    [InlineData(".app.cart")]           // shorter than the text before the '*'
+    [InlineData(".app.cartx")]
+    [InlineData("x.app.cart.amsterdam")] // the text is not at the start
+    [InlineData("session")]
+    public async Task ACookieNoPrefixInNoReloadCookiesCovers_StillMarksTheResponse(string other)
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapAction("set", (HttpContext http) =>
+            {
+                http.Response.Cookies.Append(".app.cart.amsterdam", "1");
+                http.Response.Cookies.Append(other, "1");
+                return ServerAction.Ok();
+            }),
+            configure: o => o.NoReloadCookies = [".app.cart.*"]);
+        var token = await TokenAsync(app);
+
+        var response = await app.Client.SendAsync(Call("set", token), Ct);
+
+        Assert.Equal("changed", Marker(response));
+    }
+
+    [Theory]
+    [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, null, ".AspNetCore.*", ".AspNetCore.Cookies")]
+    [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, ".app.auth", ".app.*", ".app.auth")]
+    [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, ".app.auth", ".app.auth*", ".app.auth")]
+    [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, ".app.auth", ".APP.*", ".APP.AUTH")] // read in any case
+    [InlineData("Staff", null, ".AspNetCore.*", ".AspNetCore.Staff")]
+    public async Task ASignInCookie_MarksTheResponse_WhenAPrefixInNoReloadCookiesCoversIt(
+        string scheme, string? cookieName, string prefix, string written)
+    {
+        // A prefix is held to the rule a name is: one that takes in a sign-in cookie never hides a sign-in or sign-out.
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                a.MapAction("signIn", async (HttpContext http) =>
+                {
+                    await http.SignInAsync(scheme, Principal("ada"));
+                    return ServerAction.Ok();
+                }).DisableAntiforgery();
+                a.MapAction("signOut", async (HttpContext http) =>
+                {
+                    await http.SignOutAsync(scheme);
+                    return ServerAction.Ok();
+                }).DisableAntiforgery();
+                a.MapAction("write", (HttpContext http) =>
+                {
+                    http.Response.Cookies.Append(written, "forged");
+                    return ServerAction.Ok();
+                }).DisableAntiforgery();
+            },
+            configure: o => o.NoReloadCookies = [prefix],
+            services: s =>
+            {
+                s.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie().AddCookie("Staff");
+                if (cookieName is not null)
+                {
+                    s.Configure<CookieAuthenticationOptions>(scheme, o => o.Cookie.Name = cookieName);
+                }
+            },
+            configureApp: a => a.UseAuthentication());
+
+        var signIn = await app.Client.SendAsync(Call("signIn", token: null), Ct);
+        var auth = SetCookies(signIn).Single().Split(';')[0];
+        var signOut = await app.Client.SendAsync(Call("signOut", token: null, cookie: auth), Ct);
+        var write = await app.Client.SendAsync(Call("write", token: null), Ct);
+
+        Assert.Equal("changed", Marker(signIn));
+        Assert.Equal("changed", Marker(signOut));
+        Assert.Equal("changed", Marker(write));
+    }
+
+    [Theory]
     [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, null, ".AspNetCore.Cookies")]
     [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, ".app.auth", ".app.auth")]
     [InlineData(CookieAuthenticationDefaults.AuthenticationScheme, ".app.auth", ".APP.AUTH")] // read in any case
