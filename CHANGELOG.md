@@ -4,6 +4,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-11-23
+
 ### Added
 
 - `netjes generate` and `netjes routes` take `-c, --configuration <name>` and pass it to `dotnet run -c`, so a pipeline or a container that built Release reuses that build instead of compiling a Debug one. Without the option nothing changes ([CLI](docs/reference/cli.md#netjes-generate), [ADR 0057](docs/decisions/0057-tooling-for-packages-tests-and-ci-commands.md)).
@@ -183,7 +185,8 @@ Initial release.
 - **Testing.** Vitest defaults in the Vite plugin and `createTestApp()` from `netjes/testing`, with a fake router, seeded queries and fake server actions.
 - **Tooling.** The `netjes` command: `new`, `dev`, `build`, `start`, `generate`, `routes`, `export`, `info` and `agents`. An app template with a C# loader, a validated server action, component tests, Tailwind CSS and Docker files for development and production. `AGENTS.md`, `CLAUDE.md` and a Netjes skill for coding agents in new apps, and `llms.txt` and `llms-full.txt` for the docs. The npm package ships compiled ES modules with type declarations.
 
-[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/DennisVerhoeven/netjes/compare/v0.0.1...v0.0.2
