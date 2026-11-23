@@ -558,8 +558,8 @@ class Navigator {
   private lineage = 0;
   /**
    * The browser is on another entry than the page on screen: Back or Forward went to one whose page is still loading,
-   * or the router is stepping back to the page's entry (a guard held Back, or the page did not come). The page must not
-   * write its values into that entry.
+   * or the router is stepping back (a guard held Back, or the page did not come). The page must not write its values
+   * into that entry.
    */
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
@@ -883,9 +883,13 @@ class Navigator {
     const index = readIndex(event.state);
     const puttingBack = this.puttingBack;
     this.puttingBack = null;
-    // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
+    // The router's own step back, after a guard held Back or Forward or a page did not come: the browser shows the URL
+    // of the entry it was on again.
     if (puttingBack && index === puttingBack.index) {
-      this.betweenEntries = false;
+      // That is the entry of the page on screen, unless a guard held Back while the page of the entry the browser was on
+      // still loads: the browser is back on that entry, which the page on screen must not write into. The keys tell,
+      // also when that page has come meanwhile.
+      this.betweenEntries = readKey(event.state) !== this.currentKey;
       puttingBack.ask();
       return;
     }

@@ -505,6 +505,48 @@ describe('useNavigationGuard and the browser history', () => {
     expect(where()).toBe('/editor');
   });
 
+  it('writes no history value into the entry it puts back when that entry is one whose page is still loading', async () => {
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      http.get(`${origin}/other`, async ({ request }) => {
+        const url = new URL(request.url);
+        if (url.search === '?slow') await slow;
+        return HttpResponse.json(payload('other', url.pathname + url.search));
+      }),
+    );
+    // Entries from before a reload, whose pages the router does not keep: Back asks the server for them.
+    window.history.replaceState({ __netjes: 'first', __netjesIndex: 50 }, '', `${origin}/other`);
+    window.history.pushState({ __netjes: 'slow', __netjesIndex: 51 }, '', `${origin}/other?slow`);
+    window.history.pushState(null, '', `${origin}/editor`);
+    await renderApp(payload('editor', '/editor'), vi.fn(), { __netjes: 'editor', __netjesIndex: 52 });
+
+    // Back is held, and the reader leaves: the page of the entry before is slow to come.
+    let asking = nextAttempt();
+    window.history.back();
+    const leave = await act(() => asking);
+    const there = popped();
+    leave.proceed();
+    await act(() => there);
+    expect(where()).toBe('/other?slow');
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeDefined();
+
+    // The reader presses Back again meanwhile. The editor, still on screen, holds it, and the router puts the browser
+    // back on the entry whose page is on its way, not on the editor's.
+    asking = nextAttempt();
+    window.history.back();
+    const again = await act(() => asking);
+    expect(again).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/other?slow');
+    act(() => setEditorTab!(9));
+    expect(window.history.state).toEqual({ __netjes: 'slow', __netjesIndex: 51 });
+
+    again.stay();
+    release();
+    await screen.findByRole('heading', { name: 'Other' });
+    expect(window.history.state).toEqual({ __netjes: 'slow', __netjesIndex: 51 });
+  });
+
   it('drops an attempt still waiting when Back goes on once no guard holds', async () => {
     pages(['/editor', '/other']);
     const user = await renderApp(payload('other', '/other'));
