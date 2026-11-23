@@ -41,9 +41,11 @@ export { usePublicConfig } from './public-config.tsx';
 export { Script, type ScriptProps, type ScriptStrategy } from './script.tsx';
 export {
   type NavigationState,
+  type SetHistoryState,
   type SubmitError,
   type Router,
   useBasePath,
+  useHistoryState,
   useHref,
   useNavigation,
   useParams,

@@ -7,7 +7,7 @@ import { type ActionClient, type ActionState, setActionClient } from './actions.
 import type { AntiforgeryToken, PagePayload, Params } from './payload.ts';
 import { PublicConfigProvider } from './public-config.tsx';
 import { dehydratedStateOf, mergeOptions } from './query.tsx';
-import { type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
+import { type HistoryContextValue, type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
 
 export { type RenderDocumentOptions, inlineScriptHashes, renderDocument } from './render-document.tsx';
 
@@ -155,6 +155,17 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   function Wrapper({ children }: { children: ReactNode }) {
     const [url, setUrl] = useState(initialUrl);
+    // The entry's useHistoryState values. One entry: the fake router moves to the new URL in place.
+    const [historyValues, setHistoryValues] = useState<Readonly<Record<string, unknown>>>({});
+    const history = useMemo<HistoryContextValue>(
+      () => ({
+        key: 'test',
+        values: historyValues,
+        set: (_key, name, compute) => setHistoryValues((values) => ({ ...values, [name]: compute(values) })),
+        onRestore: () => () => {},
+      }),
+      [historyValues],
+    );
     const router = useMemo<InternalRouter>(() => {
       const go = (type: 'push' | 'replace', href: string) => {
         navigations.push({ type, href });
@@ -214,7 +225,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     return (
       <QueryClientProvider client={queryClient}>
         <PublicConfigProvider value={options.publicConfig ?? {}}>
-          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }}>
+          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history}>
             <RegisterActionClient client={actionClient} />
             {children}
           </RouterContexts>
