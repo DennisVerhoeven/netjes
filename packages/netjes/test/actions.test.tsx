@@ -45,6 +45,7 @@ function Guestbook(props: Record<string, unknown>) {
         <SubmitButton />
       </Form>
       <p>{pending ? 'pending' : state?.ok ? `signed ${state.result.id}` : 'idle'}</p>
+      {state && !state.ok && <output>{`failed ${state.status}`}</output>}
     </main>
   );
 }
@@ -1036,6 +1037,20 @@ describe('server actions', () => {
 
     expect(screen.getByRole('alert').textContent).toBe('Tell us your name.');
     expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Ad');
+    expect(screen.getByRole('status').textContent).toBe('failed 422');
+  });
+
+  it('start from the refusal a post without JavaScript left in the payload, with its status 429', async () => {
+    await renderApp(
+      payload('app/guestbook/page.tsx', '/guestbook', {
+        status: 429,
+        actionState: { action: 'guestbook.sign', status: 429, errors: { name: ['Slow down.'] }, values: { name: 'Ad' } },
+      }),
+    );
+
+    expect(screen.getByRole('alert').textContent).toBe('Slow down.');
+    expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Ad');
+    expect(screen.getByRole('status').textContent).toBe('failed 429');
   });
 
   it('render a real form post on the server, so forms work without JavaScript', async () => {
