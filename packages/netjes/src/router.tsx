@@ -557,8 +557,9 @@ class Navigator {
    */
   private lineage = 0;
   /**
-   * Back or Forward went to an entry whose page is still loading: the browser is on that entry while the page before
-   * is on screen, which must not write its values into it.
+   * The browser is on another entry than the page on screen: Back or Forward went to one whose page is still loading,
+   * or the router is stepping back to the page's entry (a guard held Back, or the page did not come). The page must not
+   * write its values into that entry.
    */
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
@@ -645,7 +646,7 @@ class Navigator {
   /**
    * Sets a `useHistoryState` value of the entry on screen, computed from the entry's values, in its `history.state`,
    * for a setter of the values' `lineage`. A setter of a page that has left (setting a value as it unmounts), or of the
-   * entry before Back or Forward, changes nothing.
+   * entry before Back or Forward, changes nothing, and so does any setter while the browser is on another entry.
    */
   setValue(lineage: number, name: string, compute: (values: HistoryValues) => unknown) {
     if (lineage !== this.lineage || this.betweenEntries) return;
@@ -884,6 +885,7 @@ class Navigator {
     this.puttingBack = null;
     // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
     if (puttingBack && index === puttingBack.index) {
+      this.betweenEntries = false;
       puttingBack.ask();
       return;
     }
@@ -957,6 +959,7 @@ class Navigator {
           window.history.go(index - now);
         }),
     };
+    this.betweenEntries = true;
     window.history.go(-steps);
     return true;
   }
@@ -1118,8 +1121,9 @@ class Navigator {
       return false;
     }
     this.index = back;
-    this.betweenEntries = false;
-    // The step back is the router's own: once there, nothing more happens.
+    // The step back is the router's own: once there, nothing more happens. Until then the browser is on the entry Back
+    // went to.
+    this.betweenEntries = true;
     this.puttingBack = { index: back, ask: () => {} };
     window.history.go(back - now);
     return true;

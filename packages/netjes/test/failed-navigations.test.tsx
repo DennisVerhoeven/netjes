@@ -8,7 +8,7 @@ import { serverAction } from '../src/actions.tsx';
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
-import { RouterProvider, useNavigation, useRouter } from '../src/router.tsx';
+import { RouterProvider, useHistoryState, useNavigation, useRouter } from '../src/router.tsx';
 
 const origin = window.location.origin;
 // A page that carries no token has the router fetch one before a post.
@@ -50,10 +50,19 @@ function Live(props: Record<string, unknown>) {
   return <h1>Live {String(props.n)}</h1>;
 }
 
+/** The setter of a value the about page keeps with its history entry. */
+let setAboutNote: ((note: string) => void) | undefined;
+
+function About() {
+  const [, setNote] = useHistoryState('note', 'none');
+  setAboutNote = setNote;
+  return <h1>About</h1>;
+}
+
 const modules = {
   '/app/layout.tsx': async () => ({ default: Layout }),
   '/app/live/page.tsx': async () => ({ default: Live }),
-  '/app/about/page.tsx': async () => ({ default: () => <h1>About</h1> }),
+  '/app/about/page.tsx': async () => ({ default: About }),
 };
 
 function payload(page: string, url: string, overrides: Partial<PagePayload> = {}): PagePayload {
@@ -275,6 +284,31 @@ describe('Back or Forward that fails', () => {
     expect(screen.getByRole('heading', { name: 'About' })).toBeDefined();
     expect(screen.getByRole('status').textContent).toBe(`failed ${JSON.stringify({ kind: 'navigate', status: null, location: '/live' })}`);
     expect(hardNavigate).not.toHaveBeenCalled();
+  });
+
+  it('writes no history value into the entry it went to while it steps back', async () => {
+    quiet();
+    server.use(http.get(`${origin}/live`, () => HttpResponse.error()));
+    window.history.replaceState({ __netjes: 'before-reload', __netjesIndex: 5 }, '', `${origin}/live`);
+    window.history.pushState({ __netjes: 'here', __netjesIndex: 6 }, '', `${origin}/about`);
+    await renderApp(payload('about', '/about'), { keepHistory: true });
+    // The page sets a value right as the router steps back, while the browser is still on the entry Back went to.
+    const go = window.history.go.bind(window.history);
+    let thereMeanwhile: unknown;
+    vi.spyOn(window.history, 'go').mockImplementationOnce((delta) => {
+      go(delta);
+      setAboutNote!('set while stepping back');
+      thereMeanwhile = window.history.state;
+    });
+
+    const back = popped();
+    window.history.back();
+    await act(() => back);
+    const forward = popped();
+    await act(() => forward);
+
+    expect(thereMeanwhile).toEqual({ __netjes: 'before-reload', __netjesIndex: 5 });
+    expect(window.history.state).toMatchObject({ __netjes: 'here', __netjesIndex: 6 });
   });
 
   it('loads the URL as a document when the entry it went to has no place the router knows', async () => {

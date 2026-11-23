@@ -8,7 +8,7 @@ import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
-import { type NavigationAttempt, type Router, RouterProvider, useNavigationGuard, useRouter } from '../src/router.tsx';
+import { type NavigationAttempt, type Router, RouterProvider, useHistoryState, useNavigationGuard, useRouter } from '../src/router.tsx';
 
 const origin = window.location.origin;
 const server = setupServer();
@@ -56,10 +56,15 @@ function Uploads() {
   );
 }
 
+/** The setter of a value the editor keeps with its history entry. */
+let setEditorTab: ((tab: number) => void) | undefined;
+
 /** A form with changes: holds every navigation while "Unsaved" is ticked. */
 function Editor() {
   const router = useRouter();
   editorRouter = router;
+  const [, setTab] = useHistoryState('tab', 1);
+  setEditorTab = setTab;
   const [unsaved, setUnsaved] = useState(true);
   useNavigationGuard({ when: unsaved, onAttempt: asker('changes') });
   return (
@@ -469,6 +474,31 @@ describe('useNavigationGuard and the browser history', () => {
 
     expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
     expect(where() + window.location.hash).toBe('/editor#plain');
+  });
+
+  it('writes no history value into the entry Back went to while it puts the entry back, and holds the next Back too', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    const otherEntry: unknown = window.history.state;
+    await toEditor(user);
+    // The page sets a value right as the router steps back, while the browser is still on the entry Back went to.
+    const go = window.history.go.bind(window.history);
+    let thereMeanwhile: unknown;
+    vi.spyOn(window.history, 'go').mockImplementationOnce((delta) => {
+      go(delta);
+      setEditorTab!(2);
+      thereMeanwhile = window.history.state;
+    });
+
+    const asking = nextAttempt();
+    window.history.back();
+    (await act(() => asking)).stay();
+
+    expect(thereMeanwhile).toEqual(otherEntry);
+    window.history.back();
+    await vi.waitFor(() => expect(asked).toHaveLength(2));
+    expect(asked[1]!.attempt).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
   });
 
   it('drops an attempt still waiting when Back goes on once no guard holds', async () => {

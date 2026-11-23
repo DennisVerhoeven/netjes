@@ -347,7 +347,7 @@ const [list] = useHistoryState('list', null, listHref);
   setTicked([]);
   ```
 
-  Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry.
+  Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry. Nor does it while the router steps back to the page's entry, after a guard held Back or Forward or when the page Back went to did not come: the browser is on the other entry until then.
 - **Other keys stay.** The router keeps its entry key, the entry's place in the tab's history ([Holding a navigation](#holding-a-navigation)) and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
 
 ### Refreshing a page Back shows
