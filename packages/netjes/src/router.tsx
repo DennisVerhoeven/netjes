@@ -1073,8 +1073,9 @@ export function RouterProvider({
   const { payload, modules, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   // <html lang> for the page on screen. The server wrote the first page's, and Document keeps it as written, so the
-  // attribute changes only when the lang does: an app that sets it itself, on pages none of whose loaders give one,
-  // keeps its value. In the commit that shows the page, before it is painted.
+  // attribute changes only when the lang does: an app that sets it itself keeps its value until then (a page whose
+  // loader gives a lang, or another locale), and a page without one after that has the root's. In the commit that
+  // shows the page, before it is painted.
   const lang = documentLang === undefined ? undefined : langOf(payload, documentLang);
   const shownLang = useRef(lang);
   useLayoutEffect(() => {
