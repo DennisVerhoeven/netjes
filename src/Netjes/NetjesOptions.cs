@@ -121,9 +121,9 @@ public sealed class NetjesOptions
     /// <summary>
     /// Names of cookies an action may set or delete without making every tab load its page again. A client call to a
     /// server action or page action whose response writes only these, or the antiforgery cookie, is not marked
-    /// <c>X-Netjes-Cookies: changed</c>: the router keeps the pages it holds for Back and Forward, its prefetches and the
-    /// query cache, and the app's other tabs are not told, as after an action that writes no cookie. For a cookie that
-    /// changes nothing another page shows, such as a cart's. Compared with their case, as browsers compare cookie names.
+    /// <c>X-Netjes-Cookies: changed</c>: the router keeps the pages it holds for Back and Forward and the query cache,
+    /// and the app's other tabs are not told, as after an action that writes no cookie. For a cookie that changes nothing
+    /// another page shows, such as a cart's. Compared with their case, as browsers compare cookie names.
     /// The cookie of every cookie authentication scheme counts whatever this list says, in any case, so signing in or
     /// out always reloads.
     /// </summary>
