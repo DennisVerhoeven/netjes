@@ -1674,10 +1674,15 @@ export function useHistoryRestore(callback: () => void): void {
 
 /**
  * Holds every client navigation while `when` is true, and asks `onAttempt` first: links, `<Form method="get">`,
- * `router.push` and `router.replace`. The navigation waits until the attempt's `proceed()` lets it go on, or its `stay()`
- * keeps the page. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a form
- * post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that started
- * to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a Netjes page.
+ * `router.push`, `router.replace`, `router.back`, `router.forward` and the browser's Back and Forward. The navigation
+ * waits until the attempt's `proceed()` lets it go on, or its `stay()` keeps the page; for Back and Forward the router
+ * puts the entry back first, so the address bar shows the page on screen while the question is open. `proceed()` works
+ * whenever it is called, also once `when` is false (after a save), and a navigation that comes while one waits takes its
+ * place. While it holds, `beforeunload` has the browser ask before the document unloads: a reload, closing the tab, a
+ * link to another site. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a
+ * form post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that
+ * started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a
+ * Netjes page.
  */
 export function useNavigationGuard(options: NavigationGuardOptions): void {
   const guards = useContext(GuardsContext);
