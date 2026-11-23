@@ -67,11 +67,13 @@ function payload(url: string, title: string, extra: Partial<PagePayload> = {}): 
 
 const serve = (...pages: PagePayload[]) => server.use(...pages.map((page) => http.get(`${origin}${page.url}`, () => HttpResponse.json(page))));
 
-/** The router on a document the server rendered for `initial`, whose root gave the document `rootLang`. */
-async function renderApp(initial: PagePayload, rootLang = 'en') {
+/**
+ * The router on a document the server rendered for `initial`, whose root gave the document `rootLang`. `onHtml` is
+ * what <html lang> holds when the router starts: what the server wrote for the page, unless a script changed it.
+ */
+async function renderApp(initial: PagePayload, rootLang = 'en', onHtml = documentLang(initial, rootLang)) {
   window.history.replaceState(null, '', initial.url);
-  // What the server wrote on <html> for this page (Document's lang).
-  document.documentElement.lang = documentLang(initial, rootLang);
+  document.documentElement.lang = onHtml;
   const loader = createModuleLoader(modules);
   const initialModules = await loader.loadRoute(initial);
   await act(async () => {
@@ -152,12 +154,17 @@ describe('<html lang> on a client navigation', () => {
   });
 
   it('leaves a lang the app set itself while no page or layout gives one', async () => {
-    serve(payload('/other', 'Other'));
-    const user = await renderApp(payload('/', 'Home'));
-    document.documentElement.lang = 'de';
+    serve(payload('/other', 'Other'), payload('/', 'Home'));
+    // As a script that runs before hydration would.
+    const user = await renderApp(payload('/', 'Home'), 'en', 'de');
+    expect(lang()).toBe('de');
 
     await go(user, 'Other', 'Other');
-
     expect(lang()).toBe('de');
+
+    // As a component's effect would, once the page has hydrated.
+    document.documentElement.lang = 'fr';
+    await go(user, 'Home', 'Home');
+    expect(lang()).toBe('fr');
   });
 });
