@@ -351,6 +351,35 @@ describe('Back or Forward that fails', () => {
     release();
   });
 
+  it('steps back to the entry of a page the router pushed when Back from it fails', async () => {
+    quiet();
+    server.use(
+      http.get(`${origin}/live`, () => HttpResponse.error()),
+      http.get(`${origin}/about`, () => HttpResponse.json(payload('about', '/about'))),
+    );
+    window.history.replaceState({ __netjes: 'before-reload', __netjesIndex: 60 }, '', `${origin}/live?before`);
+    window.history.pushState({ __netjes: 'here', __netjesIndex: 61 }, '', `${origin}/live`);
+    const { hardNavigate } = await renderApp(payload('live', '/live', { props: { n: 0 } }), { keepHistory: true });
+    await act(() => pageRouter!.push('/about'));
+    await screen.findByRole('heading', { name: 'About' });
+    const aboutEntry = window.history.state as Record<string, unknown>;
+    expect(aboutEntry).toMatchObject({ __netjesIndex: 62 });
+
+    // Back over the live page's entry, to the one before it, whose page does not come.
+    const back = popped();
+    window.history.go(-2);
+    await act(() => back);
+    const forward = popped();
+    await act(() => forward);
+
+    expect(window.location.pathname + window.location.search).toBe('/about');
+    expect(window.history.state).toEqual(aboutEntry);
+    expect(screen.getByRole('heading', { name: 'About' })).toBeDefined();
+    expect(hardNavigate).not.toHaveBeenCalled();
+    act(() => setAboutNote!('set once back'));
+    expect(window.history.state).toEqual({ ...aboutEntry, __netjesState: { note: 'set once back' } });
+  });
+
   it('loads the URL as a document when the entry it went to has no place the router knows', async () => {
     quiet();
     server.use(http.get(`${origin}/live`, () => HttpResponse.error()));
