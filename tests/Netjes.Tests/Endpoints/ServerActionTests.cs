@@ -1006,6 +1006,7 @@ public class ServerActionTests
         Assert.Equal("First!", (string?)page["props"]!["entries"]![0]);
         var state = page["actionState"]!;
         Assert.Equal("/guestbook", (string?)state["action"]);
+        Assert.Equal(422, (int?)state["status"]);
         Assert.Equal("Tell us who you are.", (string?)state["errors"]!["name"]![0]);
         Assert.Equal(["name", "message", "mood"], state["values"]!.AsObject().Select(v => v.Key));
         Assert.Equal("Hi", (string?)state["values"]!["message"]);
