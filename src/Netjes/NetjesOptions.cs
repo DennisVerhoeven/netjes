@@ -125,7 +125,9 @@ public sealed class NetjesOptions
     /// and the app's other tabs are not told, as after an action that writes no cookie. For a cookie that changes nothing
     /// another page shows, such as a cart's. Compared with their case, as browsers compare cookie names. A name that ends
     /// in <c>*</c> is a prefix: <c>.app.cart.*</c> covers every cookie whose name starts with <c>.app.cart.</c>, such as a
-    /// cookie per store. The cookie of every cookie authentication scheme counts
+    /// cookie per store. A bare <c>*</c>, a prefix with nothing before the <c>*</c>, a <c>*</c> anywhere but at the end
+    /// and an empty name stop the app at startup with an <see cref="Microsoft.Extensions.Options.OptionsValidationException"/>.
+    /// The cookie of every cookie authentication scheme counts
     /// whatever this list says, in any case, so signing in or out always reloads.
     /// </summary>
     public IReadOnlyList<string> NoReloadCookies { get; set; } = [];

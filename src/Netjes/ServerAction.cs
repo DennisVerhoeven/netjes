@@ -478,7 +478,7 @@ internal static class CookieChanges
     }
 
     // A name the list holds, or one that starts with the text before the '*' that ends a listed prefix, compared with
-    // their case.
+    // their case. NetjesOptionsValidation refuses a '*' elsewhere and a prefix with nothing before it.
     private static bool Listed(IReadOnlyList<string> listed, string name)
     {
         foreach (var entry in listed)
