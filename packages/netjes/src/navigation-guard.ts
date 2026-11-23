@@ -29,8 +29,8 @@ type Guard = { read(): NavigationGuardOptions };
  * answers keeps no navigation from being asked again.
  *
  * While any guard holds, `beforeunload` has the browser ask its own question before the document unloads: a reload,
- * closing the tab, typing an address, a link to another site. The listener is there only then, as browsers keep no
- * page with one in their back-forward cache.
+ * closing the tab, typing an address, a link to another site. The listener is there only then, as such a listener has
+ * kept pages out of some browsers' back-forward cache.
  */
 export class NavigationGuards {
   private readonly guards: Guard[] = [];

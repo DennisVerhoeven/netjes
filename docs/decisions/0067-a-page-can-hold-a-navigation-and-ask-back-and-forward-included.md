@@ -14,7 +14,7 @@ A form with changes that are not saved loses them when the reader leaves its pag
 - **What is not held.** A link to a fragment of the page on screen, and Back or Forward over one, keep the page. A form post, a server action and a server action's redirect are the form saving itself. `router.refresh()` stays on the page. A URL on another origin unloads the document, and `beforeunload` asks.
 - **Several guards** are asked in turn, the one that started to hold last first; each `proceed()` passes the navigation to the next, and the first `stay()` ends it.
 - **One question per unload.** A navigation the guards let go on that the router then loads in full (a page from another build, an answer that is not a Netjes page) unloads without the browser asking again, once.
-- **`beforeunload` only while a guard holds.** Browsers keep no page with a `beforeunload` listener in their back-forward cache, so the listener is added when the first guard starts to hold and removed when the last one stops.
+- **`beforeunload` only while a guard holds.** A `beforeunload` listener has kept pages out of some browsers' back-forward cache, and browsers ask on every unload while one cancels, so the listener is added when the first guard starts to hold and removed when the last one stops.
 
 ## Alternatives considered
 
