@@ -16,6 +16,12 @@ export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   prefetch?: 'intent' | 'none';
   /** Let the browser follow it with a full page load: for a page of the app that must load in full, or a page on another site. */
   reloadDocument?: boolean;
+  /**
+   * Mark the link `aria-current="page"` only when its query is the page's whole query: the same parameters with the
+   * same values, in any order. Default false: parameters the link leaves out do not count. For a list's paging and sort
+   * links, where a link that drops `page` goes to another page of the list.
+   */
+  exactQuery?: boolean;
 };
 
 const BASE = 'http://netjes.invalid';
@@ -34,17 +40,19 @@ function sameValues(a: string[], b: string[]) {
 /**
  * Whether the link goes to the page on screen. An href with a `#` points to a place in a page, so it never does.
  * Otherwise its URL under the base path has the page's path, give or take one trailing slash, and the page's
- * values for each query parameter it names; parameters it leaves out do not count. Only the path and the query
- * enter, against a fixed origin, so the server and the browser agree.
+ * values for each query parameter it names; parameters it leaves out do not count, unless `exactQuery` asks for the
+ * page's parameters too. Only the path and the query enter, against a fixed origin, so the server and the browser agree.
  */
-function isCurrentPage(href: string, pathname: string, search: URLSearchParams, basePath: string) {
+function isCurrentPage(href: string, pathname: string, search: URLSearchParams, basePath: string, exactQuery: boolean) {
   if (href.includes('#')) return false;
   const query = search.toString();
   // The page's URL as the browser has it: the base path, then the page's path, even one that starts like the base path.
   const page = new URL(BASE + basePath + pathname + (query ? `?${query}` : ''));
   const target = new URL(withBasePath(href, basePath), page);
   if (target.origin !== BASE || withoutTrailingSlash(target.pathname) !== withoutTrailingSlash(page.pathname)) return false;
-  return [...new Set(target.searchParams.keys())].every((key) => sameValues(target.searchParams.getAll(key), search.getAll(key)));
+  const keys = new Set(target.searchParams.keys());
+  if (exactQuery) for (const key of search.keys()) keys.add(key);
+  return [...keys].every((key) => sameValues(target.searchParams.getAll(key), search.getAll(key)));
 }
 
 function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -63,10 +71,11 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
 /**
  * An `<a>` that navigates on the client. Ctrl/cmd-click, new tabs and external URLs behave like a normal link. It sets
  * `aria-current="page"` on a link to the page on screen: the same path, one trailing slash aside, and the page's values
- * for each query parameter the link names. A link with a `#` is never marked, and an `aria-current` prop wins. After a
- * navigation to another page, the router announces the page and starts the focus over at the top of the document.
+ * for each query parameter the link names (with `exactQuery`, for every parameter the page has too). A link with a `#`
+ * is never marked, and an `aria-current` prop wins. After a navigation to another page, the router announces the page
+ * and starts the focus over at the top of the document.
  */
-export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
+export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, exactQuery = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
   const router = useInternalRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -78,7 +87,7 @@ export function Link({ href, replace = false, scroll = true, prefetch = 'intent'
   return (
     <a
       href={withBasePath(href, basePath)}
-      aria-current={isCurrentPage(href, pathname, search, basePath) ? 'page' : undefined}
+      aria-current={isCurrentPage(href, pathname, search, basePath, exactQuery) ? 'page' : undefined}
       {...rest}
       onClick={(event) => {
         // Read before the app's own onClick, which runs as the link is followed: where it moves the focus, such as
