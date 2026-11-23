@@ -143,6 +143,7 @@ public static class Netjes.Page
   public static Netjes.PageResult<Netjes.NoProps> Props()
   public static Netjes.PageResult<TProps> Props<TProps>(TProps props)
   public static Netjes.PageResult Redirect(string location, bool permanent = false)
+  public static System.Threading.Tasks.Task RedirectToSignIn(Microsoft.AspNetCore.Http.HttpContext context, string path, string returnUrlParameter = "returnUrl")
   public static Netjes.PageResult Render(string pattern, object? props = null)
   public static Netjes.PageResult Unauthorized()
 public sealed record Netjes.PageMetadata : IEquatable<Netjes.PageMetadata>
