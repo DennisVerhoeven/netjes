@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.WebUtilities;
 using Netjes.Rendering;
 
@@ -34,7 +35,14 @@ public static partial class Page
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(returnUrlParameter);
+        // Whoever signs in gets the page at this URL: the answer for this visitor is kept by no cache, the output cache
+        // included, which would store a client navigation's redirect payload (a 200) for a cached page.
         NoStore.Force(context, "no-store, private");
+        if (context.Features.Get<IOutputCacheFeature>() is { } outputCache)
+        {
+            outputCache.Context.AllowCacheStorage = false;
+        }
+
         if (context.Request.Path.StartsWithSegments(NetjesEndpoints)
             || context.GetEndpoint()?.Metadata.GetMetadata<ServerActionMetadata>() is not null)
         {

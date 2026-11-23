@@ -206,6 +206,45 @@ public class SignInRedirectTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OnACachedPage_TheRedirectIsNeverStored(bool javaScript)
+    {
+        // With the output cache ahead of authorization, a stored redirect would be served to a visitor who has signed in.
+        var challenges = 0;
+        await using var app = await TestApp.StartAsync(
+            Files,
+            map: a => a.MapPageLoader("/account", () => Page.Props(new { })).RequireAuthorization().CachePage(TimeSpan.FromMinutes(5)),
+            services: s =>
+            {
+                s.AddOutputCache();
+                s.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(cookie =>
+                    cookie.Events.OnRedirectToLogin = context =>
+                    {
+                        Interlocked.Increment(ref challenges);
+                        return Page.RedirectToSignIn(context.HttpContext, "/sign-in");
+                    });
+                s.AddAuthorization();
+            },
+            configureApp: a =>
+            {
+                a.UseOutputCache();
+                a.UseAuthentication();
+                a.UseAuthorization();
+            },
+            environment: "Testing",
+            mode: NetjesMode.Development);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var response = javaScript ? await app.GetDataAsync("/account") : await app.GetDocumentAsync("/account");
+            Assert.Equal(javaScript ? HttpStatusCode.OK : HttpStatusCode.TemporaryRedirect, response.StatusCode);
+        }
+
+        Assert.Equal(2, challenges);
+    }
+
+    [Theory]
     [InlineData("https://elsewhere.example/sign-in")]
     [InlineData("//elsewhere.example/sign-in")]
     [InlineData("/\\elsewhere.example/sign-in")]
