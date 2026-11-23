@@ -121,6 +121,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
 - [0066 – Cookies the app names change without reloading every tab](decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)
 - [0067 – A link can compare the whole query to mark the current page](decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)
+- [0068 – A loader sets the document's lang](decisions/0068-a-loader-sets-the-documents-lang.md)
 
 ## The project
 
