@@ -37,7 +37,7 @@ internal static class ClientRenderShell
         }
 
         html.Append("<script").Append(nonce).Append('>').Append(DeferredBootstrap).Append("</script>");
-        if (metadata?.Title is { } title)
+        if ((metadata?.AbsoluteTitle ?? metadata?.Title) is { } title)
         {
             html.Append("<title>").Append(Encode(title)).Append("</title>");
         }

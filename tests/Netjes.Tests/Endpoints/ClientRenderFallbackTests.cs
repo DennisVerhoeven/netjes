@@ -156,6 +156,22 @@ public partial class ClientRenderFallbackTests
     }
 
     [Fact]
+    public async Task Shell_HasTheAbsoluteTitleFromTheLoader()
+    {
+        await using var app = await StartAsync(map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id }).WithMetadata(new PageMetadata
+        {
+            Title = "Plain",
+            AbsoluteTitle = "Fish & <chips>",
+        })));
+
+        var html = await (await app.GetDocumentAsync("/posts/7")).Content.ReadAsStringAsync(Ct);
+
+        var head = html[..html.IndexOf("</head>", StringComparison.Ordinal)];
+        Assert.Contains("<title>Fish &amp; &lt;chips&gt;</title>", head);
+        Assert.Equal("Fish & <chips>", (string?)PayloadIn(html)["metadata"]!["title"]!["absolute"]);
+    }
+
+    [Fact]
     public async Task Shell_WithoutMetadataFromTheLoader_HasNoTitle()
     {
         await using var app = await StartAsync();

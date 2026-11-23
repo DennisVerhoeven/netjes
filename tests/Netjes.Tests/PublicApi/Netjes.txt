@@ -149,6 +149,7 @@ public static class Netjes.Page
   public static Netjes.PageResult Unauthorized()
 public sealed record Netjes.PageMetadata : IEquatable<Netjes.PageMetadata>
   public PageMetadata()
+  public string? AbsoluteTitle { get; init; }
   public Netjes.PageMetadataAlternates? Alternates { get; init; }
   public string? Description { get; init; }
   public System.Collections.Generic.IReadOnlyList<string>? Keywords { get; init; }
