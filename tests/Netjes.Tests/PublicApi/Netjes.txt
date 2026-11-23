@@ -66,6 +66,7 @@ public static class Netjes.NetjesHeaders
   public const string Antiforgery = "X-Netjes-Antiforgery"
   public const string Cookies = "X-Netjes-Cookies"
   public const string Data = "X-Netjes-Data"
+  public const string Redirected = "X-Netjes-Redirected"
   public const string Segments = "X-Netjes-Segments"
   public const string ServerTime = "X-Netjes-Now"
 public sealed class Netjes.NetjesImageOptions
