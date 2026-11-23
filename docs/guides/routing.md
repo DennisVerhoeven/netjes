@@ -339,7 +339,14 @@ const [list] = useHistoryState('list', null, listHref);
 - **Small values.** The browser copies values with `structuredClone`, so keep to ids, names, numbers and arrays or objects of them: a function or an element cannot be copied, and the setter or the navigation throws, and a class instance comes back as a plain object. Browsers limit the size of an entry's state, so keep rows and pages of data in their loader. The router copies what a navigation carries when it starts, so changing the object afterwards changes nothing.
 - **One set of names per entry.** The page, its layouts and the components of a page package share the entry's names: a page package prefixes its own (`'help:query'`).
 - **A schema** (the third argument, at module level) parses what the entry holds, and a value it rejects gives `initial`: after a deploy, a reload brings back what the older build put there.
-- **Only the entry on screen is written.** A page that sets a value as it unmounts, or while Back loads the page before it, changes nothing: set values while the page is on screen.
+- **A setter follows its page, as `useState`'s does.** It writes into the entry on screen, and keeps working, as the same function, through a navigation that keeps the page and its values: after `router.refresh()`, another query or a server action that refreshes the page, a setter from before it still sets the value, so a list clears its ticks once the action on them is done:
+
+  ```tsx
+  await deleteTicked(ticked); // a server action that revalidates: the page is loaded again before it resolves
+  setTicked([]);
+  ```
+
+  Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry.
 - **Other keys stay.** The router keeps its entry key and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
 
 ### Refreshing a page Back shows

@@ -133,7 +133,7 @@ render(<OrderPage {...props} />, { wrapper: app.Wrapper });
 expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('href')).toBe('/orders?status=open');
 ```
 
-A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
+A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. A setter also works as the router's: one from before a navigation that keeps the path still sets the value, and one from before a navigation to another path sets nothing. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
 
 ### Pages
 
