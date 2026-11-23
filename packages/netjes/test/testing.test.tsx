@@ -8,7 +8,17 @@ import { z } from 'zod';
 import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { mounted } from '../src/mounted.tsx';
-import { useHistoryState, useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
+import {
+  type NavigationAttempt,
+  useHistoryState,
+  useNavigation,
+  useNavigationGuard,
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+  useSharedProps,
+} from '../src/router.tsx';
 import { serverAction, useAction, usePageActionState } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
@@ -524,5 +534,61 @@ describe('a server action called outside any Wrapper', () => {
     quiet.mockRestore();
 
     await expect(greet({ name: 'Ada' })).rejects.toThrow(notReady);
+  });
+});
+
+describe('createTestApp with a navigation guard', () => {
+  /** A form with changes that asks before a link or the router leaves it, with a question of its own. */
+  function Draft() {
+    const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+    useNavigationGuard({ when: true, onAttempt: setLeaving });
+    const router = useRouter();
+    const pathname = usePathname();
+    return (
+      <>
+        <p>at {pathname}</p>
+        <Link href="/orders">Orders</Link>
+        <Link href="#notes">Notes</Link>
+        <button type="button" onClick={() => void router.replace('/orders?page=2')}>
+          next page
+        </button>
+        {leaving && (
+          <div role="alertdialog" aria-label="Leave without saving?">
+            <button type="button" onClick={() => (leaving.stay(), setLeaving(null))}>
+              Keep editing
+            </button>
+            <button type="button" onClick={() => (leaving.proceed(), setLeaving(null))}>
+              Leave
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  it('holds push and replace until the guard lets them go on, and records them then', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+    expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeDefined();
+    expect(app.navigations).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByText('at /orders/7')).toBeDefined();
+
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    expect(app.navigations).toEqual([{ type: 'replace', href: '/orders?page=2' }]);
+    expect(screen.getByText('at /orders')).toBeDefined();
+  });
+
+  it('holds no link to a fragment of the page on screen', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Notes' }));
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(app.navigations).toEqual([{ type: 'push', href: '#notes' }]);
   });
 });

@@ -188,9 +188,18 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         setUrl(next);
         return Promise.resolve();
       };
+      // As the router does: a guard that holds is asked first, except about a fragment of the page on screen or
+      // another site, and the navigation is recorded once the guards let it go on.
+      const guarded = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
+        const next = new URL(href, window.location.href);
+        const here = new URL(window.location.href);
+        const keepsPage = next.hash !== '' && next.pathname === here.pathname && next.search === here.search;
+        if (!guards.holding || next.origin !== here.origin || keepsPage) return go(type, href, historyState);
+        return guards.attempt(next.pathname + next.search + next.hash, type, () => go(type, href, historyState));
+      };
       return {
-        push: (href, navigateOptions) => go('push', href, navigateOptions?.historyState),
-        replace: (href, navigateOptions) => go('replace', href, navigateOptions?.historyState),
+        push: (href, navigateOptions) => guarded('push', href, navigateOptions?.historyState),
+        replace: (href, navigateOptions) => guarded('replace', href, navigateOptions?.historyState),
         prefetch: () => {},
         refresh: () => {
           navigations.push({ type: 'refresh' });
@@ -205,7 +214,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         onActionResponse: () => () => {},
         onCookiesChanged: () => () => {},
       };
-    }, []);
+    }, [guards]);
     const payload = useMemo<PagePayload>(() => {
       const route = options.route ?? (options.pageActionState ? url.pathname : null);
       return {
