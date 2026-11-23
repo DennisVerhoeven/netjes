@@ -1062,31 +1062,39 @@ export function RouterProvider({
     }),
     [navigator, actionListeners],
   );
-  const { payload, modules, url } = view.loaded;
+  const { payload, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
+  // The same element until another page is shown: a change of the router's state alone (a navigation on its way)
+  // re-renders only the components that read it.
+  const page = useMemo(
+    () => (
+      <Shell>
+        <ErrorBoundary
+          resetKey={view.id}
+          fallback={(error) => <ErrorFallback error={error} errorPage={errorPage} loader={loader} payload={view.loaded.payload} />}
+        >
+          <RouteTree
+            modules={view.loaded.modules}
+            segments={view.loaded.payload.segments}
+            props={view.loaded.payload.props}
+            params={view.loaded.payload.params}
+            status={view.loaded.payload.status}
+            pageKind={view.loaded.payload.pageKind}
+            pageKey={pageKeyOf(view.loaded)}
+            retry={() => void router.refresh()}
+            metadata={view.loaded.payload.metadata}
+          />
+        </ErrorBoundary>
+      </Shell>
+    ),
+    [Shell, view, errorPage, loader, router],
+  );
 
   return (
     <RouterContext value={router}>
       <ViewContext value={viewValue}>
         <NavigationContext value={navigation}>
-          <Shell>
-            <ErrorBoundary
-              resetKey={view.id}
-              fallback={(error) => <ErrorFallback error={error} errorPage={errorPage} loader={loader} payload={payload} />}
-            >
-              <RouteTree
-                modules={modules}
-                segments={payload.segments}
-                props={payload.props}
-                params={payload.params}
-                status={payload.status}
-                pageKind={payload.pageKind}
-                pageKey={pageKeyOf(view.loaded)}
-                retry={() => void router.refresh()}
-                metadata={payload.metadata}
-              />
-            </ErrorBoundary>
-          </Shell>
+          {page}
           {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
               new page has set. */}
           <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
