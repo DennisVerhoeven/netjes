@@ -1,4 +1,4 @@
-import { Form, Link, definePage, useParams, useSearchParams } from 'netjes';
+import { Form, Link, definePage, useHistoryRestore, useParams, useRouter, useSearchParams } from 'netjes';
 import { z } from 'zod';
 import { NewTaskForm, TaskCard } from '../../../../components/board.tsx';
 import { StateDot } from '../../../../components/task-bits.tsx';
@@ -18,6 +18,10 @@ const params = z.object({ id: z.string() });
 export default definePage(pages['/projects/[id]'], function Board({ columns, donePage, doneHasMore }) {
   const { id } = useParams(params);
   const search = useSearchParams(filters);
+  const router = useRouter();
+  // Back from a task shows the board as the router kept it, from before any change made on the task's page: load it
+  // again from the server.
+  useHistoryRestore(() => void router.refresh());
   const filtered = Boolean(search.q || search.priority || search.mine);
   const doneHref = (page: number) =>
     route('/projects/[id]', { id }, { q: search.q || undefined, priority: search.priority, mine: search.mine, done: page > 1 ? page : undefined });
