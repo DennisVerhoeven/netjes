@@ -389,6 +389,25 @@ describe('useNavigationGuard and the browser history', () => {
     expect(where()).toBe('/other');
   });
 
+  it('takes the reader to the entry they chose when the attempt proceeds after the page moved within itself', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    const asking = nextAttempt();
+    window.history.back();
+    const attempt = await act(() => asking);
+
+    // A fragment link, which keeps the page and is not held, adds an entry while the question is open.
+    await user.click(screen.getByRole('link', { name: 'Notes' }));
+    expect(window.location.hash).toBe('#notes');
+    const done = popped();
+    attempt.proceed();
+    await act(() => done);
+
+    expect(where()).toBe('/other');
+    expect(screen.getByRole('heading', { name: 'Other' })).toBeDefined();
+  });
+
   it("holds router.back() as the browser's Back", async () => {
     pages(['/editor', '/other']);
     const user = await renderApp(payload('other', '/other'));

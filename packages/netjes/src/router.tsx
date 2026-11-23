@@ -815,9 +815,10 @@ class Navigator {
 
   /**
    * Holds Back or Forward to `url`, the entry at `index`, while a guard holds: steps back to the entry on screen, then
-   * asks the guards, and takes the same steps again when they let it. Back over a fragment link keeps the page and is
-   * not held. Neither is a step to an entry whose place the router does not know: it cannot tell the way back, and
-   * guessing could take the reader somewhere else, so it lets it go.
+   * asks the guards, and steps to the entry the reader chose when they let it, from wherever the page is by then (a
+   * fragment link may have added an entry meanwhile). Back over a fragment link keeps the page and is not held.
+   * Neither is a step to an entry whose place the router does not know: it cannot tell the way back, and guessing could
+   * take the reader somewhere else, so it lets it go.
    */
   private holdTraversal(url: URL, index: number | undefined): boolean {
     if (!this.deps.guards.holding || samePage(url, this.current.url)) return false;
@@ -829,8 +830,10 @@ class Navigator {
       index: from,
       ask: () =>
         void this.deps.guards.attempt(to, steps < 0 ? 'back' : 'forward', async () => {
+          const now = this.index;
+          if (now === undefined || now === index) return;
           this.letThrough = index;
-          window.history.go(steps);
+          window.history.go(index - now);
         }),
     };
     window.history.go(-steps);
