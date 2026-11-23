@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -230,10 +231,12 @@ public class OtherSpellingTests
 
         // The setting is on: a URL that can go somewhere on the site does. A browser reads a backslash as a slash and a
         // '#' as the end of the path, and drops a tab (/a<TAB>b is /ab), so a location with any of them would be another
-        // page, and no header carries another control character. Kestrel takes each in a target: those stay where they are.
-        Assert.Equal(
-            ["GET /a/b/: 308 /a/b", "GET /a\\b/: 200", "GET /a#b/: 200", "GET /a\tb/: 200", "GET /a\u0001b/: 200", "GET /a\u007fb/: 200"],
-            await AnswersAsync(app, "/a/b/", "/a\\b/", "/a#b/", "/a\tb/", "/a\u0001b/", "/a\u007fb/"));
+        // page, and no header carries another control character. Those stay where they are: Netjes answers them without a
+        // redirect, or Kestrel refuses the target itself, as its later patch releases do for a '#' (HTTP/1.1 allows no
+        // fragment in a request target). Either way no location is sent.
+        var answers = await AnswersAsync(app, "/a/b/", "/a\\b/", "/a#b/", "/a\tb/", "/a\u0001b/", "/a\u007fb/");
+        Assert.Equal(["GET /a/b/: 308 /a/b", "GET /a\\b/: 200"], answers[..2]);
+        Assert.All(answers[2..], answer => Assert.Matches(new Regex("^GET /a.b/: (200|400)$", RegexOptions.Singleline), answer));
     }
 
     private static void AssertStaysOnTheSite(string sent, Answer answer)
