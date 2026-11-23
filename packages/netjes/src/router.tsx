@@ -375,6 +375,16 @@ type NavigatorDeps = {
 type HistoryEntry = { lineage: number; values: HistoryValues };
 type CommittedEntry = HistoryEntry & { restored: boolean };
 
+/** How `Navigator.navigate` goes. */
+type NavigateCall = {
+  /** Scroll to the top, or to the fragment's element. Default true. */
+  scroll?: boolean | undefined;
+  /** What had the focus as the navigation started: by default what has it as `navigate` is called. */
+  focusedAtStart?: Element | null | undefined;
+  /** `useHistoryState` values the new entry starts with. */
+  historyState?: HistoryValues | undefined;
+};
+
 type GoOptions = {
   history: HistoryMode;
   scroll: ScrollIntent | 'auto';
@@ -507,17 +517,8 @@ class Navigator {
     this.deps.setEntry({ lineage, values });
   }
 
-  /**
-   * `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called.
-   * `historyState`: `useHistoryState` values the new entry starts with.
-   */
-  async navigate(
-    href: string,
-    history: 'push' | 'replace',
-    scroll: boolean,
-    focusedAtStart = document.activeElement,
-    historyState?: HistoryValues,
-  ): Promise<void> {
+  async navigate(href: string, history: 'push' | 'replace', options: NavigateCall = {}): Promise<void> {
+    const { scroll = true, focusedAtStart = document.activeElement, historyState } = options;
     // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
     // browser cannot keep throws here, before the navigation starts.
     const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
@@ -1171,7 +1172,7 @@ export function RouterProvider({
           // The user may have moved on while the action ran: then neither pull them back (redirect) nor reload the
           // page they left (refresh, which would also cancel their navigation).
           const movedOn = navigator.page !== page || navigator.navigating;
-          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push', true);
+          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push');
           else if (!movedOn && response.revalidate) await navigator.refresh();
           // After signing in or out (an action that set or deleted a cookie), the page on screen shows whoever was
           // signed in before until a page comes from the server: refresh it, like Next.js. That is the action's page
@@ -1224,8 +1225,8 @@ export function RouterProvider({
 
   const router = useMemo<InternalRouter>(
     () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
+      push: (href, options) => navigator.navigate(href, 'push', options),
+      replace: (href, options) => navigator.navigate(href, 'replace', options),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
