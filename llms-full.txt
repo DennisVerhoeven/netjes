@@ -1304,7 +1304,7 @@ const [list] = useHistoryState('list', null, listHref);
   ```
 
   Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry.
-- **Other keys stay.** The router keeps its entry key and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
+- **Other keys stay.** The router keeps its entry key, the entry's place in the tab's history ([Holding a navigation](#holding-a-navigation)) and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
 
 ### Refreshing a page Back shows
 
@@ -1318,6 +1318,53 @@ useHistoryRestore(() => void router.refresh());
 ```
 
 It also calls back when the browser shows the whole document again from its back-forward cache, after the reader went to another site and came back. A page the router loads from the server does not call it (a link, a refresh, Back to an entry the router does not remember, such as one from before a reload), and neither does Back over a fragment link, where the page stays as it was. `router.refresh()` keeps the entry, its values and the scroll position. TaskBoard's board refreshes itself this way, and its task page goes back to the board as it was filtered ([`e2e/history.spec.ts`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/e2e/history.spec.ts)).
+
+### Holding a navigation
+
+A form with changes that are not saved loses them when the reader leaves its page. `useNavigationGuard({ when, onAttempt })` holds every client navigation while `when` is true and asks `onAttempt` first; the navigation waits until the attempt's `proceed()` lets it go on or its `stay()` keeps the page. The page draws the question itself:
+
+```tsx
+import { Form, type NavigationAttempt, useAction, useNavigationGuard } from 'netjes';
+import { useEffect, useState } from 'react';
+import { serverActions } from '../../generated/netjes.ts';
+
+export function EditOrder() {
+  const [state, formAction] = useAction(serverActions['orders.update']);
+  const [changed, setChanged] = useState(false);
+  const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+  // Saved: nothing to lose until the next change.
+  useEffect(() => {
+    if (state?.ok) setChanged(false);
+  }, [state]);
+  useNavigationGuard({ when: changed, onAttempt: setLeaving });
+
+  return (
+    <>
+      <Form action={formAction} onChange={() => setChanged(true)}>{/* the fields */}</Form>
+      {leaving && (
+        <div role="alertdialog" aria-labelledby="leave-question">
+          <h2 id="leave-question">Leave without saving?</h2>
+          <button type="button" autoFocus onClick={() => (leaving.stay(), setLeaving(null))}>
+            Keep editing
+          </button>
+          <button type="button" onClick={() => (leaving.proceed(), setLeaving(null))}>
+            Leave without saving
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+- **What it holds.** Links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward`, and the browser's Back and Forward, a page package's links and router included. The attempt says where the navigation goes, `to` (the path, query and fragment, without the base path, as `usePathname()` reads them), and how, `type`: `'push'`, `'replace'`, `'back'` or `'forward'`. `onAttempt` can let some go at once: `if (new URL(attempt.to, location.href).pathname === pathname) attempt.proceed()` lets a tab or a page of a list through, which keep the page on screen.
+- **Back and Forward.** The browser moves to the other entry before a page hears of it, so the router puts the entry back, then asks: it keeps each entry's place in the tab's history in `history.state`, takes the same number of steps back, and calls `onAttempt` once the browser is on the page's entry again. The address bar shows the other URL for a moment. `proceed()` takes the steps again, several at once after a long press on Back, and `stay()` leaves the reader where they were. A step to an entry the router did not make, such as one an app pushed with `history.pushState` itself, has no place the router knows, so it is let through rather than guessed.
+- **Reloading and closing the tab.** While it holds, the guard sets `beforeunload`, so the browser asks its own question before the document unloads: a reload, closing the tab, typing an address, a link to another site, a `reloadDocument` link and `router.push` to another origin. Browsers word that question themselves and ask only after the reader has interacted with the page. A navigation the guards let go on that the router then loads in full, such as a page from a new build after a deploy, is not asked about twice. The listener is there only while a guard holds, since browsers keep no page with one in their back-forward cache.
+- **What it does not hold.** A link to a fragment of the page on screen, and Back or Forward over one, keep the page. A form post, a server action, the redirect a server action answers with, and `router.refresh()` are not held: the form is saving itself, or the page stays.
+- **It never traps the reader.** `proceed()` works whenever it is called, also once `when` is false: a "Save and leave" saves first, which ends the hold, then calls `proceed()`. A navigation that comes while the question is open, such as a second Back, takes the place of the one waiting, whose answer then does nothing, and `onAttempt` is asked about the new one. What loads or unloads the document only ever gets the browser's question.
+- **Several guards.** A form and an upload on one page can each hold. Each is asked in turn, the one that started to hold last first; `proceed()` passes the navigation to the next, and the first `stay()` ends it. `onAttempt` is the latest render's.
+
+TaskBoard's task form holds while a field differs from the task as stored, and asks "Leave without saving?" ([`components/task-page.tsx`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/components/task-page.tsx), [`e2e/guard.spec.ts`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/e2e/guard.spec.ts)). See [ADR 0067](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0067-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md).
 
 ### Focus and announcements
 
@@ -4609,7 +4656,7 @@ describe('Greeting', () => {
 });
 ```
 
-The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
+The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. A [navigation guard](#navigation-guards) that holds is asked first. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
 
 | Entry | For |
 |---|---|
@@ -4701,6 +4748,25 @@ expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('hr
 ```
 
 A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. A setter also works as the router's: one from before a navigation that keeps the path still sets the value, and one from before a navigation to another path sets nothing. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
+
+### Navigation guards
+
+A component that holds navigations with [`useNavigationGuard`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#holding-a-navigation) is asked about a link, a form that navigates, `router.push` and `router.replace` as in the app, so a test can answer its question. The navigation is recorded once the guard lets it go on:
+
+```tsx
+const app = createTestApp({ url: '/orders/7/edit' });
+render(<EditOrder />, { wrapper: app.Wrapper });
+
+await userEvent.type(screen.getByLabelText('Note'), 'Call first');
+await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeDefined();
+expect(app.navigations).toEqual([]);
+
+await userEvent.click(screen.getByRole('button', { name: 'Leave without saving' }));
+expect(app.navigations).toEqual([{ type: 'push', href: '/orders' }]);
+```
+
+A link to a fragment of the page on screen is not held, as in the app. The fake router keeps no history, so `router.back()` and `router.forward()` are recorded without asking, and the browser's own Back and Forward, which the router holds too, are tested end to end: TaskBoard's [`e2e/guard.spec.ts`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/examples/TaskBoard/e2e/guard.spec.ts) runs in Chromium, Firefox and WebKit.
 
 ### Pages
 
@@ -5600,7 +5666,7 @@ type NavigateOptions = {
 };
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. While a [`useNavigationGuard`](#usenavigationguard) holds, `push`, `replace`, `back` and `forward` ask it first; the promise of a push or a replace resolves once a guard keeps the page, or as without a guard once one lets it go on. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -5638,6 +5704,28 @@ function useHistoryRestore(callback: () => void): void;
 ```
 
 Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router remembered, which it shows without a request, or the whole document the browser kept in its back-forward cache. A page the router loads from the server does not call it, nor does Back over a fragment link of the page on screen. It calls the `callback` of the latest render, after the page's own effects, so a page that mounts from memory hears it too. A page that has to show what is current calls `router.refresh()` from it ([Refreshing a page Back shows](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#refreshing-a-page-back-shows)). Throws outside a Netjes page.
+
+#### `useNavigationGuard`
+
+```ts
+function useNavigationGuard(options: NavigationGuardOptions): void;
+
+type NavigationGuardOptions = {
+  when: boolean;                                // hold navigations now
+  onAttempt(attempt: NavigationAttempt): void;  // asked about each navigation held
+};
+
+type NavigationAttempt = {
+  to: string;                 // path, query and fragment, without the base path
+  type: NavigationAttemptType;
+  proceed(): void;            // let it go on: to the next guard that holds, then to the page
+  stay(): void;               // keep the page on screen
+};
+
+type NavigationAttemptType = 'push' | 'replace' | 'back' | 'forward';
+```
+
+While `when` is true, holds every client navigation and calls `onAttempt` first: links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward` and the browser's Back and Forward. The navigation waits until `proceed()` or `stay()` is called. For Back and Forward the router first puts the entry back, from the place of each entry it keeps in `history.state`, then asks; `proceed()` takes the same steps again, and a step to an entry the router did not make is let through. `proceed()` works whenever it is called, also once `when` is false; a navigation that comes while one waits takes its place, and the earlier attempt's answers do nothing. A link to a fragment of the page on screen, form posts, server actions and their redirects, `router.refresh()` and URLs on another origin are not held. While it holds, `beforeunload` has the browser ask before the document unloads (a reload, closing the tab, a link to another site), except for a navigation the guards let go on. Several guards are asked in turn, the one that started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. See [Holding a navigation](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#holding-a-navigation). Throws outside a Netjes page.
 
 #### `usePathname`
 
@@ -6138,7 +6226,7 @@ The value `deferred()` parses to: a thenable that records `status`, `value` and 
 
 ## `netjes/testing`
 
-The harness for testing components and pages with Vitest and Testing Library ([Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
+The harness for testing components and pages with Vitest and Testing Library ([Testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. A [`useNavigationGuard`](#usenavigationguard) that holds is asked about a push or a replace first, which is recorded once the guard lets it go on; `back` and `forward` are recorded without asking. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
 
 #### `createTestApp`
 
@@ -8038,7 +8126,7 @@ export default definePage(pages['/blog/[slug]'], function Post({ title, body }) 
 - Loaders and actions return Netjes results (`Page.Props(...)`, `Page.NotFound()`, `ServerAction.Ok(...)`), so their types reach `generated/netjes.ts`. Use records for everything that crosses to the browser.
 - zod at every boundary: `definePage`/`defineLayout` with the generated schemas, `useSearchParams(schema)` and `useParams(schema)` (schemas at module level), `useHistoryState(name, initial, schema)` for what a history entry holds, `api[...].response.parse(...)` for fetched JSON (from `useHref(endpointUrl(...))`, never a hand-built URL), `usePublicConfig(schema)`, `Href.parse(...)` or `isHref(...)` for URLs from a CMS. A link C# sends to one of the app's pages is a `Href` in the record (`new Href("/about")`), generated as the `Href` schema, so it reaches `<Link href>` checked; a link to an endpoint or a file stays a `string`. No `any`, no casts of server data.
 - Server state goes through TanStack Query, seeded from the loader with `.WithQuery(key, data)`; no `useEffect` fetching.
-- Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript.
+- Internal links use `<Link>` and `route()`; forms use `<Form>` with `useAction`, and must work without JavaScript. A form whose changes would be lost by leaving holds navigations with `useNavigationGuard` and asks ([references/routing.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/routing.md)).
 - Give each page a title of its own (`metadata`, or `PageMetadata` from C#), and keep the "Skip to content" link the first thing in the root layout, `app/layout.tsx`, that takes the focus, also when the root layout is kept bare and the site's chrome is in a group layout such as `app/(site)/layout.tsx`: after a client navigation the router announces the page by its title and starts the focus over at the top ([references/routing.md](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/packages/netjes/skills/netjes/references/routing.md)).
 - Never edit `generated/netjes.ts`; regenerate it and commit it with the change.
 - Anything in `Netjes:PublicConfig` or shared props is sent to the browser. So is the route of each endpoint with an `endpointUrl` key, one mapped only in Development included, once any component calls `endpointUrl`: keep secrets out of routes, and authorize on the endpoint.
@@ -8124,6 +8212,7 @@ ASP.NET Core ranks the endpoints a URL matches by order (pages and `MapGet` endp
 - `useSelectedLayoutSegment()`, `useSelectedLayoutSegments()`: the active child segment in a layout (tabs).
 - `useNavigation()`: `idle`, `loading` or `submitting`, for progress indicators.
 - `useHistoryState(name, initial, schema?)`: `useState` kept with the history entry, through Back, Forward and a reload, for what a page keeps of a visit (a list's ticks, the list a record was opened from). `initial` on the server and while hydrating. A new entry starts from `initial` or from what its navigation carried (`historyState` on `<Link>`, `router.push(href, { historyState })`, `router.replace`); a navigation that keeps the page on screen (a query, a fragment, a refresh) keeps the values, one to another page starts over. The setter, like `useState`'s, keeps working, as the same function, while the page stays (`await deleteTicked(ticked); setTicked([])` clears the ticks after an action that refreshes the page), and sets nothing once the page has left or Back or Forward went to another entry. Small values `structuredClone` can copy (ids, not rows); a page package prefixes its names. A schema at module level turns a value it rejects into `initial`. `createTestApp({ historyState })` seeds them in a test.
+- `useNavigationGuard({ when, onAttempt })`: while `when` holds (a form with changes not saved), links, `<Form method="get">`, `router.push`, `replace`, `back`, `forward` and the browser's Back and Forward wait for `onAttempt(attempt)` to call `attempt.proceed()` or `attempt.stay()`; the page draws the question (`attempt.to`, `attempt.type`). For Back and Forward the entry is put back first. Not held: a fragment of the page on screen, form posts, server actions, `refresh()`, other origins. While it holds, `beforeunload` covers a reload and closing the tab. `proceed()` always works, also after the form saved and `when` turned false.
 - `useHistoryRestore(callback)`: called when Back or Forward shows the page from memory (the router's, or the browser's back-forward cache), as it was when left; `useHistoryRestore(() => void router.refresh())` for a page that must show what is current, such as a list after its record changed.
 - External URLs, `target`, `download` and modified clicks behave like a plain `<a>`; `reloadDocument` forces a full load.
 
@@ -8409,6 +8498,7 @@ it('shows the validation error from C# next to the field', async () => {
 - `actions` answers server action calls by name: `{ ok: true, result }` or `{ ok: false, status: 422, errors }` (add `fields: ['email']` to name the fields a failed state's `values` keep, as the server does). A failure other than a 422 throws a `ServerActionError`, withheld unless the answer has the `message` the server would send: `{ ok: false, status: 403, errors: {}, message: 'Forbidden' }`. A component that calls an action, even from an effect as it mounts, must render inside `app.Wrapper`: outside it the call fails with "called before the page was ready".
 - `pageActionState: { errors, values }` is what `usePageActionState()` returns after a page action's input failed its checks, with status 422 (or `status: 429` for a post the rate limiter refused), for the page `route` names (else the URL's path).
 - `historyState: { name: value }` is what `useHistoryState` reads for the entry on screen, as a navigation carried it or an earlier visit left it (a record page's `{ list: '/orders?status=open' }`). A value a component sets is kept; a push or a replace keeps the values of the same path, starts another path over and sets what it carried on top, as the router does.
+- A component with `useNavigationGuard` that holds is asked about a push or a replace (a link, a GET form) first, and `navigations` records it once the guard proceeds; `back` and `forward` are recorded without asking.
 - `navigations` records what happened: `{ type: 'push' | 'replace', href }`, with `historyState` when the navigation carried any (`{ type: 'push', href: '/orders/7', historyState: { list: '/orders' } }`), `{ type: 'refresh' | 'back' | 'forward' }`, `{ type: 'submit', action, data }` for form posts, `{ type: 'action', name, input }` for action calls.
 
 Render a page component directly with the props its loader would send: `render(<Post title="Hello" body="..." />, { wrapper: createTestApp({ url: '/blog/hello' }).Wrapper })`. A page made with `definePage` parses them with its schema, so props the loader could not send fail the test with `Invalid props: ...`.
@@ -8587,6 +8677,7 @@ These records explain why Netjes is built the way it is, for contributors and fo
 - [0064 – A title from C# can be absolute](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0064-a-title-from-c-sharp-can-be-absolute.md): `PageMetadata.AbsoluteTitle` is a document title that no layout's title template wraps; it travels as the title's `{ absolute }` form, so the client needs no change, and it wins over `Title` when both are set.
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md): the route template joins the route pattern as `http.route`, the histograms advise bucket boundaries, and server actions and layout loaders get spans from the filter that traces loaders.
 - [0066 – A page keeps values with its history entry, and hears when Back shows it from memory](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md): `useHistoryState` keeps values by name in `history.state`, carried over while the page stays on screen and set by a navigation's `historyState`, initial while hydrating; the router keeps the keys of others; `useHistoryRestore` calls back when Back or Forward shows a page from memory.
+- [0067 – A page can hold a navigation and ask, Back and Forward included](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0067-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md): `useNavigationGuard` asks before links, forms that navigate, the router's calls and the browser's Back and Forward; for Back and Forward the router keeps each entry's place in `history.state`, puts the entry back, then asks; `proceed()` always works, a newer navigation takes the place of one waiting, and what unloads the document goes through `beforeunload` alone.
 
 A decision that a newcomer would not guess, or that was chosen over a real alternative, gets a new record with the next number. An accepted record is not rewritten when the decision changes: a new record supersedes, amends or extends it, and its status line names the record it changes.
 
@@ -8619,6 +8710,8 @@ All notable changes to Netjes are recorded here: the `netjes` npm package and th
 - `useHistoryState(name, initial)` keeps a value with the history entry on screen, set like `useState`'s: Back, Forward and a reload bring back the value the entry had, so a list keeps what the reader ticked and a record knows which list opened it. A navigation carries the new entry's first values with `historyState` on `<Link>`, `router.push(href, { historyState })` and `router.replace(href, { historyState })`, a page package's router included; a navigation that keeps the page on screen (another query, a fragment, a refresh) keeps its values, and one to another page starts over. Like `useState`'s, the setter keeps working, as the same function, while its page stays on screen, so `await deleteTicked(ticked); setTicked([])` clears the ticks after an action that refreshes the page; once the page has left, or Back or Forward went to another entry, it sets nothing. The value is the initial one on the server and in the render that hydrates the page, so hydration matches. A schema as the third argument turns a value it rejects, such as one an older build left, into the initial value. Values are what `structuredClone` copies: ids and names, not rows. An app that kept such values by URL in `sessionStorage`, or tracked the page before in memory, can keep them here instead ([State per history entry](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#state-per-history-entry), [ADR 0066](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)).
 - `useHistoryRestore(callback)` calls back each time Back or Forward showed the page from memory, the router's or the browser's back-forward cache, as it was when the reader left it, so a page can load itself again: `useHistoryRestore(() => void router.refresh())`. A page the router loads from the server does not call it ([Refreshing a page Back shows](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#refreshing-a-page-back-shows)).
 - `createTestApp({ historyState })` seeds the `useHistoryState` values of the entry on screen, and `app.navigations` records the `historyState` a push or a replace carries ([History state](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#history-state)). A test that compared the entries with `toEqual` is unchanged: the field is there only when a navigation carried values.
+- `useNavigationGuard({ when, onAttempt })` holds every client navigation while `when` is true and asks the page first: links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward` and the browser's Back and Forward. `onAttempt(attempt)` gets where the navigation goes (`to`) and how (`type`), and the navigation waits until `attempt.proceed()` or `attempt.stay()`; the page draws the question itself. For Back and Forward the router puts the entry back first, so the address bar shows the page on screen while the question is open (it shows the other URL for a moment). While a guard holds, `beforeunload` has the browser ask before a reload, closing the tab or a link to another site. `proceed()` always works, also after a save ended the hold, and a navigation that comes while one waits takes its place, so a guard never keeps the reader on the page. The router keeps each entry's place in the tab's history in `history.state`, under `__netjesIndex` beside its other keys; an app's own keys stay. An app that held links with a click listener of its own, and `beforeunload`, can use the guard instead, which holds Back and Forward, forms that navigate and the router's calls in code too ([Holding a navigation](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/routing.md#holding-a-navigation), [ADR 0067](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0067-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md)).
+- `createTestApp` asks a guard that holds about a push or a replace (a link, a form that navigates) before it records it, so a component test can answer the page's question ([Navigation guards](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#navigation-guards)). A test of a component without a guard sees no change.
 
 ### Changed
 

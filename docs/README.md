@@ -120,6 +120,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0064 – A title from C# can be absolute](decisions/0064-a-title-from-c-sharp-can-be-absolute.md)
 - [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
 - [0066 – A page keeps values with its history entry, and hears when Back shows it from memory](decisions/0066-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)
+- [0067 – A page can hold a navigation and ask, Back and Forward included](decisions/0067-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md)
 
 ## The project
 
