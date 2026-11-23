@@ -263,4 +263,116 @@ public class PagePackageMountTests
             Assert.Equal("path", ex.ParamName);
         }
     }
+
+    [Fact]
+    public void ForTests_MakesAMountWithoutAnApp_ThatBuildsTheSameUrlsAsAMountedOne()
+    {
+        var mount = PagePackageMount.ForTests(TestPagePackage.Descriptor, "/support/(desk)/help/[lang]");
+
+        Assert.Same(TestPagePackage.Descriptor, mount.Package);
+        Assert.Equal("support/(desk)/help/[lang]", mount.Folder);
+        Assert.Equal("/support/help/[lang]", mount.Pattern);
+        Assert.Equal(
+            new Href("/support/help/nl/articles"),
+            mount.Url("/articles", new RouteValueDictionary { ["lang"] = "nl" }));
+    }
+
+    [Fact]
+    public void ForTests_RefusesAPrefixTheAppWouldRefuse_AndNoPackage()
+    {
+        var prefix = Assert.Throws<ArgumentException>(() => PagePackageMount.ForTests(TestPagePackage.Descriptor, "help"));
+        Assert.Equal("prefix", prefix.ParamName);
+        Assert.Throws<ArgumentException>(() => PagePackageMount.ForTests(TestPagePackage.Descriptor, "/[...rest]/help"));
+        Assert.Throws<ArgumentNullException>(() => PagePackageMount.ForTests(null!, "/help"));
+        Assert.Throws<ArgumentNullException>(() => PagePackageMount.ForTests(TestPagePackage.Descriptor, null!));
+    }
+
+    [Fact]
+    public void MountsForTests_ListsTheMountsInOrder_AndFindsEachByItsPackage()
+    {
+        var help = PagePackageMount.ForTests(TestPagePackage.Descriptor, "/help");
+        var status = PagePackageMount.ForTests(TestPagePackage.Other, "/");
+
+        var mounts = PagePackageMounts.ForTests(help, status);
+
+        Assert.Equal([help, status], mounts.All);
+        Assert.Same(status, mounts.Get(TestPagePackage.Other.Name));
+        var ex = Assert.Throws<InvalidOperationException>(() => PagePackageMounts.ForTests(help).Get(TestPagePackage.Other.Name));
+        Assert.Contains($"'{TestPagePackage.Other.Name}' is not mounted", ex.Message);
+        Assert.Empty(PagePackageMounts.ForTests().All);
+    }
+
+    [Fact]
+    public void MountsForTests_RefusesAPackageMountedTwice_AsTheAppDoes()
+    {
+        var one = PagePackageMount.ForTests(TestPagePackage.Descriptor, "/help");
+        var two = PagePackageMount.ForTests(TestPagePackage.Descriptor, "/other");
+
+        var ex = Assert.Throws<ArgumentException>(() => PagePackageMounts.ForTests(one, two));
+
+        Assert.Contains($"'{TestPagePackage.Name}'", ex.Message);
+        Assert.Contains("once", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("/help")]
+    [InlineData("/support/(desk)/help")]
+    public async Task Render_RendersThePageBelowTheMount_WithTheProps(string prefix)
+    {
+        await using var app = await StartAsync(
+            prefix,
+            map: a => a.MapGet(
+                "/featured",
+                (PagePackageMounts mounts) => mounts.Get(Help).Render("/x", new { Featured = true })));
+
+        var payload = await app.GetDataJsonAsync("/featured");
+
+        Assert.Equal($"{Help}/app/x/page.tsx", (string?)payload["page"]);
+        Assert.True((bool?)payload["props"]!["featured"]);
+    }
+
+    [Fact]
+    public async Task Render_RendersTheMountItself_ForTheRoot()
+    {
+        await using var app = await StartAsync(
+            "/help",
+            map: a => a.MapGet("/featured", (PagePackageMounts mounts) => mounts.Get(Help).Render("/")));
+
+        var payload = await app.GetDataJsonAsync("/featured");
+
+        Assert.Equal($"{Help}/app/page.tsx", (string?)payload["page"]);
+    }
+
+    [Fact]
+    public async Task Render_FindsThePageBelowAPrefixWithAValue_AndFillsTheValueFromTheRequest()
+    {
+        await using var app = await StartAsync(
+            "/[tenant]/help",
+            map: a => a.MapGet(
+                "/elsewhere/{tenant}",
+                (PagePackageMounts mounts) => mounts.Get(Help).Render("/x", new { Featured = true })));
+
+        var payload = await app.GetDataJsonAsync("/elsewhere/acme");
+
+        Assert.Equal($"{Help}/app/x/page.tsx", (string?)payload["page"]);
+        Assert.Equal("/acme/help", (string?)payload["mounts"]![Help]);
+    }
+
+    // The path is a pattern below the mount, in file syntax, not a URL: a query, a fragment, another host or a
+    // relative path is no page.
+    [Theory]
+    [InlineData("")]
+    [InlineData("x")]
+    [InlineData("//evil.example")]
+    [InlineData("/\\evil.example")]
+    [InlineData("https://evil.example")]
+    [InlineData("/x?page=2")]
+    [InlineData("/x#top")]
+    [InlineData("?page=2")]
+    public void Render_RefusesAnythingButAPatternBelowTheMount(string path)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => MountAt("/help").Render(path));
+
+        Assert.Equal("path", ex.ParamName);
+    }
 }

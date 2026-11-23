@@ -8,11 +8,11 @@ import { mounted } from '../src/mounted.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
 /** Renders a link to each href on the page at `url`, and reads each one's aria-current. */
-function currentAt(url: string, hrefs: string[]) {
+function currentAt(url: string, hrefs: string[], props: { exactQuery?: boolean } = {}) {
   const { unmount } = render(
     <nav>
       {hrefs.map((href) => (
-        <Link key={href} href={href}>
+        <Link key={href} href={href} {...props}>
           {href}
         </Link>
       ))}
@@ -84,6 +84,48 @@ describe('Link', () => {
       '//example.com/': null,
       'mailto:hello@example.com': null,
     });
+  });
+
+  it('compares the whole query with exactQuery, so a link that leaves out a parameter of the page is not current', () => {
+    // A list's Previous link to page 1 drops `page`: on page 2 it is not the page on screen.
+    expect(
+      currentAt('/orders?page=2&sort=name', ['/orders?sort=name', '/orders?sort=name&page=2', '/orders?page=2', '/orders'], { exactQuery: true }),
+    ).toEqual({
+      '/orders?sort=name': null,
+      '/orders?sort=name&page=2': 'page',
+      '/orders?page=2': null,
+      '/orders': null,
+    });
+    expect(currentAt('/orders', ['/orders', '/orders/', '/orders?page=1', '/orders#top'], { exactQuery: true })).toEqual({
+      '/orders': 'page',
+      '/orders/': 'page',
+      '/orders?page=1': null,
+      '/orders#top': null,
+    });
+  });
+
+  it('compares decoded values, in any order, with their case, with exactQuery', () => {
+    expect(currentAt('/s?t=x&t=y&q=a+b', ['/s?q=a%20b&t=y&t=x', '/s?t=x&q=a+b', '/s?t=x&t=y&t=y&q=a+b'], { exactQuery: true })).toEqual({
+      '/s?q=a%20b&t=y&t=x': 'page',
+      '/s?t=x&q=a+b': null,
+      '/s?t=x&t=y&t=y&q=a+b': null,
+    });
+    expect(currentAt('/blog?Tag=react', ['/blog?tag=react', '/blog?Tag=react'], { exactQuery: true })).toEqual({
+      '/blog?tag=react': null,
+      '/blog?Tag=react': 'page',
+    });
+    expect(currentAt('/s?q=', ['/s', '/s?q='], { exactQuery: true })).toEqual({ '/s': null, '/s?q=': 'page' });
+  });
+
+  it('lets an aria-current prop win over exactQuery', () => {
+    render(
+      <Link href="/docs" exactQuery aria-current="true">
+        Docs
+      </Link>,
+      { wrapper: createTestApp({ url: '/docs?tab=api' }).Wrapper },
+    );
+
+    expect(screen.getByRole('link', { name: 'Docs' }).getAttribute('aria-current')).toBe('true');
   });
 
   it('lets an aria-current prop win', () => {

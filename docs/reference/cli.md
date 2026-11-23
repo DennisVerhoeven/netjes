@@ -140,7 +140,7 @@ ASP.NET Core listens on `http://localhost:5000` unless `ASPNETCORE_URLS` says ot
 ## netjes generate
 
 ```text
-netjes generate [--check]
+netjes generate [--check] [-c <name>]
 ```
 
 Writes `generated/netjes.ts`: zod schemas for what the loaders and actions return, typed server action references, typed routes and typed endpoint URLs. The app also rewrites it when it starts with `Netjes:Mode` set to `Development`, in any environment, a test host's `Testing` included (see `TypesFile` in [the options](options.md#files-and-mode)); commit it. It also writes the generated file of each page package whose mount has `.WriteTypes(path)` ([C# API](csharp-api.md#pagepackagebuilder)), and `--check` checks each of those as well, naming every file that is out of date.
@@ -148,6 +148,7 @@ Writes `generated/netjes.ts`: zod schemas for what the loaders and actions retur
 | Option | What it does | Default |
 |---|---|---|
 | `--check` | Write nothing, and exit 1 when `generated/netjes.ts`, or a page package's file that a mount writes, is out of date. For CI. | off |
+| `-c, --configuration <name>` | The build configuration to run the app in, such as `Release`: it is passed to `dotnet run -c`, so the command reuses an existing build of that configuration instead of making a Debug one. | `dotnet`'s own: Debug |
 
 When `--check` finds the file out of date, the error shows where it differs: the first block of changed lines, as `- 12: old line` from the committed file and `+ 12: new line` from the generated one, with line numbers, up to 20 lines and then a count of the rest. When the file differs again further down, a last line says up to which line. A missing file is reported as missing.
 
@@ -156,7 +157,7 @@ Like `routes`, it runs the app once in command mode: the app starts as usual, so
 ## netjes routes
 
 ```text
-netjes routes [--json]
+netjes routes [--json] [-c <name>]
 ```
 
 Prints the pages as the app maps them (pattern, file, loader, page action, props type, output caching, authorization), the other endpoints (the built-in ones such as `/_netjes/image`, your own minimal API endpoints and the [server actions](../guides/actions-and-forms.md) at `/_netjes/actions/<name>`), and the [route warnings](../guides/routing.md#route-warnings). Warnings do not change the exit code. When the app mounts a [page package](csharp-api.md#page-packages), the table gets a Package column, after File, which names the package of each page and of each endpoint mapped through its mount, and marks a page the app's file replaces with `(override)`; a Packages list follows the endpoints, with each package's npm and NuGet versions, its prefix and its overrides. Without a mount the table is as before.
@@ -164,6 +165,7 @@ Prints the pages as the app maps them (pattern, file, loader, page action, props
 | Option | What it does | Default |
 |---|---|---|
 | `--json` | Print the report as JSON. | off: a table |
+| `-c, --configuration <name>` | The build configuration to run the app in, as for [`netjes generate`](#netjes-generate). | `dotnet`'s own: Debug |
 
 The report is the only thing on stdout; the build and app output go to stderr, so `netjes routes --json | jq` works. Its shape:
 
@@ -235,13 +237,13 @@ netjes info
 Checks the tools and the project, one line each: `✓` for what is in order, `!` for a warning, `✗` for a problem. Every `!` and `✗` line is followed by an indented line that says how to fix it. It exits 1 when there is a `✗`, and 0 otherwise. When the app depends on [page packages](csharp-api.md#page-packages), npm packages whose `package.json` has a `netjes` field, a line after the Vite config names them with their versions (`✓ page packages: @acme/help-center 1.2.0`), and a line follows for each problem with one; without them there is no such line.
 
 ```text
-netjes 0.0.4 in /home/me/my-shop
+netjes 0.0.5 in /home/me/my-shop
 
 ✓ Node.js 24.15.0
 ✓ .NET SDK 10.0.403 (MyShop.csproj targets net10.0)
 
-✓ npm packages: netjes 0.0.4, vite 8.3.5, react 19.3.1, react-dom 19.3.1
-✓ MyShop.csproj references Netjes 0.0.4, the version of the npm package
+✓ npm packages: netjes 0.0.5, vite 8.3.5, react 19.3.1, react-dom 19.3.1
+✓ MyShop.csproj references Netjes 0.0.5, the version of the npm package
 ✓ vite.config.ts uses netjes()
 ✓ package.json has a build script (dotnet publish runs it)
 ✓ app/ has 2 pages

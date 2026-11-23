@@ -13,6 +13,23 @@ public sealed class PagePackageMount
         Prefix = prefix;
     }
 
+    /// <summary>
+    /// A mount for a package's own tests, where an app would have mounted it, without an app: a package's services that build
+    /// URLs from their mount (<see cref="Url"/>) or render a page of the package (<see cref="Render"/>) run against it, and
+    /// <see cref="PagePackageMounts.ForTests"/> lists it for the services that take the app's mounts.
+    /// </summary>
+    /// <param name="package">The package mounted.</param>
+    /// <param name="prefix">
+    /// Where it is mounted, as <c>MapPagePackage</c> takes it: <c>/help</c>, <c>/support/(desk)/help</c>, <c>/[tenant]/help</c>
+    /// or <c>/</c>.
+    /// </param>
+    /// <exception cref="ArgumentException"><paramref name="prefix"/> is not a mount prefix, with the reason in the message.</exception>
+    public static PagePackageMount ForTests(PagePackage package, string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        return new PagePackageMount(package, MountPrefix.Parse(prefix));
+    }
+
     /// <summary>The package mounted.</summary>
     public PagePackage Package { get; }
 
@@ -57,6 +74,32 @@ public sealed class PagePackageMount
     }
 
     /// <summary>
+    /// Render the package's page for <paramref name="path"/>, a pattern below the mount in file syntax, from any endpoint:
+    /// <c>/articles/[slug]</c> is the page at <c>/help/articles/[slug]</c> for a package mounted at <c>/help</c>, and <c>/</c>
+    /// is the mount's own page. It is <see cref="Page.Render"/> for the mounted pattern, which the app chose and the package
+    /// does not know: a prefix's values (<c>/[tenant]/help</c>) are filled from the request, as for a page of the app. Its
+    /// layout loaders run under the authorization of the endpoint that returns this, not the page's.
+    /// </summary>
+    /// <param name="path">The pattern below the mount, starting with <c>/</c>, without a query or a fragment.</param>
+    /// <param name="props">The page's props.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="path"/> is not a pattern that starts with one <c>/</c>, or has a query or a fragment.
+    /// </exception>
+    public PageResult Render(string path, object? props = null)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (path.Length == 0 || path[0] != '/' || (path.Length > 1 && path[1] is '/' or '\\') || path.AsSpan().IndexOfAny('?', '#') >= 0)
+        {
+            throw new ArgumentException(
+                $"'{path}' is no page pattern below the mount of '{Package.Name}': start it with one '/', as in '/' for the mount's " +
+                "own page or '/articles/[slug]', and leave out a query or a fragment.",
+                nameof(path));
+        }
+
+        return Page.Render(Prefix.Above(path), props);
+    }
+
+    /// <summary>
     /// Whether the path in <paramref name="url"/>, before its query or fragment, has a segment a browser resolves away and
     /// would climb out of the mount with: <c>.</c> or <c>..</c>, also written with <c>%2e</c>, or after a <c>\</c>, which
     /// browsers read as a <c>/</c>.
@@ -71,4 +114,7 @@ public sealed class PagePackageMount
     internal List<Action<EndpointBuilder>> Conventions { get; } = [];
 
     internal List<Action<EndpointBuilder>> FinallyConventions { get; } = [];
+
+    /// <summary>The conventions of the not-found below the mount (<c>ConfigureNotFound</c>); null when the app gives it none.</summary>
+    internal NotFoundConventions? NotFound { get; set; }
 }

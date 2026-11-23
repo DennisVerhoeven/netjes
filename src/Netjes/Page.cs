@@ -142,6 +142,7 @@ public sealed class PageResult : IResult
     internal Kind ResultKind => _kind;
     internal string? Location => _location;
     internal object? ResultProps => _props;
+    internal PageMetadata? ResultMetadata => _metadata;
     internal IReadOnlyList<PageQuery> ResultQueries => _queries;
     internal int? StatusCode => _statusCode;
 

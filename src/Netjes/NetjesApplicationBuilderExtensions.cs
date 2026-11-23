@@ -113,6 +113,9 @@ public static class NetjesApplicationBuilderExtensions
         app.Use(reExecute.StartHere);
         app.UseRouting();
         app.Use(ReExecute.PagesOnly);
+        // Ahead of authentication, the output cache and the endpoint: a redirect's URL that no page answers is loaded as
+        // a document instead, and its endpoint runs then.
+        app.Use(RedirectTargets.InvokeAsync);
         app.UseMiddleware<PageErrorMiddleware>();
         // Last: it reads the endpoint routing chose, and answers ahead of the output cache, authentication and the page.
         if (OtherSpellings.AreRedirected(context))

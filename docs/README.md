@@ -108,6 +108,23 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0052 – A page package whose versions do not fit stops the app](decisions/0052-a-page-package-whose-versions-do-not-fit-stops-the-app.md)
 - [0053 – An unknown URL stays a 404 and runs only the layout loaders the visitor may see](decisions/0053-an-unknown-url-stays-a-404-and-runs-only-the-layout-loaders-the-visitor-may-see.md)
 - [0054 – Layout loaders around 404 and error pages are judged as the middleware judges their pages](decisions/0054-layout-loaders-around-404-and-error-pages-are-judged-as-the-middleware-judges-their-pages.md)
+- [0055 – A development app lets go of the Vite port as soon as it begins to stop](decisions/0055-a-development-app-lets-go-of-the-vite-port-as-soon-as-it-begins-to-stop.md)
+- [0056 – The template's development stack publishes Vite on the same port inside and out](decisions/0056-the-templates-development-stack-publishes-vite-on-the-same-port-inside-and-out.md)
+- [0057 – The CLI takes a build configuration, and the test harness covers a package's tests and a page action's failure](decisions/0057-tooling-for-packages-tests-and-ci-commands.md)
+- [0058 – A package makes its own mount in its tests, and renders its pages through it](decisions/0058-a-package-tests-its-own-mount-and-renders-its-pages-by-it.md)
+- [0059 – A not-found's layout loaders run for the user their policies sign in](decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md)
+- [0060 – The not-found below a mount takes conventions of its own](decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)
+- [0061 – Typegen names a type by attribute, reads a form as a record and keeps an export in the app's file](decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)
+- [0062 – `endpointUrl()` has a key for a POST endpoint that reads a form](decisions/0062-endpointurl-has-a-key-for-a-post-endpoint-that-reads-a-form.md)
+- [0063 – A sign-in redirect and a rate limit answer as Netjes's pages do](decisions/0063-a-sign-in-redirect-and-a-rate-limit-answer-as-netjes-pages-do.md)
+- [0064 – A title from C# can be absolute](decisions/0064-a-title-from-c-sharp-can-be-absolute.md)
+- [0065 – Telemetry names the route template and traces server actions and layout loaders](decisions/0065-telemetry-names-the-route-template-and-traces-server-actions-and-layout-loaders.md)
+- [0066 – Cookies the app names change without reloading every tab](decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)
+- [0067 – A link can compare the whole query to mark the current page](decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)
+- [0068 – A loader sets the document's lang](decisions/0068-a-loader-sets-the-documents-lang.md)
+- [0069 – A page keeps values with its history entry, and hears when Back shows it from memory](decisions/0069-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)
+- [0070 – A page can hold a navigation and ask, Back and Forward included](decisions/0070-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md)
+- [0071 – A navigation that fails keeps the page, and a redirect to no page loads a document](decisions/0071-a-navigation-that-fails-keeps-the-page-and-a-redirect-to-no-page-loads-a-document.md)
 
 ## The project
 

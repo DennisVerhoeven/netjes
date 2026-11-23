@@ -538,6 +538,22 @@ describe('commands that run the app', () => {
     expect(calls[0]?.env.NETJES_CHECK).toBe('1');
   });
 
+  it.each([
+    [['generate', '-c', 'Release'], ['run', '--no-launch-profile', '-c', 'Release']],
+    [['generate', '--configuration', 'Release', '--check'], ['run', '--no-launch-profile', '-c', 'Release']],
+    [['routes', '--configuration=Staging'], ['run', '--no-launch-profile', '-c', 'Staging']],
+  ])('%j passes the build configuration to dotnet run', async (args, dotnetArgs) => {
+    const { io, calls } = recordingIo(temp, async (call) => {
+      if (call.env.NETJES_COMMAND === 'routes') await writeFile(call.env.NETJES_OUTPUT!, JSON.stringify({ routes: [], endpoints: [], warnings: [] }));
+      return 0;
+    });
+
+    expect(await run(args, io)).toBe(0);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args).toEqual(dotnetArgs);
+  });
+
   it('dev runs dotnet watch in Development', async () => {
     const { io, calls } = recordingIo(temp);
 

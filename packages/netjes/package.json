@@ -1,6 +1,6 @@
 {
   "name": "netjes",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Build React apps and sites on ASP.NET Core: the Next.js App Router conventions, C# loaders and server actions, streaming SSR and types from C# to the browser",
   "keywords": [
     "react",
@@ -47,6 +47,10 @@
     "./testing/setup": {
       "types": "./dist/testing-setup.d.ts",
       "default": "./dist/testing-setup.js"
+    },
+    "./testing/vitest": {
+      "types": "./dist/testing-vitest.d.ts",
+      "default": "./dist/testing-vitest.js"
     },
     "./vitals": {
       "types": "./dist/vitals.d.ts",

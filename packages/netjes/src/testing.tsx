@@ -7,7 +7,8 @@ import { type ActionClient, type ActionState, setActionClient } from './actions.
 import type { AntiforgeryToken, PagePayload, Params } from './payload.ts';
 import { PublicConfigProvider } from './public-config.tsx';
 import { dehydratedStateOf, mergeOptions } from './query.tsx';
-import { type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
+import { NavigationGuards } from './navigation-guard.ts';
+import { type HistoryContextValue, type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
 
 export { type RenderDocumentOptions, inlineScriptHashes, renderDocument } from './render-document.tsx';
 
@@ -41,6 +42,18 @@ export type TestAppOptions = {
   defaultOptions?: DefaultOptions;
   /** What `useNavigation()` returns. Default idle. */
   navigation?: NavigationState;
+  /**
+   * The `useHistoryState` values of the history entry on screen, by name: what a navigation carried into it
+   * (`historyState`), or what an earlier visit left there. Default none.
+   */
+  historyState?: Record<string, unknown>;
+  /**
+   * What `usePageActionState()` returns after the page action's input failed its checks, as the server sends it with a
+   * 422: the errors per field and the submitted values of the fields the action declares (default none). `status` is
+   * the failure's status, 422 by default, or 429 for a post the rate limiter refused. It belongs to the page, so `route`
+   * names it; without `route`, the page is the URL's path. Default no failure.
+   */
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]>; status?: number };
   /** The token `<Form method="post">` adds. Default a test token; `false` for none. */
   antiforgery?: AntiforgeryToken | false;
   queryClient?: QueryClient;
@@ -67,7 +80,7 @@ export type TestActionAnswer = ActionState<unknown> & {
 
 /** One thing the component under test did: a navigation, a router call, a form post or a server action call. */
 export type TestNavigation =
-  | { type: 'push' | 'replace'; href: string }
+  | { type: 'push' | 'replace'; href: string; historyState?: Readonly<Record<string, unknown>> }
   | { type: 'refresh' | 'back' | 'forward' }
   | { type: 'submit'; action: string; data: URLSearchParams | FormData }
   | { type: 'action'; name: string; input: unknown };
@@ -148,17 +161,46 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   function Wrapper({ children }: { children: ReactNode }) {
     const [url, setUrl] = useState(initialUrl);
+    // The useHistoryState values of the entry on screen, and their lineage: as the router's, a navigation to another page
+    // starts a new one, and a setter of the lineage before sets nothing.
+    const [historyEntry, setHistoryEntry] = useState<Pick<HistoryContextValue, 'lineage' | 'values'>>(() => ({
+      lineage: 0,
+      values: options.historyState ?? {},
+    }));
+    // Stable, as the router's, so a setter is a new function only in a new lineage.
+    const [historyWriters] = useState<Pick<HistoryContextValue, 'set' | 'onRestore'>>(() => ({
+      set: (lineage, name, compute) =>
+        setHistoryEntry((entry) => (entry.lineage === lineage ? { lineage, values: { ...entry.values, [name]: compute(entry.values) } } : entry)),
+      onRestore: () => () => {},
+    }));
+    const history = useMemo<HistoryContextValue>(() => ({ ...historyEntry, ...historyWriters }), [historyEntry, historyWriters]);
+    const [guards] = useState(() => new NavigationGuards());
     const router = useMemo<InternalRouter>(() => {
-      const go = (type: 'push' | 'replace', href: string) => {
-        navigations.push({ type, href });
+      const go = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
+        navigations.push(historyState ? { type, href, historyState } : { type, href });
         const next = new URL(href, window.location.href);
+        // As the router does: a page that stays keeps its values, another starts over; what the navigation carries goes on top.
+        const stays = next.pathname === window.location.pathname;
+        setHistoryEntry(({ lineage, values }) =>
+          stays ? { lineage, values: { ...values, ...historyState } } : { lineage: lineage + 1, values: { ...historyState } },
+        );
         window.history.replaceState(null, '', next.href);
         setUrl(next);
         return Promise.resolve();
       };
+      // As the router does: a guard that holds is asked first, except about a fragment of the page on screen or
+      // another site, and the navigation is recorded once the guards let it go on. One that goes at once, as no guard
+      // holds, takes the place of an attempt still waiting for its answer.
+      const guarded = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
+        const next = new URL(href, window.location.href);
+        const here = new URL(window.location.href);
+        const keepsPage = next.hash !== '' && next.pathname === here.pathname && next.search === here.search;
+        if (next.origin !== here.origin || keepsPage) return go(type, href, historyState);
+        return guards.attempt(next.pathname + next.search + next.hash, type, () => go(type, href, historyState));
+      };
       return {
-        push: (href) => go('push', href),
-        replace: (href) => go('replace', href),
+        push: (href, navigateOptions) => guarded('push', href, navigateOptions?.historyState),
+        replace: (href, navigateOptions) => guarded('replace', href, navigateOptions?.historyState),
         prefetch: () => {},
         refresh: () => {
           navigations.push({ type: 'refresh' });
@@ -173,31 +215,41 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         onActionResponse: () => () => {},
         onCookiesChanged: () => () => {},
       };
-    }, []);
-    const payload = useMemo<PagePayload>(
-      () => ({
+    }, [guards]);
+    const payload = useMemo<PagePayload>(() => {
+      const route = options.route ?? (options.pageActionState ? url.pathname : null);
+      return {
         kind: 'page',
-        route: options.route ?? null,
+        route,
         page: null,
         segments: [],
         props: {},
         params: options.params ?? {},
         shared: options.shared ?? null,
-        status: 200,
+        status: options.pageActionState ? (options.pageActionState.status ?? 422) : 200,
         url: url.pathname + url.search,
         version: 'test',
         ...(antiforgery ? { antiforgery } : {}),
         ...(options.draftMode ? { draftMode: true } : {}),
         ...(options.locale ? { locale: options.locale } : {}),
         ...(options.mounts ? { mounts: options.mounts } : {}),
-      }),
-      [url],
-    );
+        ...(options.pageActionState && route !== null
+          ? {
+              actionState: {
+                action: route,
+                status: options.pageActionState.status ?? 422,
+                errors: options.pageActionState.errors,
+                values: options.pageActionState.values ?? {},
+              },
+            }
+          : {}),
+      };
+    }, [url]);
 
     return (
       <QueryClientProvider client={queryClient}>
         <PublicConfigProvider value={options.publicConfig ?? {}}>
-          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }}>
+          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history} guards={guards}>
             <RegisterActionClient client={actionClient} />
             {children}
           </RouterContexts>

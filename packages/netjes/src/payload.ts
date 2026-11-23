@@ -1,3 +1,4 @@
+import { isLanguageTag } from './lang.ts';
 import type { Metadata } from './metadata.tsx';
 
 // The JSON contract with the .NET side (src/Netjes/Rendering/PagePayload.cs). Keep the two in sync.
@@ -12,6 +13,11 @@ export const ANTIFORGERY_HEADER = 'X-Netjes-Antiforgery';
  * pages the router keeps for back and forward show the app as it was before.
  */
 export const COOKIES_HEADER = 'X-Netjes-Cookies';
+/**
+ * `1` on the router's request for the URL a redirect sent it to (a redirect payload, or a server action's redirect):
+ * where no page answers that URL, the server answers `{ kind: 'document' }` without running the endpoint.
+ */
+export const REDIRECTED_HEADER = 'X-Netjes-Redirected';
 export const DATA_ELEMENT_ID = '__NETJES_DATA__';
 /** The id of the empty element that ends the body of every server-rendered document, and so the shell. */
 export const SHELL_END_ID = '__NETJES_SHELL_END__';
@@ -46,6 +52,8 @@ export type SegmentRef = {
   depth?: number | undefined;
   /** Each slot page's own route values (its parameter names can differ from the page's). */
   slotParams?: Record<string, Params> | undefined;
+  /** The layout loader's `PageMetadata.Lang`. A reused segment's is the one the client holds, as its props. */
+  lang?: string | undefined;
 };
 
 export type SpecialPageRef = { page: string; segments: SegmentRef[] };
@@ -68,9 +76,14 @@ export type AntiforgeryToken = {
 /** A TanStack Query cache entry seeded by the C# loader (`PageResult.WithQuery`). `updatedAt` is Unix milliseconds. */
 export type SeededQuery = { key: readonly unknown[]; data: unknown; updatedAt: number };
 
-/** Left by a server action posted without JavaScript that failed validation; the form's page renders with it. */
+/**
+ * Left by a form post that failed (a page action's, or a server action's posted without JavaScript); the form's page
+ * renders with it. `status` is 422 after a failed validation and 429 after the rate limiter refused the post
+ * (`Page.TooManyRequests`); 422 when absent.
+ */
 export type ActionStateRef = {
   action: string;
+  status?: number;
   errors: Record<string, string[]>;
   values: Record<string, string | string[]>;
 };
@@ -115,6 +128,8 @@ export type PagePayload = {
   intercepts?: InterceptRef[];
   /** From the C# loader (`.WithMetadata(...)`), merged over the files' `export const metadata`. */
   metadata?: Metadata;
+  /** The page loader's `PageMetadata.Lang`: the document's lang, before its layouts' and the root's (`documentLang`). */
+  lang?: string;
   /** The page was rendered in draft mode. */
   draftMode?: boolean;
   /** `UsePathBase`'s base path, when the app is not mounted at the root; `url` includes it. */
@@ -160,7 +175,10 @@ export type InitialPayload = PagePayload & { document: DocumentInfo };
 
 export type RedirectPayload = { kind: 'redirect'; location: string; version: string };
 
-export type NavigationPayload = PagePayload | RedirectPayload;
+/** The answer to a request a redirect led to (`REDIRECTED_HEADER`) when no page answers its URL: load it as a document. */
+export type LoadDocumentPayload = { kind: 'document' };
+
+export type NavigationPayload = PagePayload | RedirectPayload | LoadDocumentPayload;
 
 export class PayloadError extends Error {
   override name = 'PayloadError';
@@ -221,6 +239,13 @@ function optionalString(value: unknown, what: string): string | undefined {
   return value === undefined || value === null ? undefined : string(value, what);
 }
 
+/** A language tag's shape (`PageMetadata.Lang`), since the router writes it on `<html>`. */
+function languageTag(value: unknown, what: string): string {
+  const tag = string(value, what);
+  if (!isLanguageTag(tag)) fail(`${what} must be a language tag, such as nl or en-GB`);
+  return tag;
+}
+
 function segments(value: unknown, what: string): SegmentRef[] {
   if (!Array.isArray(value)) fail(`${what} must be an array`);
   return value.map((item, i) => {
@@ -234,6 +259,7 @@ function segments(value: unknown, what: string): SegmentRef[] {
     const key = optionalString(json.key, `${what}[${i}].key`);
     if (key !== undefined) segment.key = key;
     if (json.reused === true) segment.reused = true;
+    if (json.lang !== undefined && json.lang !== null) segment.lang = languageTag(json.lang, `${what}[${i}].lang`);
     if (json.depth !== undefined && json.depth !== null) {
       if (typeof json.depth !== 'number' || !Number.isInteger(json.depth) || json.depth < 0) {
         throw new PayloadError(`${what}[${i}].depth must be a whole number`);
@@ -268,7 +294,12 @@ function actionState(value: unknown): ActionStateRef {
   for (const [key, item] of Object.entries(object(json.values ?? {}, 'actionState.values'))) {
     values[key] = Array.isArray(item) ? strings(item, `actionState.values.${key}`) : string(item, `actionState.values.${key}`);
   }
-  return { action: string(json.action, 'actionState.action'), errors: errorMap(json.errors ?? {}, 'actionState.errors'), values };
+  return {
+    action: string(json.action, 'actionState.action'),
+    ...(json.status !== undefined && json.status !== null ? { status: number(json.status, 'actionState.status') } : {}),
+    errors: errorMap(json.errors ?? {}, 'actionState.errors'),
+    values,
+  };
 }
 
 export function parseActionResponse(value: unknown): ActionResponse {
@@ -332,6 +363,7 @@ function pagePayload(json: Json): PagePayload {
     });
   }
   if (json.metadata !== undefined && json.metadata !== null) payload.metadata = object(json.metadata, 'metadata') as Metadata;
+  if (json.lang !== undefined && json.lang !== null) payload.lang = languageTag(json.lang, 'lang');
   if (json.pageKind !== undefined && json.pageKind !== null) {
     if (!PAGE_KINDS.includes(json.pageKind as PageKind)) fail(`unknown pageKind ${JSON.stringify(json.pageKind)}`);
     payload.pageKind = json.pageKind as PageKind;
@@ -379,6 +411,8 @@ export function parseNavigationPayload(value: unknown): NavigationPayload {
       return pagePayload(json);
     case 'redirect':
       return { kind: 'redirect', location: string(json.location, 'location'), version: string(json.version, 'version') };
+    case 'document':
+      return { kind: 'document' };
     default:
       return fail(`unknown kind ${JSON.stringify(json.kind)}`);
   }

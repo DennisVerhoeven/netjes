@@ -320,6 +320,41 @@ public class LayoutLoaderTests
     }
 
     [Fact]
+    public async Task LayoutLoader_ALangInItsMetadata_TravelsOnItsSegment_AlsoAroundABoundaryPage()
+    {
+        await using var app = await TestApp.StartAsync(
+            Teams,
+            map: a =>
+            {
+                a.MapLayoutLoader("/[team]", (string team) => Page.Props(new { Team = team }).WithMetadata(new PageMetadata { Lang = "nl", Title = "Ignored" }));
+                a.MapPageLoader("/[team]/settings", () => Page.NotFound());
+            });
+
+        var page = await app.GetDataJsonAsync("/core");
+        var notFound = await app.GetDataJsonAsync("/core/settings");
+
+        Assert.Equal("nl", (string?)page["segments"]![1]!["lang"]);
+        Assert.False(page["segments"]![0]!.AsObject().ContainsKey("lang"));
+        Assert.False(page.AsObject().ContainsKey("lang"));
+        Assert.Null(page["metadata"]);
+        Assert.Equal("app/[team]/not-found.tsx", (string?)notFound["page"]);
+        Assert.Equal("nl", (string?)notFound["segments"]![1]!["lang"]);
+    }
+
+    [Fact]
+    public async Task ClientNavigation_AReusedSegment_LeavesItsLangToTheClient()
+    {
+        await using var app = await TestApp.StartAsync(
+            Teams, map: a => a.MapLayoutLoader("/[team]", (string team) => Page.Props(new { Team = team }).WithMetadata(new PageMetadata { Lang = "nl" })));
+
+        var first = await DataAsync(app, "/core");
+        var reused = await DataAsync(app, "/core/settings", segments: (string)first["segments"]![1]!["key"]!);
+
+        Assert.True((bool?)reused["segments"]![1]!["reused"]);
+        Assert.False(reused["segments"]![1]!.AsObject().ContainsKey("lang"));
+    }
+
+    [Fact]
     public async Task LayoutLoaderConventions_ApplyToEveryPageBelowIt()
     {
         await using var app = await TestApp.StartAsync(

@@ -78,7 +78,7 @@ export default function RootLayout({ children }: LayoutProps) {
 
 React renders the whole document ([ADR 0003](../decisions/0003-react-renders-the-whole-document.md)): Netjes writes `<html>`, `<head>` and `<body>` around the root layout, so a layout returns what goes inside the body. Tags such as `<title>` and `<link rel="icon">` that a layout or page renders end up in the head.
 
-A layout cannot put attributes on `<html>` or `<body>`, but a script can before React hydrates the document: a theme script ([a `beforeInteractive` `<Script>`](metadata.md#code-that-runs-before-the-first-paint)), a browser extension or a translator. In development React logs a hydration error for each attribute on an element that the element's props do not have, such as one a script added (it does not check attributes in production), so Netjes renders both elements with `suppressHydrationWarning`. React then logs nothing for the attributes of those two elements, `lang` included, and when it hydrates the page it leaves an attribute as the script set it. In production, a page that the browser renders itself because no sidecar was ready ([When no sidecar is ready](rendering-and-streaming.md#when-no-sidecar-is-ready)) loses such attributes: React then replaces the attributes of both elements with its own.
+A layout cannot put attributes on `<html>` or `<body>`, but a script can before React hydrates the document: a theme script ([a `beforeInteractive` `<Script>`](metadata.md#code-that-runs-before-the-first-paint)), a browser extension or a translator. In development React logs a hydration error for each attribute on an element that the element's props do not have, such as one a script added (it does not check attributes in production), so Netjes renders both elements with `suppressHydrationWarning`. React then logs nothing for the attributes of those two elements, `lang` included, and when it hydrates the page it leaves an attribute as the script set it. In production, a page that the browser renders itself because no sidecar was ready ([When no sidecar is ready](rendering-and-streaming.md#when-no-sidecar-is-ready)) loses such attributes: React then replaces the attributes of both elements with its own. The `lang` of `<html>` is Netjes's to set: `NetjesOptions.Lang`, or a loader's `PageMetadata.Lang` ([The `lang` attribute](metadata.md#the-lang-attribute)).
 
 The prop also covers the text directly in `<body>`, with no element or `<Suspense>` boundary around it, such as text that a root layout returns next to `{children}`, or that a page returns outside any element when its layouts add none. React does not compare that text with the server's, in development or in production: when the two differ, nothing is reported and the page keeps showing the server's text until that text changes. Text inside an element is compared as usual, so put top-level text that can differ between the server and the browser, such as a time, in an element. A mismatch in the head, or in any element in the body, is reported as before ([ADR 0026](../decisions/0026-netjes-html-and-body-skip-reacts-attribute-check.md)), apart from the text of the `<style>` elements that hold a page's CSS in development, which Vite's client owns once it runs ([ADR 0035](../decisions/0035-development-styles-are-inlined-from-the-client-build.md)).
 
@@ -118,7 +118,9 @@ options.Events.OnRedirectToLogin = context =>
 };
 ```
 
-An unknown URL renders the root `not-found.tsx` inside the root layout, with status 404. Its endpoint, the fallback that `MapPages()` adds, serves no page and carries none of the layout loaders' conventions, so Netjes authorizes the layout loaders on the way first, each as the pages in its folder would be: with its own conventions and those of the loaders above it, which every page there carries, and for a file page `MapPages()`'s too, or the fallback policy. A visitor one of them refuses gets the not-found page inside the layouts above that loader's layout, still with 404, since `MapPages()`'s conventions never challenge an unknown URL: with `app.MapLayoutLoader("/", ...).RequireAuthorization()`, or with `app.MapPages().RequireAuthorization()` and any root layout loader, a signed-out visitor of `/nope` gets `app/not-found.tsx` without the root layout. The pages of other endpoints that serve no page, such as a server action's empty 401 or a minimal API's `Page.NotFound()`, a page's `unauthorized.tsx` and `forbidden.tsx`, and a page's status and error pages from before its authorization ran, such as a rate limiter's 429, render the same way, with their own status ([Security](security.md#layout-loaders-around-404-and-error-pages)). A fallback policy is different: it covers the fallback as every endpoint without authorization metadata, so a visitor it refuses gets its challenge for an unknown URL, a 401 or a login redirect, before any page renders.
+To send the visitor to a sign-in page instead, with the URL to come back to, answer `OnRedirectToLogin` with `Page.RedirectToSignIn(context.HttpContext, "/sign-in")`: a document gets a redirect, a client navigation a redirect payload the router follows, and a server action's call keeps its 401 ([Sending a visitor to sign in](security.md#sending-a-visitor-to-sign-in)).
+
+An unknown URL renders the root `not-found.tsx` inside the root layout, with status 404. Its endpoint, the fallback that `MapPages()` adds, serves no page and carries none of the layout loaders' conventions, so Netjes authorizes the layout loaders on the way first, each as the pages in its folder would be: with its own conventions and those of the loaders above it, which every page there carries, and for a file page `MapPages()`'s too, or the fallback policy. A visitor one of them refuses gets the not-found page inside the layouts above that loader's layout, still with 404, since `MapPages()`'s conventions never challenge an unknown URL: with `app.MapLayoutLoader("/", ...).RequireAuthorization()`, or with `app.MapPages().RequireAuthorization()` and any root layout loader, a signed-out visitor of `/nope` gets `app/not-found.tsx` without the root layout. The pages of other endpoints that serve no page, such as a server action's empty 401 or a minimal API's `Page.NotFound()`, a page's `unauthorized.tsx` and `forbidden.tsx`, and a page's status and error pages from before its authorization ran, such as a rate limiter's 429, render the same way, with their own status ([Security](security.md#layout-loaders-around-404-and-error-pages)). A fallback policy is different: it covers the fallback as every endpoint without authorization metadata, so a visitor it refuses gets its challenge for an unknown URL, a 401 or a login redirect, before any page renders. Below a page package's mount, `ConfigureNotFound(...)` gives the unknown URLs an endpoint with conventions of their own, such as `AllowAnonymous()` ([Page packages](page-packages.md#404-and-error-pages-under-a-mount)).
 
 Netjes has built-in 404 and error pages for apps that have neither file. Special pages can export `metadata` like any page, and the layouts' title templates apply to them ([Metadata](metadata.md)).
 
@@ -268,9 +270,11 @@ import { route } from '../generated/netjes.ts';
 
 - `href` is typed by the app's routes once `netjes generate` has written `generated/netjes.ts`: a path no page serves is a type error. `Href.parse(value)` from the generated file checks a URL that comes from data, such as a CMS ([Typed links](data-loading.md#typed-links)). A link that a C# loader or the shared props send as a `Netjes.Href` has been checked against the pages when the props were parsed, so it goes to `href` as it is ([Links from C#](data-loading.md#links-from-c)).
 - The link gets `aria-current="page"` when it goes to the page on screen, which screen readers announce and styles can target: its path is the page's, with `/docs` and `/docs/` counted as one, and the page has the same values for every query parameter the link names, in any order. Parameters the link leaves out do not count: on `/blog?tag=react&utm_source=nl`, the links `/blog?tag=react` and `/blog` are marked and `/blog?tag=vue` is not. Names and values are compared with their case, as `useSearchParams()` reads them: a loader's `tag` parameter gets `react` on `/blog?Tag=react` too, since ASP.NET Core binds query names in any case, but `/blog?tag=react` is not marked there. A link with a `#`, such as `/#features`, points to a place in a page and is never marked, nor is a URL with its own scheme or host (`https://…`, `mailto:`).
+- `exactQuery` compares the page's parameters too: the link is marked only when the page's query is the link's, the same parameters with the same values, in any order. A list's paging and sort links need it. On `/orders?page=2&sort=name`, the Previous link `/orders?sort=name` goes to page 1, and without `exactQuery` it would be marked as the page on screen; with it, only `/orders?page=2&sort=name` is. It takes the mark off under a parameter the link does not carry, `utm_source` too, so leave it off navigation links ([ADR 0067](../decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)).
 - An `aria-current` prop of your own wins. `aria-current={undefined}` leaves the attribute off, as an "All" filter (`/blog`) needs on `/blog?tag=react`, and `aria-current="true"` marks a link to a section ([The current section](#the-current-section)).
 - It prefetches the next page on hover, focus and touch. `prefetch="none"` turns that off. A prefetched page is kept for 30 seconds, and every server action or form post drops the ones kept so far.
 - To link to a place in a page, pass the `id` of an element there as `hash` in the fourth argument of `route()`, as the second link above does. The third argument is the query: pass `undefined` when the link has none. One leading `#` in `hash` is dropped and the rest is percent-encoded; with nothing left, no fragment is added. Browsers and the router decode a fragment when they look for the element, so `hash: 'über-uns'` gives `#%C3%BCber-uns` and finds `<h2 id="über-uns">`. Like any link with a `#`, such a link is never marked as the current page.
+- `historyState={{ name: value }}` starts the entry the link opens with those [`useHistoryState`](#state-per-history-entry) values, such as the list a record was opened from.
 - After navigating, the page scrolls to the top, or to the element the `#fragment` names, which also takes the focus. A link to another page starts the focus over at the top of the document, as a page load does ([Focus and announcements](#focus-and-announcements)). `scroll={false}` keeps the scroll position, and keeps the focus on the link while the link has it; `replace` replaces the history entry instead of adding one.
 - Ctrl-, Cmd-, Shift- and Alt-clicks, other mouse buttons, a `target` other than `_self`, a `download` attribute and URLs on another origin are left to the browser, as for a plain `<a>`. `reloadDocument` makes the browser load the URL with a full page load, for a page of the app that must load in full or a page on another site. For a file or another endpoint of the app, see the next bullet.
 - An endpoint of the app, such as a feed or a file, is not a page, and `href` refuses the `string` that the generated `endpointUrl()` returns for it. Link it with a plain `<a>` under the base path: `<a href={useHref(endpointUrl('GET /feed.xml'))}>` ([Endpoint URLs](data-loading.md#endpoint-urls)).
@@ -299,9 +303,112 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 
 ### Back and forward
 
-The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)).
+The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](actions-and-forms.md#signing-in-and-out)). When such a page does not come, the router steps back to the entry of the page on screen, which stays ([When a navigation fails](#when-a-navigation-fails)).
 
 A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
+
+### State per history entry
+
+`useHistoryState(name, initial)` is `useState` with the value kept in the history entry: Back, Forward and a reload bring back the value the entry had. A list keeps what the reader ticked, and a record knows which list opened it:
+
+```tsx
+// app/orders/page.tsx: the ticks belong to this visit of the list, and come back with it.
+const [ticked, setTicked] = useHistoryState<string[]>('ticked', []);
+// Each row's link carries the list's address, with its filters, into the record's entry.
+const pathname = usePathname();
+const query = useSearchParams().toString();
+const here = query ? `${pathname}?${query}` : pathname;
+
+<Link href={route('/orders/[id]', { id: order.id })} historyState={{ list: here }}>
+  {order.number}
+</Link>;
+```
+
+```tsx
+// app/orders/[id]/page.tsx: the way back, still there after a reload. The schema checks what the entry holds.
+import { Href } from '../../../generated/netjes.ts';
+
+const listHref = Href.nullable();
+
+const [list] = useHistoryState('list', null, listHref);
+<Link href={list ?? '/orders'}>Back to the orders</Link>;
+```
+
+- **Each entry has its own values.** A new entry starts from `initial`, or from what the navigation that opened it carried: `historyState` on `<Link>`, `router.push(href, { historyState })` and `router.replace(href, { historyState })`. Two visits to one list are two entries, and a record opened from its URL has no list in its entry.
+- **A page that stays keeps them.** A navigation that keeps the page on screen, such as another query (a filter, a tab, `?page=2`), a fragment (a link to it, or a plain `<a href="#…">` the browser follows itself), `router.refresh()` or a form post that stays, gives the entry it adds or replaces the values the page has, as the page keeps its React state; what it carries is set on top. A navigation to another page starts over, layouts included. Back to an earlier entry gives that entry's values, as they were when it was left.
+- **Server rendering.** The value is `initial` on the server and in the render that hydrates the page, so the HTML and the first render match. The router shows the entry's values in the same commit, before the browser paints. A value that changes what the server rendered, such as a link's `href`, is in the HTML as `initial`.
+- **Small values.** The browser copies values with `structuredClone`, so keep to ids, names, numbers and arrays or objects of them: a function or an element cannot be copied, and the setter or the navigation throws, and a class instance comes back as a plain object. Browsers limit the size of an entry's state, so keep rows and pages of data in their loader. The router copies what a navigation carries when it starts, so changing the object afterwards changes nothing.
+- **One set of names per entry.** The page, its layouts and the components of a page package share the entry's names: a page package prefixes its own (`'help:query'`).
+- **A schema** (the third argument, at module level) parses what the entry holds, and a value it rejects gives `initial`: after a deploy, a reload brings back what the older build put there.
+- **A setter follows its page, as `useState`'s does.** It writes into the entry on screen, and keeps working, as the same function, through a navigation that keeps the page and its values: after `router.refresh()`, another query or a server action that refreshes the page, a setter from before it still sets the value, so a list clears its ticks once the action on them is done:
+
+  ```tsx
+  await deleteTicked(ticked); // a server action that revalidates: the page is loaded again before it resolves
+  setTicked([]);
+  ```
+
+  Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry. Nor does it while the router steps back to the page's entry, after a guard held Back or Forward or when the page Back went to did not come: the browser is on the other entry until then.
+- **Other keys stay.** The router keeps its entry key, the entry's place in the tab's history ([Holding a navigation](#holding-a-navigation)) and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
+
+### Refreshing a page Back shows
+
+Back and Forward show a page the router remembered as it was when the reader left it. When something on the next page changed what it shows, such as a record's state on a list, the page can load itself again: `useHistoryRestore(callback)` calls back each time the page on screen was shown from memory.
+
+```tsx
+import { useHistoryRestore, useRouter } from 'netjes';
+
+const router = useRouter();
+useHistoryRestore(() => void router.refresh());
+```
+
+It also calls back when the browser shows the whole document again from its back-forward cache, after the reader went to another site and came back. A page the router loads from the server does not call it (a link, a refresh, Back to an entry the router does not remember, such as one from before a reload), and neither does Back over a fragment link, where the page stays as it was. `router.refresh()` keeps the entry, its values and the scroll position. TaskBoard's board refreshes itself this way, and its task page goes back to the board as it was filtered ([`e2e/history.spec.ts`](../../examples/TaskBoard/e2e/history.spec.ts)).
+
+### Holding a navigation
+
+A form with changes that are not saved loses them when the reader leaves its page. `useNavigationGuard({ when, onAttempt })` holds every client navigation while `when` is true and asks `onAttempt` first; the navigation waits until the attempt's `proceed()` lets it go on or its `stay()` keeps the page. The page draws the question itself:
+
+```tsx
+import { Form, type NavigationAttempt, useAction, useNavigationGuard } from 'netjes';
+import { useEffect, useState } from 'react';
+import { serverActions } from '../../generated/netjes.ts';
+
+export function EditOrder() {
+  const [state, formAction] = useAction(serverActions['orders.update']);
+  const [changed, setChanged] = useState(false);
+  const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+  // Saved: nothing to lose until the next change.
+  useEffect(() => {
+    if (state?.ok) setChanged(false);
+  }, [state]);
+  useNavigationGuard({ when: changed, onAttempt: setLeaving });
+
+  return (
+    <>
+      <Form action={formAction} onChange={() => setChanged(true)}>{/* the fields */}</Form>
+      {leaving && (
+        <div role="alertdialog" aria-labelledby="leave-question">
+          <h2 id="leave-question">Leave without saving?</h2>
+          <button type="button" autoFocus onClick={() => (leaving.stay(), setLeaving(null))}>
+            Keep editing
+          </button>
+          <button type="button" onClick={() => (leaving.proceed(), setLeaving(null))}>
+            Leave without saving
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+- **What it holds.** Links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward`, and the browser's Back and Forward, a page package's links and router included. The attempt says where the navigation goes, `to` (the path, query and fragment, without the base path, as `usePathname()` reads them), and how, `type`: `'push'`, `'replace'`, `'back'` or `'forward'`. `onAttempt` can let some go at once: `if (new URL(attempt.to, location.href).pathname === pathname) attempt.proceed()` lets a tab or a page of a list through, which keep the page on screen.
+- **Back and Forward.** The browser moves to the other entry before a page hears of it, so the router puts the entry back, then asks: it keeps each entry's place in the tab's history in `history.state`, takes the same number of steps back, and calls `onAttempt` once the browser is on the page's entry again. The address bar shows the other URL for a moment. `proceed()` goes to the entry the browser went to, several steps at once after a long press on Back, and `stay()` leaves the reader where they were. A fragment the browser moves to itself, from a plain `<a href="#…">` (Markdown content, a skip link) or the address bar, gets its place too. An entry an app or a library adds or replaces itself, with `history.pushState`, `history.replaceState` or `location.replace`, has no place the router knows: a step to it is let through rather than guessed, and so are the steps from the entries pushed after it, while a step over it can be counted wrong. Navigate with the router instead.
+- **Reloading and closing the tab.** While it holds, the guard sets `beforeunload`, so the browser asks its own question before the document unloads: a reload, closing the tab, typing an address, a link to another site, a `reloadDocument` link and `router.push` to another origin. Browsers word that question themselves and ask only after the reader has interacted with the page. A navigation the guards let go on that the router then loads in full, such as a page from a new build after a deploy, is not asked about twice. The listener is there only while a guard holds, since such a listener has kept pages out of some browsers' back-forward cache.
+- **What it does not hold.** A link to a fragment of the page on screen, and Back or Forward over one, keep the page. A form post, a server action and `router.refresh()` are not held, and neither is the page they lead to when the server answers with a redirect to another page of the app: the router shows it without asking. That is what the form's own save wants, and the router cannot tell it from any other action on the page, such as a sign-out button, or from a refresh the server redirects: to the sign-in page once the session has expired (`Page.RedirectToSignIn`), which can happen to the refresh after another tab signed in or out, or to one that `useHistoryRestore` starts. A redirect to another origin, or to a URL no page answers, loads a document, and the browser asks. A form whose changes must outlast such a redirect keeps a draft of them, in `sessionStorage` for instance.
+- **It never traps the reader.** `proceed()` works whenever it is called, also once `when` is false: a "Save and leave" saves first, which ends the hold, then calls `proceed()`. A navigation that comes while the question is open takes the place of the one waiting, whose answers then do nothing: a second Back is asked about in its place, and a link followed once a save has ended the hold goes at once, so a late `proceed()` does not take the reader away from where they went. What loads or unloads the document only ever gets the browser's question.
+- **Several guards.** A form and an upload on one page can each hold. Each is asked in turn, the one that started to hold last first; `proceed()` passes the navigation to the next, and the first `stay()` ends it. `onAttempt` is the latest render's.
+
+TaskBoard's task form holds while a field differs from the task as stored, and asks "Leave without saving?" ([`components/task-page.tsx`](../../examples/TaskBoard/components/task-page.tsx), [`e2e/guard.spec.ts`](../../examples/TaskBoard/e2e/guard.spec.ts)). See [ADR 0070](../decisions/0070-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md).
 
 ### Focus and announcements
 
@@ -351,7 +458,7 @@ router.back();
 router.forward();
 ```
 
-`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. `push`, `replace` and `refresh` return promises that resolve once the router has handed the new page to React, or once the navigation has ended another way: another navigation took its place, the browser loads the URL with a full page load, or the router refused the URL. When a promise resolves, the old page can still be on screen: React shows the new one when it commits it, and inside a transition of the app's own, such as a form action, only once that transition has ended ([ADR 0034](../decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)). Code that needs the new page runs in an effect of that page, or in an effect that depends on `usePathname()` and `useSearchParams()`; a link to a fragment moves the focus to its element without any code.
+`refresh()` loads the page on screen from the server in place: every loader runs again, layout loaders included, in the same history entry, with the URL's fragment, without scrolling. A refresh that fails keeps the page as it is and does not reject: `useNavigation()` reports it ([When a navigation fails](#when-a-navigation-fails)). `push`, `replace` and `refresh` return promises that resolve once the router has handed the new page to React, or once the navigation has ended another way: another navigation took its place, the browser loads the URL with a full page load, or the router refused the URL. When a promise resolves, the old page can still be on screen: React shows the new one when it commits it, and inside a transition of the app's own, such as a form action, only once that transition has ended ([ADR 0034](../decisions/0034-navigation-promises-resolve-when-react-has-the-page.md)). Code that needs the new page runs in an effect of that page, or in an effect that depends on `usePathname()` and `useSearchParams()`; a link to a fragment moves the focus to its element without any code.
 
 ### Navigation state
 
@@ -366,11 +473,59 @@ export function ProgressBar() {
 }
 ```
 
-`state` is `'idle'`, `'loading'` (a navigation) or `'submitting'` (a form post), and while it is not idle, `location` is the path and query on their way. After a form post that did not produce a page (an error response, or no response at all), `state` is `'idle'` with `error: { status, action }` until the next navigation; `status` is `null` when nothing answered.
+`state` is `'idle'`, `'loading'` (a navigation) or `'submitting'` (a form post), and while it is not idle, `location` is the path and query on their way. After a navigation, a refresh or a form post that ended without a page, `state` is `'idle'` with an `error` until the next one starts ([When a navigation fails](#when-a-navigation-fails)).
+
+### When a navigation fails
+
+A link, a GET form, `router.push` or `replace`, Back or Forward, `router.refresh()` and a form post can end without a page: the server could not be reached while the browser is online, or it answered with a server error that is no Netjes page, such as a proxy's 502 while the app restarts. The router keeps the page on screen, with its state and what was typed, and `useNavigation()` reports the failure:
+
+```ts
+type NavigationError = {
+  kind: 'navigate' | 'refresh' | 'submit';
+  status: number | null; // null: no answer came
+  location: string; // the path and query it went to, without the base path
+};
+```
+
+- **What failed.** `kind` is `'navigate'` for a link, a GET form, `push`, `replace`, Back and Forward, `'refresh'` for `router.refresh()`, the one a server action asks for included, and `'submit'` for a form post. A form post the server answered with a redirect went through, so when the page the redirect leads to fails, `kind` is `'navigate'` and `location` is that page's, and the form has nothing to send again. `status` is the status of the server's answer, or `null` when none came. It holds no exception: the browser console has the details.
+- **How long.** The error stays until the next navigation, refresh or form post starts, the one that tries again included. A Back or Forward that shows a page from memory, and a link to a fragment of the page, clear it too.
+- **`refresh()` does not reject.** Its promise resolves once the refresh has ended, failed or not, so code after `await router.refresh()` reads the outcome from `useNavigation()` in its next render, not from a `catch`.
+- **Back and Forward.** The browser has moved to the entry the reader chose before the router knows the page did not come, so the router steps back to the entry of the page on screen, and the address bar shows that page's URL again. A step to or from an entry an app or a library added itself (`history.pushState`), whose place the router does not know, loads the URL as a document instead.
+- **What still loads a document.** When the browser says it is offline (`navigator.onLine` is false), the router loads the URL as a document, as it did before, so the browser's own offline page shows, or a service worker's. So does an answer that is no Netjes page and no server error (see the next section), and a URL that redirects somewhere `fetch` cannot follow, such as an identity provider's sign-in page on another origin: that fails as a lost connection does, so before it keeps the page the router asks once more without following redirects, and a redirect it finds there is left to the browser.
+- **Prefetched pages.** A prefetch that failed is not used: following the link asks the server again.
+
+Show the failure where the app's shell is. TaskBoard's app layout renders this above every page (`components/navigation-failed.tsx`):
+
+```tsx
+import { useNavigation, useRouter } from 'netjes';
+
+export function NavigationFailed() {
+  const navigation = useNavigation();
+  const router = useRouter();
+  const error = navigation.state === 'idle' ? navigation.error : undefined;
+  // A failed form post is the form's to show.
+  if (!error || error.kind === 'submit') return null;
+  return (
+    <div role="alert">
+      <p>{error.kind === 'refresh' ? 'This page could not be brought up to date.' : 'That page could not be opened.'}</p>
+      <p>{error.status === null ? 'No answer came. Check your connection.' : `The server answered ${error.status}.`}</p>
+      {error.kind === 'refresh' && (
+        <button type="button" onClick={() => void router.refresh()}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+A screen that refreshes itself on a timer reads `error?.kind === 'refresh'` to say that it is paused, and its next refresh that succeeds clears it. While the browser is offline a refresh still loads the page as a document, so such a screen skips its refresh while `navigator.onLine` is false and starts again on the `online` event. A component test renders the failure with `createTestApp({ navigation: { state: 'idle', error } })` ([Testing](testing.md)).
 
 ### When the router hands over to the browser
 
-The router falls back to a full page load when a navigation fails, when the server's answer is not a Netjes page, and when the page comes from another build of the app (after a deploy) or names a page this build does not have. A redirect to another site, from a loader or an action, is a full page load too. The router only ever loads pages from the document's own origin, and never navigates to a URL that is not http or https.
+The router loads the URL as a document, with a full page load, when the server's answer is not a Netjes page and no server error (a file, a page of another framework, a proxy's 404), when the page comes from another build of the app (after a deploy) or names a page this build does not have, and when a navigation fails while the browser is offline ([When a navigation fails](#when-a-navigation-fails)). A redirect to another site, from a loader or an action, is a full page load too. The router only ever loads pages from the document's own origin, and never navigates to a URL that is not http or https.
+
+A redirect from a loader, a page action or a server action to a URL of the app that no page answers loads that URL as a document, once: a signed file URL, another endpoint of the app, a minimal API that renders a page with `Page.Render`, or a URL that matches nothing. The router asks for the URL it was sent to with the `X-Netjes-Redirected` header, and there the server answers `{ "kind": "document" }` without running the endpoint, so a download starts once and a link that counts its uses is used once. Whatever the URL then answers is the browser's: a file is saved, and a redirect back to a page of the app loads that page, where the router starts again. A form whose page action redirects to a file needs no `reloadDocument` ([A post that redirects to a file](actions-and-forms.md#a-post-that-redirects-to-a-file)). A link to such a URL is no redirect: link files and endpoints with a plain `<a>` ([Links](#links)).
 
 A navigation also fails when a module of the next page does not load: the request for its chunk was dropped, or a deploy removed the chunk. The browser then loads that page in full. On the first page of a document, a module that fails to load is tried once more, half a second later. If it fails again, the page stays as the server rendered it, without the client router, and the browser console names the module. Its links and forms work as plain HTML, so the next page the visitor opens is a full page load, and that document starts the router again. The [client-rendered fallback](rendering-and-streaming.md#when-no-sidecar-is-ready) has no page HTML to fall back on, so it stays blank.
 
@@ -462,7 +617,7 @@ import { useLocale } from 'netjes';
 const locale = useLocale(); // 'nl' at /nl/about; null without AddNetjesLocalization
 ```
 
-- Loaders run with `CultureInfo.CurrentCulture` and `CurrentUICulture` set from the URL, so formatting and `IStringLocalizer<T>` follow it. The document's `<html lang>` follows the locale too.
+- Loaders run with `CultureInfo.CurrentCulture` and `CurrentUICulture` set from the URL, so formatting and `IStringLocalizer<T>` follow it. The document's `<html lang>` follows the locale too, after a client navigation as well, unless a loader's `PageMetadata.Lang` names another ([The `lang` attribute](metadata.md#the-lang-attribute)).
 - An unsupported locale renders the not-found page in the default culture. Any other endpoint whose route has the locale parameter answers a bare 404 for one, so give a parameter that is not a locale another name.
 - A supported locale in another case (`/EN/about`) reaches loaders and `params.lang` as configured (`en`).
 - Only the URL decides. Pages outside `[lang]` get the default culture, not one from a cookie or `Accept-Language`, so an output-cached page cannot serve one visitor's language to everyone. Parent-culture fallback is off: list `nl-BE` as well as `nl` if both should match a request culture provider you add yourself. `MapLocaleRedirect` still sends an `nl-BE` browser to `/nl`.
@@ -636,7 +791,7 @@ In development Netjes reads the page files from `app/` and reads them again when
 - **The pages router.** Only `app/` is routed ([ADR 0010](../decisions/0010-app-router-with-csharp-layout-loaders.md)). An app with Next.js pages router files in a `pages/` folder stops at startup, and the message says what to do with each:
   - A page moves to its `app/` name: `pages/about.tsx` to `app/about/page.tsx`, `pages/index.tsx` to `app/page.tsx`. A `.js` page moves to a `.jsx` file, since `app/` routes `.tsx` and `.jsx` only: `pages/index.js` to `app/page.jsx`.
   - `pages/404.tsx` moves to `app/not-found.tsx`, and `pages/500.tsx` and `pages/_error.tsx` to `app/error.tsx`.
-  - `pages/_app.tsx` and `pages/_document.tsx` move to `app/layout.tsx`, the root layout, which wraps every page. Netjes renders `<html>`, `<head>` and `<body>` around it, so the head tags of `_document.tsx` go in [metadata](metadata.md), or in `<title>`, `<meta>` and `<link>` tags the layout renders, and `<html lang>` comes from [`NetjesOptions.Lang`](metadata.md#the-lang-attribute).
+  - `pages/_app.tsx` and `pages/_document.tsx` move to `app/layout.tsx`, the root layout, which wraps every page. Netjes renders `<html>`, `<head>` and `<body>` around it, so the head tags of `_document.tsx` go in [metadata](metadata.md), or in `<title>`, `<meta>` and `<link>` tags the layout renders, and `<html lang>` comes from `NetjesOptions.Lang` or a loader's `PageMetadata.Lang` ([The `lang` attribute](metadata.md#the-lang-attribute)).
   - An API route in `pages/api/` becomes a C# minimal API endpoint (`app.MapGet`, `app.MapPost`), like a route handler.
 
   `404`, `500`, `_error`, `_app` and `_document` count at the root of `pages/` only, as in Next.js: `pages/blog/404.tsx` is a page, `app/blog/404/page.tsx`. The check looks at `.tsx`, `.jsx` and `.js` pages and at `.ts`, `.tsx`, `.js` and `.jsx` files in `pages/api/`. It skips tests, declaration files, anything in a `_` folder, other files whose names start with `_`, and `.ts` files outside `pages/api/`, which cannot hold JSX. The message names every special file and up to five other files, and counts the rest. [`netjes info`](../reference/cli.md#netjes-info) checks the `pages/` folder in the app's root by the same rule, flagging the same files but listing up to three pages and three API routes.

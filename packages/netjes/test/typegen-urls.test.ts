@@ -20,6 +20,12 @@ describe('generated endpoint URLs', () => {
     expect(endpointUrl('GET /feed.xml')).toBe('/feed.xml');
   });
 
+  it('name the endpoints that a form posts to, such as a download, with their route values', () => {
+    expect(endpointUrl('POST /users/{id}/export', { id: 'a b' })).toBe('/users/a%20b/export');
+    // @ts-expect-error: the route needs the id.
+    expect(() => endpointUrl('POST /users/{id}/export', {})).toThrow("netjes: endpoint 'POST /users/{id}/export' needs the route value 'id'");
+  });
+
   it('take query values the handler does not name in the third argument', () => {
     expect(endpointUrl('GET /api/search', { q: 'a' }, { utm_source: 'mail', q: 'b' })).toBe('/api/search?q=a&utm_source=mail&q=b');
     expect(endpointUrl('GET /feed.xml', undefined, { format: 'atom' })).toBe('/feed.xml?format=atom');

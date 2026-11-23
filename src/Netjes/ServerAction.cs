@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.OutputCaching;
@@ -161,7 +163,7 @@ public sealed partial class ServerActionResult : IResult
             var posted = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
             // The path as the server read it: written out and read back, an encoded one would change its route values.
             var (path, query) = (http.Request.Path, http.Request.QueryString);
-            await RenderAgainAsync(http, json, errors, posted, () => ReExecute.GetAsync(http, path, query));
+            await RenderAgainAsync(http, json, errors, posted, StatusCodes.Status422UnprocessableEntity, () => ReExecute.GetAsync(http, path, query));
             return;
         }
 
@@ -198,20 +200,53 @@ public sealed partial class ServerActionResult : IResult
             return;
         }
 
-        await RenderAgainAsync(http, json, errors, form, () => ReExecute.GetAsync(http, returnUrl));
+        await RenderAgainAsync(http, json, errors, form, StatusCodes.Status422UnprocessableEntity, () => ReExecute.GetAsync(http, returnUrl));
+    }
+
+    /// <summary>
+    /// An action's post that was refused before it ran, such as by the rate limiter (<see cref="Page.TooManyRequests"/>),
+    /// once it passed the checks an action's post passes: answered like a failed validation, with
+    /// <paramref name="status"/> and <paramref name="message"/> as the form's error. A page action's page, or the page a
+    /// server action's form was posted from without JavaScript, renders again with the fields it posted; a server action
+    /// called by script gets a failure with the status and the message, which reaches it as a <c>ServerActionError</c>.
+    /// </summary>
+    internal static async Task RefuseAsync(HttpContext http, int status, string message)
+    {
+        var json = http.RequestServices.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        var errors = new Dictionary<string, string[]> { [""] = [message] };
+        var form = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
+        // The rate limiter sets its rejection status before it calls OnRejected; under an error status the page's loader,
+        // a minimal API, would not run. The page sets the status itself.
+        http.Response.StatusCode = StatusCodes.Status200OK;
+        if (http.GetEndpoint()?.Metadata.GetMetadata<PageActionMetadata>() is not null)
+        {
+            var (path, query) = (http.Request.Path, http.Request.QueryString);
+            await RenderAgainAsync(http, json, errors, form, status, () => ReExecute.GetAsync(http, path, query));
+            return;
+        }
+
+        if (PageRenderer.IsDataRequest(http))
+        {
+            await ServerActionResponses.WriteAsync(http, status, ServerActionResponses.Failure(status, message));
+            return;
+        }
+
+        var returnUrl = LocalOrHome(form?[ReturnField].ToString());
+        await RenderAgainAsync(http, json, errors, form, status, () => ReExecute.GetAsync(http, returnUrl));
     }
 
     /// <summary>
     /// After a failed form post: the page that <paramref name="render"/> runs the pipeline again for, rendered in its
-    /// place in the same request, with the errors and what was typed in the fields the action declares.
+    /// place in the same request with <paramref name="status"/>, with the errors and what was typed in the fields the
+    /// action declares.
     /// </summary>
     private static async Task RenderAgainAsync(
-        HttpContext http, JsonSerializerOptions json, Dictionary<string, string[]>? errors, IFormCollection? form, Func<Task> render)
+        HttpContext http, JsonSerializerOptions json, Dictionary<string, string[]>? errors, IFormCollection? form, int status, Func<Task> render)
     {
         // Echoed into the page so the form keeps what was typed.
         var values = form is null ? [] : EchoedValues(form, EchoedFields(http, form, json));
-        // The page rendered in its place sets 422 itself (setting it here would stop its loaders from running).
-        http.Items[StateKey] = new ActionStatePayload(ActionNameOf(http), errors ?? [], values);
+        // The page rendered in its place sets the status itself (setting it here would stop its loaders from running).
+        http.Items[StateKey] = new ActionStatePayload(ActionNameOf(http), errors ?? [], values, status);
         // It holds what was typed: never kept in the browser's cache (a shared machine), whatever the page itself allows.
         NoStore.Force(http, "no-store");
         await render();
@@ -393,7 +428,9 @@ internal static class CookieChanges
     /// Checked as the response starts, so it sees what the action wrote on every path, a failure and the action's own
     /// <c>OnStarting</c> callbacks included (they run before this one). Cookies on the response before the action ran
     /// (a middleware's), those written by callbacks registered before it (cookie authentication's sliding renewal),
-    /// and the antiforgery cookie, which names no user, do not count.
+    /// the antiforgery cookie, which names no user, and the app's <see cref="NetjesOptions.NoReloadCookies"/> (by name,
+    /// or by a prefix that ends in <c>*</c>) do not count; a cookie authentication scheme's cookie counts even when that
+    /// list names it or a prefix in it covers it.
     /// </summary>
     public static ValueTask<object?> Mark(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -401,24 +438,23 @@ internal static class CookieChanges
         if (PageRenderer.IsDataRequest(http))
         {
             var before = http.Response.Headers.SetCookie;
-            http.Response.OnStarting(() =>
+            http.Response.OnStarting(async () =>
             {
-                if (Changed(http, before))
+                if (await ChangedAsync(http, before))
                 {
                     http.Response.Headers[NetjesHeaders.Cookies] = "changed";
                 }
-
-                return Task.CompletedTask;
             });
         }
 
         return next(context);
     }
 
-    private static bool Changed(HttpContext http, StringValues before)
+    private static async Task<bool> ChangedAsync(HttpContext http, StringValues before)
     {
         var earlier = before.ToList();
         var antiforgery = http.RequestServices.GetService<IOptions<AntiforgeryOptions>>()?.Value.Cookie.Name;
+        var quiet = http.RequestServices.GetService<NetjesContext>()?.Options.NoReloadCookies ?? [];
         foreach (var cookie in http.Response.Headers.SetCookie)
         {
             if (cookie is null || earlier.Remove(cookie))
@@ -426,7 +462,52 @@ internal static class CookieChanges
                 continue;
             }
 
-            if (antiforgery is null || !string.Equals(NameOf(cookie), antiforgery, StringComparison.Ordinal))
+            var name = NameOf(cookie);
+            if (antiforgery is not null && string.Equals(name, antiforgery, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!Listed(quiet, name) || await IsSignInCookieAsync(http, name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A name the list holds, or one that starts with the text before the '*' that ends a listed prefix, compared with
+    // their case. NetjesOptionsValidation refuses a '*' elsewhere and a prefix with nothing before it.
+    private static bool Listed(IReadOnlyList<string> listed, string name)
+    {
+        foreach (var entry in listed)
+        {
+            if (entry is { Length: > 1 } && entry[^1] == '*'
+                ? name.AsSpan().StartsWith(entry.AsSpan(0, entry.Length - 1), StringComparison.Ordinal)
+                : string.Equals(name, entry, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // The cookie of a cookie authentication scheme (ASP.NET Core Identity's among them), compared without its case, as
+    // the request's cookies are read: whoever is signed in can change with it, so it always counts.
+    private static async Task<bool> IsSignInCookieAsync(HttpContext http, string name)
+    {
+        if (http.RequestServices.GetService<IAuthenticationSchemeProvider>() is not { } schemes
+            || http.RequestServices.GetService<IOptionsMonitor<CookieAuthenticationOptions>>() is not { } cookies)
+        {
+            return false;
+        }
+
+        foreach (var scheme in await schemes.GetAllSchemesAsync())
+        {
+            if (typeof(CookieAuthenticationHandler).IsAssignableFrom(scheme.HandlerType)
+                && string.Equals(cookies.Get(scheme.Name).Cookie.Name, name, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -485,8 +566,11 @@ internal sealed record ActionPayload(
     public string Kind => "action";
 }
 
-/// <summary>What a failed no-JavaScript form post leaves for the page rendered in its place.</summary>
-internal sealed record ActionStatePayload(string Action, IDictionary<string, string[]> Errors, IDictionary<string, object?> Values);
+/// <summary>
+/// What a failed form post leaves for the page rendered in its place: <c>Status</c> is 422 after a failed validation, 429
+/// after the rate limiter refused it.
+/// </summary>
+internal sealed record ActionStatePayload(string Action, IDictionary<string, string[]> Errors, IDictionary<string, object?> Values, int Status);
 
 internal static class ServerActionResponses
 {

@@ -12,7 +12,7 @@ The template runs Vitest with `npm test` (`vitest run`). The `netjes()` Vite plu
 
 Whatever the app's config says, it also adds two settings to it:
 
-- a setup file of its own, in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
+- a setup file of its own (`netjes/testing/vitest`), in `setupFiles` after the app's own setup files. It lets Testing Library work with Vitest's fake timers ([Fake timers](#fake-timers)), and hands `createTestApp()` the app's query defaults;
 - `provide['netjes:query']`: the `defaultOptions` of `netjes({ query })` (`{}` when there are none, and nothing with `query: false`), which that setup file reads ([Queries that fail](#queries-that-fail)). The app's own `provide` keys stay as they are.
 
 There is no `include` default, so Vitest finds `*.test.*` and `*.spec.*` files outside those folders. `netjes({ test: false })` adds none of these settings ([Vite plugin](../reference/vite-plugin.md#vitest-defaults)).
@@ -42,11 +42,11 @@ describe('Greeting', () => {
 });
 ```
 
-The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
+The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. A [navigation guard](#navigation-guards) that holds is asked first. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
 
 | Entry | For |
 |---|---|
-| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace` |
+| `{ type: 'push' \| 'replace', href }` | A link, `router.push`, `router.replace`; with `historyState` when it carried [history state](#history-state) |
 | `{ type: 'refresh' \| 'back' \| 'forward' }` | `router.refresh()`, `router.back()`, `router.forward()` |
 | `{ type: 'submit', action, data }` | A `<Form method="post">` post, with its fields as `URLSearchParams` or `FormData` |
 | `{ type: 'action', name, input }` | A server action call, with its input (an object, or the form's `FormData`) |
@@ -63,11 +63,13 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `defaultOptions` | TanStack Query defaults, like `netjes({ query: { defaultOptions } })`, merged over the app's own and the harness's. Failed queries and mutations are tried as often as in the app, with no wait between the tries ([Queries that fail](#queries-that-fail)). |
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
-| `navigation` | What `useNavigation()` returns. Default idle. |
+| `navigation` | What `useNavigation()` returns. Default idle. `{ state: 'idle', error: { kind: 'refresh', status: null, location: '/x' } }` renders a page after a refresh that failed ([When a navigation fails](routing.md#when-a-navigation-fails)). |
+| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422, or with `status`, such as 429 for a post the rate limiter refused ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
 | `draftMode` | What `useDraftMode()` reports. |
+| `historyState` | The `useHistoryState` values of the history entry on screen, by name: what a navigation carried into it, or an earlier visit left there ([History state](#history-state)). Default none. |
 | `mounts` | Each mounted [page package's](page-packages.md) URL for the page, by npm name and without the base path, as the server sends it: `{ '@acme/help-center': '/help' }`. The `Link`, `Form` and hooks of a package's generated file put it in front of their hrefs, and throw for a package it leaves out. |
 
 `createTestApp()` returns `{ Wrapper, navigations, queryClient }`. The [React API reference](../reference/react-api.md#createtestapp) has the types.
@@ -100,6 +102,57 @@ const app = createTestApp({
 ```
 
 The `Wrapper` puts its stand-in for the router in place before the components inside it run any effect, so an action a component calls from `useEffect` or `useLayoutEffect` as it mounts is answered and recorded like any other call. Render such a component inside the `Wrapper`: outside it there is no router to wait for, and the call fails at once with "called before the page was ready".
+
+### A page action that failed
+
+When the input of a page's action fails its DataAnnotations, the server renders the page again with a 422, and `usePageActionState()` hands the page the errors per field and the values that were posted. `pageActionState` puts that failure in the test app, without a server:
+
+```tsx
+it('shows what the page action refused, next to the field', () => {
+  const app = createTestApp({
+    route: '/guestbook',
+    pageActionState: { errors: { name: ['Tell us your name.'] }, values: { name: '', message: 'Hi' } },
+  });
+
+  render(<GuestbookForm />, { wrapper: app.Wrapper });
+
+  expect(screen.getByText('Tell us your name.')).toBeDefined();
+});
+```
+
+`usePageActionState()` reports status 422, as it does after the server's. A post the rate limiter refused ([Rate limits](actions-and-forms.md#rate-limits)) comes back with status 429 and the limiter's message under `''`: give `status: 429` and `errors: { '': ['Too many requests. Try again later.'] }` to test how the page shows it. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
+
+### History state
+
+A page that reads [`useHistoryState`](routing.md#state-per-history-entry) gets the values of the entry on screen from `historyState`, as a navigation carried them or an earlier visit left them. A record page opened from a list:
+
+```tsx
+const app = createTestApp({ url: '/orders/7', historyState: { list: '/orders?status=open' } });
+render(<OrderPage {...props} />, { wrapper: app.Wrapper });
+
+expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('href')).toBe('/orders?status=open');
+```
+
+A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. A setter also works as the router's: one from before a navigation that keeps the path still sets the value, and one from before a navigation to another path sets nothing. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
+
+### Navigation guards
+
+A component that holds navigations with [`useNavigationGuard`](routing.md#holding-a-navigation) is asked about a link, a form that navigates, `router.push` and `router.replace` as in the app, so a test can answer its question. The navigation is recorded once the guard lets it go on:
+
+```tsx
+const app = createTestApp({ url: '/orders/7/edit' });
+render(<EditOrder />, { wrapper: app.Wrapper });
+
+await userEvent.type(screen.getByLabelText('Note'), 'Call first');
+await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeDefined();
+expect(app.navigations).toEqual([]);
+
+await userEvent.click(screen.getByRole('button', { name: 'Leave without saving' }));
+expect(app.navigations).toEqual([{ type: 'push', href: '/orders' }]);
+```
+
+A link to a fragment of the page on screen is not held, as in the app. The fake router keeps no history, so `router.back()` and `router.forward()` are recorded without asking, and the browser's own Back and Forward, which the router holds too, are tested end to end: TaskBoard's [`e2e/guard.spec.ts`](../../examples/TaskBoard/e2e/guard.spec.ts) runs in Chromium, Firefox and WebKit.
 
 ### Pages
 
@@ -163,6 +216,8 @@ it('searches once the typing stops', async () => {
 - `findBy…` queries and `waitFor` move the fake clock on by their polling interval (50 ms) while they wait, and their `timeout` (1 s by default) runs on the fake clock.
 - user-event moves it on through its `advanceTimers` option: create the user with `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`. Without that option, as with user-event's direct API (`userEvent.click(...)` with no `setup()`), user-event waits out its own delays on the fake clock, and the call never returns.
 - `fireEvent` dispatches the event at once. To run a timer it started, move the clock on inside `act`: `await act(() => vi.advanceTimersByTimeAsync(300))`.
+
+A package's component tests, which run without the `netjes()` plugin, list the setup file themselves: `setupFiles: ['netjes/testing/vitest']` in the package's Vitest config. It is the file the plugin adds to an app, so it also reads the app's query defaults when Vitest provides them, and leaves `createTestApp()` with its own when it does not.
 
 Testing Library moves fake timers on only through a `jest` global, which Vitest does not have, so Netjes's setup file defines one while Vitest's timers are fake. `typeof jest` is `'object'` then and `'undefined'` with real timers, and `'jest' in globalThis` is always true. A test on `vi.useFakeTimers({ shouldAdvanceTime: true })`, whose fake clock also follows real time, takes Testing Library's path for fake timers too. A `jest` global that the app's own setup file defines, or that a test assigns, is kept instead of Netjes's ([ADR 0027](../decisions/0027-testing-library-advances-vitest-fake-timers.md)).
 

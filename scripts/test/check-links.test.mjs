@@ -361,6 +361,18 @@ describe('headingSlugs', () => {
     ]);
   });
 
+  it('keeps an underscore that no emphasis closes, and drops only a pair', () => {
+    const text = ['## The (_) marker', '## `_` and _unmatched', '## closing_ alone', '## _paired_ and __strong__ words', '## snake_case_name'].join('\n');
+
+    assert.deepEqual(headingSlugs(text), [
+      'the-_-marker',
+      '_-and-_unmatched',
+      'closing_-alone',
+      'paired-and-strong-words',
+      'snake_case_name',
+    ]);
+  });
+
   it('counts explicit anchors as targets too', () => {
     assert.deepEqual(headingSlugs('# Title\n\n<a id="custom"></a>\n<a name="old-name"></a>\n'), ['title', 'custom', 'old-name']);
   });

@@ -82,6 +82,25 @@ describe('parseNavigationPayload', () => {
     expect(() => parseNavigationPayload({ ...page, mounts: { '@acme/help-center': url } })).toThrow(PayloadError);
   });
 
+  it("keeps the page loader's lang and each layout loader's", () => {
+    const parsed = parseNavigationPayload({ ...page, lang: 'nl', segments: [{ id: 'app', layout: 'app/layout.tsx', lang: 'en-GB' }] });
+
+    expect(parsed.kind === 'page' && parsed.lang).toBe('nl');
+    expect(parsed.kind === 'page' && parsed.segments[0]?.lang).toBe('en-GB');
+    const plain = parseNavigationPayload(page);
+    expect(plain).not.toHaveProperty('lang');
+    expect(plain).not.toHaveProperty('segments.0.lang');
+  });
+
+  // (security) The router writes it on <html>: only the shape of a language tag gets there.
+  it.each([[''], ['n'], ['nl_NL'], ['nl-'], ['-nl'], ['nl\n'], ['nl" onmouseover="x'], ['nl><script>'], ['toolongtag'], ['ｎｌ'], [42]])(
+    'rejects the lang %j, on the page and on a segment',
+    (lang) => {
+      expect(() => parseNavigationPayload({ ...page, lang })).toThrow(PayloadError);
+      expect(() => parseNavigationPayload({ ...page, segments: [{ id: 'app', lang }] })).toThrow(PayloadError);
+    },
+  );
+
   it('rejects mounts that are not an object', () => {
     expect(() => parseNavigationPayload({ ...page, mounts: ['/help'] })).toThrow(PayloadError);
   });

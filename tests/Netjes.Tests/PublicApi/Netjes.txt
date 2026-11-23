@@ -66,6 +66,7 @@ public static class Netjes.NetjesHeaders
   public const string Antiforgery = "X-Netjes-Antiforgery"
   public const string Cookies = "X-Netjes-Cookies"
   public const string Data = "X-Netjes-Data"
+  public const string Redirected = "X-Netjes-Redirected"
   public const string Segments = "X-Netjes-Segments"
   public const string ServerTime = "X-Netjes-Now"
 public sealed class Netjes.NetjesImageOptions
@@ -106,6 +107,7 @@ public sealed class Netjes.NetjesOptions
   public bool? IncludeErrorDetails { get; set; }
   public string Lang { get; set; }
   public Netjes.NetjesMode? Mode { get; set; }
+  public System.Collections.Generic.IReadOnlyList<string> NoReloadCookies { get; set; }
   public string NodeExecutable { get; set; }
   public System.Collections.Generic.IReadOnlyList<string> PrivateFormFields { get; set; }
   public string PublicDirectory { get; set; }
@@ -143,13 +145,17 @@ public static class Netjes.Page
   public static Netjes.PageResult<Netjes.NoProps> Props()
   public static Netjes.PageResult<TProps> Props<TProps>(TProps props)
   public static Netjes.PageResult Redirect(string location, bool permanent = false)
+  public static System.Threading.Tasks.Task RedirectToSignIn(Microsoft.AspNetCore.Http.HttpContext context, string path, string returnUrlParameter = "returnUrl")
   public static Netjes.PageResult Render(string pattern, object? props = null)
+  public static System.Threading.Tasks.ValueTask TooManyRequests(Microsoft.AspNetCore.RateLimiting.OnRejectedContext context, string? message = null)
   public static Netjes.PageResult Unauthorized()
 public sealed record Netjes.PageMetadata : IEquatable<Netjes.PageMetadata>
   public PageMetadata()
+  public string? AbsoluteTitle { get; init; }
   public Netjes.PageMetadataAlternates? Alternates { get; init; }
   public string? Description { get; init; }
   public System.Collections.Generic.IReadOnlyList<string>? Keywords { get; init; }
+  public string? Lang { get; init; }
   public Netjes.PageMetadataOpenGraph? OpenGraph { get; init; }
   public System.Collections.Generic.IReadOnlyDictionary<string, string>? Other { get; init; }
   public Netjes.PageMetadataRobots? Robots { get; init; }
@@ -196,9 +202,12 @@ public sealed class Netjes.PagePackageMount
   public string Folder { get; }
   public Netjes.PagePackage Package { get; }
   public string Pattern { get; }
+  public static Netjes.PagePackageMount ForTests(Netjes.PagePackage package, string prefix)
+  public Netjes.PageResult Render(string path, object? props = null)
   public Netjes.Href Url(string path, Microsoft.AspNetCore.Routing.RouteValueDictionary? values = null)
 public sealed class Netjes.PagePackageMounts
   public System.Collections.Generic.IReadOnlyList<Netjes.PagePackageMount> All { get; }
+  public static Netjes.PagePackageMounts ForTests(params Netjes.PagePackageMount[] mounts)
   public Netjes.PagePackageMount Get(string name)
 public sealed class Netjes.PageResult : Microsoft.AspNetCore.Http.IResult
   public System.Threading.Tasks.Task ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext httpContext)
@@ -245,6 +254,9 @@ public sealed class Netjes.SsrRenderException : Exception
 public enum Netjes.TrailingSlash
   Ignore = 0
   Never = 1
+public sealed class Netjes.TypeScriptNameAttribute : Attribute
+  public TypeScriptNameAttribute(string name)
+  public string Name { get; }
 
 namespace Netjes.Images
 public interface Netjes.Images.IImageProcessor
@@ -292,6 +304,8 @@ public sealed class Netjes.Routing.LayoutLoaderBuilder : Microsoft.AspNetCore.Bu
 public sealed class Netjes.Routing.PagePackageBuilder : Microsoft.AspNetCore.Builder.IEndpointConventionBuilder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
   public Netjes.PagePackageMount Mount { get; }
   public Netjes.Routing.PagePackageBuilder AddTypeScriptExport(string group, string key, System.Collections.Generic.IReadOnlyDictionary<string, Type> slots)
+  public Netjes.Routing.PagePackageBuilder AddTypeScriptExport(string group, string key, System.Collections.Generic.IReadOnlyDictionary<string, Type> slots, bool appOnly)
+  public Netjes.Routing.PagePackageBuilder ConfigureNotFound(Action<Microsoft.AspNetCore.Builder.IEndpointConventionBuilder> configure)
   public Netjes.Routing.PagePackageBuilder Override(string pattern)
   public Netjes.Routing.PagePackageBuilder WriteTypes(string path)
 public sealed class Netjes.Routing.PageRouteMetadata

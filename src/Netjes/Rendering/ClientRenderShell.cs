@@ -23,12 +23,15 @@ internal static class ClientRenderShell
     public const string End = "</body></html>";
 
     /// <summary>Everything up to the end of the payload; deferred values and <see cref="End"/> follow.</summary>
+    /// <param name="document">The document part of the payload.</param>
+    /// <param name="lang">The <c>lang</c> of <c>&lt;html&gt;</c>, as <c>Document</c> gets it: the page's, a layout's or the root's.</param>
+    /// <param name="metadata">The page loader's metadata.</param>
     /// <param name="payloadJson">The payload, already escaped for a script element (<see cref="HtmlSafeJson"/>).</param>
-    public static string Start(DocumentPayload document, PageMetadata? metadata, string payloadJson)
+    public static string Start(DocumentPayload document, string lang, PageMetadata? metadata, string payloadJson)
     {
         var nonce = NonceAttribute(document.Nonce);
         var html = new StringBuilder(1024 + payloadJson.Length)
-            .Append("<!DOCTYPE html><html lang=\"").Append(Encode(document.Lang)).Append("\"><head><meta charset=\"utf-8\">")
+            .Append("<!DOCTYPE html><html lang=\"").Append(Encode(lang)).Append("\"><head><meta charset=\"utf-8\">")
             .Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         if (document.Nonce is not null)
         {
@@ -37,7 +40,7 @@ internal static class ClientRenderShell
         }
 
         html.Append("<script").Append(nonce).Append('>').Append(DeferredBootstrap).Append("</script>");
-        if (metadata?.Title is { } title)
+        if ((metadata?.AbsoluteTitle ?? metadata?.Title) is { } title)
         {
             html.Append("<title>").Append(Encode(title)).Append("</title>");
         }

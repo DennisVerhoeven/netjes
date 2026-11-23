@@ -575,11 +575,11 @@ describe('the netjes modules the plugin names', () => {
     expect(path.posix.dirname(shell)).toBe(path.posix.dirname(exported('netjes')));
   });
 
-  it('sets up Vitest with the setup file the package exports, and its own next to it', async () => {
+  it('sets up Vitest with the two setup files the package exports', async () => {
     const { plugin } = await core();
     const cleanup = exported('netjes/testing/setup');
 
-    expect(callConfig(plugin)?.test?.setupFiles).toEqual([cleanup, path.posix.join(path.posix.dirname(cleanup), 'testing-vitest.js')]);
+    expect(callConfig(plugin)?.test?.setupFiles).toEqual([cleanup, exported('netjes/testing/vitest')]);
   });
 });
 

@@ -152,25 +152,80 @@ function decodeEntities(text) {
   });
 }
 
+const WORD = /[\p{L}\p{N}]/u;
+const SPACE = /\s/;
+// Stands for a code span while emphasis is paired, so `_` before and after one still pairs.
+const CODE_MARK = '\uE000';
+
+/**
+ * Removes the underscores that mark emphasis and keeps the others: an underscore run opens emphasis when no word
+ * character precedes it and something other than a space follows, closes it when no word character follows and
+ * something other than a space precedes, and is only dropped when a closer pairs with an opener before it. A lone
+ * underscore, as in `(_)`, `_private` or `closing_`, stays in the anchor, as it does on GitHub.
+ * @param {string} text
+ */
+function stripEmphasis(text) {
+  const chars = [...text];
+  /** @type {{ start: number; length: number }[]} */
+  const runs = [];
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== '_') continue;
+    let end = i;
+    while (chars[end + 1] === '_') end++;
+    runs.push({ start: i, length: end - i + 1 });
+    i = end;
+  }
+  /** @type {{ start: number; length: number }[]} */
+  const open = [];
+  const drop = new Set();
+  for (const run of runs) {
+    const before = chars[run.start - 1];
+    const after = chars[run.start + run.length];
+    const canClose = before !== undefined && !SPACE.test(before) && !(after !== undefined && WORD.test(after));
+    const canOpen = after !== undefined && !SPACE.test(after) && !(before !== undefined && WORD.test(before));
+    let left = run.length;
+    let closed = false;
+    while (canClose && left > 0 && open.length > 0) {
+      const opener = /** @type {{ start: number; length: number }} */ (open[open.length - 1]);
+      const used = Math.min(opener.length, left);
+      for (let k = 0; k < used; k++) {
+        drop.add(opener.start + opener.length - 1 - k);
+        drop.add(run.start + run.length - left + k);
+      }
+      opener.length -= used;
+      left -= used;
+      closed = true;
+      if (opener.length === 0) open.pop();
+    }
+    if (canOpen && !closed) open.push({ start: run.start, length: run.length });
+  }
+  return chars.filter((_, i) => !drop.has(i)).join('');
+}
+
 /**
  * The text GitHub renders for a heading's Markdown: code spans as written, links as their text, images as their alt
  * text, without HTML tags, emphasis markers or backslash escapes.
  * @param {string} heading
  */
 function renderedText(heading) {
-  return codeSpans(heading)
-    .map(({ code, text }) => {
-      if (code) return /^ .*[^ ].* $/.test(text) ? text.slice(1, -1) : text;
-      return decodeEntities(
-        text
-          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-          .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
-          .replace(/<\/?[a-z][^>]*>/gi, '')
-          .replace(/(^|[^\p{L}\p{N}_])_+(?=\S)|(?<=\S)_+(?=$|[^\p{L}\p{N}_])/gu, '$1')
-          .replace(/\\([!-/:-@[-`{-~])/g, '$1'),
-      );
-    })
+  const parts = codeSpans(heading);
+  const prose = stripEmphasis(
+    parts
+      .map(({ code, text }) =>
+        code
+          ? CODE_MARK
+          : text
+              .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+              .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+              .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
+              .replace(/<\/?[a-z][^>]*>/gi, ''),
+      )
+      .join(''),
+  );
+  const codes = parts.filter((part) => part.code).map(({ text }) => (/^ .*[^ ].* $/.test(text) ? text.slice(1, -1) : text));
+  return prose
+    .split(CODE_MARK)
+    .map((text, i) => decodeEntities(text).replace(/\\([!-/:-@[-`{-~])/g, '$1') + (codes[i] ?? ''))
     .join('');
 }
 

@@ -184,6 +184,33 @@ public class DraftModeTests
         Assert.Equal(1, (int?)publishedAgain["props"]!["load"]);
     }
 
+    /// <summary>
+    /// A draft render is never stored, so a cookie it reads (an editor's session, which a preview checks) reaches no
+    /// other visitor and there is nothing to warn about. A published render that reads one still warns.
+    /// </summary>
+    [Fact]
+    public async Task ADraftRenderThatReadsACookie_DoesNotWarnThatItWasStored_AndAPublishedOneStillDoes()
+    {
+        await using var app = await StartAsync(
+            map: a => a
+                .MapPageLoader("/post", (HttpContext http, IDraftMode draft) => Page.Props(new { Draft = draft.IsEnabled, Session = http.Request.Cookies["session"] }))
+                .CachePage(TimeSpan.FromMinutes(5)),
+            outputCache: true);
+        var cookie = await EnableAsync(app);
+
+        var draft = await GetDataAsync(app, "/post", $"{cookie}; session=editor");
+        await GetDataAsync(app, "/post", $"{cookie}; session=editor");
+
+        Assert.True((bool?)draft["props"]!["draft"]);
+        Assert.Equal("editor", (string?)draft["props"]!["session"]);
+        Assert.DoesNotContain(app.Logs, l => l.Message.Contains("rendering it read", StringComparison.Ordinal));
+
+        await GetDataAsync(app, "/post", "session=visitor");
+
+        var warning = Assert.Single(app.Logs, l => l.Message.Contains("rendering it read", StringComparison.Ordinal));
+        Assert.Contains("'session'", warning.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

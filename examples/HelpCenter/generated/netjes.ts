@@ -97,7 +97,8 @@ export const api = {
 /**
  * What the package's endpoints read from their URLs, by method and route below the mount as in `api`: the route
  * values below the mount, then the query string values the handler binds. A JSON endpoint has a key for each of
- * its methods except HEAD, and any other endpoint one for GET, if it answers GET.
+ * its methods except HEAD, and any other endpoint one for GET, if it answers GET, and one for POST, if it reads a
+ * form.
  */
 export type EndpointParams = {
   "POST /messages": Record<string, never>;

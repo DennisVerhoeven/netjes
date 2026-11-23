@@ -63,14 +63,34 @@ function baseEnv(io) {
 }
 
 /**
+ * The option that picks the build configuration of the app a command runs, as `dotnet run -c` does.
+ * @type {OptionSpec}
+ */
+const CONFIGURATION_OPTION = {
+  type: 'string',
+  short: 'c',
+  value: '<name>',
+  description: 'The build configuration to run the app in, such as Release, to reuse that build instead of making a Debug one',
+  default: "dotnet's own: Debug",
+};
+
+/**
+ * The arguments of `dotnet run` for a command that runs the app in command mode.
+ * @param {CommandContext['options']} options
+ */
+function runArgs(options) {
+  return ['run', '--no-launch-profile', ...(typeof options.configuration === 'string' ? ['-c', options.configuration] : [])];
+}
+
+/**
  * @param {CliIo} io
  * @param {string} cwd
- * @param {{ check?: boolean }} options
+ * @param {{ check?: boolean; configuration?: string }} options
  */
 function generate(io, cwd, options = {}) {
   return io.spawn({
     command: 'dotnet',
-    args: ['run', '--no-launch-profile'],
+    args: runArgs(options),
     cwd,
     env: appEnv(io, { ...commandEnv(io), NETJES_COMMAND: 'generate', ...(options.check ? { NETJES_CHECK: '1' } : {}) }),
   });
@@ -402,10 +422,15 @@ export const COMMANDS = {
         description: 'Write nothing, and exit 1 when generated/netjes.ts is out of date (for CI)',
         default: 'off',
       },
+      configuration: CONFIGURATION_OPTION,
     },
-    examples: ['netjes generate', 'netjes generate --check'],
+    examples: ['netjes generate', 'netjes generate --check', 'netjes generate -c Release'],
     project: () => true,
-    run: ({ io, cwd, options }) => generate(io, cwd, { check: options.check === true }),
+    run: ({ io, cwd, options }) =>
+      generate(io, cwd, {
+        check: options.check === true,
+        ...(typeof options.configuration === 'string' ? { configuration: options.configuration } : {}),
+      }),
   },
 
   routes: {
@@ -413,8 +438,9 @@ export const COMMANDS = {
     details: 'Runs the app once in command mode, like generate. Warnings do not change the exit code.',
     options: {
       json: { type: 'boolean', description: 'Print the report as JSON', default: 'off: a table' },
+      configuration: CONFIGURATION_OPTION,
     },
-    examples: ['netjes routes', 'netjes routes --json'],
+    examples: ['netjes routes', 'netjes routes --json', 'netjes routes -c Release'],
     project: () => true,
     async run({ io, cwd, options }) {
       const dir = await mkdtemp(path.join(tmpdir(), 'netjes-routes-'));
@@ -422,7 +448,7 @@ export const COMMANDS = {
       try {
         const code = await io.spawn({
           command: 'dotnet',
-          args: ['run', '--no-launch-profile'],
+          args: runArgs(options),
           cwd,
           env: appEnv(io, { ...commandEnv(io), NETJES_COMMAND: 'routes', NETJES_OUTPUT: output }),
           // stdout is for the report, so that `netjes routes --json | jq` works; the build and app output go to stderr.

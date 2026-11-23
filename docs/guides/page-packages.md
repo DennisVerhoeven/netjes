@@ -156,7 +156,16 @@ A package brings its own `not-found.tsx` and `error.tsx`. An unknown URL below t
 
 The URL is below the mount when its path starts with the prefix's URL, literals in any case: `/HELP/nope` is, and `/helpx/nope` and `/help%2Fnope` are not. With a mount inside another, the deepest one takes the URL. A mount at the root URL leaves unknown URLs to the app's own `not-found.tsx`, and renders its own only in an app that has none.
 
-Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them. A fallback policy that refuses them challenges the unknown URL first, as everywhere.
+Before anything on the way loads, each layout loader there, under its own conventions and `MapPages()`'s authorization, and each folder of the package under its mount's conventions, is authorized. A visitor one of them refuses gets the nearest not-found above it, with status 404, and the loaders from there down never run for them. The loaders that do run, run for the user a page there would have: the schemes that the policies on the way name sign the visitor in, and that user stays on the request, as the authorization middleware leaves it for a page. So a package mounted inside a back office's section, behind a policy that names the back office's own scheme, renders its not-found inside that section for the back office's staff, still signed in ([ADR 0059](../decisions/0059-a-not-founds-layout-loaders-run-for-the-user-their-policies-sign-in.md)).
+
+A fallback policy that refuses a visitor challenges the unknown URL first, as everywhere: the fallback that answers unknown URLs carries no authorization of its own. A package that signs its users in through a scheme of its own would then send its staff, and everyone else, to the site's login for a mistyped URL. `ConfigureNotFound(...)` on the mount gives the unknown URLs below it an endpoint of their own with the conventions you give it, and only those:
+
+```csharp
+app.MapHelpCenter("/help")
+    .ConfigureNotFound(notFound => notFound.AllowAnonymous());
+```
+
+Under the fallback policy, `/help/nope` is then the package's not-found with status 404, and the rest of the app keeps its policy. The layout loaders on the way are still authorized one by one, so a visitor the package refuses gets the not-found above its protected folders. A mount inside this one that has no `ConfigureNotFound` of its own takes these conventions. Call it before `MapPages()`. A mount at the root URL cannot have one, and neither can a mount whose URL is values alone, such as `/[tenant]`: a value matches any segment, so its not-found would answer the unknown URLs below the app's other mounts too ([C# API](../reference/csharp-api.md#pagepackagebuilder), [ADR 0060](../decisions/0060-the-not-found-below-a-mount-takes-conventions-of-its-own.md)).
 
 ## The app's root layout
 
@@ -315,7 +324,7 @@ public static class HelpCenterEndpoints
 
 The first four throw on a `MapGroup` made from the mount, and the app's own `MapPageLoader`, `MapPageAction` and `MapLayoutLoader` throw for the package's pages and layouts, naming the mount. Return the builder, so the app can add its conventions and overrides.
 
-A URL the C# side writes, for a redirect, an email or a cookie's path, comes from `PagePackageMount.Url(path, values)`, with the request's route values for the prefix's own: `mount.Url("/articles")` is `/help/articles`. A service of the package that runs outside a request finds the mount in `PagePackageMounts`, a singleton ([C# API](../reference/csharp-api.md#pagepackagemount)). Set `DrawsItsOwnShell` on the descriptor when the package's layout draws a whole page, and `RequiresNonce` when its pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out).
+A URL the C# side writes, for a redirect, an email or a cookie's path, comes from `PagePackageMount.Url(path, values)`, with the request's route values for the prefix's own: `mount.Url("/articles")` is `/help/articles`. A service of the package that runs outside a request finds the mount in `PagePackageMounts`, a singleton ([C# API](../reference/csharp-api.md#pagepackagemount)). To render one of the package's own pages from an endpoint or a handler of the package, such as a form again after a rate limiter refused it, write the pattern below the mount: `mount.Render("/sign-in", props)` renders `/help/sign-in` where the package is mounted at `/help`, wherever the app put it. Set `DrawsItsOwnShell` on the descriptor when the package's layout draws a whole page, and `RequiresNonce` when its pages stream (`Page.Defer`, or a Suspense boundary still waiting when the shell goes out).
 
 ### Its generated file
 
@@ -346,14 +355,22 @@ export const blocks = {
 } as const;
 ```
 
-The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs. `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it, so apps run `netjes generate` after updating the package ([C# API](../reference/csharp-api.md#pagepackagebuilder)).
+The app's code imports it from its own file (`blocks.hero.props.parse(value)`), and the package's code from the package's. The package owns the export, so another package cannot add to it; a second entry of one key throws at startup, and so does a name that is no identifier or that the file takes already. The export's name is taken in both files, so a C# type of the app's with that name gets another; a type of the export's named like one of the app's own gets another name in the app's file, so the app's schemas keep theirs, also when its name is given by `[TypeScriptName]` (the package's file keeps the given name). `netjes generate --check` fails on the app's file when an export changes, and on the package's in the app that writes it, so apps run `netjes generate` after updating the package ([C# API](../reference/csharp-api.md#pagepackagebuilder)).
+
+An export that holds what the app registers through the package, such as the typed data of the widgets an app adds, is for that app alone: the package's file ships with the package, so it must not hold it. Pass `appOnly: true`, and the export and the schemas of its types are written in the app's file and left out of the package's:
+
+```csharp
+mount.AddTypeScriptExport("widgets", "new-users", new Dictionary<string, Type> { ["data"] = typeof(NewUsersData) }, appOnly: true);
+```
+
+Every entry of one export has the same `appOnly`; an export that mixes them throws at startup, naming the entry.
 
 ### Checking it
 
 - **Types.** The app's `npm run typecheck` does not see a package's pages, which only the page module map imports. Type-check them in the package, under the strictest flags an app may set: `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature`, with the package's `app`, `src` and `generated` folders included, as the help center's `tsconfig.json` does.
 - **Documents.** In the app the package is developed in, `renderDocument` from `netjes/testing` renders a package's page inside the app's layouts and the package's, with `mounts` naming the prefix: `renderDocument('@acme/help-center/app/contact/page.tsx', { mounts: { '@acme/help-center': '/help' }, props })` ([The document](testing.md#the-document)).
 - **Components.** `createTestApp({ mounts: { '@acme/help-center': '/help' } })` gives the package's `Link` and `Form` the mount's URL ([Options](testing.md#options)).
-- **The C# side.** Test the loaders and actions through the app that mounts the package, with `WebApplicationFactory`, as for the app's own ([C# tests](testing.md#c-tests-of-loaders-and-actions)).
+- **The C# side.** Test the loaders and actions through the app that mounts the package, with `WebApplicationFactory`, as for the app's own ([C# tests](testing.md#c-tests-of-loaders-and-actions)). A service of the package that builds URLs from its mount needs no app: `PagePackageMount.ForTests(package, "/help")` makes the mount, at any prefix (`"/[tenant]/help"` included), and `PagePackageMounts.ForTests(mount)` the singleton the service takes, so a test can read the URL it builds (`mount.Url("/articles")`) without routing a request.
 
 ### Versions
 

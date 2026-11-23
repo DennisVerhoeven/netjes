@@ -1,4 +1,4 @@
-import { Form, Link, useAction } from 'netjes';
+import { Form, Link, useAction, usePathname, useSearchParams } from 'netjes';
 import { type TaskCard as TaskCardData, type TaskState, serverActions } from '../generated/netjes.ts';
 import { stateLabels, stateOrder, taskKey } from '../lib/project.ts';
 import { Avatar } from './brand.tsx';
@@ -35,13 +35,17 @@ function MoveButtons({ slug, number, state }: { slug: string; number: number; st
 }
 
 export function TaskCard({ slug, task, state }: { slug: string; task: TaskCardData; state: TaskState }) {
+  // The board as it is filtered, which the link carries into the task's history entry: the task page's way back.
+  const pathname = usePathname();
+  const query = useSearchParams().toString();
+  const board = query ? `${pathname}?${query}` : pathname;
   return (
     <li className="group grid gap-2 rounded-lg border border-ink-800 bg-ink-850 p-3 transition-colors hover:border-ink-600">
       <div className="flex items-center justify-between gap-2">
         <span className="key">{taskKey(slug, task.number)}</span>
         <PriorityIcon priority={task.priority} />
       </div>
-      <Link href={`/projects/${slug}/tasks/${task.number}`} className="font-medium leading-snug hover:text-signal">
+      <Link href={`/projects/${slug}/tasks/${task.number}`} historyState={{ board }} className="font-medium leading-snug hover:text-signal">
         {task.title}
       </Link>
       <div className="flex items-center justify-between gap-2">

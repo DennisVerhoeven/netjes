@@ -170,6 +170,25 @@ public class PagePackageTypesTests
         Assert.Contains("\"GET /articles/{slug}/feed\": \"/articles/{slug}/feed\",", files[0]);
     }
 
+    [Fact]
+    public async Task ThePackagesFile_ListsItsFormEndpointsBelowTheMountWithoutThePrefixValues()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            prefix: "/[tenant]/help",
+            mount: mount =>
+            {
+                MapHelpCenter(mount);
+                mount.MapPost("/articles/{slug}/export", (string slug, [FromForm] string? intent) => Results.File([1], "application/json", "export.json"));
+            });
+
+        var file = PackageFile(app);
+
+        Assert.Contains("\"POST /articles/{slug}/export\": { slug: string };", file);
+        Assert.Contains("\"POST /articles/{slug}/export\": \"/articles/{slug}/export\",", file);
+        Assert.DoesNotContain("tenant", file);
+    }
+
     private static void Write(string root, string file, string content)
     {
         var path = Path.Combine(root, file);
@@ -529,6 +548,97 @@ public class PagePackageTypesTests
         {
             Assert.Contains(name, appFile);
         }
+    }
+
+    [TypeScriptName("Citation")]
+    public sealed record CitationBlock(string Text);
+
+    [TypeScriptName("HomeProps")]
+    public sealed record NamedLikeAnAppType(string Text);
+
+    [Fact]
+    public async Task ANameGivenToAnExportsType_IsInBothFiles()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("blocks", "citation", new Dictionary<string, Type> { ["props"] = typeof(CitationBlock) });
+            });
+
+        foreach (var output in new[] { AppFile(app), PackageFile(app) })
+        {
+            Assert.Contains("export const Citation = z.object({\n  text: z.string(),\n});", output);
+            Assert.Contains("  \"citation\": { \"props\": Citation },\n", output);
+        }
+    }
+
+    [Fact]
+    public async Task ANameGivenToAnExportsType_ThatIsTheNameOfTheAppsOwnType_GivesWayInTheAppsFileAndKeepsItInThePackages()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new AppTypes.HomeProps("Hi", 1))),
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("blocks", "note", new Dictionary<string, Type> { ["props"] = typeof(NamedLikeAnAppType) });
+            });
+
+        var appFile = AppFile(app);
+        var package = PackageFile(app);
+
+        Assert.Contains("export const HomeProps = z.object({\n  greeting: z.string(),\n  visits: z.number().int(),\n});", appFile);
+        Assert.Contains("export const NamedLikeAnAppType = z.object({\n  text: z.string(),\n});", appFile);
+        Assert.Contains("  \"note\": { \"props\": NamedLikeAnAppType },\n", appFile);
+        Assert.Contains("export const HomeProps = z.object({\n  text: z.string(),\n});", package);
+        Assert.Contains("  \"note\": { \"props\": HomeProps },\n", package);
+    }
+
+    [Fact]
+    public async Task AnAppOnlyExport_IsInTheAppsFileAndNotThePackagesFile_WithItsSchemas()
+    {
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("widgets", "quote", new Dictionary<string, Type> { ["data"] = typeof(QuoteBlock) }, appOnly: true);
+            });
+
+        var appFile = AppFile(app);
+        var package = PackageFile(app);
+
+        Assert.Contains("export const QuoteBlock = z.object({\n  text: z.string(),\n});", appFile);
+        Assert.Contains("export const widgets = {\n  \"quote\": { \"data\": QuoteBlock },\n} as const;", appFile);
+        Assert.DoesNotContain("widgets", package);
+        Assert.DoesNotContain("QuoteBlock", package);
+    }
+
+    [Fact]
+    public async Task AnAppOnlyExport_ReservesNoneOfThePackagesNames_AsThePackagesFileHasNoSuchExport()
+    {
+        // `Link` is a name of the package's file: an export of that file cannot take it, one that is in the app's alone can.
+        await using var app = await StartAsync(
+            ["app/page.tsx"],
+            mount: m =>
+            {
+                MapHelpCenter(m);
+                m.AddTypeScriptExport("Link", "quote", new Dictionary<string, Type> { ["data"] = typeof(QuoteBlock) }, appOnly: true);
+            });
+
+        Assert.Contains("export const Link = {\n  \"quote\": { \"data\": QuoteBlock },\n} as const;", AppFile(app));
+    }
+
+    [Fact]
+    public async Task AnAppOnlyExport_StillTakesTheNamesOfTheAppsFile()
+    {
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => StartAsync(
+            ["app/page.tsx"],
+            mount: m => m.AddTypeScriptExport("pages", "quote", new Dictionary<string, Type> { ["data"] = typeof(QuoteBlock) }, appOnly: true)));
+
+        Assert.StartsWith("'pages' cannot be the name of a TypeScript export: the app's generated file declares", error.Message);
     }
 
     [Fact]

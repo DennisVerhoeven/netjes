@@ -55,14 +55,14 @@ docker compose up                                                     # developm
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # the production image, on port 8080
 ```
 
-Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way, and Vite's port, 5173, does not move.
+Both stacks publish the app on port 8080 of the host. To use another port, set `APP_PORT`, in the shell or in a `.env` file next to the Compose files: `APP_PORT=8090 docker compose up` serves development on http://localhost:8090, and the same variable moves the production stack. The app listens on 8080 inside the container either way. Development also publishes Vite's port, 5173, which `VITE_PORT` moves, the same way: `VITE_PORT=5190 docker compose up` serves the app's modules from http://localhost:5190. Vite listens on that port inside the container too, because the browser loads the page's modules from it (Compose sets `Netjes__ViteDevPort` to the same number), so set `VITE_PORT` instead of mapping the port by hand. Two apps in development at once need a different `APP_PORT` and `VITE_PORT` each.
 
 The `Dockerfile` has these stages:
 
 | Stage | What it does |
 |---|---|
 | `deps` | `npm ci`, cached until `package.json` or the lockfile changes. |
-| `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. |
+| `dev` | The .NET SDK with Node, running `dotnet watch run`; the source is bind-mounted. The app listens on the image's `ASPNETCORE_HTTP_PORTS`, 8080. |
 | `client` | `npm run build`: `dist/client` and `dist/server`. |
 | `build` | `dotnet publish` with `-p:NetjesSkipClientBuild=true`, taking `dist/` from `client`. |
 | `tini` | Ubuntu's `tini` package, installed in the SDK image, for the static binary that `production` copies. |
@@ -71,7 +71,7 @@ The `Dockerfile` has these stages:
 The Compose files:
 
 - `docker-compose.yml` defines the `app` service from the `production` stage, with `pull_policy: build`, so `up -d` always builds and never reuses a stale or development image.
-- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, and publishes the app's port (8080, or `APP_PORT`) and Vite's 5173 on `127.0.0.1` only: development error pages show stack traces and Vite serves the source.
+- `docker-compose.override.yml`, which Compose loads by default, switches to the `dev` stage, bind-mounts the source, publishes the app's port (8080, or `APP_PORT`) and Vite's (5173, or `VITE_PORT`) on `127.0.0.1` only, since development error pages show stack traces and Vite serves the source, and keeps ASP.NET Core's Data Protection keys for the container's root user on a named volume, so rebuilding the image does not fail the antiforgery tokens of pages that are open. `docker compose down -v` removes the volume.
 - `docker-compose.prod.yml` publishes the app on port 8080, or `APP_PORT`, and runs the container read-only, with a `tmpfs` at `/tmp`, `no-new-privileges`, every capability dropped, limits of one CPU and 512 MB, `restart: always`, and a named volume for ASP.NET Core's Data Protection keys, which sign antiforgery tokens and the draft mode cookie, so they survive restarts and new images.
 
 ASP.NET Core logs a warning at startup that those keys are not encrypted at rest. Encrypt them with one of the `ProtectKeysWith...` methods (a certificate, Azure Key Vault) if that matters where you run.
@@ -198,22 +198,42 @@ builder.Services.AddOpenTelemetry()
 
 | Span | Covers | Tags |
 |---|---|---|
-| `netjes.loader` | A page loader | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.action` | A page action | `netjes.route`, and `netjes.package` for a page package's page |
-| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
+| `netjes.loader` | A page loader | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.action` | A page action | `netjes.route`, `http.route`, and `netjes.package` for a page package's page |
+| `netjes.layout_loader` | A layout's loader, once for each render that runs it (not for a client navigation that reuses its props) | `netjes.route` and `http.route` (the layout's URL), `netjes.layout` (the layout file's id), and `netjes.package` for a page package's layout |
+| `netjes.server_action` | A server action (`MapAction`), the call's checks included | `netjes.server_action.name`, and `netjes.package` for a page package's action |
+| `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `http.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
+
+A span that an exception ends has the status `Error` and the exception as an event. A server action has no route of its own: ASP.NET Core's request span for the call names the action's own path, such as `/_netjes/actions/posts.save`, as its `http.route`.
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
 
 | Metric | Unit | Tags |
 |---|---|---|
-| `netjes.render.duration` | s | `netjes.route`, `netjes.response`, `http.response.status_code` |
+| `netjes.render.duration` | s | `netjes.route`, `http.route`, `netjes.response`, `http.response.status_code` |
 | `netjes.sidecar.render.duration` | s | |
-| `netjes.sidecar.fallbacks` | documents | `netjes.route` |
-| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `netjes.web_vitals.rating` |
-| `netjes.web_vitals.cls` | | `netjes.route`, `netjes.web_vitals.rating` |
+| `netjes.sidecar.fallbacks` | documents | `netjes.route`, `http.route` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | ms | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
+| `netjes.web_vitals.cls` | | `netjes.route`, `http.route`, `netjes.web_vitals.rating` |
 
-Tags carry route patterns (`/blog/[slug]`), never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
+### Routes in two notations
+
+`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has no `http.route`: a web vitals report with a route the app lacks is still recorded, under `netjes.route` of `unknown`, without one.
+
+### Bucket boundaries
+
+The histograms advise explicit bucket boundaries (`InstrumentAdvice<T>.HistogramBucketBoundaries`), which the OpenTelemetry SDK uses unless a view of the app says otherwise; OpenTelemetry's defaults (0, 5, 10, 25 ... 10000) are made for milliseconds, and put nearly every render in seconds in the first bucket.
+
+| Histogram | Boundaries |
+|---|---|
+| `netjes.render.duration`, `netjes.sidecar.render.duration` | 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 seconds, those ASP.NET Core advises for `http.server.request.duration` |
+| `netjes.web_vitals.lcp`, `.inp`, `.fcp`, `.ttfb` | 50, 100, 200, 300, 500, 800, 1000, 1500, 1800, 2500, 3000, 4000, 6000, 10000 ms, with the vitals' own limits among them (INP 200 and 500, TTFB 800 and 1800, FCP 1800 and 3000, LCP 2500 and 4000) |
+| `netjes.web_vitals.cls` | 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5, with 0.1 and 0.25 the limits of good and poor |
+
+An app that registers a view for one of them (`AddView("netjes.render.duration", new ExplicitBucketHistogramConfiguration { ... })`) keeps its own boundaries, and exporters that do not read advice are not affected.
+
+Tags carry route patterns and templates, never URLs. `netjes.package`, the npm name of a mounted page package, is on spans only, and `netjes.page` names a package's file by its id (`@acme/help-center/app/contact/page.tsx`). On `netjes.render` it names the package whose file renders, so a page the app replaces with `.Override` has none there, while the spans of the package's loader and page action, which still serve that page, carry it.
 
 ### Web vitals
 
@@ -279,6 +299,7 @@ A proxy in front of a Netjes app must pass these headers through unchanged:
 | Header | Direction | Why |
 |---|---|---|
 | `X-Netjes-Data`, `X-Netjes-Segments` | request | Client navigations ask for the page payload, and name the layouts they hold. |
+| `X-Netjes-Redirected` | request | The client router asks for the URL a redirect sent it to; where no page answers it, the server tells the router to load it as a document, so its endpoint runs once. Without it, such a URL is requested twice. |
 | `X-Netjes-Cookies` | response | Tells the client router that an action signed someone in or out, so it forgets the pages it keeps for Back and Forward and clears the query cache. |
 | `X-Netjes-Antiforgery` | response | Marks a 400 for a refused antiforgery token, the only one the client sends again. |
 | `X-Netjes-Now` | response | The server's clock, which the client uses to judge how fresh seeded data is. |

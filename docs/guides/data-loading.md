@@ -75,9 +75,9 @@ A page without a loader renders with no props, and its schema is `z.object({})`.
 | `Page.NotFound()` | Render the nearest `not-found.tsx`, in the page's folder or one above it and inside the layouts above that file, else the root 404 page, with status 404. |
 | `Page.Forbidden()` | Render the nearest `forbidden.tsx` (else the error page) with status 403. |
 | `Page.Unauthorized()` | Render the nearest `unauthorized.tsx` (else the error page) with status 401. |
-| `Page.Redirect(url, permanent: false)` | Redirect: 307, or 308 when permanent, for a GET; 303 after a form post. The client router follows it without a full page load. |
+| `Page.Redirect(url, permanent: false)` | Redirect: 307, or 308 when permanent, for a GET; 303 after a form post. The client router follows it without a full page load; a URL of the app that no page answers, such as a file, it loads as a document, once ([When the router hands over to the browser](routing.md#when-the-router-hands-over-to-the-browser)). |
 | `Page.LocalRedirect(url, permanent: false)` | Like `Redirect`, but throws unless the URL is a path on this site. Use it for a `returnUrl` from the request. |
-| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. |
+| `Page.Render(pattern, props)` | Render the page for `pattern` from any endpoint, such as a minimal API that is no page loader. A page package renders its own page by a pattern below its mount with `mount.Render(path, props)` ([page packages](page-packages.md#the-c-half)). |
 
 On a `PageResult`:
 
@@ -242,7 +242,7 @@ app.MapLayoutLoader("/dashboard", ...).RequireAuthorization();      // every pag
 app.MapPages().RequireAuthorization();                              // every page without a loader of its own
 ```
 
-A fallback policy (`AddAuthorizationBuilder().SetFallbackPolicy(...)`) covers every endpoint without authorization metadata, the not-found fallback included, so it challenges a visitor it refuses on an unknown URL too, and `.AllowAnonymous()` makes an exception. Authorization runs before any loader. `MapPages()`'s authorization and the fallback policy guard the layout loaders as well as the pages: on the 401 or 403 page of a visitor they refuse, and under `MapPages()`'s authorization on the 404 for an unknown URL, which no page's endpoint serves, that visitor gets the page without running any layout loader, the root layout's included. An empty 401 or 403 from authorization renders `unauthorized.tsx` or `forbidden.tsx` ([Routing](routing.md#error-not-found-forbidden-and-unauthorized-pages)); with cookie authentication, answer those statuses from `OnRedirectToLogin` and `OnRedirectToAccessDenied` instead of redirecting. Checks that depend on data go in the loader, which returns `Page.Forbidden()` or `Page.NotFound()`.
+A fallback policy (`AddAuthorizationBuilder().SetFallbackPolicy(...)`) covers every endpoint without authorization metadata, the not-found fallback included, so it challenges a visitor it refuses on an unknown URL too, and `.AllowAnonymous()` makes an exception. Authorization runs before any loader. `MapPages()`'s authorization and the fallback policy guard the layout loaders as well as the pages: on the 401 or 403 page of a visitor they refuse, and under `MapPages()`'s authorization on the 404 for an unknown URL, which no page's endpoint serves, that visitor gets the page without running any layout loader, the root layout's included. An empty 401 or 403 from authorization renders `unauthorized.tsx` or `forbidden.tsx` ([Routing](routing.md#error-not-found-forbidden-and-unauthorized-pages)); with cookie authentication, answer those statuses from `OnRedirectToLogin` and `OnRedirectToAccessDenied` instead of redirecting, or send the visitor to a sign-in page from `OnRedirectToLogin` with `Page.RedirectToSignIn` ([Sending a visitor to sign in](security.md#sending-a-visitor-to-sign-in)). Checks that depend on data go in the loader, which returns `Page.Forbidden()` or `Page.NotFound()`.
 
 Call `app.UseAuthentication()` and `app.UseAuthorization()` after `app.UseNetjes()`, and `app.UseAntiforgery()` after them.
 
@@ -304,12 +304,35 @@ Keys follow the app's JSON naming policy (camelCase by default), nested sections
 | `layouts` | Each layout loader's props by folder: `layouts['app/docs']` |
 | `sharedProps` | The type given to `UseSharedProps<T>` |
 | `api` | Request and response schemas of JSON minimal APIs, by method and route: `api['GET /api/projects/{slug}/stats']` |
-| `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
-| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']` |
+| `endpointUrl()`, `EndpointParams`, `EndpointKey` | The URL of each endpoint of the app that is not a page, JSON or not, and of each `POST` endpoint that reads a form, typed from its route and the query values its handler binds, by method and route as in `api`: `endpointUrl('GET /api/projects/{slug}/stats', { slug })` ([Endpoint URLs](#endpoint-urls)) |
+| `forms` | The `[FromForm]` type of each page action, by pattern: `forms['/guestbook']`; an action that reads the `IFormCollection` itself is a record of strings, `z.record(z.string(), z.string())` |
 | `serverActions` | A typed reference to each `MapAction` ([Actions and forms](actions-and-forms.md#calling-an-action-from-react)) |
 | `route()`, `Route`, `Href`, `isHref()`, `RouteParams`, `RoutePattern`, `routePatterns` | Typed routes, from the page files ([Typed links](#typed-links)) |
 
 The schemas are written from the System.Text.Json contract the app serializes with (`ConfigureHttpJsonOptions`), so property names, nullability, ignored properties, enums (strings with `JsonStringEnumConverter`, numbers without), `[JsonDerivedType]` unions and number handling match the JSON on the wire. Recursive types become zod getters, and a C# type whose name the file already uses (`Record`, `Route`, `EndpointParams`) gets another name. A property of type `Netjes.Href` is written as the file's own `Href` schema, which the file declares before the schemas of the C# types ([Links from C#](#links-from-c)). Server action inputs are typed by what System.Text.Json reads: nullable and defaulted properties are optional, computed ones are left out ([ADR 0006](../decisions/0006-types-and-zod-from-csharp-contracts.md)).
+
+#### Naming a type
+
+A type is named by its own name, so a nested record `AuditFilters.Values` is written as `Values`; the declaring type's name and then the namespace's come in only where two types would share a name. To name a type yourself, put `[TypeScriptName("AuditFilterValues")]` on it: its schema and its type are then `AuditFilterValues`, for a class, a record, a struct, an enum or an interface. The attribute is opt-in, so no type is renamed until you ask. The name is an identifier of ASCII letters, digits, `_` and `$`, no reserved word of a JavaScript module and none of the file's own names (`pages`, `Href`, `z`, ...); two types that ask for one name stop the generator, naming both, and a type that would have had the name by its own name takes another. A type of a page package's export that is given the name of one of the app's own types takes another name in the app's file and keeps the given one in the package's ([C# API](../reference/csharp-api.md#typescriptnameattribute), [ADR 0061](../decisions/0061-typegen-names-a-type-by-attribute-reads-a-form-as-a-record-and-keeps-an-export-in-the-apps-file.md)).
+
+#### Derived types added at startup
+
+The union of a polymorphic type is read from the System.Text.Json contract of the app's JSON options, resolver modifiers included, not from attributes alone. A package or an app that adds derived types to a base it does not own does it where it configures the options, and the generated file holds them:
+
+```csharp
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver =
+    (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver()).WithAddedModifier(info =>
+    {
+        if (info.Type == typeof(Block))
+        {
+            info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+        }
+    }));
+```
+
+`WithAddedModifier` keeps the resolver the options already have (an app's source-generated context, its own modifiers), so a package can add its types without replacing what the app set; assigning a new `DefaultJsonTypeInfoResolver` would drop them.
+
+`Block` needs `[JsonPolymorphic]` (a discriminator name, or the default `$type`) and the modifier adds its derived types, so `Block` is written as `z.discriminatedUnion("kind", [...])` with every member. The modifier runs before the file is written, so a type added this way is in the union as one with `[JsonDerivedType]` is. For the types of a page package that no loader of the app returns, `AddTypeScriptExport` is the way ([Schemas the app reads too](page-packages.md#schemas-the-app-reads-too)).
 
 The app writes the file when it starts in development mode (`Netjes:Mode` is `Development`, the default in the Development environment, and in a test host that sets it), when its content changed, so a running `npm run dev` picks up a C# change on its next restart. `npx netjes generate` writes it on demand, also while `npm run dev` runs, and `npx netjes generate --check` exits 1 when it is out of date: run that in CI ([the netjes command](../reference/cli.md#netjes-generate)). Commit the file and never edit it by hand. `NetjesOptions.TypesFile` moves it; `null` turns generation off.
 
@@ -406,7 +429,7 @@ A route group's `"/"` keeps its slash in the key: `app.MapGroup("/api/posts/{slu
 
 ## Endpoint URLs
 
-`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. A value that would make a `.`, `..` or empty segment throws, since the browser and `fetch` would resolve the URL to another endpoint, or under `/{**path}` to another site. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`. A `POST` endpoint that is not JSON, such as a webhook, has none.
+`endpointUrl(key, params, search)` from the generated file builds the URL of one of the app's endpoints, with its values encoded. A value that would make a `.`, `..` or empty segment throws, since the browser and `fetch` would resolve the URL to another endpoint, or under `/{**path}` to another site. The key is written as in `api`: the method, then the route as the app wrote it. Every endpoint the app maps that is not a page or an action has keys, JSON or not: a JSON endpoint one for each of its methods except `HEAD`, and any other endpoint, such as a file, a feed, text or a redirect, one for `GET`, if it answers `GET`, and one for `POST`, if it accepts a posted form: it binds a `[FromForm]` parameter, an `IFormFile`, an `IFormFileCollection` or an `IFormCollection`. A `POST` endpoint that reads no form, such as a webhook, has none, and nor has another method of a form endpoint, since a form posts with `get` or `post` ([a form that downloads](actions-and-forms.md#a-form-that-downloads)).
 
 ```tsx
 import { useHref } from 'netjes';

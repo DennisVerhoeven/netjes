@@ -156,6 +156,48 @@ public partial class ClientRenderFallbackTests
     }
 
     [Fact]
+    public async Task Shell_HasTheAbsoluteTitleFromTheLoader()
+    {
+        await using var app = await StartAsync(map: a => a.MapPageLoader("/posts/[id]", (string id) => Page.Props(new { Id = id }).WithMetadata(new PageMetadata
+        {
+            Title = "Plain",
+            AbsoluteTitle = "Fish & <chips>",
+        })));
+
+        var html = await (await app.GetDocumentAsync("/posts/7")).Content.ReadAsStringAsync(Ct);
+
+        var head = html[..html.IndexOf("</head>", StringComparison.Ordinal)];
+        Assert.Contains("<title>Fish &amp; &lt;chips&gt;</title>", head);
+        Assert.Equal("Fish & <chips>", (string?)PayloadIn(html)["metadata"]!["title"]!["absolute"]);
+    }
+
+    [Fact]
+    public async Task Shell_HasTheLangOfThePage_ElseOfItsLayout_ElseTheOptions()
+    {
+        await using var app = await StartAsync(
+            configure: o => o.Lang = "de",
+            map: a =>
+            {
+                a.MapLayoutLoader("/", () => Page.Props().WithMetadata(new PageMetadata { Lang = "nl" }));
+                a.MapPageLoader("/posts/[id]", (string id) => id == "7"
+                    ? Page.Props(new { Id = id }).WithMetadata(new PageMetadata { Lang = "fr-BE" })
+                    : Page.Props(new { Id = id }));
+            });
+        await using var bare = await StartAsync(configure: o => o.Lang = "de");
+
+        var page = await (await app.GetDocumentAsync("/posts/7")).Content.ReadAsStringAsync(Ct);
+        var layout = await (await app.GetDocumentAsync("/posts/8")).Content.ReadAsStringAsync(Ct);
+        var options = await (await bare.GetDocumentAsync("/")).Content.ReadAsStringAsync(Ct);
+
+        Assert.StartsWith("<!DOCTYPE html><html lang=\"fr-BE\"><head>", page);
+        Assert.StartsWith("<!DOCTYPE html><html lang=\"nl\"><head>", layout);
+        Assert.StartsWith("<!DOCTYPE html><html lang=\"de\"><head>", options);
+        // The document's own lang stays the root's, which a client navigation to a page without one returns to.
+        Assert.Equal("de", (string?)PayloadIn(page)["document"]!["lang"]);
+        Assert.Equal("fr-BE", (string?)PayloadIn(page)["lang"]);
+    }
+
+    [Fact]
     public async Task Shell_WithoutMetadataFromTheLoader_HasNoTitle()
     {
         await using var app = await StartAsync();
@@ -495,6 +537,7 @@ public partial class ClientRenderFallbackTests
                 Title = "Fish & <chips>",
                 Description = "Say \"hi\"",
                 Robots = new PageMetadataRobots(Index: false),
+                Lang = "nl",
             })).WithMetadata(new OmitAntiforgeryTokenMetadata()));
 
         var response = await app.GetDocumentAsync("/posts/7");

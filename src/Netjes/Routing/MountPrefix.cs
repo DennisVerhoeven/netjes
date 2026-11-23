@@ -21,6 +21,7 @@ internal sealed partial class MountPrefix
         Pattern = "/" + string.Join('/', url);
         Template = "/" + string.Join('/', url.Select(s => IsParameter(s) ? $"{{{s[1..^1]}}}" : s));
         Parameters = [.. url.Where(IsParameter).Select(s => s[1..^1])];
+        HasLiteral = url.Exists(s => !IsParameter(s));
     }
 
     /// <summary>The prefix's folders, relative to the app directory: <c>support/(desk)/help</c>, or empty for <c>/</c>.</summary>
@@ -37,6 +38,12 @@ internal sealed partial class MountPrefix
 
     /// <summary>The names of the prefix's route parameters, outermost first.</summary>
     public IReadOnlyList<string> Parameters { get; }
+
+    /// <summary>
+    /// Whether the prefix's URL has a literal segment: <c>/help</c> and <c>/[tenant]/help</c> do, and <c>/</c>,
+    /// <c>/(site)</c> and <c>/[tenant]</c> do not.
+    /// </summary>
+    public bool HasLiteral { get; }
 
     public override string ToString() => "/" + Folder;
 

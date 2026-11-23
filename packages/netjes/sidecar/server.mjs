@@ -8,16 +8,21 @@
 // pings a process that has answered no render for a while; any answer will do, and a process that sends nothing back
 // within the render timeout (at least 5 s) is killed and restarted. Every request must carry the X-Netjes-Token the
 // parent passed in NETJES_TOKEN. Renders are aborted when the caller disconnects, when the shell is not ready after
-// NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Exits when stdin
-// closes.
-// Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. When the Vite dev server does not start,
-// it prints NETJES_FAILED and exits with code 1: {"reason":"vite-port-in-use","port"} when its port is taken, and
+// NETJES_RENDER_TIMEOUT_MS, or when the whole stream takes longer than NETJES_STREAM_TIMEOUT_MS. Reads lines on stdin:
+// `stopping`, which the parent sends in development once the app begins to stop, makes the Vite dev server let go of
+// its port and end its connections, while renders go on. Exits when stdin closes (or on SIGTERM or SIGINT), after
+// letting go of the Vite port first.
+// Startup: prints NETJES_READY {"port","viteOrigin"} on stdout once it listens. A Vite port that is taken is tried
+// again for up to VITE_PORT_WAIT_MS, after a line on stdout that says so. When the Vite dev server does not start, it
+// prints NETJES_FAILED and exits with code 1: {"reason":"vite-port-in-use","port"} when its port is still taken, and
 // {"reason":"vite-failed","message","code"} for anything else, such as an error in vite.config or a package it imports
 // that is not installed (message in plain text; code is the error's when it has one, such as ERR_MODULE_NOT_FOUND, or
 // MODULE_NOT_FOUND from a CommonJS config).
 import http from 'node:http';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 const mode = process.env.NETJES_MODE === 'development' ? 'development' : 'production';
@@ -30,6 +35,12 @@ delete process.env.NETJES_TOKEN;
 const renderTimeoutMs = Number(process.env.NETJES_RENDER_TIMEOUT_MS ?? 15_000);
 const streamTimeoutMs = Number(process.env.NETJES_STREAM_TIMEOUT_MS ?? 60_000);
 const vitePort = Number(process.env.NETJES_VITE_PORT ?? 5173);
+// How long the Vite dev server waits for its port when something has it, and how often it tries the port meanwhile.
+// dotnet watch starts an app again while the process of the one before may still have the port: that process lets go
+// of it as soon as it hears that its app is stopping, or when its stdin closes (below). A port that something else
+// keeps is reported once the wait is over.
+const VITE_PORT_WAIT_MS = 5_000;
+const VITE_PORT_RETRY_MS = 100;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const CSS_FILE = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)$/;
 // Terminal escape sequences (ECMA-48): CSI, as ESC [ or its one-character form (colours, as in Vite's code frames, which
@@ -52,6 +63,11 @@ let render;
 let renderToStream;
 /** @type {import('vite').ViteDevServer | undefined} */
 let vite;
+/**
+ * The connections to the Vite dev server (a browser's requests, its HMR socket), which releaseVitePort ends.
+ * @type {Set<import('node:net').Socket>}
+ */
+const viteSockets = new Set();
 
 /**
  * Says why the Vite dev server did not start, for .NET to report in a line of its own (Node's report of an uncaught
@@ -90,14 +106,43 @@ if (mode === 'development') {
     dev = await viteFailed(error);
   }
   vite = dev;
-  try {
-    await dev.listen();
-  } catch (error) {
-    // Most often another app's Vite dev server: .NET names the port and how to move it.
-    if (error instanceof Error && error.message === `Port ${vitePort} is already in use`) {
-      await failStartup({ reason: 'vite-port-in-use', port: vitePort });
+  dev.httpServer?.on('connection', (/** @type {import('node:net').Socket} */ socket) => {
+    viteSockets.add(socket);
+    socket.once('close', () => viteSockets.delete(socket));
+  });
+  /**
+   * Starts the dev server listening. Vite adds a listener for the server's 'listening' event each time; a start that
+   * fails leaves it behind, and it goes, so that trying the port again and again (below) does not pile them up.
+   */
+  const listen = async () => {
+    const httpServer = dev.httpServer;
+    const before = new Set(httpServer?.listeners('listening'));
+    try {
+      await dev.listen();
+    } catch (error) {
+      for (const listener of httpServer?.listeners('listening') ?? []) {
+        if (!before.has(listener)) httpServer?.off('listening', /** @type {(...args: unknown[]) => void} */ (listener));
+      }
+      throw error;
     }
-    await viteFailed(error);
+  };
+  const waitUntil = performance.now() + VITE_PORT_WAIT_MS;
+  for (let waiting = false; ; ) {
+    try {
+      await listen();
+      break;
+    } catch (error) {
+      if (!(error instanceof Error && error.message === `Port ${vitePort} is already in use`)) await viteFailed(error);
+      // Still taken: most often another app's Vite dev server. .NET names the port and how to move it.
+      if (performance.now() >= waitUntil) await failStartup({ reason: 'vite-port-in-use', port: vitePort });
+      if (!waiting) {
+        waiting = true;
+        console.log(
+          `netjes: port ${vitePort} is in use; waiting up to ${VITE_PORT_WAIT_MS / 1000}s for it, in case the app that ran before is still stopping`,
+        );
+      }
+      await sleep(VITE_PORT_RETRY_MS);
+    }
   }
   const netjes = /** @type {NetjesDevApi | undefined} */ (dev.config.plugins.find((plugin) => plugin.name === 'netjes')?.api);
   /** @param {unknown} error @returns {error is Error & { file: string }} */
@@ -403,7 +448,22 @@ server.listen(0, '127.0.0.1', () => {
   process.stdout.write(`NETJES_READY ${JSON.stringify({ port, viteOrigin })}\n`);
 });
 
+/**
+ * Stops the Vite dev server listening, so that its port is free for the app that replaces this one, and ends the
+ * connections browsers have to it: their Vite client then waits for a dev server to answer on the port again, and
+ * reloads the page. Renders go on, since they load modules through Vite and not over its port. Once is enough.
+ */
+function releaseVitePort() {
+  const httpServer = vite?.httpServer;
+  if (!httpServer?.listening) return;
+  // The port is free once close returns; the connections are not waited for.
+  httpServer.close();
+  for (const socket of viteSockets) socket.destroy();
+}
+
 async function shutdown() {
+  // The port first: Vite's own close comes to its HTTP server last.
+  releaseVitePort();
   server.close();
   await vite?.close();
   process.exit(0);
@@ -412,8 +472,14 @@ async function shutdown() {
 // A promise rejected by page code without a handler would otherwise kill every render in flight.
 process.on('unhandledRejection', (reason) => console.error('netjes: unhandled promise rejection', reason));
 
-// The parent keeps our stdin open for as long as it lives; EOF means it is gone.
-process.stdin.on('end', shutdown);
+// What the parent says, a line at a time. `stopping`: the app has begun to stop, and may take a while to finish the
+// requests it has (in development; NodeSidecar.cs). The app that replaces it needs the Vite dev server's port now.
+createInterface({ input: process.stdin }).on('line', (line) => {
+  if (line.trim() === 'stopping') releaseVitePort();
+});
+// The parent keeps our stdin open for as long as it lives; EOF means it is gone. Ahead of the handlers Vite adds for
+// the same events, which close the dev server with its port last.
+process.stdin.prependListener('end', shutdown);
 process.stdin.resume();
-process.on('SIGTERM', shutdown);
+process.prependListener('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

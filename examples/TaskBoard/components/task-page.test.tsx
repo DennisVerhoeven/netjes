@@ -1,5 +1,6 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Link } from 'netjes';
 import { createTestApp } from 'netjes/testing';
 import { Suspense } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -78,6 +79,53 @@ describe('TaskForm', () => {
       'urgent',
       'u1',
     ]);
+  });
+});
+
+describe('TaskForm and leaving it', () => {
+  const task = { number: 3, title: 'Launch post', description: '', state: 'todo', priority: 'none', assignee: null } as const;
+
+  function renderForm(app = createTestApp({ url: '/projects/web/tasks/3' })) {
+    render(
+      <>
+        <TaskForm slug="web" task={task} members={[me]} />
+        <Link href="/projects/web">Board</Link>
+      </>,
+      { wrapper: app.Wrapper },
+    );
+    return app;
+  }
+
+  it('asks before a link leaves changes that are not saved, and leaves only when told to', async () => {
+    const app = renderForm();
+    await userEvent.type(screen.getByLabelText('Title'), ' and video');
+
+    await userEvent.click(screen.getByRole('link', { name: 'Board' }));
+    const question = screen.getByRole('alertdialog', { name: 'Leave without saving?' });
+    expect(document.activeElement).toBe(within(question).getByRole('button', { name: 'Keep editing' }));
+    await userEvent.click(within(question).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(app.navigations).toEqual([]);
+
+    await userEvent.click(screen.getByRole('link', { name: 'Board' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave without saving' }));
+    expect(app.navigations).toEqual([{ type: 'push', href: '/projects/web' }]);
+  });
+
+  it('asks nothing when the form is as it was saved, after a change put back or a save', async () => {
+    const app = renderForm(createTestApp({ url: '/projects/web/tasks/3', actions: { 'tasks.update': () => ({ ok: true, result: null }) } }));
+    await userEvent.selectOptions(screen.getByLabelText('Priority'), 'urgent');
+    await userEvent.selectOptions(screen.getByLabelText('Priority'), 'none');
+    await userEvent.click(screen.getByRole('link', { name: 'Board' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+
+    await userEvent.type(screen.getByLabelText('Title'), ' and video');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByText('Saved.');
+    await userEvent.click(screen.getByRole('link', { name: 'Board' }));
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(app.navigations.filter((navigation) => navigation.type === 'push')).toHaveLength(2);
   });
 });
 

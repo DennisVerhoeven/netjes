@@ -939,6 +939,18 @@ internal sealed partial class RouteTable
             _ => segment,
         }));
 
+    /// <summary>
+    /// A route pattern as the route template ASP.NET Core reports for the endpoint (<c>/blog/[slug]</c> to
+    /// <c>/blog/{slug}</c>), by the rules the table builds its templates with. For telemetry, which tags a pattern's
+    /// spans and metrics with both.
+    /// </summary>
+    public static string TemplateOf(string pattern) =>
+        string.Join('/', pattern.Split('/').Select(segment =>
+            OptionalCatchAllRegex().Match(segment) is { Success: true } optional ? $"{{**{optional.Groups[1].Value}}}"
+            : CatchAllRegex().Match(segment) is { Success: true } catchAll ? $"{{**{catchAll.Groups[1].Value}:minlength(1)}}"
+            : SingleRegex().Match(segment) is { Success: true } single ? $"{{{single.Groups[1].Value}}}"
+            : segment));
+
     private static bool IsGroup(string segment) => segment.Length > 2 && segment[0] == '(' && segment[^1] == ')';
 
     [GeneratedRegex(@"^\[\[\.\.\.([^\]]*)\]\]$")]

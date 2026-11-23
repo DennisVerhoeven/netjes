@@ -50,7 +50,7 @@ That is the form `netjes new` writes. With JavaScript it calls the action with `
 - Every action answers at `/_netjes/actions/{name}`, the one URL the client posts to, so `MapAction` in a route group with a prefix, such as `app.MapGroup("/api")`, throws at startup. Map it on the app, or on a group without a prefix (`app.MapGroup("")`) to give a set of actions the same conventions.
 - A [page package](page-packages.md) maps its actions through its mount, at the same URLs, with the mount's conventions. They share one namespace with the app's and every other package's, so a package starts its actions' names with its own (`help.vote`), and a name the app maps again, in any case, stops the app, naming the package and the app. A package's actions are typed in the package's own generated file, not in the app's.
 - The delegate binds like any minimal API handler. A `[FromForm]` parameter binds form fields, which a `<Form>` posts and which also work without JavaScript. A parameter without it binds a JSON body, for calls from code. Services, `ClaimsPrincipal`, `HttpContext` and `CancellationToken` bind as usual. A delegate minimal APIs cannot bind, such as one with two inferred bodies or with `[FromForm]` fields next to a JSON body, stops the app at startup with an `InvalidOperationException` that names the action and gives minimal APIs' reason.
-- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint. Check what the user may do inside the action as well, as for any endpoint that changes data.
+- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint ([Rate limits](#rate-limits)). Check what the user may do inside the action as well, as for any endpoint that changes data.
 - Under `npm run dev`, `dotnet watch` applies a change inside an action to the running app, but maps a new `MapAction` only after a restart (Ctrl+R): until then a post to it answers 405, and `generated/netjes.ts` gains its reference on that start or with `npx netjes generate`.
 
 ### Results
@@ -267,7 +267,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries, err
 - The DataAnnotations of its inputs are checked before the delegate runs, as for a server action; a failure renders the page again with the errors ([Validation in page actions](#validation-in-page-actions)). Checks the delegate makes itself, such as one that needs data, return the page's props with the errors and values, as above.
 - A `[FromForm]` input is never `null` unless the parameter is declared nullable: a post with none of its fields gets an empty input, checked like any other, as for a server action.
 - The delegate binds like a minimal API POST handler: route values, `[FromForm]` fields, services. One minimal APIs cannot bind, such as one with two inferred bodies, form fields next to a JSON body, or a `[FromRoute]` naming no route value, stops the app at startup, naming the page file and its URL. So does a form input that form binding could never build ([Validation](#validation)).
-- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`.
+- The `[FromForm]` type is in the generated `forms` map: `forms['/guestbook']`. An action that takes the `IFormCollection` and reads its fields itself is typed there as a record of strings (`z.record(z.string(), z.string())`), the fields by name as the browser posts them; a field posted twice is one entry of it, so read the collection in C# when you need every value.
 - A page with a page action cannot be exported to static files.
 
 ### Validation in page actions
@@ -306,7 +306,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries }) {
 });
 ```
 
-`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
+`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. After the rate limiter refused the post, it is the same failure with status 429 ([Rate limits](#rate-limits)). It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
 
 ## Antiforgery and the origin check
 
@@ -334,6 +334,50 @@ app.MapAction("photos.upload", [RequestSizeLimit(20 * 1024 * 1024)] (IFormFile p
 ```
 
 Page actions keep the server's limit (30 MB with Kestrel).
+
+## Rate limits
+
+ASP.NET Core's rate limiter guards an action like any endpoint: `.RequireRateLimiting(policy)` on `MapAction` or `MapPageAction`, and `app.UseRateLimiter()` after `app.UseNetjes()`, so the limiter sees the endpoint routing chose. On its own, a refused post gets an empty status (503, or the limiter's `RejectionStatusCode`), which Netjes answers with the error page, so the visitor loses the form. `Page.TooManyRequests` as the limiter's `OnRejected` gives the form back instead:
+
+```csharp
+builder.Services.AddRateLimiter(limiter =>
+{
+    limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts. Try again in a minute.");
+    limiter.AddFixedWindowLimiter("sign-in", window =>
+    {
+        window.PermitLimit = 5;
+        window.Window = TimeSpan.FromMinutes(1);
+    });
+});
+
+app.MapPageAction("/sign-in", ([FromForm] SignInForm form, ...) => ...).RequireRateLimiting("sign-in");
+```
+
+It answers with status 429, `Retry-After` when the limiter says when to come back (a window or a token bucket does), and `Cache-Control: no-store`:
+
+- **A page action's post** gets its page again from its loader, with and without JavaScript, as after a [failed validation](#validation-in-page-actions): `usePageActionState()` returns `{ ok: false, status: 429, errors, values }`, with the message under `errors['']` (default "Too many requests. Try again later.") and the submitted values of the fields the action declares, never a password or another private field ([What a failed post hands back](#what-a-failed-post-hands-back)).
+- **A server action's form posted without JavaScript** gets the page it was posted from again, in the same way, and `useAction`'s state starts as that failure.
+- **A server action called by script**, `useAction`'s form with JavaScript included, gets a failure with status 429 and the message, which throws a `ServerActionError` whose `message` is that text, as a 429 always has ([`ServerActionError`](../reference/react-api.md#serveractionerror)).
+- **Any other request**, such as a page's `GET` behind a limit, gets an empty 429, which Netjes answers with the error page, or with a failure for a script's call.
+
+A post is handed back only when it passes the checks the action itself makes before it runs, which the limiter comes before: its origin and its antiforgery token ([Antiforgery and the origin check](#antiforgery-and-the-origin-check)). One that fails them gets the empty 429, and nothing it posted is written into a page. The message can depend on the request, such as its language: `(context, _) => Page.TooManyRequests(context, Texts.TooMany(context.HttpContext))`. A policy of your own (`IRateLimiterPolicy<T>`) returns it from its `OnRejected`, which the limiter calls in place of the global one.
+
+```tsx
+// app/sign-in/page.tsx
+export default definePage(pages['/sign-in'], function SignIn() {
+  const failed = usePageActionState();
+  return (
+    <Form method="post">
+      {failed?.errors['']?.map((message) => <p role="alert" key={message}>{message}</p>)}
+      <input name="email" type="email" defaultValue={String(failed?.values.email ?? '')} />
+      <input name="password" type="password" />
+      <button type="submit">Sign in</button>
+    </Form>
+  );
+});
+```
+
+Put the limit on the action, not on the page: the page rendered again goes through the limiter as a `GET` of its own, and a limit there refuses it too. Every refused post that is handed back renders its page, loaders included, so a limit that refuses a flood of posts renders a page for each.
 
 ## Revalidation
 
@@ -368,13 +412,33 @@ app.MapAction("auth.logout", async (HttpContext http) =>
 
 The header follows these rules:
 
-- Cookies the action writes count, its own `OnStarting` callbacks included. The antiforgery cookie does not, and neither do cookies a middleware wrote before the action ran or as the response starts, such as cookie authentication's sliding renewal.
+- Cookies the action writes count, its own `OnStarting` callbacks included. The antiforgery cookie does not, nor do the cookies `NoReloadCookies` names ([below](#cookies-that-change-nothing-on-screen)), and neither do cookies a middleware wrote before the action ran or as the response starts, such as cookie authentication's sliding renewal.
 - Server actions and page actions are both marked, when the client router made the call. A post without JavaScript is not marked; the browser loads the next page in full anyway.
 - A sign-in that changes no cookie, such as one kept in a server-side session, is not seen. Set or delete a cookie in the action to mark it.
 - Only the tab that made the call sees the header, and it tells the app's other tabs (those under the same base path) on a `BroadcastChannel`, which every current browser has. In a browser without one, another tab keeps its router's memory and its query cache until it makes such a call itself.
 - A proxy in front of the app must pass `X-Netjes-Cookies` and `X-Netjes-Antiforgery` through.
 
 A form post is never sent twice: one still on its way when another call's header arrives shows what it answered, and the router keeps that page for no history entry, so it comes from the server when the user returns to it. Pages also go out with `Cache-Control: no-store, private` by default, so the browser's own cache does not show the previous user's pages on Back after a full page load ([Caching](caching.md)).
+
+### Cookies that change nothing on screen
+
+Some cookies change nothing another page shows, such as a cart's, which an action writes at the first add to the cart. By the rules above it would load the page again in every tab. Name such cookies in `NoReloadCookies`, and an action that writes only them, or them and the antiforgery cookie, is treated as one that writes no cookie: the router keeps its pages and the query cache, refreshes nothing unless the action asks, and the other tabs are not told ([ADR 0066](../decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)).
+
+```csharp
+builder.Services.AddNetjes(options => options.NoReloadCookies = ["cart"]);
+
+app.MapAction("cart.add", async ([FromForm] AddToCart input, HttpContext http, Carts carts) =>
+{
+    var cart = await carts.AddAsync(http, input); // writes the "cart" cookie the first time
+    return ServerAction.Ok(cart);                 // the page shows the answer; no tab loads again
+});
+```
+
+- Names are compared with their case, as browsers compare cookie names. A response that also writes a cookie outside the list is marked, as before.
+- A name that ends in `*` is a prefix, for a cookie whose name holds a value, such as a cart per store where the stores are rows in the database: `.app.cart.*` covers `.app.cart.amsterdam` and every other cookie whose name starts with `.app.cart.`, compared with its case. Make the prefix the text only those cookies start with (`.app.cart.`, not `.app.`). A `*` goes only at the end, after at least one character: a bare `*`, a `*` elsewhere and an empty name stop the app at startup with an `OptionsValidationException` that names the entry.
+- The cookie of every cookie authentication scheme, ASP.NET Core Identity's included, counts whatever the list says, named in it or covered by a prefix, compared in any case: signing in or out always reloads. Netjes knows only cookie authentication's names, so keep any other cookie that holds who is signed in out of the list.
+- When the page on screen shows what the cookie changed, return it from the action, or ask for a refresh (`.Refresh()`, `.Revalidate(...)`).
+- In configuration the list is `Netjes:NoReloadCookies` (`Netjes__NoReloadCookies__0=cart` in an environment variable); a list set in the `AddNetjes` delegate replaces it ([options](../reference/options.md#where-options-come-from)).
 
 ## `<Form>` in detail
 
@@ -390,7 +454,9 @@ The other props are those of a `<form>`, and a `ref` gets the `<form>` element. 
 - A page, or a redirect to one, is shown as a navigation.
 - An HTML document that is not a Netjes page is shown as the browser would show it, and is never requested again as a GET.
 - A response with `Content-Disposition: attachment` is saved as a download.
-- Anything else, or no answer, leaves the page and what was typed as they are, and `useNavigation()` reports the failure with its status ([Navigation state](routing.md#navigation-state)).
+- A redirect to a URL of the app that no page answers, such as a file, is loaded by the browser, once ([A post that redirects to a file](#a-post-that-redirects-to-a-file)).
+- Anything else, or no answer, leaves the page and what was typed as they are, and `useNavigation()` reports the failure, with `kind: 'submit'` and its status ([When a navigation fails](routing.md#when-a-navigation-fails)).
+- A redirect means the post went through. When the page it leads to then fails, the page and what was typed stay too, and `useNavigation()` reports a navigation that failed (`kind: 'navigate'`, with that page's location), not the post, so a form that shows its failures does not invite a second post.
 
 A submit button's `formaction`, `formmethod` and `formtarget` are honoured. A form or button whose target is not `_self`, and an action on another origin, are left to the browser. Under a base path, use `<SubmitButton formAction="/x">` instead of a plain button with `formAction`, so the base path is added with and without JavaScript.
 
@@ -419,4 +485,46 @@ app.MapPageAction("/photos", async (IFormFile photo, PhotoStore photos, Cancella
 
 A server action called with `FormData` that holds a file sends it as multipart as well, so `useAction` uploads with JavaScript. Without JavaScript the browser sends files only from a form with `encType="multipart/form-data"`, and React warns about an `encType` on a form whose action is a function, which is why the page action is the way for uploads that must work either way.
 
-A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).
+A form post that answers with a file (`Content-Disposition: attachment`) is downloaded, but the client router reads the whole file into memory first. For a large file, give the form `reloadDocument`, so the browser streams it to disk, have the post redirect to the file's URL ([A post that redirects to a file](#a-post-that-redirects-to-a-file)), or link to a GET endpoint with a plain `<a download href={useHref(endpointUrl('GET /export.csv'))}>`, which the browser downloads itself ([Endpoint URLs](data-loading.md#endpoint-urls)).
+
+### A form that downloads
+
+A page action answers with a page or a redirect, so a form that downloads, such as a person's data as a file, posts to a minimal API endpoint of its own. The endpoint binds a form field, so that ASP.NET Core checks the antiforgery token, and answers the file:
+
+```csharp
+app.MapPost("/users/{id}/export", (string id, [FromForm] string? intent) =>
+    Results.File(ExportOf(id), "application/json", $"user-{id}.json"))
+    .RequireAuthorization();
+```
+
+A minimal API refuses a form post with no body, so the form always posts a field, here `intent`. After `netjes generate`, the endpoint has a key in `endpointUrl()`, by method and route as written, and the form posts to its typed URL:
+
+```tsx
+import { Form } from 'netjes';
+import { endpointUrl } from '../generated/netjes.ts';
+
+<Form method="post" action={endpointUrl('POST /users/{id}/export', { id })}>
+  <input type="hidden" name="intent" value="export" />
+  <button type="submit">Download</button>
+</Form>
+```
+
+`<Form>` puts the base path in front and adds the token, and the browser saves the attachment. A page package's own `Form` takes only its pages' routes, so a page of a package posts to an endpoint with the core `Form` and the package's `useHref`, which puts the mount and the base path in front (`<Form method="post" action={useHref(endpointUrl('POST /users/{id}/export', { id }))}>`, with `Form` from `'netjes'` and `useHref` and `endpointUrl` from the package's generated file); the core `Form` does not add the base path a second time. Only a `POST` endpoint that accepts a form has a key: one that reads no form, such as a webhook, has none ([Endpoint URLs](data-loading.md#endpoint-urls)).
+
+### A post that redirects to a file
+
+A page action can answer a form with a redirect to the file's own URL, such as a signed link that expires or counts its uses:
+
+```csharp
+app.MapPageAction("/files", ([FromForm] Guid id, FileStore files) => Page.Redirect(files.SignedUrl(id)));
+```
+
+```tsx
+<Form method="post">
+  <input type="hidden" name="id" value={file.id} />
+  <button type="submit">Download</button>
+</Form>
+```
+
+Without JavaScript the browser follows the redirect. With it, the client router asks for the URL it was sent to as a redirect's target (`X-Netjes-Redirected`); no page answers that URL, so the server tells the router to load it as a document, without running its endpoint, and the browser loads it once. A file sent as an attachment (`Content-Disposition: attachment`) is streamed to disk while the page stays on screen. The form needs no `reloadDocument`. The same goes for a server action that redirects to such a URL ([When the router hands over to the browser](routing.md#when-the-router-hands-over-to-the-browser)).
+

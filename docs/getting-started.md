@@ -21,7 +21,7 @@ npx netjes new my-app
 `netjes new` copies the app template into `my-app`, runs `npm install` in it, and prints where things are:
 
 ```text
-Created MyApp in my-app (using the Netjes 0.0.4 packages)
+Created MyApp in my-app (using the Netjes 0.0.5 packages)
 
   app/                 the pages: page.tsx is /, about/page.tsx is /about, layout.tsx wraps them
   components/          React components, each with a Vitest test
@@ -502,7 +502,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d # producti
 
 Both publish the app on port 8080 of the host. To use another port, set `APP_PORT` in the shell or in a `.env` file next to the Compose files, as in `APP_PORT=8090 docker compose up`.
 
-Development bind-mounts the source, so edits reload as they do outside Docker, and binds the app's port and Vite's 5173 to localhost only. The production image builds the client in one stage and publishes the app in another, then runs it on the ASP.NET Core runtime image with a Node binary next to it, as a non-root user, under tini, a small init: it passes the signal of `docker stop` on to the app, and makes a crash end the container ([deployment](guides/deployment.md#a-crash-in-a-container)). The production Compose file makes the filesystem read-only, drops capabilities, limits CPU and memory, restarts the container, checks `/healthz`, and keeps ASP.NET Core's Data Protection keys, which sign antiforgery tokens, in a named volume. ASP.NET Core logs a warning that those keys are not encrypted at rest; configure one of its `ProtectKeysWith...` options to encrypt them.
+Development bind-mounts the source, so edits reload as they do outside Docker, and binds the app's port (`APP_PORT`, 8080 unless set) and Vite's (`VITE_PORT`, 5173 unless set) to localhost only, keeping the Data Protection keys on a volume. The production image builds the client in one stage and publishes the app in another, then runs it on the ASP.NET Core runtime image with a Node binary next to it, as a non-root user, under tini, a small init: it passes the signal of `docker stop` on to the app, and makes a crash end the container ([deployment](guides/deployment.md#a-crash-in-a-container)). The production Compose file makes the filesystem read-only, drops capabilities, limits CPU and memory, restarts the container, checks `/healthz`, and keeps ASP.NET Core's Data Protection keys, which sign antiforgery tokens, in a named volume. ASP.NET Core logs a warning that those keys are not encrypted at rest; configure one of its `ProtectKeysWith...` options to encrypt them.
 
 The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `package-lock.json` that `npm install` wrote. [Deployment](guides/deployment.md) covers configuration, health checks, telemetry, proxies and running several instances.
 
@@ -510,11 +510,11 @@ The image restores `Netjes` from NuGet and `netjes` from npm, so it needs the `p
 
 To add Netjes to an ASP.NET Core project you already have:
 
-1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.4`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
-2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.4` with `Netjes` 0.0.4), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) says):
+1. Reference the NuGet package: `dotnet add package Netjes --version 0.0.5`. The package adds build targets to the project: `using Netjes` when `ImplicitUsings` is on, `node_modules`, `dist` and Playwright's output folders kept out of the build, `package.json`, `package-lock.json` and the `tsconfig*.json` files next to the project file kept out of the build output and the publish folder, and `dotnet publish` running `npm run build` and shipping `dist/`. A file that also imports another namespace with a type of the same name as one in `Netjes`, such as `Href`, `Page` or `TrailingSlash`, gets error CS0104 (an ambiguous reference) where it names that type: qualify the name, or give one of the two an alias (`using CmsHref = MyCms.Href;`).
+2. Next to the project file, add a `package.json` with `"type": "module"` and the scripts `"dev": "netjes dev"`, `"build": "vite build && vite build --ssr"`, `"test": "vitest run"`, `"typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"`, `"generate": "netjes generate"` and `"routes": "netjes routes"`. Install the npm half at the same version as the NuGet package (`netjes@0.0.5` with `Netjes` 0.0.5), and the tools the template builds, runs Vitest and type-checks with (the Playwright suite's package is installed with the suite, as [the suite of a new app](guides/testing.md#the-suite-of-a-new-app) says):
 
    ```bash
-   npm install netjes@0.0.4 react react-dom zod @tanstack/react-query
+   npm install netjes@0.0.5 react react-dom zod @tanstack/react-query
    npm install -D vite typescript @types/node @types/react @types/react-dom tailwindcss @tailwindcss/vite \
      vitest jsdom @testing-library/react @testing-library/dom @testing-library/user-event
    ```

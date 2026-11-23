@@ -32,4 +32,12 @@ public static class NetjesHeaders
     /// showed the app as it was before the change.
     /// </summary>
     public const string Cookies = "X-Netjes-Cookies";
+
+    /// <summary>
+    /// <c>1</c> on the client router's request, with <see cref="Data"/>, for the URL a redirect sent it to: a page's
+    /// redirect or a server action's. Where routing finds no page for that URL (a file, another endpoint of the app, a URL
+    /// that matches nothing), Netjes answers <c>{ "kind": "document" }</c> without running the endpoint, and the router
+    /// loads the URL as a document, so the endpoint runs once.
+    /// </summary>
+    public const string Redirected = "X-Netjes-Redirected";
 }

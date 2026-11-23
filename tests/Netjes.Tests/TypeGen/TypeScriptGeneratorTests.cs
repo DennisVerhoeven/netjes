@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -52,6 +53,28 @@ public class TypeScriptGeneratorTests
         public static ValueTask<Paging?> BindAsync(HttpContext http) =>
             ValueTask.FromResult<Paging?>(new Paging(int.TryParse(http.Request.Query["page"], out var page) ? page : 1));
     }
+
+    /// <summary>A base whose derived types are added as the app starts, not by attributes.</summary>
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+    public abstract record Block;
+
+    public sealed record Heading(string Text) : Block;
+
+    public sealed record Photo(string Src) : Block;
+
+    public sealed record Article(IReadOnlyList<Block> Blocks);
+
+    /// <summary>What a package does to the app's JSON options: derived types of a base it does not own.</summary>
+    private static void AddBlocks(IServiceCollection services) =>
+        services.ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolver =
+            (o.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver()).WithAddedModifier(info =>
+            {
+                if (info.Type == typeof(Block))
+                {
+                    info.PolymorphismOptions!.DerivedTypes.Add(new JsonDerivedType(typeof(Heading), "heading"));
+                    info.PolymorphismOptions.DerivedTypes.Add(new JsonDerivedType(typeof(Photo), "photo"));
+                }
+            }));
 
     public enum TaskState
     {
@@ -302,6 +325,40 @@ public class TypeScriptGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_EndpointUrls_CoverPostEndpointsThatReadAForm()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a =>
+            {
+                // A form posts to these, and a download is no JSON.
+                a.MapPost("/users/{id}/export", (string id, [FromForm] string? intent) => Results.File([1], "application/json", "export.json"));
+                a.MapPost("/uploads", (IFormFile file) => Results.Ok());
+                a.MapPost("/survey", (IFormCollection form, string? ref_) => Results.Ok());
+                // A POST that reads no form, a form endpoint's other methods (a form posts) and a webhook have no key.
+                a.MapPost("/webhooks/payments", (HttpRequest request) => Results.Ok());
+                a.MapPut("/users/{id}/export", (string id, [FromForm] string? intent) => Results.Ok());
+                a.MapPost("/ping", () => Results.Ok());
+                // A JSON endpoint has its keys already, whatever else it reads.
+                a.MapPost("/api/items", (NewItem item) => TypedResults.Ok(new Item(1, item.Name)));
+            });
+
+        var output = await GenerateAsync(app);
+
+        Assert.Contains(
+            """
+            export type EndpointParams = {
+              "POST /api/items": Record<string, never>;
+              "POST /survey": { ref_?: string | null | undefined };
+              "POST /uploads": Record<string, never>;
+              "POST /users/{id}/export": { id: string };
+            };
+            """.ReplaceLineEndings("\n"),
+            output);
+        Assert.Contains("\"POST /users/{id}/export\": \"/users/{id}/export\",\n", output);
+    }
+
+    [Fact]
     public async Task Generate_EndpointUrls_LeaveOutPagesActionsFallbacksAndNetjesEndpoints()
     {
         var site = new Uri("https://example.com");
@@ -442,6 +499,34 @@ public class TypeScriptGeneratorTests
 
         Assert.Contains("export const forms = {\n  \"/contact\": ContactForm,\n} as const;", output);
         Assert.Contains("export const ContactForm = z.object({\n  name: z.string().nullable(),\n  message: z.string().nullable(),\n});", output);
+    }
+
+    [Fact]
+    public async Task Generate_PageActionThatReadsTheFormItself_IsTypedAsARecordOfStrings()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/files/page.tsx"],
+            map: a => a.MapPageAction("/files", (IFormCollection form) => Page.Redirect("/files")));
+
+        var output = await GenerateAsync(app);
+
+        // The fields of a form are strings (a field posted twice reads as its first value or as a list, the action's call): no list of pairs.
+        Assert.Contains("export const forms = {\n  \"/files\": z.record(z.string(), z.string()),\n} as const;", output);
+    }
+
+    [Fact]
+    public async Task Generate_DerivedTypesAddedToTheAppsJsonOptionsAtStartup_AreInTheUnion()
+    {
+        await using var app = await TestApp.StartAsync(
+            ["app/page.tsx"],
+            map: a => a.MapPageLoader("/", () => Page.Props(new Article([new Heading("Hi")]))),
+            services: AddBlocks);
+
+        var output = await GenerateAsync(app);
+
+        // The union is read from the System.Text.Json contract of the app's options, modifiers included: this is the way for a package to add types to a union.
+        Assert.Contains("export const Block = z.discriminatedUnion(\"kind\", [Heading.extend({ \"kind\": z.literal(\"heading\") }), Photo.extend({ \"kind\": z.literal(\"photo\") })]);", output);
+        Assert.Contains("export const Article = z.object({\n  blocks: z.array(Block),\n});", output);
     }
 
     [Fact]

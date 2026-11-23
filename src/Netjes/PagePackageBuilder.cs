@@ -114,6 +114,68 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     }
 
     /// <summary>
+    /// Gives the not-found below the mount conventions of its own. An unknown URL below the mount is then answered by an
+    /// endpoint that carries them, in place of the fallback that <c>MapPages()</c> adds, which carries none and so is
+    /// covered by the app's fallback policy: <c>.ConfigureNotFound(notFound =&gt; notFound.AllowAnonymous())</c> gives a
+    /// visitor that policy refuses the package's not-found with status 404, rather than the app's challenge. The page
+    /// renders as without them, and its layout loaders are still authorized one by one before any of them runs. The
+    /// mount's own conventions do not reach it, and a mount inside this one that has none of its own takes these. Each call
+    /// adds to the conventions of the ones before. Call it before <c>MapPages()</c>.
+    /// </summary>
+    /// <param name="configure">Puts the conventions on the not-found, as on any endpoint: <c>AllowAnonymous()</c>, <c>RequireAuthorization(...)</c>.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Called after <c>MapPages()</c>; on a mount at the root URL (<c>/</c>, <c>/(site)</c>), below which every unknown URL
+    /// of the app is; on a mount whose URL has no literal segment (<c>/[tenant]</c>), below which, since a value matches any
+    /// segment, the unknown URLs below the app's other mounts and folders are too; or when another mount at the same URL has
+    /// conventions for its not-found.
+    /// </exception>
+    public PagePackageBuilder ConfigureNotFound(Action<IEndpointConventionBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var sources = _outer.ServiceProvider.GetRequiredService<RouteSources>();
+        var name = Mount.Package.Name;
+        if (sources.PagesMapped)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' is called after MapPages(), which has mapped the endpoints. " +
+                "Call it before app.MapPages().");
+        }
+
+        if (Mount.Pattern == "/")
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: a mount at the root URL has every unknown URL " +
+                "of the app below it, which the fallback that MapPages() adds answers. Mount the package at a prefix with a " +
+                "URL of its own for a not-found with conventions of its own.");
+        }
+
+        if (!Mount.Prefix.HasLiteral)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: its URL, {Mount.Pattern}, has no literal segment, " +
+                "and a value matches any segment, so the unknown URLs below the app's other mounts and folders would be below this " +
+                "mount too. Mount the package at a prefix with a literal segment, such as /[tenant]/help, for a not-found with " +
+                "conventions of its own.");
+        }
+
+        if (sources.Mounts.FirstOrDefault(m => m.Mount != Mount && m.Mount.NotFound is not null && SameUrl(m.Mount.Prefix, Mount.Prefix)) is { } other)
+        {
+            throw new InvalidOperationException(
+                $".ConfigureNotFound(...) on the mount of '{name}' at {Mount.Prefix}: '{other.Name}' is mounted at the same URL, " +
+                $"at {other.Mount.Prefix}, and its not-found has conventions already. One endpoint answers the unknown URLs " +
+                "below a URL: configure the not-found on one of the two mounts.");
+        }
+
+        Mount.NotFound ??= new NotFoundConventions();
+        configure(Mount.NotFound);
+        return this;
+    }
+
+    /// <summary>Whether two prefixes have one URL: literals in any case, and a value against any value.</summary>
+    private static bool SameUrl(MountPrefix a, MountPrefix b) => a.Below(b.Pattern) == "/" && b.Below(a.Pattern) == "/";
+
+    /// <summary>
     /// Writes the package's own generated file at <paramref name="path"/>, for the app the package is developed in: the
     /// zod schemas of its loaders, page actions, layout loaders, server actions and endpoints, and its typed routes, all
     /// below the mount, with the links of <c>mounted()</c> typed by them. The file is the same wherever an app mounts the
@@ -178,9 +240,28 @@ public sealed class PagePackageBuilder : IEndpointRouteBuilder, IEndpointConvent
     /// <exception cref="InvalidOperationException">
     /// The export has an entry of that key already, or the app or another package added the export.
     /// </exception>
-    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots)
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots) =>
+        AddTypeScriptExport(group, key, slots, appOnly: false);
+
+    /// <summary>
+    /// Adds an entry to an export of the package's own, as the overload without <paramref name="appOnly"/> does, and writes
+    /// the export in the app's generated file alone when <paramref name="appOnly"/> is true. Use it for what the app
+    /// registers through the package, such as the typed data of widgets the app adds: the package's own file is the same
+    /// wherever an app mounts the package, and it ships, so it holds nothing that belongs to one app. The schemas of the
+    /// entries' types are written in the app's file only, too.
+    /// </summary>
+    /// <param name="group">The export's name; its entries are all <paramref name="appOnly"/> or none. A name of the package's own file, such as <c>Link</c>, is free for an app-only export.</param>
+    /// <param name="key">The entry's key in the export, once per export; any text but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="slots">The entry's types by name, each written as its zod schema; any name but <c>__proto__</c> and half a surrogate pair.</param>
+    /// <param name="appOnly">True to write the export in the app's generated file alone.</param>
+    /// <returns>The mount, for more calls.</returns>
+    /// <exception cref="ArgumentException">As for the overload without <paramref name="appOnly"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// As for the overload without <paramref name="appOnly"/>, or another entry of the export has the other value of <paramref name="appOnly"/>.
+    /// </exception>
+    public PagePackageBuilder AddTypeScriptExport(string group, string key, IReadOnlyDictionary<string, Type> slots, bool appOnly)
     {
-        _outer.ServiceProvider.GetRequiredService<TypeGenRegistry>().Add(group, key, slots, Mount.Package.Name);
+        _outer.ServiceProvider.GetRequiredService<TypeGenRegistry>().Add(group, key, slots, Mount.Package.Name, appOnly);
         return this;
     }
 

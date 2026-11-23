@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { renderToString } from 'react-dom/server';
@@ -8,8 +8,18 @@ import { z } from 'zod';
 import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { mounted } from '../src/mounted.tsx';
-import { useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
-import { serverAction, useAction } from '../src/actions.tsx';
+import {
+  type NavigationAttempt,
+  useHistoryState,
+  useNavigation,
+  useNavigationGuard,
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+  useSharedProps,
+} from '../src/router.tsx';
+import { serverAction, useAction, usePageActionState } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
 afterEach(() => {
@@ -328,6 +338,179 @@ describe('createTestApp', () => {
   });
 });
 
+describe('createTestApp with history state', () => {
+  function Selection() {
+    const [from] = useHistoryState('from', 'nowhere');
+    const [ticked, setTicked] = useHistoryState('ticked', 0);
+    const router = useRouter();
+    return (
+      <>
+        <p>from {from}</p>
+        <button type="button" onClick={() => setTicked((n) => n + 1)}>
+          ticked {ticked}
+        </button>
+        <Link href="/orders/7" historyState={{ from: 'the list' }}>
+          Order 7
+        </Link>
+        <button type="button" onClick={() => router.replace('/orders?page=2')}>
+          next page
+        </button>
+      </>
+    );
+  }
+
+  it("seeds the entry's values, as a navigation carries them or an earlier visit left them", () => {
+    const app = createTestApp({ url: '/orders/7', historyState: { from: 'the list', ticked: 2 } });
+    render(<Selection />, { wrapper: app.Wrapper });
+
+    expect(screen.getByText('from the list')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ticked 2' })).toBeDefined();
+  });
+
+  it('sets a value, records what a navigation carries, and keeps the values of a page that stays', async () => {
+    const app = createTestApp({ url: '/orders' });
+    render(<Selection />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    expect(screen.getByRole('button', { name: 'ticked 1' })).toBeDefined();
+    await userEvent.click(screen.getByRole('link', { name: 'Order 7' }));
+
+    expect(app.navigations).toEqual([
+      { type: 'replace', href: '/orders?page=2' },
+      { type: 'push', href: '/orders/7', historyState: { from: 'the list' } },
+    ]);
+    expect(screen.getByText('from the list')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+  });
+
+  describe('a setter from before a navigation, as the router has it', () => {
+    let navigated: Promise<void> | undefined;
+    let setterEffects = 0;
+
+    /** Sets the ticks with the setter of the render that was clicked, once the navigation has ended. */
+    function ActsOnTicks() {
+      const [ticked, setTicked] = useHistoryState('ticked', 0);
+      const router = useRouter();
+      useEffect(() => {
+        setterEffects += 1;
+      }, [setTicked]);
+      return (
+        <>
+          <button type="button" onClick={() => setTicked((n) => n + 1)}>
+            ticked {ticked}
+          </button>
+          <button type="button" onClick={() => (navigated = router.replace('/orders?page=2').then(() => setTicked(0)))}>
+            clear on the next page
+          </button>
+          <button type="button" onClick={() => (navigated = router.push('/orders/7').then(() => setTicked(5)))}>
+            open order 7
+          </button>
+        </>
+      );
+    }
+
+    afterEach(() => {
+      setterEffects = 0;
+    });
+
+    it('sets the value while the page stays, and is the same function throughout', async () => {
+      const app = createTestApp({ url: '/orders' });
+      render(<ActsOnTicks />, { wrapper: app.Wrapper });
+
+      await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+      await userEvent.click(screen.getByRole('button', { name: 'clear on the next page' }));
+      await act(() => navigated);
+
+      expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+      expect(setterEffects).toBe(1);
+    });
+
+    it('sets nothing once the navigation went to another page', async () => {
+      const app = createTestApp({ url: '/orders' });
+      render(<ActsOnTicks />, { wrapper: app.Wrapper });
+
+      await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+      await userEvent.click(screen.getByRole('button', { name: 'open order 7' }));
+      await act(() => navigated);
+
+      expect(window.location.pathname).toBe('/orders/7');
+      expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+    });
+  });
+
+  it("passes what a page package's router carries", async () => {
+    const help = mounted('@acme/help-center');
+    function Search() {
+      const router = help.useRouter();
+      return (
+        <button type="button" onClick={() => router.push('/articles', { historyState: { query: 'refunds' } })}>
+          search
+        </button>
+      );
+    }
+    const app = createTestApp({ url: '/help', mounts: { '@acme/help-center': '/help' } });
+    render(<Search />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    expect(app.navigations).toEqual([{ type: 'push', href: '/help/articles', historyState: { query: 'refunds' } }]);
+  });
+});
+
+describe('createTestApp with a page action that failed', () => {
+  function Guestbook() {
+    const failed = usePageActionState();
+    return (
+      <Form method="post">
+        <label>
+          Name <input name="name" defaultValue={String(failed?.values.name ?? '')} />
+        </label>
+        {failed?.errors.name && <p role="alert">{failed.errors.name[0]}</p>}
+        <output>{failed ? `failed ${failed.status}` : 'none'}</output>
+      </Form>
+    );
+  }
+
+  it('shows no failure by default', () => {
+    render(<Guestbook />, { wrapper: createTestApp({ route: '/guestbook' }).Wrapper });
+
+    expect(screen.getByRole('status').textContent).toBe('none');
+  });
+
+  it("hands usePageActionState the failed state it is given, as the server sends it after a 422", () => {
+    const app = createTestApp({
+      route: '/guestbook',
+      pageActionState: { errors: { name: ['Tell us who you are.'] }, values: { name: 'Ada' } },
+    });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Tell us who you are.');
+    expect(screen.getByRole('status').textContent).toBe('failed 422');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Ada');
+  });
+
+  it('hands usePageActionState a refusal with the status it is given, such as 429 after a rate limit', () => {
+    const app = createTestApp({ route: '/guestbook', pageActionState: { status: 429, errors: { name: ['Slow down.'] }, values: { name: 'Ada' } } });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Slow down.');
+    expect(screen.getByRole('status').textContent).toBe('failed 429');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Ada');
+  });
+
+  it('takes the page from the URL when no route is given, and defaults the values to none', () => {
+    const app = createTestApp({ url: '/guestbook', pageActionState: { errors: { name: ['Required.'] } } });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Required.');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+  });
+});
+
 describe('a server action called outside any Wrapper', () => {
   const notReady = 'netjes: server action greet was called before the page was ready';
 
@@ -351,5 +534,78 @@ describe('a server action called outside any Wrapper', () => {
     quiet.mockRestore();
 
     await expect(greet({ name: 'Ada' })).rejects.toThrow(notReady);
+  });
+});
+
+describe('createTestApp with a navigation guard', () => {
+  /** A form with changes that asks before a link or the router leaves it, with a question of its own. */
+  function Draft() {
+    const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+    const [changed, setChanged] = useState(true);
+    useNavigationGuard({ when: changed, onAttempt: setLeaving });
+    const router = useRouter();
+    const pathname = usePathname();
+    return (
+      <>
+        <p>at {pathname}</p>
+        <Link href="/orders">Orders</Link>
+        <Link href="#notes">Notes</Link>
+        <button type="button" onClick={() => void router.replace('/orders?page=2')}>
+          next page
+        </button>
+        <button type="button" onClick={() => setChanged(false)}>
+          Save
+        </button>
+        {leaving && (
+          <div role="alertdialog" aria-label="Leave without saving?">
+            <button type="button" onClick={() => (leaving.stay(), setLeaving(null))}>
+              Keep editing
+            </button>
+            <button type="button" onClick={() => (leaving.proceed(), setLeaving(null))}>
+              Leave
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  it('holds push and replace until the guard lets them go on, and records them then', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+    expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeDefined();
+    expect(app.navigations).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByText('at /orders/7')).toBeDefined();
+
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    expect(app.navigations).toEqual([{ type: 'replace', href: '/orders?page=2' }]);
+    expect(screen.getByText('at /orders')).toBeDefined();
+  });
+
+  it('holds no link to a fragment of the page on screen', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Notes' }));
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(app.navigations).toEqual([{ type: 'push', href: '#notes' }]);
+  });
+
+  it('drops the attempt waiting for its answer once a navigation goes at once, as after a save', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
+
+    expect(app.navigations).toEqual([{ type: 'replace', href: '/orders?page=2' }]);
+    expect(screen.getByText('at /orders')).toBeDefined();
   });
 });
