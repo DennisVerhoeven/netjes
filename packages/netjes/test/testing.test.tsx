@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { Form } from '../src/form.tsx';
 import { Link } from '../src/link.tsx';
 import { mounted } from '../src/mounted.tsx';
-import { useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
+import { useHistoryState, useNavigation, useParams, usePathname, useRouter, useSearchParams, useSharedProps } from '../src/router.tsx';
 import { serverAction, useAction, usePageActionState } from '../src/actions.tsx';
 import { createTestApp } from '../src/testing.tsx';
 
@@ -325,6 +325,71 @@ describe('createTestApp', () => {
     expect(app.navigations).toEqual([{ type: 'push', href: '/acme/help/articles' }]);
     expect(screen.getByText('at /articles')).toBeDefined();
     expect(screen.getByRole('link', { name: 'Articles' }).getAttribute('aria-current')).toBe('page');
+  });
+});
+
+describe('createTestApp with history state', () => {
+  function Selection() {
+    const [from] = useHistoryState('from', 'nowhere');
+    const [ticked, setTicked] = useHistoryState('ticked', 0);
+    const router = useRouter();
+    return (
+      <>
+        <p>from {from}</p>
+        <button type="button" onClick={() => setTicked((n) => n + 1)}>
+          ticked {ticked}
+        </button>
+        <Link href="/orders/7" historyState={{ from: 'the list' }}>
+          Order 7
+        </Link>
+        <button type="button" onClick={() => router.replace('/orders?page=2')}>
+          next page
+        </button>
+      </>
+    );
+  }
+
+  it("seeds the entry's values, as a navigation carries them or an earlier visit left them", () => {
+    const app = createTestApp({ url: '/orders/7', historyState: { from: 'the list', ticked: 2 } });
+    render(<Selection />, { wrapper: app.Wrapper });
+
+    expect(screen.getByText('from the list')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ticked 2' })).toBeDefined();
+  });
+
+  it('sets a value, records what a navigation carries, and keeps the values of a page that stays', async () => {
+    const app = createTestApp({ url: '/orders' });
+    render(<Selection />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    expect(screen.getByRole('button', { name: 'ticked 1' })).toBeDefined();
+    await userEvent.click(screen.getByRole('link', { name: 'Order 7' }));
+
+    expect(app.navigations).toEqual([
+      { type: 'replace', href: '/orders?page=2' },
+      { type: 'push', href: '/orders/7', historyState: { from: 'the list' } },
+    ]);
+    expect(screen.getByText('from the list')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+  });
+
+  it("passes what a page package's router carries", async () => {
+    const help = mounted('@acme/help-center');
+    function Search() {
+      const router = help.useRouter();
+      return (
+        <button type="button" onClick={() => router.push('/articles', { historyState: { query: 'refunds' } })}>
+          search
+        </button>
+      );
+    }
+    const app = createTestApp({ url: '/help', mounts: { '@acme/help-center': '/help' } });
+    render(<Search />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: 'search' }));
+
+    expect(app.navigations).toEqual([{ type: 'push', href: '/help/articles', historyState: { query: 'refunds' } }]);
   });
 });
 

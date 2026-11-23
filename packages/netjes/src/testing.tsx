@@ -42,6 +42,11 @@ export type TestAppOptions = {
   /** What `useNavigation()` returns. Default idle. */
   navigation?: NavigationState;
   /**
+   * The `useHistoryState` values of the history entry on screen, by name: what a navigation carried into it
+   * (`historyState`), or what an earlier visit left there. Default none.
+   */
+  historyState?: Record<string, unknown>;
+  /**
    * What `usePageActionState()` returns after the page action's input failed its checks, as the server sends it with a
    * 422: the errors per field and the submitted values of the fields the action declares (default none). `status` is
    * the failure's status, 422 by default, or 429 for a post the rate limiter refused. It belongs to the page, so `route`
@@ -74,7 +79,7 @@ export type TestActionAnswer = ActionState<unknown> & {
 
 /** One thing the component under test did: a navigation, a router call, a form post or a server action call. */
 export type TestNavigation =
-  | { type: 'push' | 'replace'; href: string }
+  | { type: 'push' | 'replace'; href: string; historyState?: Readonly<Record<string, unknown>> }
   | { type: 'refresh' | 'back' | 'forward' }
   | { type: 'submit'; action: string; data: URLSearchParams | FormData }
   | { type: 'action'; name: string; input: unknown };
@@ -155,8 +160,8 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   function Wrapper({ children }: { children: ReactNode }) {
     const [url, setUrl] = useState(initialUrl);
-    // The entry's useHistoryState values. One entry: the fake router moves to the new URL in place.
-    const [historyValues, setHistoryValues] = useState<Readonly<Record<string, unknown>>>({});
+    // The useHistoryState values of the entry on screen.
+    const [historyValues, setHistoryValues] = useState<Readonly<Record<string, unknown>>>(() => options.historyState ?? {});
     const history = useMemo<HistoryContextValue>(
       () => ({
         key: 'test',
@@ -167,16 +172,19 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
       [historyValues],
     );
     const router = useMemo<InternalRouter>(() => {
-      const go = (type: 'push' | 'replace', href: string) => {
-        navigations.push({ type, href });
+      const go = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
+        navigations.push(historyState ? { type, href, historyState } : { type, href });
         const next = new URL(href, window.location.href);
+        // As the router does: a page that stays keeps its values, another starts over; what the navigation carries goes on top.
+        const stays = next.pathname === window.location.pathname;
+        setHistoryValues((values) => ({ ...(stays ? values : {}), ...historyState }));
         window.history.replaceState(null, '', next.href);
         setUrl(next);
         return Promise.resolve();
       };
       return {
-        push: (href) => go('push', href),
-        replace: (href) => go('replace', href),
+        push: (href, navigateOptions) => go('push', href, navigateOptions?.historyState),
+        replace: (href, navigateOptions) => go('replace', href, navigateOptions?.historyState),
         prefetch: () => {},
         refresh: () => {
           navigations.push({ type: 'refresh' });
