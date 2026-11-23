@@ -67,6 +67,9 @@ function List(props: Record<string, unknown>) {
       <Link href="/list?tab=2" historyState={{ note: 'on the second tab' }}>
         Second tab with a note
       </Link>
+      <Link href="#bottom" replace>
+        Bottom in place
+      </Link>
       <Note />
     </>
   );
@@ -122,8 +125,8 @@ function pages(paths: string[], requests: string[] = []) {
   return requests;
 }
 
-async function renderApp(initial: PagePayload) {
-  window.history.replaceState(null, '', origin + initial.url);
+async function renderApp(initial: PagePayload, state: unknown = null) {
+  window.history.replaceState(state, '', origin + initial.url);
   const loader = createModuleLoader(modules);
   const initialModules = await loader.loadRoute(initial);
   render(<RouterProvider initial={initial} initialModules={initialModules} loader={loader} errorPage={null} />);
@@ -216,6 +219,35 @@ describe('useHistoryState', () => {
 
     await screen.findByRole('heading', { name: 'Record' });
     expect(screen.getByText('note none')).toBeDefined();
+  });
+
+  it("keeps the keys an app or a library put in the entry's state whenever the router writes it", async () => {
+    pages(['/list', '/record']);
+    const user = await renderApp(payload('list', '/list'), { library: 'kept' });
+    const libraryKey = () => (window.history.state as Record<string, unknown> | null)?.library;
+    expect(libraryKey()).toBe('kept');
+
+    await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+    expect(libraryKey()).toBe('kept');
+    const answers = String(screen.getByText(/^answer/).textContent);
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByText(/^answer/).textContent).not.toBe(answers));
+    expect(libraryKey()).toBe('kept');
+    await user.click(screen.getByRole('link', { name: 'Bottom in place' }));
+    expect(window.location.hash).toBe('#bottom');
+    expect(libraryKey()).toBe('kept');
+
+    // A new entry is the page's own: the key stays with the entry it was put in.
+    await user.click(screen.getByRole('link', { name: 'Record' }));
+    await screen.findByRole('heading', { name: 'Record' });
+    expect(libraryKey()).toBeUndefined();
+    act(() => window.history.back());
+    await screen.findByRole('heading', { name: 'List' });
+    expect(libraryKey()).toBe('kept');
+
+    await user.click(screen.getByRole('button', { name: 'Record in place' }));
+    await screen.findByRole('heading', { name: 'Record' });
+    expect(libraryKey()).toBe('kept');
   });
 
   describe('a navigation that carries values', () => {
