@@ -1,5 +1,5 @@
-import { Form, useAction } from 'netjes';
-import { use, useOptimistic } from 'react';
+import { Form, type NavigationAttempt, useAction, useNavigationGuard } from 'netjes';
+import { use, useCallback, useEffect, useMemo, useOptimistic, useRef, useState } from 'react';
 import { type ActivityItem, type CommentItem, type Person, type TaskDetail, TaskPriority, serverActions } from '../generated/netjes.ts';
 import { stateLabels, stateOrder } from '../lib/project.ts';
 import { Avatar } from './brand.tsx';
@@ -14,10 +14,29 @@ export function formatTime(iso: string) {
 /**
  * Every field of the task in one form; the C# action records what changed in the activity feed. React resets the form
  * after a save, so after a failed one (also a post without JavaScript) each field starts from what was sent.
+ *
+ * While a field differs from the task as it is stored, the form holds every way of leaving the page (useNavigationGuard)
+ * and asks first: a link ("← Board" too), and the browser's Back and Forward. A reload or closing the tab gets the
+ * browser's own question.
  */
 export function TaskForm({ slug, task, members }: { slug: string; task: Pick<TaskDetail, 'number' | 'title' | 'description' | 'state' | 'priority' | 'assignee'>; members: Person[] }) {
   const [state, formAction] = useAction(serverActions['tasks.update']);
   const saved = state?.ok === true;
+  const form = useRef<HTMLFormElement>(null);
+  const [changed, setChanged] = useState(false);
+  const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+  const assigneeId = task.assignee?.id ?? '';
+  const asStored = useMemo<Record<string, string>>(
+    () => ({ title: task.title, description: task.description, state: task.state, priority: task.priority, assigneeId }),
+    [task.title, task.description, task.state, task.priority, assigneeId],
+  );
+  const check = useCallback(() => {
+    const fields = form.current ? new FormData(form.current) : null;
+    setChanged(fields !== null && Object.entries(asStored).some(([name, value]) => (fields.get(name) ?? '') !== value));
+  }, [asStored]);
+  // After a save React resets the fields: to the task as stored once it worked, to what was sent once it did not.
+  useEffect(check, [check, state]);
+  useNavigationGuard({ when: changed, onAttempt: setLeaving });
   const sent = (field: string, stored: string) => valueOf(state, field) ?? stored;
   const initial = {
     title: sent('title', task.title),
@@ -27,70 +46,117 @@ export function TaskForm({ slug, task, members }: { slug: string; task: Pick<Tas
     assigneeId: sent('assigneeId', task.assignee?.id ?? ''),
   };
   return (
-    <Form action={formAction} aria-label="Edit task" className="grid gap-4">
-      <input type="hidden" name="projectSlug" value={slug} />
-      <input type="hidden" name="number" value={task.number} />
-      <Field label="Title" name="title" required defaultValue={initial.title} errors={errorsOf(state, 'title')} />
-      <Field label="Description" name="description" multiline rows={6} defaultValue={initial.description} errors={errorsOf(state, 'description')} />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="grid gap-1.5">
-          <label htmlFor="state" className="label">
-            State
-          </label>
-          {/* A select applies its defaultValue only when it mounts: keyed on it, it starts again from a new one. */}
-          <select key={initial.state} id="state" name="state" defaultValue={initial.state} className="field">
-            {stateOrder.map((value) => (
-              <option key={value} value={value}>
-                {stateLabels[value]}
-              </option>
+    <>
+      <Form ref={form} action={formAction} onChange={check} aria-label="Edit task" className="grid gap-4">
+        <input type="hidden" name="projectSlug" value={slug} />
+        <input type="hidden" name="number" value={task.number} />
+        <Field label="Title" name="title" required defaultValue={initial.title} errors={errorsOf(state, 'title')} />
+        <Field label="Description" name="description" multiline rows={6} defaultValue={initial.description} errors={errorsOf(state, 'description')} />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-1.5">
+            <label htmlFor="state" className="label">
+              State
+            </label>
+            {/* A select applies its defaultValue only when it mounts: keyed on it, it starts again from a new one. */}
+            <select key={initial.state} id="state" name="state" defaultValue={initial.state} className="field">
+              {stateOrder.map((value) => (
+                <option key={value} value={value}>
+                  {stateLabels[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1.5">
+            <label htmlFor="priority" className="label">
+              Priority
+            </label>
+            <select key={initial.priority} id="priority" name="priority" defaultValue={initial.priority} className="field">
+              {TaskPriority.options.map((value) => (
+                <option key={value} value={value}>
+                  {value[0]!.toUpperCase() + value.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1.5">
+            <label htmlFor="assigneeId" className="label">
+              Assignee
+            </label>
+            <select
+              key={initial.assigneeId}
+              id="assigneeId"
+              name="assigneeId"
+              defaultValue={initial.assigneeId}
+              aria-invalid={errorsOf(state, 'assigneeId').length > 0 || undefined}
+              className="field"
+            >
+              <option value="">Nobody</option>
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+            {errorsOf(state, 'assigneeId').map((error) => (
+              <p key={error} className="text-[13px] text-danger">
+                {error}
+              </p>
             ))}
-          </select>
+          </div>
         </div>
-        <div className="grid gap-1.5">
-          <label htmlFor="priority" className="label">
-            Priority
-          </label>
-          <select key={initial.priority} id="priority" name="priority" defaultValue={initial.priority} className="field">
-            {TaskPriority.options.map((value) => (
-              <option key={value} value={value}>
-                {value[0]!.toUpperCase() + value.slice(1)}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-3">
+          <SubmitButton pending="Saving…">Save changes</SubmitButton>
+          <p role="status" className="text-[13px] text-ink-400">
+            {saved ? 'Saved.' : ''}
+          </p>
         </div>
-        <div className="grid gap-1.5">
-          <label htmlFor="assigneeId" className="label">
-            Assignee
-          </label>
-          <select
-            key={initial.assigneeId}
-            id="assigneeId"
-            name="assigneeId"
-            defaultValue={initial.assigneeId}
-            aria-invalid={errorsOf(state, 'assigneeId').length > 0 || undefined}
-            className="field"
-          >
-            <option value="">Nobody</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
-              </option>
-            ))}
-          </select>
-          {errorsOf(state, 'assigneeId').map((error) => (
-            <p key={error} className="text-[13px] text-danger">
-              {error}
-            </p>
-          ))}
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <SubmitButton pending="Saving…">Save changes</SubmitButton>
-        <p role="status" className="text-[13px] text-ink-400">
-          {saved ? 'Saved.' : ''}
+      </Form>
+      {leaving && (
+        <LeaveQuestion
+          stay={() => {
+            leaving.stay();
+            setLeaving(null);
+          }}
+          leave={() => {
+            leaving.proceed();
+            setLeaving(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** "Leave without saving?", over the page: Keep editing has the focus, and Escape keeps editing too. */
+function LeaveQuestion({ stay, leave }: { stay: () => void; leave: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-question"
+        aria-describedby="leave-reason"
+        className="panel grid max-w-sm gap-4 p-5"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') stay();
+        }}
+      >
+        <h2 id="leave-question" className="text-lg font-semibold">
+          Leave without saving?
+        </h2>
+        <p id="leave-reason" className="text-ink-300">
+          Your changes to this task are not saved.
         </p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className="btn" autoFocus onClick={stay}>
+            Keep editing
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={leave}>
+            Leave without saving
+          </button>
+        </div>
       </div>
-    </Form>
+    </div>
   );
 }
 
