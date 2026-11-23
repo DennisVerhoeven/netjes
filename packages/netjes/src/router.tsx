@@ -908,13 +908,15 @@ class Navigator {
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
     const cached = this.entries.get(key);
     const known = cached && samePage(cached.url, url) ? cached : samePage(url, this.current.url) ? this.current : null;
-    const values = readValues(event.state);
+    // A fragment the browser moved to itself keeps the page, and so its values, as a fragment link does; the entry
+    // starts with none of its own. Back or Forward shows the values of the entry it went to.
+    const values = fragment ? withCarried(this.values, readValues(event.state)) : readValues(event.state);
     if (fragment) window.history.replaceState(entryState(key, this.index, values, event.state), '');
     if (known) {
       this.active?.controller.abort();
       // From memory, unless the page on screen simply stays (Back over a fragment link).
       const restored = known.payload !== this.current.payload;
-      this.setCurrent(key, { ...known, url }, values, false);
+      this.setCurrent(key, { ...known, url }, values, fragment);
       this.deps.commit(this.current, scroll, document.activeElement, { lineage: this.lineage, values, restored });
       return;
     }
