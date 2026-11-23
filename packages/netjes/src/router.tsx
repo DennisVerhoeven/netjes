@@ -278,14 +278,18 @@ function attachmentName(disposition: string): string {
   return /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? 'download';
 }
 
-async function fetchPayload(
-  url: URL,
-  request: PageRequest,
-  signal: AbortSignal,
-  segmentKeys: readonly string[] = [],
-  token?: AntiforgeryToken,
-  onCookiesChanged?: () => void,
-): Promise<FetchResult> {
+/** What a request for a page sends besides its method and body. */
+type FetchOptions = {
+  /** The keys of the layout segments the router holds, whose loaders the server may skip (GETs only). */
+  segmentKeys?: readonly string[];
+  /** The antiforgery token a post sends as a header. */
+  token?: AntiforgeryToken | undefined;
+  /** Called as soon as a post's answer says it set or deleted a cookie. */
+  onCookiesChanged?: (() => void) | undefined;
+};
+
+async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal, options: FetchOptions = {}): Promise<FetchResult> {
+  const { segmentKeys = [], token, onCookiesChanged } = options;
   const headers: Record<string, string> = { [DATA_HEADER]: '1', Accept: 'application/json' };
   if (request.method === 'POST' && token?.headerName && token.requestToken) headers[token.headerName] = token.requestToken;
   if (request.method === 'GET' && segmentKeys.length > 0) headers[SEGMENTS_HEADER] = segmentKeys.join(',');
@@ -976,7 +980,11 @@ class Navigator {
     // Output-cached pages carry no token; a post from one needs a fetched one (as a header).
     const token = request.method === 'POST' && !this.current.payload.antiforgery ? await this.fetchedToken() : undefined;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      let payload = await fetchPayload(target, current, signal, keys, current.method === 'POST' ? token : undefined, onCookiesChanged);
+      let payload = await fetchPayload(target, current, signal, {
+        segmentKeys: keys,
+        token: current.method === 'POST' ? token : undefined,
+        onCookiesChanged,
+      });
       if (payload !== null && 'kind' in payload && payload.kind === 'page' && keys.length > 0) {
         const resolved = this.withReusedSegments(payload);
         // The server reused a segment this page no longer has (it changed meanwhile): load it in full.
