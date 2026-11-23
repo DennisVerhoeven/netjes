@@ -4,13 +4,17 @@ import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { serverAction } from '../src/actions.tsx';
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
 import { RouterProvider, useNavigation, useRouter } from '../src/router.tsx';
 
 const origin = window.location.origin;
-const server = setupServer();
+// A page that carries no token has the router fetch one before a post.
+const server = setupServer(
+  http.get(`${origin}/_netjes/antiforgery`, () => HttpResponse.json({ formFieldName: 'f', headerName: 'RequestVerificationToken', requestToken: 't' })),
+);
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   server.resetHandlers();
@@ -305,5 +309,83 @@ describe('a form post that fails', () => {
     await act(() => router.submit(new URL(`${origin}/live`), { contentType: 'application/x-www-form-urlencoded', body: 'a=1' }));
 
     expect(screen.getByRole('status').textContent).toBe(`failed ${JSON.stringify({ kind: 'submit', status: 502, location: '/live' })}`);
+  });
+});
+
+describe('a redirect to a URL that is no page', () => {
+  /** The server's answer to the router's request for a URL no page answers, after a redirect. */
+  const noPage = () => HttpResponse.json({ kind: 'document' });
+
+  it('asks for the URL a redirect sent it to as a redirect target, and a link not', async () => {
+    const marked: (string | null)[] = [];
+    server.use(
+      http.post(`${origin}/live`, () => HttpResponse.json({ kind: 'redirect', location: '/about', version: 'v1' })),
+      http.get(`${origin}/about`, ({ request }) => {
+        marked.push(request.headers.get('X-Netjes-Redirected'));
+        return HttpResponse.json(payload('about', '/about'));
+      }),
+    );
+    await renderApp();
+    const router = pageRouter as unknown as { submit(action: URL, body: { contentType: string; body: string }): Promise<void> };
+
+    await act(() => router.submit(new URL(`${origin}/live`), { contentType: 'application/x-www-form-urlencoded', body: 'a=1' }));
+    await act(() => pageRouter!.push('/about'));
+
+    expect(marked).toEqual(['1', null]);
+  });
+
+  it('loads it as a document, once, when the server says no page answers it', async () => {
+    const files: Request[] = [];
+    server.use(
+      http.post(`${origin}/live`, () => HttpResponse.json({ kind: 'redirect', location: '/files/report.pdf?sig=abc', version: 'v1' })),
+      http.get(`${origin}/files/report.pdf`, ({ request }) => {
+        files.push(request);
+        return noPage();
+      }),
+    );
+    const { hardNavigate } = await renderApp();
+    const router = pageRouter as unknown as { submit(action: URL, body: { contentType: string; body: string }): Promise<void> };
+
+    await act(() => router.submit(new URL(`${origin}/live`), { contentType: 'application/x-www-form-urlencoded', body: 'intent=download' }));
+
+    expect(files.map((request) => request.headers.get('X-Netjes-Redirected'))).toEqual(['1']);
+    expect(hardNavigate).toHaveBeenCalledExactlyOnceWith(`${origin}/files/report.pdf?sig=abc`);
+    expect(screen.getByRole('status').textContent).toBe('idle');
+  });
+
+  it('follows a redirect a page answers with to a URL no page answers, as a document', async () => {
+    server.use(
+      http.get(`${origin}/about`, ({ request }) =>
+        request.headers.has('X-Netjes-Redirected')
+          ? HttpResponse.json(payload('about', '/about'))
+          : HttpResponse.json({ kind: 'redirect', location: '/signed/1', version: 'v1' }),
+      ),
+      http.get(`${origin}/signed/1`, ({ request }) => (request.headers.get('X-Netjes-Redirected') === '1' ? noPage() : HttpResponse.error())),
+    );
+    const { hardNavigate } = await renderApp();
+
+    await act(() => pageRouter!.push('/about'));
+
+    expect(hardNavigate).toHaveBeenCalledExactlyOnceWith(`${origin}/signed/1`);
+  });
+
+  it('asks for the URL a server action redirects to as a redirect target', async () => {
+    const marked: (string | null)[] = [];
+    server.use(
+      http.post(`${origin}/_netjes/actions/files.download`, () =>
+        HttpResponse.json({ kind: 'action', ok: true, status: 200, redirect: '/files/report.pdf', revalidate: false }),
+      ),
+      http.get(`${origin}/files/report.pdf`, ({ request }) => {
+        marked.push(request.headers.get('X-Netjes-Redirected'));
+        return noPage();
+      }),
+    );
+    const { hardNavigate } = await renderApp();
+    const download = serverAction<Record<string, never>>('files.download');
+
+    await act(() => download({}));
+
+    expect(marked).toEqual(['1']);
+    expect(hardNavigate).toHaveBeenCalledExactlyOnceWith(`${origin}/files/report.pdf`);
   });
 });

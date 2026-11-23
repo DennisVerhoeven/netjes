@@ -12,6 +12,11 @@ export const ANTIFORGERY_HEADER = 'X-Netjes-Antiforgery';
  * pages the router keeps for back and forward show the app as it was before.
  */
 export const COOKIES_HEADER = 'X-Netjes-Cookies';
+/**
+ * `1` on the router's request for the URL a redirect sent it to (a redirect payload, or a server action's redirect):
+ * where no page answers that URL, the server answers `{ kind: 'document' }` without running the endpoint.
+ */
+export const REDIRECTED_HEADER = 'X-Netjes-Redirected';
 export const DATA_ELEMENT_ID = '__NETJES_DATA__';
 /** The id of the empty element that ends the body of every server-rendered document, and so the shell. */
 export const SHELL_END_ID = '__NETJES_SHELL_END__';
@@ -165,7 +170,10 @@ export type InitialPayload = PagePayload & { document: DocumentInfo };
 
 export type RedirectPayload = { kind: 'redirect'; location: string; version: string };
 
-export type NavigationPayload = PagePayload | RedirectPayload;
+/** The answer to a request a redirect led to (`REDIRECTED_HEADER`) when no page answers its URL: load it as a document. */
+export type LoadDocumentPayload = { kind: 'document' };
+
+export type NavigationPayload = PagePayload | RedirectPayload | LoadDocumentPayload;
 
 export class PayloadError extends Error {
   override name = 'PayloadError';
@@ -389,6 +397,8 @@ export function parseNavigationPayload(value: unknown): NavigationPayload {
       return pagePayload(json);
     case 'redirect':
       return { kind: 'redirect', location: string(json.location, 'location'), version: string(json.version, 'version') };
+    case 'document':
+      return { kind: 'document' };
     default:
       return fail(`unknown kind ${JSON.stringify(json.kind)}`);
   }

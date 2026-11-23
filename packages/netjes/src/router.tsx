@@ -28,6 +28,7 @@ import {
   type NavigationPayload,
   type PagePayload,
   type Params,
+  REDIRECTED_HEADER,
   SEGMENTS_HEADER,
   SERVER_TIME_HEADER,
   type SegmentRef,
@@ -337,11 +338,14 @@ type FetchOptions = {
   token?: AntiforgeryToken | undefined;
   /** Called as soon as a post's answer says it set or deleted a cookie. */
   onCookiesChanged?: (() => void) | undefined;
+  /** A redirect led to this URL: the server answers `{ kind: 'document' }` where no page answers it. */
+  redirected?: boolean;
 };
 
 async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal, options: FetchOptions = {}): Promise<FetchResult> {
-  const { segmentKeys = [], token, onCookiesChanged } = options;
+  const { segmentKeys = [], token, onCookiesChanged, redirected = false } = options;
   const headers: Record<string, string> = { [DATA_HEADER]: '1', Accept: 'application/json' };
+  if (request.method === 'GET' && redirected) headers[REDIRECTED_HEADER] = '1';
   if (request.method === 'POST' && token?.headerName && token.requestToken) headers[token.headerName] = token.requestToken;
   if (request.method === 'GET' && segmentKeys.length > 0) headers[SEGMENTS_HEADER] = segmentKeys.join(',');
   if (request.method === 'POST' && request.contentType) headers['Content-Type'] = request.contentType;
@@ -475,6 +479,8 @@ type NavigateCall = {
   historyState?: HistoryValues | undefined;
   /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
   letThrough?: boolean | undefined;
+  /** A server action's redirect: a URL that no page answers loads as a document. */
+  redirected?: boolean | undefined;
 };
 
 type GoOptions = {
@@ -497,6 +503,8 @@ type GoOptions = {
   letThrough?: boolean;
   /** `router.refresh()`: a failure is reported as the refresh's. */
   refresh?: boolean;
+  /** A server action's redirect led to the URL: one that no page answers loads as a document. */
+  redirected?: boolean;
   /**
    * Back or Forward from the entry at this place: when the page does not come, the router steps back to that entry,
    * whose page stays on screen.
@@ -636,7 +644,7 @@ class Navigator {
   }
 
   async navigate(href: string, history: 'push' | 'replace', options: NavigateCall = {}): Promise<void> {
-    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false } = options;
+    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false, redirected = false } = options;
     // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
     // browser cannot keep throws here, before the navigation starts.
     const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
@@ -680,6 +688,7 @@ class Navigator {
       reuseSegments: true,
       focusedAtStart,
       letThrough,
+      redirected,
       ...(carried ? { historyState: carried } : {}),
     });
   }
@@ -968,7 +977,8 @@ class Navigator {
       const prefetched = options.usePrefetch ? this.takePrefetched(url, controller.signal) : undefined;
       const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal, false) : undefined;
       under?.catch(() => {});
-      const result = await (prefetched ?? this.load(url, request, controller.signal, options.reuseSegments, () => this.cookiesChanged(navigation)));
+      const result = await (prefetched ??
+        this.load(url, request, controller.signal, options.reuseSegments, () => this.cookiesChanged(navigation), options.redirected));
       // Superseded by another navigation, or started over because cookies changed: then it ends with the new attempt.
       if (controller.signal.aborted) return navigation.restarted;
       // A post may have changed what other pages show; do not serve them from before it. One that changed cookies has
@@ -1095,9 +1105,11 @@ class Navigator {
     signal: AbortSignal,
     reuseSegments: boolean,
     onCookiesChanged = () => this.cookiesChanged(),
+    redirectedTo = false,
   ): Promise<LoadResult> {
     let target = url;
     let current = request;
+    let redirected = redirectedTo;
     // After a form post everything is loaded again: the post may have changed what any layout shows.
     let keys = reuseSegments && request.method === 'GET' ? this.heldSegmentKeys() : [];
     // Output-cached pages carry no token; a post from one needs a fetched one (as a header).
@@ -1107,11 +1119,12 @@ class Navigator {
         segmentKeys: keys,
         token: current.method === 'POST' ? token : undefined,
         onCookiesChanged,
+        redirected,
       });
       if (payload !== null && 'kind' in payload && payload.kind === 'page' && keys.length > 0) {
         const resolved = this.withReusedSegments(payload);
         // The server reused a segment this page no longer has (it changed meanwhile): load it in full.
-        payload = resolved ?? (await fetchPayload(target, current, signal));
+        payload = resolved ?? (await fetchPayload(target, current, signal, { redirected }));
       }
       if (payload === null) return { hard: target };
       if ('html' in payload) return { document: payload.html, url: payload.url };
@@ -1122,8 +1135,11 @@ class Navigator {
         if (target.origin !== window.location.origin) return { hard: target };
         if (current.method !== 'GET') keys = [];
         current = { method: 'GET' };
+        redirected = true;
         continue;
       }
+      // A URL no page answers, such as a file: the browser loads it, and its endpoint runs once.
+      if (payload.kind === 'document') return { hard: target };
 
       const finalUrl = pageUrl(payload.url, target);
       if (finalUrl.origin !== window.location.origin) throw new Error(`netjes: the page payload names another origin (${finalUrl.origin})`);
@@ -1443,7 +1459,7 @@ export function RouterProvider({
           // The user may have moved on while the action ran: then neither pull them back (redirect) nor reload the
           // page they left (refresh, which would also cancel their navigation).
           const movedOn = navigator.page !== page || navigator.navigating;
-          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push');
+          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push', { redirected: true });
           else if (!movedOn && response.revalidate) await navigator.refresh();
           // After signing in or out (an action that set or deleted a cookie), the page on screen shows whoever was
           // signed in before until a page comes from the server: refresh it, like Next.js. That is the action's page
