@@ -168,33 +168,54 @@ public class RateLimitTests
         Assert.Equal(["Slow down, /guestbook"], page["actionState"]!["errors"]![""]!.AsArray().Select(m => (string?)m));
     }
 
+    /// <summary>
+    /// An empty 429, which Netjes answers with the error page: no form state, and nothing of what was posted in a payload
+    /// or in the body.
+    /// </summary>
+    private static async Task AssertHandsNothingBack(bool javaScript, HttpResponseMessage response, TestApp app)
+    {
+        var page = await PageOf(javaScript, response, app);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal(429, (int?)page["status"]);
+        Assert.Equal("app/error.tsx", (string?)page["page"]);
+        Assert.Null(page["actionState"]);
+        Assert.DoesNotContain(app.Renderer.Payloads, p => p.Contains("actionState", StringComparison.Ordinal) || p.Contains("Ada", StringComparison.Ordinal));
+        Assert.DoesNotContain("Ada", await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    // A server action's form posted without JavaScript takes its own way back, to the page at its return URL.
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task RefusedPost_WithABadToken_HandsNothingBack(bool javaScript)
+    [InlineData(true, "/guestbook")]
+    [InlineData(false, "/guestbook")]
+    [InlineData(false, "/_netjes/actions/guestbook.sign")]
+    public async Task RefusedPost_WithABadToken_HandsNothingBack(bool javaScript, string url)
     {
         // Nothing of a post is written back into a page before its token has been checked, as for a failed validation.
         var calls = new List<string>();
         await using var app = await StartAsync(calls);
         var token = await TokenAsync(app);
 
-        var response = await app.Client.SendAsync(Post(javaScript, "/guestbook", token with { Value = "forged" }, ("name", "<b>Ada</b>")), Ct);
+        var response = await app.Client.SendAsync(
+            Post(javaScript, url, token with { Value = "forged" }, ("name", "<b>Ada</b>"), ("__netjes_return", "/guestbook")), Ct);
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        await AssertHandsNothingBack(javaScript, response, app);
         Assert.Equal("30", response.Headers.GetValues("Retry-After").Single());
         Assert.Empty(calls);
-        Assert.DoesNotContain(app.Renderer.Payloads, p => p.Contains("actionState", StringComparison.Ordinal) || p.Contains("Ada", StringComparison.Ordinal));
-        Assert.DoesNotContain("Ada", await response.Content.ReadAsStringAsync(Ct));
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task RefusedPost_WithoutAnyToken_HandsNothingBack(bool javaScript)
+    [InlineData(true, "/guestbook")]
+    [InlineData(false, "/guestbook")]
+    [InlineData(false, "/_netjes/actions/guestbook.sign")]
+    public async Task RefusedPost_WithoutAnyToken_HandsNothingBack(bool javaScript, string url)
     {
         var calls = new List<string>();
         await using var app = await StartAsync(calls);
-        var request = new HttpRequestMessage(HttpMethod.Post, "/guestbook") { Content = new FormUrlEncodedContent([new("name", "<b>Ada</b>")]) };
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new FormUrlEncodedContent([new("name", "<b>Ada</b>"), new("__netjes_return", "/guestbook")]),
+        };
         if (javaScript)
         {
             request.Headers.Add(NetjesHeaders.Data, "1");
@@ -202,8 +223,8 @@ public class RateLimitTests
 
         var response = await app.Client.SendAsync(request, Ct);
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        Assert.DoesNotContain(app.Renderer.Payloads, p => p.Contains("actionState", StringComparison.Ordinal) || p.Contains("Ada", StringComparison.Ordinal));
+        await AssertHandsNothingBack(javaScript, response, app);
+        Assert.Empty(calls);
     }
 
     [Theory]
