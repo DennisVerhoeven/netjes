@@ -46,15 +46,26 @@ export type NavigationState =
   | { state: 'idle'; error?: SubmitError }
   | { state: 'loading' | 'submitting'; location: string };
 
+/** What `router.push` and `router.replace` take besides the href. */
+export type NavigateOptions = {
+  /** Scroll to the top after navigating, or to the #fragment's element. Default true. */
+  scroll?: boolean;
+  /**
+   * `useHistoryState` values, by name, that the entry the navigation adds or replaces starts with, over the values of a
+   * page that stays on screen. The router keeps a copy (`structuredClone`).
+   */
+  historyState?: Readonly<Record<string, unknown>>;
+};
+
 /** The client router that `useRouter()` returns. */
 export type Router = {
   /**
    * Navigates, adding a history entry. The promise resolves once the router has handed the page to React, which can be
    * before React shows it, or once the navigation has ended another way.
    */
-  push(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  push(href: Href, options?: NavigateOptions): Promise<void>;
   /** Navigates, replacing the history entry. The promise resolves as `push`'s does. */
-  replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  replace(href: Href, options?: NavigateOptions): Promise<void>;
   /** Fetches the page payload and modules ahead of a navigation. Links do this on hover, focus and touch. */
   prefetch(href: Href): void;
   /**
@@ -79,8 +90,8 @@ export type ActionListener = (response: ActionResponse) => void;
 type FocusAtStart = { focusedAtStart?: Element | null };
 
 export type InternalRouter = Omit<Router, 'push' | 'replace'> & {
-  push(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
-  replace(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  push(href: Href, options?: NavigateOptions & FocusAtStart): Promise<void>;
+  replace(href: Href, options?: NavigateOptions & FocusAtStart): Promise<void>;
   submit(action: URL, body: SubmitBody, options?: FocusAtStart): Promise<void>;
   onActionResponse(listener: ActionListener): () => void;
   /**
@@ -1182,8 +1193,8 @@ export function RouterProvider({
 
   const router = useMemo<InternalRouter>(
     () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart),
+      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
+      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),

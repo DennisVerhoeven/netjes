@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
-import { RouterProvider, useHistoryState, useRouter } from '../src/router.tsx';
+import { type Router, RouterProvider, useHistoryState, useRouter } from '../src/router.tsx';
 
 const origin = window.location.origin;
 const server = setupServer();
@@ -34,8 +34,12 @@ function SetsAsItLeaves() {
   return null;
 }
 
+/** The router as the list page sees it. */
+let capturedRouter: Router | undefined;
+
 function List(props: Record<string, unknown>) {
   const router = useRouter();
+  capturedRouter = router;
   return (
     <>
       <h1>List</h1>
@@ -51,17 +55,34 @@ function List(props: Record<string, unknown>) {
       <button type="button" onClick={() => void router.replace('/record')}>
         Record in place
       </button>
+      <Link href="/record" historyState={{ note: 'from a link' }}>
+        Record with a note
+      </Link>
+      <button type="button" onClick={() => void router.push('/record', { historyState: { note: 'pushed' } })}>
+        Push with a note
+      </button>
+      <button type="button" onClick={() => void router.replace('/record', { historyState: { note: 'replaced' } })}>
+        Replace with a note
+      </button>
+      <Link href="/list?tab=2" historyState={{ note: 'on the second tab' }}>
+        Second tab with a note
+      </Link>
+      <Note />
     </>
   );
 }
 
-function Record() {
+function Note() {
   const [note] = useHistoryState('note', 'none');
+  return <p>note {note}</p>;
+}
+
+function Record() {
   return (
     <>
       <h1>Record</h1>
       <Ticks />
-      <p>note {note}</p>
+      <Note />
     </>
   );
 }
@@ -195,6 +216,62 @@ describe('useHistoryState', () => {
 
     await screen.findByRole('heading', { name: 'Record' });
     expect(screen.getByText('note none')).toBeDefined();
+  });
+
+  describe('a navigation that carries values', () => {
+    for (const [control, role, note] of [
+      ['Record with a note', 'link', 'from a link'],
+      ['Push with a note', 'button', 'pushed'],
+      ['Replace with a note', 'button', 'replaced'],
+    ] as const) {
+      it(`starts the entry it opens with them (${control})`, async () => {
+        pages(['/record']);
+        const user = await renderApp(payload('list', '/list'));
+        await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+
+        await user.click(screen.getByRole(role, { name: control }));
+
+        await screen.findByRole('heading', { name: 'Record' });
+        expect(screen.getByText(`note ${note}`)).toBeDefined();
+        expect(screen.getByRole('button', { name: 'ticks 0' })).toBeDefined();
+      });
+    }
+
+    it('sets them over the values of a page that stays on screen', async () => {
+      pages(['/list']);
+      const user = await renderApp(payload('list', '/list'));
+      await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+
+      await user.click(screen.getByRole('link', { name: 'Second tab with a note' }));
+
+      await screen.findByText('note on the second tab');
+      expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+      act(() => window.history.back());
+      await screen.findByText('note none');
+      expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    });
+
+    it('keeps a copy, and refuses a value the browser cannot keep before it navigates', async () => {
+      pages(['/record']);
+      await renderApp(payload('list', '/list'));
+      const router = capturedRouter!;
+      const carried = { note: 'as it was' };
+
+      const pushed = act(() => router.push('/record', { historyState: carried }));
+      carried.note = 'changed after';
+      await pushed;
+      await screen.findByRole('heading', { name: 'Record' });
+      expect(screen.getByText('note as it was')).toBeDefined();
+
+      await expect(router.push('/list', { historyState: { note: () => 'a function' } })).rejects.toThrow();
+      expect(window.location.pathname).toBe('/record');
+    });
+
+    it('leaves the link without an attribute of its own', async () => {
+      await renderApp(payload('list', '/list'));
+
+      expect(screen.getByRole('link', { name: 'Record with a note' }).getAttributeNames()).toEqual(['href']);
+    });
   });
 
   it('writes nothing from the page on screen into the entry that Back went to while that page loads', async () => {
