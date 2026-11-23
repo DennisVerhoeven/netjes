@@ -164,9 +164,9 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     const [historyValues, setHistoryValues] = useState<Readonly<Record<string, unknown>>>(() => options.historyState ?? {});
     const history = useMemo<HistoryContextValue>(
       () => ({
-        key: 'test',
+        lineage: 0,
         values: historyValues,
-        set: (_key, name, compute) => setHistoryValues((values) => ({ ...values, [name]: compute(values) })),
+        set: (_lineage, name, compute) => setHistoryValues((values) => ({ ...values, [name]: compute(values) })),
         onRestore: () => () => {},
       }),
       [historyValues],

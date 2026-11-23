@@ -368,8 +368,11 @@ type NavigatorDeps = {
   setEntry(entry: HistoryEntry): void;
 };
 
-/** The history entry on screen, as `useHistoryState` reads it. */
-type HistoryEntry = { key: string; values: HistoryValues };
+/**
+ * The history entry on screen, as `useHistoryState` reads it: its values, and the lineage of the page that holds them,
+ * to which a setter is bound.
+ */
+type HistoryEntry = { lineage: number; values: HistoryValues };
 type CommittedEntry = HistoryEntry & { restored: boolean };
 
 type GoOptions = {
@@ -415,6 +418,13 @@ class Navigator {
   /** The `useHistoryState` values of the entry on screen, as its `history.state` holds them. */
   private values: HistoryValues = NO_VALUES;
   /**
+   * The lineage of the values on screen, to which `useHistoryState`'s setters are bound. A navigation that keeps the
+   * page on screen gives the entry a new key but carries the page's values over, as the page keeps its React state, so
+   * it keeps the lineage too: a setter from before it still writes. A new one starts when the values start over
+   * (another page) or Back or Forward switch the entry, and a setter of the lineage before writes nothing.
+   */
+  private lineage = 0;
+  /**
    * Back or Forward went to an entry whose page is still loading: the browser is on that entry while the page before
    * is on screen, which must not write its values into it.
    */
@@ -439,9 +449,9 @@ class Navigator {
     }
   }
 
-  /** The key of the history entry on screen. */
-  get entryKey(): string {
-    return this.currentKey;
+  /** The lineage of the values on screen. */
+  get entryLineage(): number {
+    return this.lineage;
   }
 
   start(): () => void {
@@ -450,7 +460,7 @@ class Navigator {
     this.remember(this.currentKey, this.current);
     // The commit that hydrated the page rendered every value as its initial one, as the server did. An entry that holds
     // values (after a reload) shows them now, before the browser paints; one with none renders nothing again.
-    if (this.values !== NO_VALUES) this.deps.setEntry({ key: this.currentKey, values: this.values });
+    if (this.values !== NO_VALUES) this.deps.setEntry({ lineage: this.lineage, values: this.values });
 
     let frame = 0;
     const onScroll = () => {
@@ -484,16 +494,17 @@ class Navigator {
   }
 
   /**
-   * Sets a `useHistoryState` value of the entry `key`, computed from the entry's values, in its `history.state`. Only
-   * the entry on screen can be written: a page that has left it (setting a value as it unmounts) changes nothing.
+   * Sets a `useHistoryState` value of the entry on screen, computed from the entry's values, in its `history.state`,
+   * for a setter of the values' `lineage`. A setter of a page that has left (setting a value as it unmounts), or of the
+   * entry before Back or Forward, changes nothing.
    */
-  setValue(key: string, name: string, compute: (values: HistoryValues) => unknown) {
-    if (key !== this.currentKey || this.betweenEntries) return;
+  setValue(lineage: number, name: string, compute: (values: HistoryValues) => unknown) {
+    if (lineage !== this.lineage || this.betweenEntries) return;
     const values = { ...this.values, [name]: compute(this.values) };
     // First, so a value the browser cannot keep throws before anything changed.
-    window.history.replaceState(entryState(key, values, window.history.state), '');
+    window.history.replaceState(entryState(this.currentKey, values, window.history.state), '');
     this.values = values;
-    this.deps.setEntry({ key, values });
+    this.deps.setEntry({ lineage, values });
   }
 
   /**
@@ -528,8 +539,12 @@ class Navigator {
       // The page stays, and so do its values.
       const values = withCarried(this.values, carried);
       window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, history === 'replace' ? window.history.state : null), '', url.href);
-      this.setCurrent(key, { ...this.current, url }, values);
-      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart, { key, values, restored: false });
+      this.setCurrent(key, { ...this.current, url }, values, true);
+      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart, {
+        lineage: this.lineage,
+        values,
+        restored: false,
+      });
       return;
     }
 
@@ -703,8 +718,8 @@ class Navigator {
       this.active?.controller.abort();
       // From memory, unless the page on screen simply stays (Back over a fragment link).
       const restored = known.payload !== this.current.payload;
-      this.setCurrent(key, { ...known, url }, values);
-      this.deps.commit(this.current, scroll, document.activeElement, { key, values, restored });
+      this.setCurrent(key, { ...known, url }, values, false);
+      this.deps.commit(this.current, scroll, document.activeElement, { lineage: this.lineage, values, restored });
       return;
     }
     this.betweenEntries = true;
@@ -782,10 +797,8 @@ class Navigator {
       const history = options.history === 'auto' ? (samePage(shown.url, previous) ? 'replace' : 'push') : options.history;
       // Back or Forward: the entry's own values. Else the page's values go with it while it stays on screen (a refresh,
       // another query or fragment), as its React state does; another page starts over. The values carried go on top.
-      const values =
-        history === 'none'
-          ? (options.entryValues ?? NO_VALUES)
-          : withCarried(pageKeyOf(shown) === pageKeyOf(this.current) ? this.values : NO_VALUES, options.historyState);
+      const carries = history !== 'none' && pageKeyOf(shown) === pageKeyOf(this.current);
+      const values = history === 'none' ? (options.entryValues ?? NO_VALUES) : withCarried(carries ? this.values : NO_VALUES, options.historyState);
       let key = options.key ?? createKey();
       if (history === 'none') {
         if (!options.key) window.history.replaceState(entryState(key, values, window.history.state), '');
@@ -797,11 +810,11 @@ class Navigator {
       }
 
       this.currentIsStale = navigation.stale;
-      this.setCurrent(key, shown, values);
+      this.setCurrent(key, shown, values, carries);
       this.forgetToken();
       committed = true;
       const scroll = shown.base ? NONE : options.scroll === 'auto' ? (shown.url.pathname === previous.pathname ? NONE : TOP) : options.scroll;
-      this.deps.commit(shown, scroll, focusedAtStart, { key, values, restored: false });
+      this.deps.commit(shown, scroll, focusedAtStart, { lineage: this.lineage, values, restored: false });
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
       if (request.method === 'POST') {
@@ -941,10 +954,12 @@ class Navigator {
     );
   }
 
-  private setCurrent(key: string, loaded: Loaded, values: HistoryValues) {
+  /** `carries`: the page on screen stays and its values went with it, so its setters keep writing. */
+  private setCurrent(key: string, loaded: Loaded, values: HistoryValues, carries: boolean) {
     this.currentKey = key;
     this.current = loaded;
     this.values = values;
+    if (!carries) this.lineage += 1;
     this.betweenEntries = false;
     if (!this.currentIsStale) this.remember(key, loaded);
   }
@@ -1003,10 +1018,14 @@ type ViewValue = { payload: PagePayload; url: URL };
 
 /** What `useHistoryState` and `useHistoryRestore` read: the entry on screen, a way to write it, and the restores. */
 export type HistoryContextValue = {
-  key: string;
+  /** The lineage of the values on screen: kept while navigations carry the page's values over, new when they start over. */
+  lineage: number;
   values: HistoryValues;
-  /** Sets the value `name` of the entry `key` to what `compute` makes of the entry's values. Stable. */
-  set(key: string, name: string, compute: (values: HistoryValues) => unknown): void;
+  /**
+   * Sets the value `name` of the entry on screen to what `compute` makes of the entry's values, while the values on
+   * screen are of `lineage`; else it does nothing. Stable.
+   */
+  set(lineage: number, name: string, compute: (values: HistoryValues) => unknown): void;
   /** Calls `listener` whenever the page on screen was shown from memory after Back or Forward. Stable. */
   onRestore(listener: () => void): () => void;
 };
@@ -1089,12 +1108,12 @@ export function RouterProvider({
         showDocument,
         download,
         setPending: setNavigation,
-        commit: (loaded, scroll, focusedAtStart, { key, values, restored }) =>
+        commit: (loaded, scroll, focusedAtStart, { lineage, values, restored }) =>
           startTransition(() => {
             setView((previous) => ({ loaded, id: previous.id + 1, scroll, focusedAtStart, restored }));
             setNavigation(IDLE);
             // In the same transition as the page: the page that leaves never renders with the next entry's values.
-            setEntry({ key, values });
+            setEntry({ lineage, values });
           }),
         setEntry: (entry) => setEntry(entry),
       },
@@ -1102,10 +1121,10 @@ export function RouterProvider({
     );
   });
   // Every value as its initial one until the router has started, as on the server, so hydration matches.
-  const [entry, setEntry] = useState<HistoryEntry>(() => ({ key: navigator.entryKey, values: NO_VALUES }));
+  const [entry, setEntry] = useState<HistoryEntry>(() => ({ lineage: navigator.entryLineage, values: NO_VALUES }));
   const [restoreListeners] = useState(() => new Set<() => void>());
   const [historyWriters] = useState(() => ({
-    set: (key: string, name: string, compute: (values: HistoryValues) => unknown) => navigator.setValue(key, name, compute),
+    set: (lineage: number, name: string, compute: (values: HistoryValues) => unknown) => navigator.setValue(lineage, name, compute),
     onRestore: (listener: () => void) => {
       restoreListeners.add(listener);
       return () => {
@@ -1460,6 +1479,10 @@ function useHistory(): HistoryContextValue {
  * a refresh) keeps its values. The value is `initial` on the server and in the render that hydrates the page. Keep it
  * small and to what the browser can copy (`structuredClone`): ids, names and numbers, not rows.
  *
+ * The setter writes into the entry on screen, and like `useState`'s, keeps working and stays the same function through
+ * a navigation that keeps the page and its values: `await action(); setTicked([])` clears the ticks after an action
+ * that refreshes the page. Once the page has left, or Back or Forward has gone to another entry, it changes nothing.
+ *
  * With a schema, the entry's value is parsed by it, and one it rejects gives `initial`: an entry can hold what an older
  * build of the app, or another page, put there. Define the schema at module level.
  */
@@ -1470,7 +1493,7 @@ export function useHistoryState<Schema extends StandardSchemaV1>(
   schema: Schema,
 ): [StandardSchemaV1.InferOutput<Schema>, SetHistoryState<StandardSchemaV1.InferOutput<Schema>>];
 export function useHistoryState(name: string, initial: unknown, schema?: StandardSchemaV1): [unknown, SetHistoryState<unknown>] {
-  const { key, values, set } = useHistory();
+  const { lineage, values, set } = useHistory();
   // The first render's, as useState keeps its initial value: an array written inline is not a new value each render.
   const [fallback] = useState(() => initial);
   const resolve = useCallback(
@@ -1483,9 +1506,11 @@ export function useHistoryState(name: string, initial: unknown, schema?: Standar
   const stored = Object.hasOwn(values, name) ? values[name] : NOT_SET;
   // Parsed again only when the entry's value changes, not when another name's does.
   const value = useMemo(() => (stored === NOT_SET ? fallback : resolve({ [name]: stored })), [resolve, name, stored, fallback]);
+  // Bound to the page's lineage, not to one entry: like a useState setter, it keeps working, and stays the same
+  // function, through a navigation that keeps the page on screen with its values (a refresh, another query).
   const setValue = useCallback<SetHistoryState<unknown>>(
-    (next) => set(key, name, (current) => (typeof next === 'function' ? (next as (previous: unknown) => unknown)(resolve(current)) : next)),
-    [set, key, name, resolve],
+    (next) => set(lineage, name, (current) => (typeof next === 'function' ? (next as (previous: unknown) => unknown)(resolve(current)) : next)),
+    [set, lineage, name, resolve],
   );
   return [value, setValue];
 }

@@ -35,6 +35,37 @@ function SetsAsItLeaves() {
   return null;
 }
 
+/** What the latest click on a `ClearsTicks` button started, to wait on. */
+let cleared: Promise<void> | undefined;
+
+/**
+ * Clears the ticks, with the setter of the render that was clicked, once `first` has ended: what a list does after a
+ * server action on its ticked rows, which loads the page again before it resolves.
+ */
+function ClearsTicks({ label, first }: { label: string; first: (router: Router) => Promise<void> }) {
+  const router = useRouter();
+  const [, setTicks] = useHistoryState('ticks', 0);
+  return (
+    <button type="button" onClick={() => (cleared = first(router).then(() => setTicks(0)))}>
+      {label}
+    </button>
+  );
+}
+
+/** How often an effect that lists the ticks' setter ran. */
+let setterEffects = 0;
+afterEach(() => {
+  setterEffects = 0;
+});
+
+function CountsSetterEffects() {
+  const [, setTicks] = useHistoryState('ticks', 0);
+  useEffect(() => {
+    setterEffects += 1;
+  }, [setTicks]);
+  return null;
+}
+
 /** The router as the list page sees it. */
 let capturedRouter: Router | undefined;
 
@@ -71,10 +102,27 @@ function List(props: Record<string, unknown>) {
       <Link href="#bottom" replace>
         Bottom in place
       </Link>
+      <ClearsTicks label="Clear the ticks after a refresh" first={(router) => router.refresh()} />
+      <ClearsTicks label="Clear the ticks on the second page" first={(router) => router.push('/list?page=2')} />
+      <ClearsTicks label="Clear the ticks at the bottom" first={(router) => router.push('#bottom')} />
+      <ClearsTicks label="Clear the ticks on the record" first={(router) => router.push('/record', { historyState: { ticks: 5 } })} />
+      <ClearsTicks label="Clear the ticks after Back" first={(router) => backDone(router)} />
+      <CountsSetterEffects />
       <Note />
       <Restores />
     </>
   );
+}
+
+/** Goes back, and resolves once the browser has told the router, which listens first. */
+function backDone(router: Router): Promise<void> {
+  const popped = new Promise<void>((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
+  router.back();
+  return popped;
+}
+
+async function goBack() {
+  await act(() => backDone(capturedRouter!));
 }
 
 /** Each time a page was shown from memory: the path it was shown at. */
@@ -249,6 +297,78 @@ describe('useHistoryState', () => {
 
     await screen.findByRole('heading', { name: 'Record' });
     expect(screen.getByText('note none')).toBeDefined();
+  });
+
+  describe('a setter from before a navigation that keeps the page on screen', () => {
+    for (const [control, search, hash] of [
+      ['Clear the ticks after a refresh', '', ''],
+      ['Clear the ticks on the second page', '?page=2', ''],
+      ['Clear the ticks at the bottom', '', '#bottom'],
+    ] as const) {
+      it(`sets the value of the entry on screen, as a useState setter would (${control})`, async () => {
+        pages(['/list']);
+        const user = await renderApp(payload('list', '/list'));
+        await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+        await user.click(screen.getByRole('button', { name: 'ticks 1' }));
+
+        await user.click(screen.getByRole('button', { name: control }));
+        await act(() => cleared);
+
+        expect(window.location.search + window.location.hash).toBe(search + hash);
+        expect(screen.getByRole('button', { name: 'ticks 0' })).toBeDefined();
+      });
+    }
+
+    it('leaves the entry before as it was when the page left it', async () => {
+      pages(['/list']);
+      const user = await renderApp(payload('list', '/list'));
+      await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+
+      await user.click(screen.getByRole('button', { name: 'Clear the ticks on the second page' }));
+      await act(() => cleared);
+      await goBack();
+
+      expect(window.location.search).toBe('');
+      expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    });
+
+    it('is the same function after it, so an effect that lists it does not run again', async () => {
+      pages(['/list']);
+      await renderApp(payload('list', '/list'));
+      const router = capturedRouter!;
+      expect(setterEffects).toBe(1);
+
+      await act(() => router.refresh());
+      await act(() => router.push('/list?page=2'));
+      await act(() => router.push('#bottom'));
+
+      expect(setterEffects).toBe(1);
+    });
+
+    it('sets nothing once Back has gone to another entry, though the page stays on screen', async () => {
+      pages(['/list']);
+      const user = await renderApp(payload('list', '/list'));
+      await user.click(screen.getByRole('button', { name: 'ticks 0' }));
+      await act(() => capturedRouter!.push('/list?page=2'));
+      await user.click(screen.getByRole('button', { name: 'ticks 1' }));
+
+      await user.click(screen.getByRole('button', { name: 'Clear the ticks after Back' }));
+      await act(() => cleared);
+
+      expect(window.location.search).toBe('');
+      expect(screen.getByRole('button', { name: 'ticks 1' })).toBeDefined();
+    });
+  });
+
+  it('sets nothing from a setter of a page that has left, though the navigation that left it has ended', async () => {
+    pages(['/record']);
+    const user = await renderApp(payload('list', '/list'));
+
+    await user.click(screen.getByRole('button', { name: 'Clear the ticks on the record' }));
+    await act(() => cleared);
+
+    expect(screen.getByRole('heading', { name: 'Record' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ticks 5' })).toBeDefined();
   });
 
   it("keeps the keys an app or a library put in the entry's state whenever the router writes it", async () => {
