@@ -6,6 +6,7 @@ import { type ReactNode, useEffect } from 'react';
 import { type Root, hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { Link } from '../src/link.tsx';
 import { createModuleLoader } from '../src/modules.ts';
 import type { PagePayload } from '../src/payload.ts';
@@ -89,6 +90,18 @@ function Restores() {
   return null;
 }
 
+const pickedSchema = z.array(z.string());
+
+/** A value with a schema: an entry can hold what an older build of the app put there. */
+function Picked() {
+  const [picked, setPicked] = useHistoryState('picked', [], pickedSchema);
+  return (
+    <button type="button" onClick={() => setPicked((ids) => [...ids, `id${ids.length}`])}>
+      picked {picked.length}
+    </button>
+  );
+}
+
 function Note() {
   const [note] = useHistoryState('note', 'none');
   return <p>note {note}</p>;
@@ -100,6 +113,7 @@ function Record() {
       <h1>Record</h1>
       <Ticks />
       <Note />
+      <Picked />
       <Restores />
       <Link href="/list">List</Link>
     </>
@@ -313,6 +327,21 @@ describe('useHistoryState', () => {
 
       await expect(router.push('/list', { historyState: { note: () => 'a function' } })).rejects.toThrow();
       expect(window.location.pathname).toBe('/record');
+    });
+
+    it('gives the initial value for a value the schema rejects, and the parsed value for one it takes', async () => {
+      pages(['/record', '/list']);
+      const user = await renderApp(payload('list', '/list'));
+      const router = capturedRouter!;
+
+      await act(() => router.push('/record', { historyState: { picked: 'the shape of an older build' } }));
+      await screen.findByRole('heading', { name: 'Record' });
+      expect(screen.getByRole('button', { name: 'picked 0' })).toBeDefined();
+      await user.click(screen.getByRole('button', { name: 'picked 0' }));
+      expect(screen.getByRole('button', { name: 'picked 1' })).toBeDefined();
+
+      await act(() => router.push('/record', { historyState: { picked: ['a', 'b'] } }));
+      await screen.findByRole('button', { name: 'picked 2' });
     });
 
     it('leaves the link without an attribute of its own', async () => {

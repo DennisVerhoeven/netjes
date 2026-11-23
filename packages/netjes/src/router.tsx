@@ -36,7 +36,7 @@ import {
 } from './payload.ts';
 import { RouteAnnouncer } from './route-announcer.tsx';
 import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
-import { type StandardSchemaV1, parseLenient, parseWith } from './schema.ts';
+import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schema.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
 export type SubmitError = { status: number | null; action: string };
@@ -1442,6 +1442,8 @@ export function useNavigation(): NavigationState {
   return useContext(NavigationContext);
 }
 
+const NOT_SET = Symbol('not set');
+
 /** Sets a value of `useHistoryState`: the value itself, or a function of the value before. */
 export type SetHistoryState<T> = (next: T | ((previous: T) => T)) => void;
 
@@ -1457,18 +1459,33 @@ function useHistory(): HistoryContextValue {
  * `<Link>`, `router.push` and `router.replace`); a navigation that keeps the page on screen (another query, a fragment,
  * a refresh) keeps its values. The value is `initial` on the server and in the render that hydrates the page. Keep it
  * small and to what the browser can copy (`structuredClone`): ids, names and numbers, not rows.
+ *
+ * With a schema, the entry's value is parsed by it, and one it rejects gives `initial`: an entry can hold what an older
+ * build of the app, or another page, put there. Define the schema at module level.
  */
-export function useHistoryState<T>(name: string, initial: T): [T, SetHistoryState<T>] {
+export function useHistoryState<T>(name: string, initial: T): [T, SetHistoryState<T>];
+export function useHistoryState<Schema extends StandardSchemaV1>(
+  name: string,
+  initial: StandardSchemaV1.InferOutput<Schema>,
+  schema: Schema,
+): [StandardSchemaV1.InferOutput<Schema>, SetHistoryState<StandardSchemaV1.InferOutput<Schema>>];
+export function useHistoryState(name: string, initial: unknown, schema?: StandardSchemaV1): [unknown, SetHistoryState<unknown>] {
   const { key, values, set } = useHistory();
   // The first render's, as useState keeps its initial value: an array written inline is not a new value each render.
   const [fallback] = useState(() => initial);
-  const value = (Object.hasOwn(values, name) ? values[name] : fallback) as T;
-  const setValue = useCallback<SetHistoryState<T>>(
-    (next) =>
-      set(key, name, (current) =>
-        typeof next === 'function' ? (next as (previous: T) => T)((Object.hasOwn(current, name) ? current[name] : fallback) as T) : next,
-      ),
-    [set, key, name, fallback],
+  const resolve = useCallback(
+    (entry: HistoryValues) => {
+      if (!Object.hasOwn(entry, name)) return fallback;
+      return schema ? parseOr(schema, entry[name], fallback, `history state '${name}'`) : entry[name];
+    },
+    [name, schema, fallback],
+  );
+  const stored = Object.hasOwn(values, name) ? values[name] : NOT_SET;
+  // Parsed again only when the entry's value changes, not when another name's does.
+  const value = useMemo(() => (stored === NOT_SET ? fallback : resolve({ [name]: stored })), [resolve, name, stored, fallback]);
+  const setValue = useCallback<SetHistoryState<unknown>>(
+    (next) => set(key, name, (current) => (typeof next === 'function' ? (next as (previous: unknown) => unknown)(resolve(current)) : next)),
+    [set, key, name, resolve],
   );
   return [value, setValue];
 }
