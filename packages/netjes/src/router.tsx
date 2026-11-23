@@ -1898,7 +1898,8 @@ export function useHistoryRestore(callback: () => void): void {
  * whenever it is called, also once `when` is false (after a save), and a navigation that comes while one waits takes its
  * place. While it holds, `beforeunload` has the browser ask before the document unloads: a reload, closing the tab, a
  * link to another site. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a
- * form post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that
+ * form post, a server action or `router.refresh()`, nor the page the server's redirect in their answer leads to (the
+ * sign-in page after the session expired). With several guards holding, each is asked in turn, the one that
  * started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a
  * Netjes page.
  */
