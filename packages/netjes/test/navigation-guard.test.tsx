@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
@@ -89,14 +89,27 @@ function Editor() {
   );
 }
 
-const Other = () => <h1>Other</h1>;
+function Other() {
+  const router = useRouter();
+  otherRouter = router;
+  return (
+    <>
+      <h1>Other</h1>
+      <Link href="/editor">Editor</Link>
+      <Link href="/other?again">Other again</Link>
+    </>
+  );
+}
+
+/** The router as the other page sees it. */
+let otherRouter: Router | undefined;
 
 const modules = {
   '/app/editor/page.tsx': async () => ({ default: Editor }),
   '/app/other/page.tsx': async () => ({ default: Other }),
 };
 
-function payload(page: string, url: string): PagePayload {
+function payload(page: string, url: string, overrides: Partial<PagePayload> = {}): PagePayload {
   return {
     kind: 'page',
     route: url.split(/[?#]/)[0] ?? url,
@@ -108,6 +121,7 @@ function payload(page: string, url: string): PagePayload {
     status: 200,
     url,
     version: 'v1',
+    ...overrides,
   };
 }
 
@@ -125,8 +139,8 @@ function pages(paths: string[], requests: string[] = []) {
   return requests;
 }
 
-async function renderApp(initial: PagePayload, hardNavigate = vi.fn()) {
-  window.history.replaceState(null, '', origin + initial.url);
+async function renderApp(initial: PagePayload, hardNavigate = vi.fn(), state: unknown = null) {
+  window.history.replaceState(state, '', origin + initial.url);
   const loader = createModuleLoader(modules);
   render(
     <RouterProvider initial={initial} initialModules={await loader.loadRoute(initial)} loader={loader} errorPage={null} hardNavigate={hardNavigate} />,
@@ -273,5 +287,179 @@ describe('useNavigationGuard', () => {
     const push = editorRouter!.push('/other', { historyState: { run: () => {} } });
     expect(asked).toEqual([]);
     await expect(push).rejects.toThrow();
+  });
+});
+
+/** Resolves once the browser has told the router about a step through history, which listens first. */
+function popped(): Promise<void> {
+  return new Promise((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
+}
+
+/** Takes `delta` steps through history and waits for the browser to tell the router. */
+async function go(delta: number) {
+  const done = popped();
+  window.history.go(delta);
+  await act(() => done);
+}
+
+/** Goes from the other page to the editor by its link: an entry the editor holds, with one before it. */
+async function toEditor(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('link', { name: 'Editor' }));
+  await screen.findByRole('heading', { name: 'Editor' });
+}
+
+const where = () => window.location.pathname + window.location.search;
+
+describe('useNavigationGuard and the browser history', () => {
+  it('puts the entry back on Back, then asks, and goes back when the attempt proceeds', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+
+    const asking = nextAttempt();
+    window.history.back();
+    const attempt = await act(() => asking);
+
+    expect(attempt).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeDefined();
+
+    const done = popped();
+    attempt.proceed();
+    await act(() => done);
+    expect(where()).toBe('/other');
+    expect(screen.getByRole('heading', { name: 'Other' })).toBeDefined();
+  });
+
+  it('stays on the entry when the attempt stays, and asks again on the next Back', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+
+    let asking = nextAttempt();
+    window.history.back();
+    (await act(() => asking)).stay();
+    expect(where()).toBe('/editor');
+
+    asking = nextAttempt();
+    window.history.back();
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeDefined();
+  });
+
+  it('holds Forward the same way', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('editor', '/editor'));
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    await screen.findByRole('heading', { name: 'Other' });
+    // Back shows the editor from memory, which holds again as it mounts.
+    await go(-1);
+    expect(screen.getByRole('checkbox', { name: 'Unsaved' })).toHaveProperty('checked', true);
+
+    const asking = nextAttempt();
+    window.history.forward();
+    const attempt = await act(() => asking);
+    expect(attempt).toMatchObject({ to: '/other', type: 'forward' });
+    expect(where()).toBe('/editor');
+
+    const done = popped();
+    attempt.proceed();
+    await act(() => done);
+    expect(screen.getByRole('heading', { name: 'Other' })).toBeDefined();
+  });
+
+  it('puts back several steps at once, and takes them all when the attempt proceeds', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await user.click(screen.getByRole('link', { name: 'Other again' }));
+    await vi.waitFor(() => expect(where()).toBe('/other?again'));
+    await toEditor(user);
+
+    const asking = nextAttempt();
+    window.history.go(-2);
+    const attempt = await act(() => asking);
+    expect(attempt).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
+
+    const done = popped();
+    attempt.proceed();
+    await act(() => done);
+    expect(where()).toBe('/other');
+  });
+
+  it("holds router.back() as the browser's Back", async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+
+    const asking = nextAttempt();
+    editorRouter!.back();
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
+  });
+
+  it('knows which way Back went after a reload, from the place of each entry it keeps in history.state', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    // An entry in the middle of the tab's history: one before it, and one after.
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    await screen.findByRole('heading', { name: 'Other' });
+    await go(-1);
+    const kept = window.history.state;
+    cleanup();
+
+    // The browser loads the document again into the same entry, which keeps its state.
+    await renderApp(payload('editor', '/editor'), vi.fn(), kept);
+    const asking = nextAttempt();
+    window.history.back();
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/editor');
+  });
+
+  it('holds no Back or Forward over a fragment link, which keeps the page', async () => {
+    pages(['/other']);
+    const user = await renderApp(payload('editor', '/editor'));
+    await user.click(screen.getByRole('link', { name: 'Notes' }));
+
+    await go(-1);
+    expect(window.location.hash).toBe('');
+    // The browser takes steps in order: a step a guard took to put an entry back would come before this one.
+    await go(1);
+
+    expect(window.location.hash).toBe('#notes');
+    expect(asked).toEqual([]);
+  });
+
+  it('lets Back through to an entry that has no place the router gave it, rather than guess the way back', async () => {
+    pages(['/other']);
+    // An entry the router did not make, such as one an app or a library pushed itself.
+    window.history.replaceState(null, '', `${origin}/other`);
+    window.history.pushState(null, '', `${origin}/editor`);
+    await renderApp(payload('editor', '/editor'));
+
+    await go(-1);
+
+    await screen.findByRole('heading', { name: 'Other' });
+    expect(asked).toEqual([]);
+  });
+
+  it('tells the guard where Back goes as the routes see it, without the base path', async () => {
+    server.use(http.get(`${origin}/base/editor`, () => HttpResponse.json(payload('editor', '/base/editor', { basePath: '/base' }))));
+    const user = await renderApp(payload('other', '/base/other', { basePath: '/base' }));
+    await toEditor(user);
+    expect(where()).toBe('/base/editor');
+
+    const asking = nextAttempt();
+    window.history.back();
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where()).toBe('/base/editor');
+    (await asking).stay();
+
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    expect(asked.at(-1)?.attempt).toMatchObject({ to: '/other', type: 'push' });
   });
 });

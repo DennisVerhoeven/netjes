@@ -142,6 +142,11 @@ const STATE_KEY = '__netjes';
 /** Where an entry's `useHistoryState` values are, in `history.state`, beside the entry's key. */
 const VALUES_KEY = '__netjesState';
 /**
+ * Where an entry's place in the tab's history is, in `history.state`: one more than the entry before it, the same as the
+ * entry it replaced. After Back or Forward it tells the router how many steps the browser took, and which way.
+ */
+const INDEX_KEY = '__netjesIndex';
+/**
  * On `<html>` while the client router runs in the document, and the public sign that it does: end-to-end tests wait
  * for it before they click. (The history entry's key is no such sign: the entry keeps it when the browser loads the
  * document again.) The effect that sets it must stay after the one that registers the router as the action client,
@@ -169,6 +174,11 @@ function readKey(state: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function readIndex(state: unknown): number | undefined {
+  const value = isRecord(state) ? state[INDEX_KEY] : undefined;
+  return Number.isSafeInteger(value) ? (value as number) : undefined;
+}
+
 /** The values `useHistoryState` keeps with one history entry, by name. */
 type HistoryValues = Readonly<Record<string, unknown>>;
 const NO_VALUES: HistoryValues = Object.freeze({});
@@ -188,11 +198,13 @@ function withCarried(values: HistoryValues, carried: HistoryValues | undefined):
 }
 
 /**
- * The state the router writes for an entry: its key and its values, over `kept`, the state of the entry it replaces,
- * so the keys an app or a library put there stay. A new entry keeps nothing of the one before.
+ * The state the router writes for an entry: its key, its place and its values, over `kept`, the state of the entry it
+ * replaces, so the keys an app or a library put there stay. A new entry keeps nothing of the one before.
  */
-function entryState(key: string, values: HistoryValues, kept: unknown = null): Record<string, unknown> {
+function entryState(key: string, index: number | undefined, values: HistoryValues, kept: unknown = null): Record<string, unknown> {
   const state: Record<string, unknown> = { ...(isRecord(kept) ? kept : {}), [STATE_KEY]: key };
+  if (index === undefined) delete state[INDEX_KEY];
+  else state[INDEX_KEY] = index;
   if (Object.keys(values).length > 0) state[VALUES_KEY] = values;
   else delete state[VALUES_KEY];
   return state;
@@ -369,6 +381,8 @@ type NavigatorDeps = {
   commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null, entry: CommittedEntry): void;
   /** The values of the entry on screen changed without a navigation: a page set one, or the router read them at start. */
   setEntry(entry: HistoryEntry): void;
+  /** The guards that hold Back and Forward. */
+  guards: NavigationGuards;
 };
 
 /**
@@ -444,6 +458,15 @@ class Navigator {
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
   private currentIsStale = false;
+  /**
+   * The place of the entry on screen in the tab's history (`INDEX_KEY`), or undefined on an entry the router did not
+   * make (one an app or a library pushed itself), whose place it does not know.
+   */
+  private index: number | undefined;
+  /** A guard held Back or Forward and the router is stepping back to the entry at `index`: once there, it `ask`s. */
+  private puttingBack: { index: number; ask(): void } | null = null;
+  /** The place a guard let Back or Forward go to: the step there is not held again. */
+  private letThrough: number | null = null;
   /** Shared with the app's other tabs, where the browser has BroadcastChannel; null until started, and once stopped. */
   private channel: BroadcastChannel | null = null;
 
@@ -459,6 +482,9 @@ class Navigator {
       const existing = readKey(window.history.state);
       if (existing) this.currentKey = existing;
       this.values = readValues(window.history.state);
+      // A new document's entry is the last one of the tab's history. Only the steps between the entries matter, so a
+      // place that is off (the browser keeps 50 entries or so) changes nothing.
+      this.index = readIndex(window.history.state) ?? Math.max(window.history.length - 1, 0);
     }
   }
 
@@ -469,7 +495,9 @@ class Navigator {
 
   start(): () => void {
     window.history.scrollRestoration = 'manual';
-    if (readKey(window.history.state) !== this.currentKey) window.history.replaceState(entryState(this.currentKey, this.values, window.history.state), '');
+    if (readKey(window.history.state) !== this.currentKey || readIndex(window.history.state) !== this.index) {
+      window.history.replaceState(entryState(this.currentKey, this.index, this.values, window.history.state), '');
+    }
     this.remember(this.currentKey, this.current);
     // The commit that hydrated the page rendered every value as its initial one, as the server did. An entry that holds
     // values (after a reload) shows them now, before the browser paints; one with none renders nothing again.
@@ -515,7 +543,7 @@ class Navigator {
     if (lineage !== this.lineage || this.betweenEntries) return;
     const values = { ...this.values, [name]: compute(this.values) };
     // First, so a value the browser cannot keep throws before anything changed.
-    window.history.replaceState(entryState(this.currentKey, values, window.history.state), '');
+    window.history.replaceState(entryState(this.currentKey, this.index, values, window.history.state), '');
     this.values = values;
     this.deps.setEntry({ lineage, values });
   }
@@ -542,7 +570,12 @@ class Navigator {
       const key = createKey();
       // The page stays, and so do its values.
       const values = withCarried(this.values, carried);
-      window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, history === 'replace' ? window.history.state : null), '', url.href);
+      this.index = history === 'push' ? this.nextIndex() : this.index;
+      window.history[history === 'push' ? 'pushState' : 'replaceState'](
+        entryState(key, this.index, values, history === 'replace' ? window.history.state : null),
+        '',
+        url.href,
+      );
       this.setCurrent(key, { ...this.current, url }, values, true);
       this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart, {
         lineage: this.lineage,
@@ -728,8 +761,25 @@ class Navigator {
     this.prefetched.set(url.href, prefetch);
   }
 
+  /** The place of an entry pushed after the one on screen. */
+  private nextIndex(): number | undefined {
+    return this.index === undefined ? undefined : this.index + 1;
+  }
+
   private onPopState(event: PopStateEvent) {
+    const index = readIndex(event.state);
+    const puttingBack = this.puttingBack;
+    this.puttingBack = null;
+    // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
+    if (puttingBack && index === puttingBack.index) {
+      puttingBack.ask();
+      return;
+    }
     const url = new URL(window.location.href);
+    const letThrough = this.letThrough !== null && index === this.letThrough;
+    this.letThrough = null;
+    if (!letThrough && this.holdTraversal(url, index)) return;
+    this.index = index;
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
@@ -746,6 +796,30 @@ class Navigator {
     }
     this.betweenEntries = true;
     void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true, entryValues: values });
+  }
+
+  /**
+   * Holds Back or Forward to `url`, the entry at `index`, while a guard holds: steps back to the entry on screen, then
+   * asks the guards, and takes the same steps again when they let it. Back over a fragment link keeps the page and is
+   * not held. Neither is a step to an entry whose place the router does not know: it cannot tell the way back, and
+   * guessing could take the reader somewhere else, so it lets it go.
+   */
+  private holdTraversal(url: URL, index: number | undefined): boolean {
+    if (!this.deps.guards.holding || samePage(url, this.current.url)) return false;
+    const from = this.index;
+    if (index === undefined || from === undefined || index === from) return false;
+    const steps = index - from;
+    const to = withoutBasePath(url.pathname, this.deps.basePath) + url.search + url.hash;
+    this.puttingBack = {
+      index: from,
+      ask: () =>
+        void this.deps.guards.attempt(to, steps < 0 ? 'back' : 'forward', async () => {
+          this.letThrough = index;
+          window.history.go(steps);
+        }),
+    };
+    window.history.go(-steps);
+    return true;
   }
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
@@ -823,12 +897,13 @@ class Navigator {
       const values = history === 'none' ? (options.entryValues ?? NO_VALUES) : withCarried(carries ? this.values : NO_VALUES, options.historyState);
       let key = options.key ?? createKey();
       if (history === 'none') {
-        if (!options.key) window.history.replaceState(entryState(key, values, window.history.state), '');
+        if (!options.key) window.history.replaceState(entryState(key, this.index, values, window.history.state), '');
       } else {
         this.rememberScroll();
         key = createKey();
         const kept = history === 'replace' ? window.history.state : null;
-        window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, kept), '', shown.url.href);
+        this.index = history === 'push' ? this.nextIndex() : this.index;
+        window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, this.index, values, kept), '', shown.url.href);
       }
 
       this.currentIsStale = navigation.stale;
@@ -1119,6 +1194,7 @@ export function RouterProvider({
     restored: false,
   }));
   const [navigation, setNavigation] = useState<NavigationState>(IDLE);
+  const [guards] = useState(() => new NavigationGuards());
   const [navigator] = useState(() => {
     // Server actions called before the effect below registers this router wait for it (the server runs no effects).
     if (typeof document !== 'undefined') expectActionClient();
@@ -1139,6 +1215,7 @@ export function RouterProvider({
             setEntry({ lineage, values });
           }),
         setEntry: (entry) => setEntry(entry),
+        guards,
       },
       view.loaded,
     );
@@ -1146,7 +1223,6 @@ export function RouterProvider({
   // Every value as its initial one until the router has started, as on the server, so hydration matches.
   const [entry, setEntry] = useState<HistoryEntry>(() => ({ lineage: navigator.entryLineage, values: NO_VALUES }));
   const [restoreListeners] = useState(() => new Set<() => void>());
-  const [guards] = useState(() => new NavigationGuards());
   const [historyWriters] = useState(() => ({
     set: (lineage: number, name: string, compute: (values: HistoryValues) => unknown) => navigator.setValue(lineage, name, compute),
     onRestore: (listener: () => void) => {
