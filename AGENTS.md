@@ -27,7 +27,7 @@ dotnet test Netjes.slnx -c Release             # every .NET test project; also c
 npm test                                       # Vitest: the package and both examples
 npm run typecheck                              # strict TypeScript in every workspace, and in scripts/ from its JSDoc types
 cd examples/Blog && npm run test:e2e           # Playwright, dev and production servers
-cd examples/TaskBoard && npm run test:e2e      # Playwright, with a throwaway Postgres
+cd examples/TaskBoard && npm run test:e2e      # Playwright, with a throwaway Postgres; its guard spec in Firefox and WebKit too
 scripts/check-packages.sh                      # pack, scaffold, test (Vitest and C#), type-check (also under create-vite's flags and noPropertyAccessFromIndexSignature), mount the packed example page package, publish and serve a new app, and run its Playwright suite
 npm run docs:check                             # llms.txt and llms-full.txt match the docs, and every link resolves
 cd bench/netjes && npm test                    # the benchmark harness (not a workspace, so not in the root npm test)
