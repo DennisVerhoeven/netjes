@@ -787,6 +787,9 @@ class Navigator {
     const url = new URL(window.location.href);
     const letThrough = this.letThrough !== null && index === this.letThrough;
     this.letThrough = null;
+    // A step to another page takes the place of an attempt still waiting for its answer: it is asked about in its
+    // place, or it goes on. A step that keeps the page leaves the question open.
+    if (!samePage(url, this.current.url)) this.deps.guards.dropAttempt();
     if (!letThrough && this.holdTraversal(url, index)) return;
     // An entry with no place on the page on screen: a fragment the browser moved to itself (a plain `<a href="#…">`, a
     // fragment typed in the address bar, `location.hash`), which fires `popstate` with no state. It adds an entry after
@@ -1362,8 +1365,10 @@ export function RouterProvider({
      */
     const guarded = (href: string, history: 'push' | 'replace', options: NavigateOptions & FocusAtStart = {}): Promise<void> => {
       const focusedAtStart = options.focusedAtStart === undefined ? document.activeElement : options.focusedAtStart;
-      const to = guards.holding ? navigator.heldTarget(href) : null;
+      const to = navigator.heldTarget(href);
       if (to === null) return navigator.navigate(href, history, { ...options, focusedAtStart });
+      // No guard holds: it goes at once, and takes the place of an attempt still waiting for its answer, as after a save.
+      if (!guards.holding) return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart }));
       let historyState: HistoryValues | undefined;
       try {
         historyState = options.historyState === undefined ? undefined : (structuredClone(options.historyState) as HistoryValues);

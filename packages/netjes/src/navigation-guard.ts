@@ -26,7 +26,8 @@ type Guard = { read(): NavigationGuardOptions };
  * The guards of one router: the ones that hold now, in the order they started to, and the attempt being asked about.
  * Each navigation a guard holds asks the guards in turn, the one that started to hold last first, and runs once every
  * one of them has let it proceed. A newer attempt takes the place of one still being asked about, so a guard that never
- * answers keeps no navigation from being asked again.
+ * answers keeps no navigation from being asked again, and so does a navigation that goes at once because no guard holds
+ * any more: the earlier attempt's answers then do nothing.
  *
  * While any guard holds, `beforeunload` has the browser ask its own question before the document unloads: a reload,
  * closing the tab, typing an address, a link to another site. The listener is there only then, as such a listener has
@@ -79,12 +80,21 @@ export class NavigationGuards {
   }
 
   /**
-   * Runs `go` at once while no guard holds; else asks the guards that hold, newest first, and runs it once each has
-   * let it proceed. Resolves with `go`'s promise, or once a guard keeps the page or a newer attempt takes its place.
+   * Drops the attempt still waiting for its answer, whose answers then do nothing: Back or Forward to another page took
+   * its place, whether a guard holds that step (and asks about it once its entry is put back) or it went on.
+   */
+  dropAttempt(): void {
+    this.asking?.drop();
+  }
+
+  /**
+   * Takes the place of the attempt still waiting for its answer, if any. Then runs `go` at once while no guard holds;
+   * else asks the guards that hold, newest first, and runs it once each has let it proceed. Resolves with `go`'s
+   * promise, or once a guard keeps the page or a newer attempt takes its place.
    */
   attempt(to: string, type: NavigationAttemptType, go: () => Promise<void>): Promise<void> {
-    if (this.guards.length === 0) return go();
     this.asking?.drop();
+    if (this.guards.length === 0) return go();
     return new Promise<void>((resolve) => {
       const queue = [...this.guards].reverse();
       const asking = {

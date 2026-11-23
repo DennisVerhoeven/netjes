@@ -189,12 +189,13 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         return Promise.resolve();
       };
       // As the router does: a guard that holds is asked first, except about a fragment of the page on screen or
-      // another site, and the navigation is recorded once the guards let it go on.
+      // another site, and the navigation is recorded once the guards let it go on. One that goes at once, as no guard
+      // holds, takes the place of an attempt still waiting for its answer.
       const guarded = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
         const next = new URL(href, window.location.href);
         const here = new URL(window.location.href);
         const keepsPage = next.hash !== '' && next.pathname === here.pathname && next.search === here.search;
-        if (!guards.holding || next.origin !== here.origin || keepsPage) return go(type, href, historyState);
+        if (next.origin !== here.origin || keepsPage) return go(type, href, historyState);
         return guards.attempt(next.pathname + next.search + next.hash, type, () => go(type, href, historyState));
       };
       return {

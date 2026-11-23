@@ -541,7 +541,8 @@ describe('createTestApp with a navigation guard', () => {
   /** A form with changes that asks before a link or the router leaves it, with a question of its own. */
   function Draft() {
     const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
-    useNavigationGuard({ when: true, onAttempt: setLeaving });
+    const [changed, setChanged] = useState(true);
+    useNavigationGuard({ when: changed, onAttempt: setLeaving });
     const router = useRouter();
     const pathname = usePathname();
     return (
@@ -551,6 +552,9 @@ describe('createTestApp with a navigation guard', () => {
         <Link href="#notes">Notes</Link>
         <button type="button" onClick={() => void router.replace('/orders?page=2')}>
           next page
+        </button>
+        <button type="button" onClick={() => setChanged(false)}>
+          Save
         </button>
         {leaving && (
           <div role="alertdialog" aria-label="Leave without saving?">
@@ -590,5 +594,18 @@ describe('createTestApp with a navigation guard', () => {
 
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(app.navigations).toEqual([{ type: 'push', href: '#notes' }]);
+  });
+
+  it('drops the attempt waiting for its answer once a navigation goes at once, as after a save', async () => {
+    const app = createTestApp({ url: '/orders/7' });
+    render(<Draft />, { wrapper: app.Wrapper });
+
+    await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.click(screen.getByRole('button', { name: 'next page' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
+
+    expect(app.navigations).toEqual([{ type: 'replace', href: '/orders?page=2' }]);
+    expect(screen.getByText('at /orders')).toBeDefined();
   });
 });

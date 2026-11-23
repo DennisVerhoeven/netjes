@@ -278,6 +278,24 @@ describe('useNavigationGuard', () => {
     await screen.findByRole('heading', { name: 'Other' });
   });
 
+  it('drops an attempt still waiting when a navigation goes on once no guard holds, as after a save', async () => {
+    pages(['/other']);
+    const user = await renderApp(payload('editor', '/editor'));
+    const firstPush = editorRouter!.push('/other?first');
+    const first = onlyAttempt();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    await act(() => editorRouter!.push('/other?second'));
+    await screen.findByRole('heading', { name: 'Other' });
+    // Resolves with the navigation it starts, or at once once dropped.
+    await act(async () => {
+      first.proceed();
+      await firstPush;
+    });
+
+    expect(window.location.pathname + window.location.search).toBe('/other?second');
+  });
+
   it('rejects a navigation that carries what the browser cannot copy before any guard is asked', async () => {
     await renderApp(payload('editor', '/editor'));
 
@@ -451,6 +469,24 @@ describe('useNavigationGuard and the browser history', () => {
 
     expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
     expect(where() + window.location.hash).toBe('/editor#plain');
+  });
+
+  it('drops an attempt still waiting when Back goes on once no guard holds', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    const firstPush = editorRouter!.push('/other?first');
+    const first = onlyAttempt();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    await go(-1);
+    expect(screen.getByRole('heading', { name: 'Other' })).toBeDefined();
+    await act(async () => {
+      first.proceed();
+      await firstPush;
+    });
+
+    expect(where()).toBe('/other');
   });
 
   it("holds router.back() as the browser's Back", async () => {
