@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.OutputCaching;
@@ -426,7 +428,8 @@ internal static class CookieChanges
     /// Checked as the response starts, so it sees what the action wrote on every path, a failure and the action's own
     /// <c>OnStarting</c> callbacks included (they run before this one). Cookies on the response before the action ran
     /// (a middleware's), those written by callbacks registered before it (cookie authentication's sliding renewal),
-    /// and the antiforgery cookie, which names no user, do not count.
+    /// the antiforgery cookie, which names no user, and the app's <see cref="NetjesOptions.NoReloadCookies"/> do not
+    /// count; a cookie authentication scheme's cookie counts even when that list names it.
     /// </summary>
     public static ValueTask<object?> Mark(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -434,24 +437,23 @@ internal static class CookieChanges
         if (PageRenderer.IsDataRequest(http))
         {
             var before = http.Response.Headers.SetCookie;
-            http.Response.OnStarting(() =>
+            http.Response.OnStarting(async () =>
             {
-                if (Changed(http, before))
+                if (await ChangedAsync(http, before))
                 {
                     http.Response.Headers[NetjesHeaders.Cookies] = "changed";
                 }
-
-                return Task.CompletedTask;
             });
         }
 
         return next(context);
     }
 
-    private static bool Changed(HttpContext http, StringValues before)
+    private static async Task<bool> ChangedAsync(HttpContext http, StringValues before)
     {
         var earlier = before.ToList();
         var antiforgery = http.RequestServices.GetService<IOptions<AntiforgeryOptions>>()?.Value.Cookie.Name;
+        var quiet = http.RequestServices.GetService<NetjesContext>()?.Options.NoReloadCookies ?? [];
         foreach (var cookie in http.Response.Headers.SetCookie)
         {
             if (cookie is null || earlier.Remove(cookie))
@@ -459,7 +461,35 @@ internal static class CookieChanges
                 continue;
             }
 
-            if (antiforgery is null || !string.Equals(NameOf(cookie), antiforgery, StringComparison.Ordinal))
+            var name = NameOf(cookie);
+            if (antiforgery is not null && string.Equals(name, antiforgery, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!quiet.Contains(name, StringComparer.Ordinal) || await IsSignInCookieAsync(http, name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // The cookie of a cookie authentication scheme (ASP.NET Core Identity's among them), compared without its case, as
+    // the request's cookies are read: whoever is signed in can change with it, so it always counts.
+    private static async Task<bool> IsSignInCookieAsync(HttpContext http, string name)
+    {
+        if (http.RequestServices.GetService<IAuthenticationSchemeProvider>() is not { } schemes
+            || http.RequestServices.GetService<IOptionsMonitor<CookieAuthenticationOptions>>() is not { } cookies)
+        {
+            return false;
+        }
+
+        foreach (var scheme in await schemes.GetAllSchemesAsync())
+        {
+            if (typeof(CookieAuthenticationHandler).IsAssignableFrom(scheme.HandlerType)
+                && string.Equals(cookies.Get(scheme.Name).Cookie.Name, name, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

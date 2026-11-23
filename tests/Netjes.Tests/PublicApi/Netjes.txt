@@ -106,6 +106,7 @@ public sealed class Netjes.NetjesOptions
   public bool? IncludeErrorDetails { get; set; }
   public string Lang { get; set; }
   public Netjes.NetjesMode? Mode { get; set; }
+  public System.Collections.Generic.IReadOnlyList<string> NoReloadCookies { get; set; }
   public string NodeExecutable { get; set; }
   public System.Collections.Generic.IReadOnlyList<string> PrivateFormFields { get; set; }
   public string PublicDirectory { get; set; }
