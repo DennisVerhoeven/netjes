@@ -123,9 +123,12 @@ public sealed class NetjesOptions
     /// server action or page action whose response writes only these, or the antiforgery cookie, is not marked
     /// <c>X-Netjes-Cookies: changed</c>: the router keeps the pages it holds for Back and Forward and the query cache,
     /// and the app's other tabs are not told, as after an action that writes no cookie. For a cookie that changes nothing
-    /// another page shows, such as a cart's. Compared with their case, as browsers compare cookie names.
-    /// The cookie of every cookie authentication scheme counts whatever this list says, in any case, so signing in or
-    /// out always reloads.
+    /// another page shows, such as a cart's. Compared with their case, as browsers compare cookie names. A name that ends
+    /// in <c>*</c> is a prefix: <c>.app.cart.*</c> covers every cookie whose name starts with <c>.app.cart.</c>, such as a
+    /// cookie per store. A bare <c>*</c>, a prefix with nothing before the <c>*</c>, a <c>*</c> anywhere but at the end
+    /// and an empty name stop the app at startup with an <see cref="Microsoft.Extensions.Options.OptionsValidationException"/>.
+    /// The cookie of every cookie authentication scheme counts
+    /// whatever this list says, in any case, so signing in or out always reloads.
     /// </summary>
     public IReadOnlyList<string> NoReloadCookies { get; set; } = [];
 

@@ -428,8 +428,9 @@ internal static class CookieChanges
     /// Checked as the response starts, so it sees what the action wrote on every path, a failure and the action's own
     /// <c>OnStarting</c> callbacks included (they run before this one). Cookies on the response before the action ran
     /// (a middleware's), those written by callbacks registered before it (cookie authentication's sliding renewal),
-    /// the antiforgery cookie, which names no user, and the app's <see cref="NetjesOptions.NoReloadCookies"/> do not
-    /// count; a cookie authentication scheme's cookie counts even when that list names it.
+    /// the antiforgery cookie, which names no user, and the app's <see cref="NetjesOptions.NoReloadCookies"/> (by name,
+    /// or by a prefix that ends in <c>*</c>) do not count; a cookie authentication scheme's cookie counts even when that
+    /// list names it or a prefix in it covers it.
     /// </summary>
     public static ValueTask<object?> Mark(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
@@ -467,7 +468,24 @@ internal static class CookieChanges
                 continue;
             }
 
-            if (!quiet.Contains(name, StringComparer.Ordinal) || await IsSignInCookieAsync(http, name))
+            if (!Listed(quiet, name) || await IsSignInCookieAsync(http, name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A name the list holds, or one that starts with the text before the '*' that ends a listed prefix, compared with
+    // their case. NetjesOptionsValidation refuses a '*' elsewhere and a prefix with nothing before it.
+    private static bool Listed(IReadOnlyList<string> listed, string name)
+    {
+        foreach (var entry in listed)
+        {
+            if (entry is { Length: > 1 } && entry[^1] == '*'
+                ? name.AsSpan().StartsWith(entry.AsSpan(0, entry.Length - 1), StringComparison.Ordinal)
+                : string.Equals(name, entry, StringComparison.Ordinal))
             {
                 return true;
             }

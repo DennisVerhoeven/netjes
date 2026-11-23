@@ -435,7 +435,8 @@ app.MapAction("cart.add", async ([FromForm] AddToCart input, HttpContext http, C
 ```
 
 - Names are compared with their case, as browsers compare cookie names. A response that also writes a cookie outside the list is marked, as before.
-- The cookie of every cookie authentication scheme, ASP.NET Core Identity's included, counts whatever the list says, compared in any case: signing in or out always reloads. Netjes knows only cookie authentication's names, so keep any other cookie that holds who is signed in out of the list.
+- A name that ends in `*` is a prefix, for a cookie whose name holds a value, such as a cart per store where the stores are rows in the database: `.app.cart.*` covers `.app.cart.amsterdam` and every other cookie whose name starts with `.app.cart.`, compared with its case. Make the prefix the text only those cookies start with (`.app.cart.`, not `.app.`). A `*` goes only at the end, after at least one character: a bare `*`, a `*` elsewhere and an empty name stop the app at startup with an `OptionsValidationException` that names the entry.
+- The cookie of every cookie authentication scheme, ASP.NET Core Identity's included, counts whatever the list says, named in it or covered by a prefix, compared in any case: signing in or out always reloads. Netjes knows only cookie authentication's names, so keep any other cookie that holds who is signed in out of the list.
 - When the page on screen shows what the cookie changed, return it from the action, or ask for a refresh (`.Refresh()`, `.Revalidate(...)`).
 - In configuration the list is `Netjes:NoReloadCookies` (`Netjes__NoReloadCookies__0=cart` in an environment variable); a list set in the `AddNetjes` delegate replaces it ([options](../reference/options.md#where-options-come-from)).
 

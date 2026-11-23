@@ -23,6 +23,11 @@ public static class NetjesServiceCollectionExtensions
             options.Configure(configure);
         }
 
+        // Checked when the options are first read, and as the host starts even if nothing has read them yet.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            Microsoft.Extensions.Options.IValidateOptions<NetjesOptions>, NetjesOptionsValidation>());
+        options.ValidateOnStart();
+
         // Defaults for lists only when nothing set them: binding an array appends to whatever is already there.
         options.PostConfigure(o =>
         {
