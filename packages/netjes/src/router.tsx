@@ -342,6 +342,16 @@ type FetchOptions = {
   redirected?: boolean;
 };
 
+/** What `Navigator.load` takes besides the URL, the request and the signal. */
+type LoadOptions = {
+  /** Send the keys of the layout segments the router holds, whose loaders the server may skip (GETs only). */
+  reuseSegments?: boolean | undefined;
+  /** Called as soon as a post's answer says it set or deleted a cookie; by default the router's own handling. */
+  onCookiesChanged?: (() => void) | undefined;
+  /** A redirect led to the URL: one that no page answers loads as a document. */
+  redirected?: boolean | undefined;
+};
+
 async function fetchPayload(url: URL, request: PageRequest, signal: AbortSignal, options: FetchOptions = {}): Promise<FetchResult> {
   const { segmentKeys = [], token, onCookiesChanged, redirected = false } = options;
   const headers: Record<string, string> = { [DATA_HEADER]: '1', Accept: 'application/json' };
@@ -845,7 +855,8 @@ class Navigator {
 
   private startPrefetch(url: URL) {
     const controller = new AbortController();
-    const prefetch: Prefetch = { at: Date.now(), result: this.load(url, { method: 'GET' }, controller.signal, true), controller, loading: true };
+    const result = this.load(url, { method: 'GET' }, controller.signal, { reuseSegments: true });
+    const prefetch: Prefetch = { at: Date.now(), result, controller, loading: true };
     prefetch.result.then(
       () => {
         prefetch.loading = false;
@@ -975,10 +986,14 @@ class Navigator {
     let failure: NavigationError | undefined;
     try {
       const prefetched = options.usePrefetch ? this.takePrefetched(url, controller.signal) : undefined;
-      const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal, false) : undefined;
+      const under = options.interceptOver ? this.load(options.interceptOver, { method: 'GET' }, controller.signal) : undefined;
       under?.catch(() => {});
       const result = await (prefetched ??
-        this.load(url, request, controller.signal, options.reuseSegments, () => this.cookiesChanged(navigation), options.redirected));
+        this.load(url, request, controller.signal, {
+          reuseSegments: options.reuseSegments,
+          onCookiesChanged: () => this.cookiesChanged(navigation),
+          redirected: options.redirected,
+        }));
       // Superseded by another navigation, or started over because cookies changed: then it ends with the new attempt.
       if (controller.signal.aborted) return navigation.restarted;
       // A post may have changed what other pages show; do not serve them from before it. One that changed cookies has
@@ -1099,17 +1114,11 @@ class Navigator {
     return { kind, status, location: withoutBasePath(url.pathname, this.deps.basePath) + url.search };
   }
 
-  private async load(
-    url: URL,
-    request: PageRequest,
-    signal: AbortSignal,
-    reuseSegments: boolean,
-    onCookiesChanged = () => this.cookiesChanged(),
-    redirectedTo = false,
-  ): Promise<LoadResult> {
+  private async load(url: URL, request: PageRequest, signal: AbortSignal, options: LoadOptions = {}): Promise<LoadResult> {
+    const { reuseSegments = false, onCookiesChanged = () => this.cookiesChanged() } = options;
     let target = url;
     let current = request;
-    let redirected = redirectedTo;
+    let redirected = options.redirected ?? false;
     // After a form post everything is loaded again: the post may have changed what any layout shows.
     let keys = reuseSegments && request.method === 'GET' ? this.heldSegmentKeys() : [];
     // Output-cached pages carry no token; a post from one needs a fetched one (as a header).
@@ -1227,11 +1236,11 @@ class Navigator {
       (result) =>
         // A page that failed on the server is asked for again: it may answer now.
         'failed' in result
-          ? this.load(url, { method: 'GET' }, signal, true)
+          ? this.load(url, { method: 'GET' }, signal, { reuseSegments: true })
           : 'payload' in result
             ? { ...result, url: samePage(result.url, url) ? withHash(result.url, url.hash) : result.url }
             : result,
-      () => this.load(url, { method: 'GET' }, signal, true),
+      () => this.load(url, { method: 'GET' }, signal, { reuseSegments: true }),
     );
   }
 
