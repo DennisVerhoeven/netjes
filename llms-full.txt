@@ -3181,7 +3181,7 @@ The response then starts once every deferred value has arrived, up to `StreamTim
 
 In production, a document request that finds no Node process ready (they have all crashed or stopped answering, and are restarting) does not wait for one. Loaders and authorization run as usual and the response has the status it would have had, but .NET writes the document itself: a head with the stylesheets, the client entry and the CSP nonce, the `<title>`, description and robots from the loader's `PageMetadata`, and a body with only the page payload. The browser renders the page instead of hydrating it, and `Page.Defer` values stream in after it as usual. ([ADR 0013](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/decisions/0013-client-rendered-fallback.md) has the reasoning.)
 
-- Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route`.
+- Each such document logs a warning, `No Node sidecar was ready to render {Route} ({Path}); the page was sent for the browser to render.`, and adds one to the `netjes.sidecar.fallbacks` counter on the `Netjes` meter, tagged `netjes.route` and `http.route`.
 - It is never stored in the output cache, and it goes out with `Cache-Control: no-store` in place of any header the page set, and without the headers a CDN reads ahead of `Cache-Control` (`CDN-Cache-Control`, `Surrogate-Control` and the others listed in [caching](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/caching.md#cdns-and-proxies)), so no browser, and no CDN that goes by the response's headers, keeps it once the processes are back.
 - Visitors without JavaScript, and crawlers and link previews that run none, get an empty page with the title, description and robots from C#. Layout title templates, and the metadata that page and layout files export, apply once the page renders.
 - Once the page has rendered, the client router runs as it does on a hydrated page and puts the same `data-netjes-hydrated` on `<html>`, so end-to-end tests wait for it here too ([testing](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/testing.md#wait-for-hydration)).
@@ -5252,7 +5252,7 @@ builder.Services.AddOpenTelemetry()
 | `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `http.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
 
-A span that an exception ends has the status `Error` and the exception as an event. A server action has no route: every call goes to `/_netjes/actions/{name}`, which ASP.NET Core's own request span names as its `http.route`.
+A span that an exception ends has the status `Error` and the exception as an event. A server action has no route of its own: ASP.NET Core's request span for the call names the action's own path, such as `/_netjes/actions/posts.save`, as its `http.route`.
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
 
@@ -5266,7 +5266,7 @@ The call to the Node process carries `traceparent`, and the process logs it with
 
 ### Routes in two notations
 
-`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has neither: the `unknown` that a web vitals report with a route the app lacks is recorded under has no `http.route`.
+`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has no `http.route`: a web vitals report with a route the app lacks is still recorded, under `netjes.route` of `unknown`, without one.
 
 ### Bucket boundaries
 

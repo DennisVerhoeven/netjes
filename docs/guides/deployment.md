@@ -205,7 +205,7 @@ builder.Services.AddOpenTelemetry()
 | `netjes.render` | Building the payload and, for documents, rendering | `netjes.route`, `http.route`, `netjes.page` (the file's id), `netjes.package` for a page package's file, `netjes.response` (`document` or `data`), `http.response.status_code` |
 | `netjes.sidecar.render` | The call to a Node process (a client span) | |
 
-A span that an exception ends has the status `Error` and the exception as an event. A server action has no route: every call goes to `/_netjes/actions/{name}`, which ASP.NET Core's own request span names as its `http.route`.
+A span that an exception ends has the status `Error` and the exception as an event. A server action has no route of its own: ASP.NET Core's request span for the call names the action's own path, such as `/_netjes/actions/posts.save`, as its `http.route`.
 
 The call to the Node process carries `traceparent`, and the process logs it with render errors, so its logs can be matched to the trace.
 
@@ -219,7 +219,7 @@ The call to the Node process carries `traceparent`, and the process logs it with
 
 ### Routes in two notations
 
-`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has neither: the `unknown` that a web vitals report with a route the app lacks is recorded under has no `http.route`.
+`netjes.route` is the route pattern in page-file syntax (`/blog/[slug]`, `/docs/[...path]`, `/shop/[[...rest]]`), and never a URL. `http.route` is the same route as the route template ASP.NET Core reports for its own request span and `http.server.request.duration` (`/blog/{slug}`, `/docs/{**path:minlength(1)}`, `/shop/{**rest}`), as [OpenTelemetry's semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) name it. Both are on every span and metric that has a route, so a render time can be put next to the request that waited for it, and a trace is found by either. A route group's folder adds nothing to either, and a page package's page has the URL where the package is mounted. A pattern that is not a page of the app has no `http.route`: a web vitals report with a route the app lacks is still recorded, under `netjes.route` of `unknown`, without one.
 
 ### Bucket boundaries
 
