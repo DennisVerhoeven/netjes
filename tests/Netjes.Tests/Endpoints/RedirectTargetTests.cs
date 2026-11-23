@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Netjes.Tests.Endpoints;
 
@@ -24,7 +25,12 @@ public class RedirectTargetTests
         public int Count;
     }
 
-    private static Task<TestApp> StartAsync(Calls calls, string? pathBase = null, Action<WebApplication>? map = null) =>
+    /// <summary>
+    /// The app with the file endpoint. <paramref name="outputCacheFirst"/>: with an output cache ahead of
+    /// <c>UseNetjes</c>, so ahead of routing, whose base policy stores every answer to a GET, in the Testing environment
+    /// (in Development the test app refuses an output cache).
+    /// </summary>
+    private static Task<TestApp> StartAsync(Calls calls, string? pathBase = null, Action<WebApplication>? map = null, bool outputCacheFirst = false) =>
         TestApp.StartAsync(
             Files,
             map: a =>
@@ -38,7 +44,11 @@ public class RedirectTargetTests
                 a.MapPageLoader("/old", () => Page.Redirect("/files"));
                 map?.Invoke(a);
             },
-            pathBase: pathBase);
+            pathBase: pathBase,
+            services: outputCacheFirst ? s => s.AddOutputCache(o => o.AddBasePolicy(b => b.Expire(TimeSpan.FromMinutes(5)))) : null,
+            beforeNetjes: outputCacheFirst ? a => a.UseOutputCache() : null,
+            environment: outputCacheFirst ? "Testing" : "Development",
+            mode: outputCacheFirst ? NetjesMode.Development : null);
 
     private static Task<HttpResponseMessage> FollowAsync(TestApp app, string url, bool data = true, HttpMethod? method = null)
     {
@@ -69,6 +79,27 @@ public class RedirectTargetTests
         Assert.Equal(0, calls.Count);
         Assert.Equal("no-store, private", response.Headers.CacheControl?.ToString());
         Assert.Contains(NetjesHeaders.Redirected, response.Headers.Vary);
+    }
+
+    /// <summary>
+    /// An output cache that runs before routing keys the URL alone, not the headers: were the answer to the router's
+    /// request stored, every document load of the URL would get that JSON instead of the file.
+    /// </summary>
+    [Fact]
+    public async Task RedirectTarget_ThatNoPageAnswers_IsNotStored_ByAnOutputCacheAheadOfRouting()
+    {
+        var calls = new Calls();
+        await using var app = await StartAsync(calls, outputCacheFirst: true);
+
+        var follow = await FollowAsync(app, "/download/report.pdf");
+        var document = await app.GetDocumentAsync("/download/report.pdf");
+        // The cache is in effect: the file's own answer is stored, and the endpoint does not run again.
+        var again = await app.GetDocumentAsync("/download/report.pdf");
+
+        Assert.Equal("document", (string?)(await JsonOf(follow))["kind"]);
+        Assert.Equal("application/pdf", document.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("application/pdf", again.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(1, calls.Count);
     }
 
     [Fact]
