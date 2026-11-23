@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Microsoft.AspNetCore.Http;
 
 namespace Netjes;
 
@@ -38,6 +39,24 @@ public static class NetjesTelemetry
         }
 
         return activity;
+    }
+
+    /// <summary>
+    /// Runs the rest of an endpoint filter chain inside the span <paramref name="start"/> opens, which an exception
+    /// marks as an error. The tracing filter of page loaders and page actions.
+    /// </summary>
+    internal static async ValueTask<object?> TraceAsync(Func<Activity?> start, EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        using var activity = start();
+        try
+        {
+            return await next(context);
+        }
+        catch (Exception ex)
+        {
+            activity.RecordException(ex);
+            throw;
+        }
     }
 
     /// <summary>

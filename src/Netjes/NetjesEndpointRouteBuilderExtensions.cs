@@ -197,19 +197,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     /// whose page it is.
     /// </summary>
     private static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> Traced(string operation, string pattern, string? package) =>
-        async (context, next) =>
-        {
-            using var activity = NetjesTelemetry.StartActivity(operation, pattern).WithPackage(package);
-            try
-            {
-                return await next(context);
-            }
-            catch (Exception ex)
-            {
-                activity.RecordException(ex);
-                throw;
-            }
-        };
+        (context, next) => NetjesTelemetry.TraceAsync(() => NetjesTelemetry.StartActivity(operation, pattern).WithPackage(package), context, next);
 
     // The antiforgery middleware only records its verdict (none when it did not judge the request, which happens only
     // when the app suppresses the endpoint security-metadata check); ASP.NET Core acts on it
