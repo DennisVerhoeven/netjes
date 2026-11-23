@@ -5545,7 +5545,7 @@ type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
   scroll?: boolean;             // default true: scroll to the top, or to the #fragment and focus it
   prefetch?: 'intent' | 'none'; // default 'intent': fetch the page on hover, focus and touch
   reloadDocument?: boolean;     // let the browser load the URL with a full page load
-  exactQuery?: boolean;         // aria-current only when the page has no query parameter the link leaves out
+  exactQuery?: boolean;         // aria-current only when the page's query is the link's: same parameters, same values
 };
 ```
 
