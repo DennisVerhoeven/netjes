@@ -587,8 +587,8 @@ internal sealed class PageRenderer(
         var actionState = http.Items[ServerActionResult.StateKey] as ActionStatePayload;
         if (actionState is not null && status == StatusCodes.Status200OK)
         {
-            // The page is rendered in place of a failed form post, with its errors.
-            status = StatusCodes.Status422UnprocessableEntity;
+            // The page is rendered in place of a failed form post, with its errors: 422, or 429 after a rate limit.
+            status = actionState.Status;
         }
 
         var renderedAt = time.GetUtcNow().ToUnixTimeMilliseconds();

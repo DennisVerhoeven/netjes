@@ -213,7 +213,7 @@ export function useAction<TInput, TResult>(
   const { actionState } = usePagePayload();
   const initial: ActionState<TResult> | null =
     actionState?.action === action.actionName
-      ? { ok: false, status: 422, errors: actionState.errors, values: actionState.values }
+      ? { ok: false, status: actionState.status ?? 422, errors: actionState.errors, values: actionState.values }
       : (options.initialState ?? null);
   const { onSubmit } = options;
   const [state, dispatch, pending] = useActionState((_previous: ActionState<TResult> | null, formData: FormData) => {
@@ -232,15 +232,16 @@ export type PageActionFailure = { ok: false; status: number; errors: Record<stri
 /**
  * After the input of the page's action (`MapPageAction`) failed its checks, its DataAnnotations or
  * `IValidatableObject`: the errors per field and the submitted values of the fields the action declares, as the page
- * is rendered again from its loader, with and without JavaScript. Else null, also after a server action's failure,
- * which `useAction` reads.
+ * is rendered again from its loader, with and without JavaScript, with status 422. After the rate limiter refused the
+ * post (`Page.TooManyRequests` in C#), the same with status 429 and the limiter's message under `''`. Else null, also
+ * after a server action's failure, which `useAction` reads.
  */
 export function usePageActionState(): PageActionFailure | null {
   const { actionState, route } = usePagePayload();
   return useMemo(
     () =>
       actionState && route !== null && actionState.action === route
-        ? { ok: false, status: 422, errors: actionState.errors, values: actionState.values }
+        ? { ok: false, status: actionState.status ?? 422, errors: actionState.errors, values: actionState.values }
         : null,
     [actionState, route],
   );

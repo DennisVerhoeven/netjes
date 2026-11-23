@@ -64,7 +64,7 @@ The router is a fake. `<Link>`, `router.push` and `router.replace` move to the n
 | `queryClient` | A client of your own instead, used as it is, without any of those defaults. |
 | `actions` | Answers for server action calls, by name (below). |
 | `navigation` | What `useNavigation()` returns. Default idle. |
-| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422 ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
+| `pageActionState` | What `usePageActionState()` returns after the page action's input failed its checks: `{ errors, values }`, the errors per field and the submitted values, as the server sends them with a 422, or with `status`, such as 429 for a post the rate limiter refused ([A page action that failed](#a-page-action-that-failed)). It belongs to the page `route` names, or the URL's path without `route`. Default no failure. |
 | `antiforgery` | The token `<Form method="post">` adds. Default a test token; `false` for none. |
 | `publicConfig` | What `usePublicConfig()` returns. |
 | `locale` | What `useLocale()` returns. |
@@ -119,7 +119,7 @@ it('shows what the page action refused, next to the field', () => {
 });
 ```
 
-`usePageActionState()` reports status 422, as it does after the server's. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
+`usePageActionState()` reports status 422, as it does after the server's. A post the rate limiter refused ([Rate limits](actions-and-forms.md#rate-limits)) comes back with status 429 and the limiter's message under `''`: give `status: 429` and `errors: { '': ['Too many requests. Try again later.'] }` to test how the page shows it. Without `pageActionState` it returns `null`. A page that takes the failure from its loader's props instead needs none of this.
 
 ### Pages
 

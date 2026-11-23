@@ -222,9 +222,7 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         if (http.GetEndpoint()?.Metadata.GetMetadata<IAntiforgeryMetadata>() is { RequiresValidation: true })
         {
             var verdict = http.Features.Get<IAntiforgeryValidationFeature>();
-            var valid = verdict?.IsValid
-                ?? await http.RequestServices.GetRequiredService<IAntiforgery>().IsRequestValidAsync(http);
-            if (!valid)
+            if (!await HasValidAntiforgeryTokenAsync(http))
             {
                 // Recorded where the middleware records its own: the action response marks it (ServerActionResponses).
                 if (verdict is null)
@@ -240,6 +238,14 @@ public static partial class NetjesEndpointRouteBuilderExtensions
 
         return await next(context);
     }
+
+    /// <summary>
+    /// The antiforgery middleware's verdict on the request, or, where it gave none (it runs later in the pipeline, or the
+    /// app suppresses its check), the token checked now.
+    /// </summary>
+    internal static async Task<bool> HasValidAntiforgeryTokenAsync(HttpContext http) =>
+        http.Features.Get<IAntiforgeryValidationFeature>()?.IsValid
+        ?? await http.RequestServices.GetRequiredService<IAntiforgery>().IsRequestValidAsync(http);
 
     private sealed class RefusedToken : IAntiforgeryValidationFeature
     {
@@ -425,7 +431,17 @@ public static partial class NetjesEndpointRouteBuilderExtensions
     // same-origin. AllowedActionOrigins adds others.
     private static ValueTask<object?> RejectCrossSiteCalls(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var http = context.HttpContext;
+        if (IsCrossSite(context.HttpContext))
+        {
+            throw new BadHttpRequestException("Cross-site posts to actions are not allowed.", StatusCodes.Status403Forbidden);
+        }
+
+        return next(context);
+    }
+
+    /// <summary>Whether a post to an action comes from another site than this one and the allowed origins.</summary>
+    internal static bool IsCrossSite(HttpContext http)
+    {
         var request = http.Request;
         var site = request.Headers["Sec-Fetch-Site"].ToString();
         var origin = request.Headers.Origin.ToString();
@@ -433,14 +449,8 @@ public static partial class NetjesEndpointRouteBuilderExtensions
         // A no-JS form post from a page with Referrer-Policy: no-referrer sends Origin: null; the browser's own
         // Sec-Fetch-Site (which scripts cannot set) still tells whether it came from this origin.
         var nullFromHere = origin == "null" && site == "same-origin";
-        var crossSite = site is "cross-site"
+        return site is "cross-site"
             || (origin.Length > 0 && !nullFromHere && !IsSameOrAllowedOrigin(origin, request.Host.Value, allowed));
-        if (crossSite)
-        {
-            throw new BadHttpRequestException("Cross-site posts to actions are not allowed.", StatusCodes.Status403Forbidden);
-        }
-
-        return next(context);
     }
 
     // Page actions too, unless they opt out of antiforgery: a webhook, or a payment or identity provider posting a

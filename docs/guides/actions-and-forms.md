@@ -50,7 +50,7 @@ That is the form `netjes new` writes. With JavaScript it calls the action with `
 - Every action answers at `/_netjes/actions/{name}`, the one URL the client posts to, so `MapAction` in a route group with a prefix, such as `app.MapGroup("/api")`, throws at startup. Map it on the app, or on a group without a prefix (`app.MapGroup("")`) to give a set of actions the same conventions.
 - A [page package](page-packages.md) maps its actions through its mount, at the same URLs, with the mount's conventions. They share one namespace with the app's and every other package's, so a package starts its actions' names with its own (`help.vote`), and a name the app maps again, in any case, stops the app, naming the package and the app. A package's actions are typed in the package's own generated file, not in the app's.
 - The delegate binds like any minimal API handler. A `[FromForm]` parameter binds form fields, which a `<Form>` posts and which also work without JavaScript. A parameter without it binds a JSON body, for calls from code. Services, `ClaimsPrincipal`, `HttpContext` and `CancellationToken` bind as usual. A delegate minimal APIs cannot bind, such as one with two inferred bodies or with `[FromForm]` fields next to a JSON body, stops the app at startup with an `InvalidOperationException` that names the action and gives minimal APIs' reason.
-- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint. Check what the user may do inside the action as well, as for any endpoint that changes data.
+- `MapAction` returns a `RouteHandlerBuilder`: `.RequireAuthorization()`, `.RequireRateLimiting(...)` and filters work as on any endpoint ([Rate limits](#rate-limits)). Check what the user may do inside the action as well, as for any endpoint that changes data.
 - Under `npm run dev`, `dotnet watch` applies a change inside an action to the running app, but maps a new `MapAction` only after a restart (Ctrl+R): until then a post to it answers 405, and `generated/netjes.ts` gains its reference on that start or with `npx netjes generate`.
 
 ### Results
@@ -306,7 +306,7 @@ export default definePage(pages['/guestbook'], function Guestbook({ entries }) {
 });
 ```
 
-`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
+`failed` has the shape of `useAction`'s failure state, `{ ok: false, status: 422, errors, values }`: `errors` is keyed with the app's JSON naming policy, as for a server action, and `values` by the names the form posted. After the rate limiter refused the post, it is the same failure with status 429 ([Rate limits](#rate-limits)). It is null on every other render, also after a server action's failure, which `useAction` reads. An error that only the delegate can find, such as a name that is taken, goes in the page's props, as in the first example.
 
 ## Antiforgery and the origin check
 
@@ -334,6 +334,50 @@ app.MapAction("photos.upload", [RequestSizeLimit(20 * 1024 * 1024)] (IFormFile p
 ```
 
 Page actions keep the server's limit (30 MB with Kestrel).
+
+## Rate limits
+
+ASP.NET Core's rate limiter guards an action like any endpoint: `.RequireRateLimiting(policy)` on `MapAction` or `MapPageAction`, and `app.UseRateLimiter()` after `app.UseNetjes()`, so the limiter sees the endpoint routing chose. On its own, a refused post gets an empty status (503, or the limiter's `RejectionStatusCode`), which Netjes answers with the error page, so the visitor loses the form. `Page.TooManyRequests` as the limiter's `OnRejected` gives the form back instead:
+
+```csharp
+builder.Services.AddRateLimiter(limiter =>
+{
+    limiter.OnRejected = (context, _) => Page.TooManyRequests(context, "Too many attempts. Try again in a minute.");
+    limiter.AddFixedWindowLimiter("sign-in", window =>
+    {
+        window.PermitLimit = 5;
+        window.Window = TimeSpan.FromMinutes(1);
+    });
+});
+
+app.MapPageAction("/sign-in", ([FromForm] SignInForm form, ...) => ...).RequireRateLimiting("sign-in");
+```
+
+It answers with status 429, `Retry-After` when the limiter says when to come back (a window or a token bucket does), and `Cache-Control: no-store`:
+
+- **A page action's post** gets its page again from its loader, with and without JavaScript, as after a [failed validation](#validation-in-page-actions): `usePageActionState()` returns `{ ok: false, status: 429, errors, values }`, with the message under `errors['']` (default "Too many requests. Try again later.") and the submitted values of the fields the action declares, never a password or another private field ([What a failed post hands back](#what-a-failed-post-hands-back)).
+- **A server action's form posted without JavaScript** gets the page it was posted from again, in the same way, and `useAction`'s state starts as that failure.
+- **A server action called by script**, `useAction`'s form with JavaScript included, gets a failure with status 429 and the message, which throws a `ServerActionError` whose `message` is that text, as a 429 always has ([`ServerActionError`](../reference/react-api.md#serveractionerror)).
+- **Any other request**, such as a page's `GET` behind a limit, gets an empty 429, which Netjes answers with the error page, or with a failure for a script's call.
+
+A post is handed back only when it passes the checks the action itself makes before it runs, which the limiter comes before: its origin and its antiforgery token ([Antiforgery and the origin check](#antiforgery-and-the-origin-check)). One that fails them gets the empty 429, and nothing it posted is written into a page. The message can depend on the request, such as its language: `(context, _) => Page.TooManyRequests(context, Texts.TooMany(context.HttpContext))`. A policy of your own (`IRateLimiterPolicy<T>`) returns it from its `OnRejected`, which the limiter calls in place of the global one.
+
+```tsx
+// app/sign-in/page.tsx
+export default definePage(pages['/sign-in'], function SignIn() {
+  const failed = usePageActionState();
+  return (
+    <Form method="post">
+      {failed?.errors['']?.map((message) => <p role="alert" key={message}>{message}</p>)}
+      <input name="email" type="email" defaultValue={String(failed?.values.email ?? '')} />
+      <input name="password" type="password" />
+      <button type="submit">Sign in</button>
+    </Form>
+  );
+});
+```
+
+Put the limit on the action, not on the page: the page rendered again goes through the limiter as a `GET` of its own, and a limit there refuses it too. Every refused post that is handed back renders its page, loaders included, so a limit that refuses a flood of posts renders a page for each.
 
 ## Revalidation
 

@@ -43,10 +43,11 @@ export type TestAppOptions = {
   navigation?: NavigationState;
   /**
    * What `usePageActionState()` returns after the page action's input failed its checks, as the server sends it with a
-   * 422: the errors per field and the submitted values of the fields the action declares (default none). It belongs to
-   * the page, so `route` names it; without `route`, the page is the URL's path. Default no failure.
+   * 422: the errors per field and the submitted values of the fields the action declares (default none). `status` is
+   * the failure's status, 422 by default, or 429 for a post the rate limiter refused. It belongs to the page, so `route`
+   * names it; without `route`, the page is the URL's path. Default no failure.
    */
-  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> };
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]>; status?: number };
   /** The token `<Form method="post">` adds. Default a test token; `false` for none. */
   antiforgery?: AntiforgeryToken | false;
   queryClient?: QueryClient;
@@ -190,7 +191,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         props: {},
         params: options.params ?? {},
         shared: options.shared ?? null,
-        status: options.pageActionState ? 422 : 200,
+        status: options.pageActionState ? (options.pageActionState.status ?? 422) : 200,
         url: url.pathname + url.search,
         version: 'test',
         ...(antiforgery ? { antiforgery } : {}),
@@ -198,7 +199,14 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         ...(options.locale ? { locale: options.locale } : {}),
         ...(options.mounts ? { mounts: options.mounts } : {}),
         ...(options.pageActionState && route !== null
-          ? { actionState: { action: route, errors: options.pageActionState.errors, values: options.pageActionState.values ?? {} } }
+          ? {
+              actionState: {
+                action: route,
+                status: options.pageActionState.status ?? 422,
+                errors: options.pageActionState.errors,
+                values: options.pageActionState.values ?? {},
+              },
+            }
           : {}),
       };
     }, [url]);

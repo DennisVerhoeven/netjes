@@ -27,6 +27,7 @@ function Guestbook(props: Record<string, unknown>) {
           Name <input name="name" defaultValue={String(failed?.values.name ?? '')} />
         </label>
         {failed?.errors.name && <p role="alert">{failed.errors.name[0]}</p>}
+        {failed?.errors[''] && <p role="alert">{failed.errors[''][0]}</p>}
         <label>
           Message <textarea name="message" defaultValue={String(failed?.values.message ?? '')} />
         </label>
@@ -118,6 +119,40 @@ describe('usePageActionState', () => {
 
     expect(html).toContain('Tell us who you are.');
     expect(html).toContain('>Hi</textarea>');
+  });
+
+  it('reports a post the rate limiter refused as it reports a failed validation, with status 429', async () => {
+    const refused = payload({
+      status: 429,
+      actionState: {
+        action: '/guestbook',
+        status: 429,
+        errors: { '': ['Too many requests. Try again later.'] },
+        values: { name: 'Ada', message: 'Hi' },
+      },
+    });
+    server.use(http.post(`${origin}/guestbook`, () => HttpResponse.json(refused, { status: 429, headers: { 'Retry-After': '30' } })));
+    const user = await renderApp(payload());
+
+    await user.type(screen.getByLabelText('Name'), 'Ada');
+    await user.click(screen.getByRole('button', { name: 'Sign' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Too many requests. Try again later.');
+    expect(screen.getByRole('status').textContent).toBe('failed 429');
+    expect(screen.getByLabelText('Name')).toHaveProperty('value', 'Ada');
+  });
+
+  it('starts from the refusal a post without JavaScript left in the page, with its status', async () => {
+    await renderApp(
+      payload({
+        status: 429,
+        actionState: { action: '/guestbook', status: 429, errors: { '': ['Slow down.'] }, values: { message: 'Hi' } },
+      }),
+    );
+
+    expect(screen.getByRole('alert').textContent).toBe('Slow down.');
+    expect(screen.getByRole('status').textContent).toBe('failed 429');
+    expect(screen.getByLabelText('Message')).toHaveProperty('value', 'Hi');
   });
 
   it("leaves a server action's failure to useAction", async () => {

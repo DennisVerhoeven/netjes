@@ -68,9 +68,14 @@ export type AntiforgeryToken = {
 /** A TanStack Query cache entry seeded by the C# loader (`PageResult.WithQuery`). `updatedAt` is Unix milliseconds. */
 export type SeededQuery = { key: readonly unknown[]; data: unknown; updatedAt: number };
 
-/** Left by a server action posted without JavaScript that failed validation; the form's page renders with it. */
+/**
+ * Left by a form post that failed (a page action's, or a server action's posted without JavaScript); the form's page
+ * renders with it. `status` is 422 after a failed validation and 429 after the rate limiter refused the post
+ * (`Page.TooManyRequests`); 422 when absent.
+ */
 export type ActionStateRef = {
   action: string;
+  status?: number;
   errors: Record<string, string[]>;
   values: Record<string, string | string[]>;
 };
@@ -268,7 +273,12 @@ function actionState(value: unknown): ActionStateRef {
   for (const [key, item] of Object.entries(object(json.values ?? {}, 'actionState.values'))) {
     values[key] = Array.isArray(item) ? strings(item, `actionState.values.${key}`) : string(item, `actionState.values.${key}`);
   }
-  return { action: string(json.action, 'actionState.action'), errors: errorMap(json.errors ?? {}, 'actionState.errors'), values };
+  return {
+    action: string(json.action, 'actionState.action'),
+    ...(json.status !== undefined && json.status !== null ? { status: number(json.status, 'actionState.status') } : {}),
+    errors: errorMap(json.errors ?? {}, 'actionState.errors'),
+    values,
+  };
 }
 
 export function parseActionResponse(value: unknown): ActionResponse {

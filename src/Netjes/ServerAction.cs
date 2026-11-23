@@ -161,7 +161,7 @@ public sealed partial class ServerActionResult : IResult
             var posted = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
             // The path as the server read it: written out and read back, an encoded one would change its route values.
             var (path, query) = (http.Request.Path, http.Request.QueryString);
-            await RenderAgainAsync(http, json, errors, posted, () => ReExecute.GetAsync(http, path, query));
+            await RenderAgainAsync(http, json, errors, posted, StatusCodes.Status422UnprocessableEntity, () => ReExecute.GetAsync(http, path, query));
             return;
         }
 
@@ -198,20 +198,53 @@ public sealed partial class ServerActionResult : IResult
             return;
         }
 
-        await RenderAgainAsync(http, json, errors, form, () => ReExecute.GetAsync(http, returnUrl));
+        await RenderAgainAsync(http, json, errors, form, StatusCodes.Status422UnprocessableEntity, () => ReExecute.GetAsync(http, returnUrl));
+    }
+
+    /// <summary>
+    /// An action's post that was refused before it ran, such as by the rate limiter (<see cref="Page.TooManyRequests"/>),
+    /// once it passed the checks an action's post passes: answered like a failed validation, with
+    /// <paramref name="status"/> and <paramref name="message"/> as the form's error. A page action's page, or the page a
+    /// server action's form was posted from without JavaScript, renders again with the fields it posted; a server action
+    /// called by script gets a failure with the status and the message, which reaches it as a <c>ServerActionError</c>.
+    /// </summary>
+    internal static async Task RefuseAsync(HttpContext http, int status, string message)
+    {
+        var json = http.RequestServices.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        var errors = new Dictionary<string, string[]> { [""] = [message] };
+        var form = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
+        // The rate limiter sets its rejection status before it calls OnRejected; under an error status the page's loader,
+        // a minimal API, would not run. The page sets the status itself.
+        http.Response.StatusCode = StatusCodes.Status200OK;
+        if (http.GetEndpoint()?.Metadata.GetMetadata<PageActionMetadata>() is not null)
+        {
+            var (path, query) = (http.Request.Path, http.Request.QueryString);
+            await RenderAgainAsync(http, json, errors, form, status, () => ReExecute.GetAsync(http, path, query));
+            return;
+        }
+
+        if (PageRenderer.IsDataRequest(http))
+        {
+            await ServerActionResponses.WriteAsync(http, status, ServerActionResponses.Failure(status, message));
+            return;
+        }
+
+        var returnUrl = LocalOrHome(form?[ReturnField].ToString());
+        await RenderAgainAsync(http, json, errors, form, status, () => ReExecute.GetAsync(http, returnUrl));
     }
 
     /// <summary>
     /// After a failed form post: the page that <paramref name="render"/> runs the pipeline again for, rendered in its
-    /// place in the same request, with the errors and what was typed in the fields the action declares.
+    /// place in the same request with <paramref name="status"/>, with the errors and what was typed in the fields the
+    /// action declares.
     /// </summary>
     private static async Task RenderAgainAsync(
-        HttpContext http, JsonSerializerOptions json, Dictionary<string, string[]>? errors, IFormCollection? form, Func<Task> render)
+        HttpContext http, JsonSerializerOptions json, Dictionary<string, string[]>? errors, IFormCollection? form, int status, Func<Task> render)
     {
         // Echoed into the page so the form keeps what was typed.
         var values = form is null ? [] : EchoedValues(form, EchoedFields(http, form, json));
-        // The page rendered in its place sets 422 itself (setting it here would stop its loaders from running).
-        http.Items[StateKey] = new ActionStatePayload(ActionNameOf(http), errors ?? [], values);
+        // The page rendered in its place sets the status itself (setting it here would stop its loaders from running).
+        http.Items[StateKey] = new ActionStatePayload(ActionNameOf(http), errors ?? [], values, status);
         // It holds what was typed: never kept in the browser's cache (a shared machine), whatever the page itself allows.
         NoStore.Force(http, "no-store");
         await render();
@@ -485,8 +518,11 @@ internal sealed record ActionPayload(
     public string Kind => "action";
 }
 
-/// <summary>What a failed no-JavaScript form post leaves for the page rendered in its place.</summary>
-internal sealed record ActionStatePayload(string Action, IDictionary<string, string[]> Errors, IDictionary<string, object?> Values);
+/// <summary>
+/// What a failed form post leaves for the page rendered in its place: <c>Status</c> is 422 after a failed validation, 429
+/// after the rate limiter refused it.
+/// </summary>
+internal sealed record ActionStatePayload(string Action, IDictionary<string, string[]> Errors, IDictionary<string, object?> Values, int Status);
 
 internal static class ServerActionResponses
 {

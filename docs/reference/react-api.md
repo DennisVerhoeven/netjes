@@ -242,7 +242,7 @@ type UseActionOptions<TResult> = {
 };
 ```
 
-React's `useActionState` for a server action. Pass `formAction` to `<Form action>`. After a failed post without JavaScript, `state` starts as that failure, with the submitted values. `onSubmit` is where `useOptimistic` updates go: React keeps them until the action and the page refresh after it have finished. See [`useAction` and `<Form>`](../guides/actions-and-forms.md#useaction-and-form).
+React's `useActionState` for a server action. Pass `formAction` to `<Form action>`. After a failed post without JavaScript, `state` starts as that failure, with the submitted values: status 422 after a failed validation, 429 after a rate limiter refused it with `Page.TooManyRequests`. `onSubmit` is where `useOptimistic` updates go: React keeps them until the action and the page refresh after it have finished. See [`useAction` and `<Form>`](../guides/actions-and-forms.md#useaction-and-form).
 
 #### `ActionState`
 
@@ -262,7 +262,7 @@ function usePageActionState(): PageActionFailure | null;
 type PageActionFailure = { ok: false; status: number; errors: Record<string, string[]>; values: Record<string, string | string[]> };
 ```
 
-After the input of the page's action (`MapPageAction`) failed its DataAnnotations or `IValidatableObject` checks: the errors per field (status 422) and the submitted values of the fields the action declares, in the shape of `ActionState`'s failure. The page has been rendered again from its loader, with or without JavaScript, so a field takes its value with `defaultValue={String(failed?.values.name ?? '')}`. Null on every other render, also after a server action's failure, which `useAction` reads. See [validation in page actions](../guides/actions-and-forms.md#validation-in-page-actions).
+After the input of the page's action (`MapPageAction`) failed its DataAnnotations or `IValidatableObject` checks: the errors per field (status 422) and the submitted values of the fields the action declares, in the shape of `ActionState`'s failure. The page has been rendered again from its loader, with or without JavaScript, so a field takes its value with `defaultValue={String(failed?.values.name ?? '')}`. After the rate limiter refused the post, with `Page.TooManyRequests` as its `OnRejected`, the same with status 429 and the limiter's message under `errors['']` ([Rate limits](../guides/actions-and-forms.md#rate-limits)). Null on every other render, also after a server action's failure, which `useAction` reads. See [validation in page actions](../guides/actions-and-forms.md#validation-in-page-actions).
 
 #### `ServerActionError`
 
@@ -274,7 +274,7 @@ class ServerActionError extends Error {
 }
 ```
 
-Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429.
+Thrown by a server action call when the server could not run the action or refused it (403, 404, 413, 429, 500, a refused token), as opposed to validation errors. Uncaught in a transition or an action, it reaches the nearest error boundary. Catch it to handle a status on the form, as TaskBoard does for 429. A rate limiter whose `OnRejected` is `Page.TooManyRequests` sends its message with the 429, so `message` can be shown as it is.
 
 `status` is the status of the server's answer. `message` is the message the server sent: the exception's (for a 4xx always, for a 5xx only with error details on), or the reason phrase for a call the server refused, such as `Forbidden`. `withheld` is true when the server sent no message, as for a 5xx with error details off; `message` is then `Server action <name> failed with status <status>`. An answer that is not JSON, such as a proxy's 502 page, gets that message too, but is not withheld.
 
@@ -630,7 +630,7 @@ type TestAppOptions = {
   publicConfig?: Record<string, unknown>; // what usePublicConfig() returns
   locale?: string;                  // what useLocale() returns
   draftMode?: boolean;              // what useDraftMode() reports
-  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]> }; // what usePageActionState() returns, as after a 422; the page is `route`, else the URL's path
+  pageActionState?: { errors: Record<string, string[]>; values?: Record<string, string | string[]>; status?: number }; // what usePageActionState() returns, as after a 422 (or `status`, such as 429); the page is `route`, else the URL's path
   queries?: ReadonlyArray<{ key: readonly unknown[]; data: unknown }>; // seeded as .WithQuery seeds them
   defaultOptions?: DefaultOptions;  // like netjes({ query: { defaultOptions } }), over the app's and the harness's
   queryClient?: QueryClient;        // use this client, as it is, instead of a new one

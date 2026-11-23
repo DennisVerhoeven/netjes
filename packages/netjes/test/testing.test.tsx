@@ -361,6 +361,16 @@ describe('createTestApp with a page action that failed', () => {
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Ada');
   });
 
+  it('hands usePageActionState a refusal with the status it is given, such as 429 after a rate limit', () => {
+    const app = createTestApp({ route: '/guestbook', pageActionState: { status: 429, errors: { name: ['Slow down.'] }, values: { name: 'Ada' } } });
+
+    render(<Guestbook />, { wrapper: app.Wrapper });
+
+    expect(screen.getByRole('alert').textContent).toBe('Slow down.');
+    expect(screen.getByRole('status').textContent).toBe('failed 429');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Ada');
+  });
+
   it('takes the page from the URL when no route is given, and defaults the values to none', () => {
     const app = createTestApp({ url: '/guestbook', pageActionState: { errors: { name: ['Required.'] } } });
 

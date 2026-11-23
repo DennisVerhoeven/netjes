@@ -204,6 +204,8 @@ A server action's request body may be at most 1 MB (`NetjesOptions.ActionBodySiz
 
 A form whose action fails validation comes back with what was typed, so the user does not type it again. Only the fields the action declares come back, never files, and never a field whose name contains one of the words in `NetjesOptions.PrivateFormFields` (`password`, `token`, `card`, `pin`, `iban` and more). What comes back goes out `Cache-Control: no-store`: the page rendered again, or a server action's answer to a call from the client. [What a failed post hands back](actions-and-forms.md#what-a-failed-post-hands-back) has the default words, how they match and the size limits.
 
+A post the rate limiter refused, with `Page.TooManyRequests` as its `OnRejected`, comes back the same way, with status 429 ([Rate limits](actions-and-forms.md#rate-limits)). The limiter runs before the action's own checks, so `Page.TooManyRequests` makes the origin and token checks first, as the action would: a post from another site, or with a missing or wrong token, gets an empty 429, and nothing it posted is written into a page.
+
 The return page of a post without JavaScript is always a page of the app: a return URL that routes anywhere else renders the home page (or the error page with 422, where `/` is no page either). Middleware registered before `UseNetjes()` does not run again for that render, so protect pages with endpoint authorization, not with middleware ahead of `UseNetjes()` ([Forms without JavaScript](actions-and-forms.md#forms-without-javascript)).
 
 ## Redirects
@@ -219,6 +221,25 @@ return Page.IsLocalUrl(returnUrl) ? Page.LocalRedirect(returnUrl) : Page.Redirec
 The client router never loads a page from another origin: a redirect or link to another site is a full page load, handed to the browser.
 
 Netjes's own redirect of another spelling of a page's URL ([One URL per page](routing.md#one-url-per-page)) is built from the URL the client sent, and never sends a location that could lead off the site. Under a root catch-all with `TrailingSlash.Never`, `//other.example/` would go to `//other.example`, `/\other.example/` to `/\other.example`, and `/%5Cother.example/` to a location that a client which decodes it reads as `/\other.example`: each of them is answered as it was sent, without a redirect. So is a URL whose location would hold a backslash, which browsers read as a slash, a `#`, which ends the path, a control character such as a tab, which browsers drop, or a character beyond ASCII, and one whose base path comes from a header, such as an `X-Forwarded-Prefix` taken from anyone, and would make the location start with `//` or `/\`.
+
+### Sending a visitor to sign in
+
+Cookie authentication answers a visitor it challenges with a redirect to its `LoginPath`. The client router follows that only with a full page load, and a server action's call gets the sign-in page's HTML in place of a failure. `Page.RedirectToSignIn(context, path)` in its `OnRedirectToLogin` answers as Netjes's own redirect does:
+
+```csharp
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(cookie =>
+{
+    cookie.Events.OnRedirectToLogin = context => Page.RedirectToSignIn(context.HttpContext, "/sign-in");
+});
+```
+
+- A document gets a 307 to `/sign-in?returnUrl=...`, or a 303 after a form post; a client navigation or a page action's post from the client router gets a redirect payload, which the router follows without a full page load.
+- A call to a server action, and any other request below `/_netjes`, has no page to come back to: it gets an empty 401, which Netjes answers with a failure that throws a `ServerActionError` (status 401), or with the 401 page for a form posted without JavaScript.
+- The URL to come back to is the request's path and query, encoded as the browser sent it, without the base path, which `Page.LocalRedirect` puts back. A path that is no local URL, such as a request target that starts with `//`, gets none. The sign-in page reads it as a `returnUrl` query value and checks it with `Page.IsLocalUrl` before it redirects, as above, since anyone can write a link to the sign-in page with a `returnUrl` of their own.
+- `path` must be a local URL, and may have a query (`/sign-in?as=staff`); the third parameter names the query value (`returnUrl` by default). The answer goes out `Cache-Control: no-store, private`, and the output cache never stores it, also on a cached page.
+- Every other request, an app's own endpoint included, is redirected as a document. Give an endpoint that scripts call, such as a JSON API, a policy whose scheme answers 401 instead.
+
+The answer of `OnRedirectToAccessDenied` stays the app's: answer 403 there, so that `forbidden.tsx` renders ([Routing](routing.md#error-not-found-forbidden-and-unauthorized-pages)).
 
 ## The image endpoint
 
