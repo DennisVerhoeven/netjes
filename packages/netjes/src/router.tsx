@@ -19,6 +19,7 @@ import type { EncodedForm } from './form-data.ts';
 import type { Href } from './href.ts';
 import { type ErrorPageProps, MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
 import { moveFocusAfterNavigation } from './navigation-focus.ts';
+import { NavigationGuards, type NavigationGuardOptions } from './navigation-guard.ts';
 import {
   type ActionResponse,
   type AntiforgeryToken,
@@ -37,6 +38,8 @@ import {
 import { RouteAnnouncer } from './route-announcer.tsx';
 import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
 import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schema.ts';
+
+export type { NavigationAttempt, NavigationAttemptType, NavigationGuardOptions } from './navigation-guard.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
 export type SubmitError = { status: number | null; action: string };
@@ -560,6 +563,24 @@ class Navigator {
     });
   }
 
+  /**
+   * Where a push or replace to `href` goes, as a guard is told (without the base path), or null for one no guard holds:
+   * to another origin or scheme, which the browser loads (a guard's `beforeunload` asks then), or to a fragment of the
+   * page on screen, which loads nothing and keeps the page.
+   */
+  heldTarget(href: string): string | null {
+    let url: URL;
+    try {
+      url = new URL(withBasePath(href, this.deps.basePath), window.location.href);
+    } catch {
+      // navigate() fails on it as it would without a guard.
+      return null;
+    }
+    if (!isWebUrl(url) || url.origin !== window.location.origin) return null;
+    if (url.hash && samePage(url, this.current.url)) return null;
+    return withoutBasePath(url.pathname, this.deps.basePath) + url.search + url.hash;
+  }
+
   submit(action: URL, body: SubmitBody, focusedAtStart = document.activeElement): Promise<void> {
     return this.go(
       action,
@@ -1035,6 +1056,7 @@ const RouterContext = createContext<InternalRouter | null>(null);
 const ViewContext = createContext<ViewValue | null>(null);
 const NavigationContext = createContext<NavigationState>(IDLE);
 const HistoryContext = createContext<HistoryContextValue | null>(null);
+const GuardsContext = createContext<NavigationGuards | null>(null);
 
 export type RouterProviderProps = {
   initial: PagePayload;
@@ -1124,6 +1146,7 @@ export function RouterProvider({
   // Every value as its initial one until the router has started, as on the server, so hydration matches.
   const [entry, setEntry] = useState<HistoryEntry>(() => ({ lineage: navigator.entryLineage, values: NO_VALUES }));
   const [restoreListeners] = useState(() => new Set<() => void>());
+  const [guards] = useState(() => new NavigationGuards());
   const [historyWriters] = useState(() => ({
     set: (lineage: number, name: string, compute: (values: HistoryValues) => unknown) => navigator.setValue(lineage, name, compute),
     onRestore: (listener: () => void) => {
@@ -1223,10 +1246,26 @@ export function RouterProvider({
     moveFocusAfterNavigation({ target, replaced, keep: view.scroll.kind === 'none', focusedAtStart: view.focusedAtStart });
   }, [view]);
 
-  const router = useMemo<InternalRouter>(
-    () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options),
-      replace: (href, options) => navigator.navigate(href, 'replace', options),
+  const router = useMemo<InternalRouter>(() => {
+    /**
+     * A push or replace, asked of the guards that hold first. What had the focus and what the entry carries are read as
+     * it is called, as without a guard: a value the browser cannot copy rejects it before any guard is asked.
+     */
+    const guarded = (href: string, history: 'push' | 'replace', options: NavigateOptions & FocusAtStart = {}): Promise<void> => {
+      const focusedAtStart = options.focusedAtStart === undefined ? document.activeElement : options.focusedAtStart;
+      const to = guards.holding ? navigator.heldTarget(href) : null;
+      if (to === null) return navigator.navigate(href, history, { ...options, focusedAtStart });
+      let historyState: HistoryValues | undefined;
+      try {
+        historyState = options.historyState === undefined ? undefined : (structuredClone(options.historyState) as HistoryValues);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart, historyState }));
+    };
+    return {
+      push: (href, options) => guarded(href, 'push', options),
+      replace: (href, options) => guarded(href, 'replace', options),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
@@ -1237,9 +1276,8 @@ export function RouterProvider({
         return () => actionListeners.delete(listener);
       },
       onCookiesChanged: (listener) => navigator.onCookiesChanged(listener),
-    }),
-    [navigator, actionListeners],
-  );
+    };
+  }, [navigator, actionListeners, guards]);
   const { payload, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   // The same element until another page is shown: a change of the router's state alone (a navigation on its way, a
@@ -1270,14 +1308,16 @@ export function RouterProvider({
 
   return (
     <RouterContext value={router}>
-      <ViewContext value={viewValue}>
-        <NavigationContext value={navigation}>
-          <HistoryContext value={history}>{page}</HistoryContext>
+      <GuardsContext value={guards}>
+        <ViewContext value={viewValue}>
+          <NavigationContext value={navigation}>
+            <HistoryContext value={history}>{page}</HistoryContext>
           {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
               new page has set. */}
-          <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
-        </NavigationContext>
-      </ViewContext>
+            <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
+          </NavigationContext>
+        </ViewContext>
+      </GuardsContext>
     </RouterContext>
   );
 }
@@ -1329,6 +1369,7 @@ export function RouterContexts({
   url,
   navigation,
   history,
+  guards,
   children,
 }: {
   router: InternalRouter;
@@ -1336,16 +1377,19 @@ export function RouterContexts({
   url: URL;
   navigation: NavigationState;
   history: HistoryContextValue;
+  guards: NavigationGuards;
   children: ReactNode;
 }) {
   const view = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   return (
     <RouterContext value={router}>
-      <ViewContext value={view}>
-        <NavigationContext value={navigation}>
-          <HistoryContext value={history}>{children}</HistoryContext>
-        </NavigationContext>
-      </ViewContext>
+      <GuardsContext value={guards}>
+        <ViewContext value={view}>
+          <NavigationContext value={navigation}>
+            <HistoryContext value={history}>{children}</HistoryContext>
+          </NavigationContext>
+        </ViewContext>
+      </GuardsContext>
     </RouterContext>
   );
 }
@@ -1529,4 +1573,22 @@ export function useHistoryRestore(callback: () => void): void {
     latest.current = callback;
   });
   useEffect(() => onRestore(() => latest.current()), [onRestore]);
+}
+
+/**
+ * Holds every client navigation while `when` is true, and asks `onAttempt` first: links, `<Form method="get">`,
+ * `router.push` and `router.replace`. The navigation waits until the attempt's `proceed()` lets it go on, or its `stay()`
+ * keeps the page. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a form
+ * post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that started
+ * to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a Netjes page.
+ */
+export function useNavigationGuard(options: NavigationGuardOptions): void {
+  const guards = useContext(GuardsContext);
+  if (!guards) throw new Error('netjes: this hook must be used inside a Netjes page');
+  const latest = useRef(options);
+  useEffect(() => {
+    latest.current = options;
+  });
+  const { when } = options;
+  useEffect(() => (when ? guards.register(() => latest.current) : undefined), [guards, when]);
 }

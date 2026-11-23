@@ -7,6 +7,7 @@ import { type ActionClient, type ActionState, setActionClient } from './actions.
 import type { AntiforgeryToken, PagePayload, Params } from './payload.ts';
 import { PublicConfigProvider } from './public-config.tsx';
 import { dehydratedStateOf, mergeOptions } from './query.tsx';
+import { NavigationGuards } from './navigation-guard.ts';
 import { type HistoryContextValue, type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
 
 export { type RenderDocumentOptions, inlineScriptHashes, renderDocument } from './render-document.tsx';
@@ -173,6 +174,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
       onRestore: () => () => {},
     }));
     const history = useMemo<HistoryContextValue>(() => ({ ...historyEntry, ...historyWriters }), [historyEntry, historyWriters]);
+    const [guards] = useState(() => new NavigationGuards());
     const router = useMemo<InternalRouter>(() => {
       const go = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
         navigations.push(historyState ? { type, href, historyState } : { type, href });
@@ -237,7 +239,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     return (
       <QueryClientProvider client={queryClient}>
         <PublicConfigProvider value={options.publicConfig ?? {}}>
-          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history}>
+          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history} guards={guards}>
             <RegisterActionClient client={actionClient} />
             {children}
           </RouterContexts>
