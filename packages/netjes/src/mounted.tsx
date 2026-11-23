@@ -3,7 +3,7 @@ import { Form, type FormAction, type FormProps, SubmitButton, type SubmitButtonP
 import { type Href, isHrefShape } from './href.ts';
 import { Link, type LinkProps } from './link.tsx';
 import { isDotSegment } from './payload.ts';
-import { type Router, useHref, usePagePayload, usePathname, useRouter } from './router.tsx';
+import { type NavigateOptions, type Router, useHref, usePagePayload, usePathname, useRouter } from './router.tsx';
 
 /** The props of a page package's `<Link>`: those of the core `<Link>`, with an href below the package's mount. */
 export type MountedLinkProps<THref extends string = string> = Omit<LinkProps, 'href'> & { href: THref };
@@ -18,8 +18,8 @@ export type MountedSubmitButtonProps<THref extends string = string> = Omit<Submi
 
 /** The client router, as a page package's `useRouter()` returns it: `push`, `replace` and `prefetch` go below its mount. */
 export type MountedRouter<THref extends string = string> = Omit<Router, 'push' | 'replace' | 'prefetch'> & {
-  push(href: THref, options?: { scroll?: boolean }): Promise<void>;
-  replace(href: THref, options?: { scroll?: boolean }): Promise<void>;
+  push(href: THref, options?: NavigateOptions): Promise<void>;
+  replace(href: THref, options?: NavigateOptions): Promise<void>;
   prefetch(href: THref): void;
 };
 

@@ -5,6 +5,7 @@ import {
   createContext,
   startTransition,
   use,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -36,7 +37,7 @@ import {
 } from './payload.ts';
 import { RouteAnnouncer } from './route-announcer.tsx';
 import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
-import { type StandardSchemaV1, parseLenient, parseWith } from './schema.ts';
+import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schema.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
 export type SubmitError = { status: number | null; action: string };
@@ -46,15 +47,26 @@ export type NavigationState =
   | { state: 'idle'; error?: SubmitError }
   | { state: 'loading' | 'submitting'; location: string };
 
+/** What `router.push` and `router.replace` take besides the href. */
+export type NavigateOptions = {
+  /** Scroll to the top after navigating, or to the #fragment's element. Default true. */
+  scroll?: boolean;
+  /**
+   * `useHistoryState` values, by name, that the entry the navigation adds or replaces starts with, over the values of a
+   * page that stays on screen. The router keeps a copy (`structuredClone`).
+   */
+  historyState?: Readonly<Record<string, unknown>>;
+};
+
 /** The client router that `useRouter()` returns. */
 export type Router = {
   /**
    * Navigates, adding a history entry. The promise resolves once the router has handed the page to React, which can be
    * before React shows it, or once the navigation has ended another way.
    */
-  push(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  push(href: Href, options?: NavigateOptions): Promise<void>;
   /** Navigates, replacing the history entry. The promise resolves as `push`'s does. */
-  replace(href: Href, options?: { scroll?: boolean }): Promise<void>;
+  replace(href: Href, options?: NavigateOptions): Promise<void>;
   /** Fetches the page payload and modules ahead of a navigation. Links do this on hover, focus and touch. */
   prefetch(href: Href): void;
   /**
@@ -79,8 +91,8 @@ export type ActionListener = (response: ActionResponse) => void;
 type FocusAtStart = { focusedAtStart?: Element | null };
 
 export type InternalRouter = Omit<Router, 'push' | 'replace'> & {
-  push(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
-  replace(href: Href, options?: { scroll?: boolean } & FocusAtStart): Promise<void>;
+  push(href: Href, options?: NavigateOptions & FocusAtStart): Promise<void>;
+  replace(href: Href, options?: NavigateOptions & FocusAtStart): Promise<void>;
   submit(action: URL, body: SubmitBody, options?: FocusAtStart): Promise<void>;
   onActionResponse(listener: ActionListener): () => void;
   /**
@@ -125,6 +137,8 @@ const ANTIFORGERY_URL = '/_netjes/antiforgery';
 const NONE: ScrollIntent = { kind: 'none' };
 const TOP: ScrollIntent = { kind: 'top' };
 const STATE_KEY = '__netjes';
+/** Where an entry's `useHistoryState` values are, in `history.state`, beside the entry's key. */
+const VALUES_KEY = '__netjesState';
 /**
  * On `<html>` while the client router runs in the document, and the public sign that it does: end-to-end tests wait
  * for it before they click. (The history entry's key is no such sign: the entry keeps it when the browser loads the
@@ -151,6 +165,35 @@ function readKey(state: unknown): string | undefined {
   if (typeof state !== 'object' || state === null || !(STATE_KEY in state)) return undefined;
   const value = (state as Record<string, unknown>)[STATE_KEY];
   return typeof value === 'string' ? value : undefined;
+}
+
+/** The values `useHistoryState` keeps with one history entry, by name. */
+type HistoryValues = Readonly<Record<string, unknown>>;
+const NO_VALUES: HistoryValues = Object.freeze({});
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readValues(state: unknown): HistoryValues {
+  const values = isRecord(state) ? state[VALUES_KEY] : undefined;
+  return isRecord(values) ? values : NO_VALUES;
+}
+
+/** `values` with the names a navigation carries set over them. */
+function withCarried(values: HistoryValues, carried: HistoryValues | undefined): HistoryValues {
+  return carried === undefined || Object.keys(carried).length === 0 ? values : { ...values, ...carried };
+}
+
+/**
+ * The state the router writes for an entry: its key and its values, over `kept`, the state of the entry it replaces,
+ * so the keys an app or a library put there stay. A new entry keeps nothing of the one before.
+ */
+function entryState(key: string, values: HistoryValues, kept: unknown = null): Record<string, unknown> {
+  const state: Record<string, unknown> = { ...(isRecord(kept) ? kept : {}), [STATE_KEY]: key };
+  if (Object.keys(values).length > 0) state[VALUES_KEY] = values;
+  else delete state[VALUES_KEY];
+  return state;
 }
 
 /**
@@ -316,9 +359,22 @@ type NavigatorDeps = {
   showDocument(html: string, url: string): void;
   download(file: Blob, name: string): void;
   setPending(state: NavigationState): void;
-  /** `focusedAtStart`: what had the focus when the navigation started, which decides where the focus goes after it. */
-  commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null): void;
+  /**
+   * `focusedAtStart`: what had the focus when the navigation started, which decides where the focus goes after it.
+   * `entry`: the history entry the page is shown in, with its values, and whether Back or Forward put the page back
+   * from memory.
+   */
+  commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null, entry: CommittedEntry): void;
+  /** The values of the entry on screen changed without a navigation: a page set one, or the router read them at start. */
+  setEntry(entry: HistoryEntry): void;
 };
+
+/**
+ * The history entry on screen, as `useHistoryState` reads it: its values, and the lineage of the page that holds them,
+ * to which a setter is bound.
+ */
+type HistoryEntry = { lineage: number; values: HistoryValues };
+type CommittedEntry = HistoryEntry & { restored: boolean };
 
 type GoOptions = {
   history: HistoryMode;
@@ -330,6 +386,10 @@ type GoOptions = {
   reuseSegments: boolean;
   /** Refreshing an intercepted page: load this page under it again too, and show the result in its slot again. */
   interceptOver?: URL;
+  /** Back or Forward to an entry the router does not remember: the values that entry holds. */
+  entryValues?: HistoryValues;
+  /** The values a navigation carries into the entry it adds or replaces. */
+  historyState?: HistoryValues;
   /** What had the focus as the navigation started, when the caller read it: else go() reads it as it starts. */
   focusedAtStart?: Element | null;
 };
@@ -356,6 +416,20 @@ class Navigator {
   private readonly entries = new Map<string, Loaded>();
   private readonly scrollPositions = new Map<string, { x: number; y: number }>();
   private currentKey = createKey();
+  /** The `useHistoryState` values of the entry on screen, as its `history.state` holds them. */
+  private values: HistoryValues = NO_VALUES;
+  /**
+   * The lineage of the values on screen, to which `useHistoryState`'s setters are bound. A navigation that keeps the
+   * page on screen gives the entry a new key but carries the page's values over, as the page keeps its React state, so
+   * it keeps the lineage too: a setter from before it still writes. A new one starts when the values start over
+   * (another page) or Back or Forward switch the entry, and a setter of the lineage before writes nothing.
+   */
+  private lineage = 0;
+  /**
+   * Back or Forward went to an entry whose page is still loading: the browser is on that entry while the page before
+   * is on screen, which must not write its values into it.
+   */
+  private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
   private currentIsStale = false;
   /** Shared with the app's other tabs, where the browser has BroadcastChannel; null until started, and once stopped. */
@@ -367,14 +441,27 @@ class Navigator {
   constructor(deps: NavigatorDeps, current: Loaded) {
     this.deps = deps;
     this.current = current;
+    // The entry the document was loaded into keeps its key and values when the browser loads it again (a reload).
+    // They are read here, so a page that sets a value before start() writes into that entry, and shown from start().
+    if (typeof window !== 'undefined') {
+      const existing = readKey(window.history.state);
+      if (existing) this.currentKey = existing;
+      this.values = readValues(window.history.state);
+    }
+  }
+
+  /** The lineage of the values on screen. */
+  get entryLineage(): number {
+    return this.lineage;
   }
 
   start(): () => void {
     window.history.scrollRestoration = 'manual';
-    const existing = readKey(window.history.state);
-    if (existing) this.currentKey = existing;
-    else window.history.replaceState({ ...(window.history.state ?? {}), [STATE_KEY]: this.currentKey }, '');
+    if (readKey(window.history.state) !== this.currentKey) window.history.replaceState(entryState(this.currentKey, this.values, window.history.state), '');
     this.remember(this.currentKey, this.current);
+    // The commit that hydrated the page rendered every value as its initial one, as the server did. An entry that holds
+    // values (after a reload) shows them now, before the browser paints; one with none renders nothing again.
+    if (this.values !== NO_VALUES) this.deps.setEntry({ lineage: this.lineage, values: this.values });
 
     let frame = 0;
     const onScroll = () => {
@@ -407,8 +494,34 @@ class Navigator {
     this.channel = null;
   }
 
-  /** `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called. */
-  async navigate(href: string, history: 'push' | 'replace', scroll: boolean, focusedAtStart = document.activeElement): Promise<void> {
+  /**
+   * Sets a `useHistoryState` value of the entry on screen, computed from the entry's values, in its `history.state`,
+   * for a setter of the values' `lineage`. A setter of a page that has left (setting a value as it unmounts), or of the
+   * entry before Back or Forward, changes nothing.
+   */
+  setValue(lineage: number, name: string, compute: (values: HistoryValues) => unknown) {
+    if (lineage !== this.lineage || this.betweenEntries) return;
+    const values = { ...this.values, [name]: compute(this.values) };
+    // First, so a value the browser cannot keep throws before anything changed.
+    window.history.replaceState(entryState(this.currentKey, values, window.history.state), '');
+    this.values = values;
+    this.deps.setEntry({ lineage, values });
+  }
+
+  /**
+   * `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called.
+   * `historyState`: `useHistoryState` values the new entry starts with.
+   */
+  async navigate(
+    href: string,
+    history: 'push' | 'replace',
+    scroll: boolean,
+    focusedAtStart = document.activeElement,
+    historyState?: HistoryValues,
+  ): Promise<void> {
+    // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
+    // browser cannot keep throws here, before the navigation starts.
+    const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
     const url = new URL(withBasePath(href, this.deps.basePath), window.location.href);
     if (!isWebUrl(url)) {
       console.error(`netjes: refusing to navigate to ${url.protocol} URL`);
@@ -424,9 +537,15 @@ class Navigator {
       this.cancelActive();
       this.rememberScroll();
       const key = createKey();
-      window.history[history === 'push' ? 'pushState' : 'replaceState']({ [STATE_KEY]: key }, '', url.href);
-      this.setCurrent(key, { ...this.current, url });
-      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart);
+      // The page stays, and so do its values.
+      const values = withCarried(this.values, carried);
+      window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, history === 'replace' ? window.history.state : null), '', url.href);
+      this.setCurrent(key, { ...this.current, url }, values, true);
+      this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart, {
+        lineage: this.lineage,
+        values,
+        restored: false,
+      });
       return;
     }
 
@@ -437,6 +556,7 @@ class Navigator {
       usePrefetch: true,
       reuseSegments: true,
       focusedAtStart,
+      ...(carried ? { historyState: carried } : {}),
     });
   }
 
@@ -594,13 +714,17 @@ class Navigator {
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
     const cached = this.entries.get(key);
     const known = cached && samePage(cached.url, url) ? cached : samePage(url, this.current.url) ? this.current : null;
+    const values = readValues(event.state);
     if (known) {
       this.active?.controller.abort();
-      this.setCurrent(key, { ...known, url });
-      this.deps.commit(this.current, scroll, document.activeElement);
+      // From memory, unless the page on screen simply stays (Back over a fragment link).
+      const restored = known.payload !== this.current.payload;
+      this.setCurrent(key, { ...known, url }, values, false);
+      this.deps.commit(this.current, scroll, document.activeElement, { lineage: this.lineage, values, restored });
       return;
     }
-    void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true });
+    this.betweenEntries = true;
+    void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true, entryValues: values });
   }
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
@@ -672,21 +796,26 @@ class Navigator {
       if (controller.signal.aborted) return navigation.restarted;
       const previous = this.current.url;
       const history = options.history === 'auto' ? (samePage(shown.url, previous) ? 'replace' : 'push') : options.history;
+      // Back or Forward: the entry's own values. Else the page's values go with it while it stays on screen (a refresh,
+      // another query or fragment), as its React state does; another page starts over. The values carried go on top.
+      const carries = history !== 'none' && pageKeyOf(shown) === pageKeyOf(this.current);
+      const values = history === 'none' ? (options.entryValues ?? NO_VALUES) : withCarried(carries ? this.values : NO_VALUES, options.historyState);
       let key = options.key ?? createKey();
       if (history === 'none') {
-        if (!options.key) window.history.replaceState({ [STATE_KEY]: key }, '');
+        if (!options.key) window.history.replaceState(entryState(key, values, window.history.state), '');
       } else {
         this.rememberScroll();
         key = createKey();
-        window.history[history === 'push' ? 'pushState' : 'replaceState']({ [STATE_KEY]: key }, '', shown.url.href);
+        const kept = history === 'replace' ? window.history.state : null;
+        window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, kept), '', shown.url.href);
       }
 
       this.currentIsStale = navigation.stale;
-      this.setCurrent(key, shown);
+      this.setCurrent(key, shown, values, carries);
       this.forgetToken();
       committed = true;
       const scroll = shown.base ? NONE : options.scroll === 'auto' ? (shown.url.pathname === previous.pathname ? NONE : TOP) : options.scroll;
-      this.deps.commit(shown, scroll, focusedAtStart);
+      this.deps.commit(shown, scroll, focusedAtStart, { lineage: this.lineage, values, restored: false });
     } catch (error) {
       if (controller.signal.aborted) return navigation.restarted;
       if (request.method === 'POST') {
@@ -826,9 +955,13 @@ class Navigator {
     );
   }
 
-  private setCurrent(key: string, loaded: Loaded) {
+  /** `carries`: the page on screen stays and its values went with it, so its setters keep writing. */
+  private setCurrent(key: string, loaded: Loaded, values: HistoryValues, carries: boolean) {
     this.currentKey = key;
     this.current = loaded;
+    this.values = values;
+    if (!carries) this.lineage += 1;
+    this.betweenEntries = false;
     if (!this.currentIsStale) this.remember(key, loaded);
   }
 
@@ -881,12 +1014,27 @@ function applyScroll(intent: ScrollIntent): HTMLElement | null {
   }
 }
 
-type View = { loaded: Loaded; id: number; scroll: ScrollIntent; focusedAtStart: Element | null };
+type View = { loaded: Loaded; id: number; scroll: ScrollIntent; focusedAtStart: Element | null; restored: boolean };
 type ViewValue = { payload: PagePayload; url: URL };
+
+/** What `useHistoryState` and `useHistoryRestore` read: the entry on screen, a way to write it, and the restores. */
+export type HistoryContextValue = {
+  /** The lineage of the values on screen: kept while navigations carry the page's values over, new when they start over. */
+  lineage: number;
+  values: HistoryValues;
+  /**
+   * Sets the value `name` of the entry on screen to what `compute` makes of the entry's values, while the values on
+   * screen are of `lineage`; else it does nothing. Stable.
+   */
+  set(lineage: number, name: string, compute: (values: HistoryValues) => unknown): void;
+  /** Calls `listener` whenever the page on screen was shown from memory after Back or Forward. Stable. */
+  onRestore(listener: () => void): () => void;
+};
 
 const RouterContext = createContext<InternalRouter | null>(null);
 const ViewContext = createContext<ViewValue | null>(null);
 const NavigationContext = createContext<NavigationState>(IDLE);
+const HistoryContext = createContext<HistoryContextValue | null>(null);
 
 export type RouterProviderProps = {
   initial: PagePayload;
@@ -953,6 +1101,7 @@ export function RouterProvider({
     id: 0,
     scroll: NONE,
     focusedAtStart: null,
+    restored: false,
   }));
   const [navigation, setNavigation] = useState<NavigationState>(IDLE);
   const [navigator] = useState(() => {
@@ -967,15 +1116,31 @@ export function RouterProvider({
         showDocument,
         download,
         setPending: setNavigation,
-        commit: (loaded, scroll, focusedAtStart) =>
+        commit: (loaded, scroll, focusedAtStart, { lineage, values, restored }) =>
           startTransition(() => {
-            setView((previous) => ({ loaded, id: previous.id + 1, scroll, focusedAtStart }));
+            setView((previous) => ({ loaded, id: previous.id + 1, scroll, focusedAtStart, restored }));
             setNavigation(IDLE);
+            // In the same transition as the page: the page that leaves never renders with the next entry's values.
+            setEntry({ lineage, values });
           }),
+        setEntry: (entry) => setEntry(entry),
       },
       view.loaded,
     );
   });
+  // Every value as its initial one until the router has started, as on the server, so hydration matches.
+  const [entry, setEntry] = useState<HistoryEntry>(() => ({ lineage: navigator.entryLineage, values: NO_VALUES }));
+  const [restoreListeners] = useState(() => new Set<() => void>());
+  const [historyWriters] = useState(() => ({
+    set: (lineage: number, name: string, compute: (values: HistoryValues) => unknown) => navigator.setValue(lineage, name, compute),
+    onRestore: (listener: () => void) => {
+      restoreListeners.add(listener);
+      return () => {
+        restoreListeners.delete(listener);
+      };
+    },
+  }));
+  const history = useMemo<HistoryContextValue>(() => ({ ...entry, ...historyWriters }), [entry, historyWriters]);
 
   // In the commit that shows the page, before the browser dispatches the clicks that came in while React hydrated it:
   // a fragment link followed then must find this history entry keyed, to come back to.
@@ -1039,6 +1204,18 @@ export function RouterProvider({
     html.setAttribute(HYDRATED_ATTRIBUTE, '');
     return () => html.removeAttribute(HYDRATED_ATTRIBUTE);
   }, []);
+  // After the effects of the page that Back or Forward put back, which subscribe as it mounts: a parent's effects run
+  // after its children's.
+  useEffect(() => {
+    if (view.restored) for (const listener of [...restoreListeners]) listener();
+  }, [view, restoreListeners]);
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) for (const listener of [...restoreListeners]) listener();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, [restoreListeners]);
   // The key of the page on screen before this commit.
   const committedPageKey = useRef(pageKeyOf(view.loaded));
   // In the commit that shows the page, before the browser paints it, and after the layout effects of the page and its
@@ -1055,8 +1232,8 @@ export function RouterProvider({
 
   const router = useMemo<InternalRouter>(
     () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart),
+      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
+      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
@@ -1070,7 +1247,7 @@ export function RouterProvider({
     }),
     [navigator, actionListeners],
   );
-  const { payload, modules, url } = view.loaded;
+  const { payload, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   // <html lang> for the page on screen. The server wrote the first page's, and Document keeps it as written, so the
   // attribute changes only when the lang does: an app that sets it itself keeps its value until then (a page whose
@@ -1083,29 +1260,37 @@ export function RouterProvider({
     shownLang.current = lang;
     document.documentElement.lang = lang;
   }, [lang]);
+  // The same element until another page is shown: a change of the router's state alone (a navigation on its way, a
+  // value of the history entry) re-renders only the components that read it.
+  const page = useMemo(
+    () => (
+      <Shell>
+        <ErrorBoundary
+          resetKey={view.id}
+          fallback={(error) => <ErrorFallback error={error} errorPage={errorPage} loader={loader} payload={view.loaded.payload} />}
+        >
+          <RouteTree
+            modules={view.loaded.modules}
+            segments={view.loaded.payload.segments}
+            props={view.loaded.payload.props}
+            params={view.loaded.payload.params}
+            status={view.loaded.payload.status}
+            pageKind={view.loaded.payload.pageKind}
+            pageKey={pageKeyOf(view.loaded)}
+            retry={() => void router.refresh()}
+            metadata={view.loaded.payload.metadata}
+          />
+        </ErrorBoundary>
+      </Shell>
+    ),
+    [Shell, view, errorPage, loader, router],
+  );
 
   return (
     <RouterContext value={router}>
       <ViewContext value={viewValue}>
         <NavigationContext value={navigation}>
-          <Shell>
-            <ErrorBoundary
-              resetKey={view.id}
-              fallback={(error) => <ErrorFallback error={error} errorPage={errorPage} loader={loader} payload={payload} />}
-            >
-              <RouteTree
-                modules={modules}
-                segments={payload.segments}
-                props={payload.props}
-                params={payload.params}
-                status={payload.status}
-                pageKind={payload.pageKind}
-                pageKey={pageKeyOf(view.loaded)}
-                retry={() => void router.refresh()}
-                metadata={payload.metadata}
-              />
-            </ErrorBoundary>
-          </Shell>
+          <HistoryContext value={history}>{page}</HistoryContext>
           {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
               new page has set. */}
           <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
@@ -1161,19 +1346,23 @@ export function RouterContexts({
   payload,
   url,
   navigation,
+  history,
   children,
 }: {
   router: InternalRouter;
   payload: PagePayload;
   url: URL;
   navigation: NavigationState;
+  history: HistoryContextValue;
   children: ReactNode;
 }) {
   const view = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   return (
     <RouterContext value={router}>
       <ViewContext value={view}>
-        <NavigationContext value={navigation}>{children}</NavigationContext>
+        <NavigationContext value={navigation}>
+          <HistoryContext value={history}>{children}</HistoryContext>
+        </NavigationContext>
       </ViewContext>
     </RouterContext>
   );
@@ -1289,4 +1478,73 @@ export function usePagePayload(): PagePayload {
 /** The router's state: `loading` during a navigation, `submitting` during a form post, else `idle` (with `error` after a post that produced no page). */
 export function useNavigation(): NavigationState {
   return useContext(NavigationContext);
+}
+
+const NOT_SET = Symbol('not set');
+
+/** Sets a value of `useHistoryState`: the value itself, or a function of the value before. */
+export type SetHistoryState<T> = (next: T | ((previous: T) => T)) => void;
+
+function useHistory(): HistoryContextValue {
+  const history = useContext(HistoryContext);
+  if (!history) throw new Error('netjes: this hook must be used inside a Netjes page');
+  return history;
+}
+
+/**
+ * A value kept with the history entry on screen, by `name`, like `useState`: Back, Forward and a reload bring the
+ * entry's value back. A new entry starts from `initial`, or from the value its navigation carried (`historyState` on
+ * `<Link>`, `router.push` and `router.replace`); a navigation that keeps the page on screen (another query, a fragment,
+ * a refresh) keeps its values. The value is `initial` on the server and in the render that hydrates the page. Keep it
+ * small and to what the browser can copy (`structuredClone`): ids, names and numbers, not rows.
+ *
+ * The setter writes into the entry on screen, and like `useState`'s, keeps working and stays the same function through
+ * a navigation that keeps the page and its values: `await action(); setTicked([])` clears the ticks after an action
+ * that refreshes the page. Once the page has left, or Back or Forward has gone to another entry, it changes nothing.
+ *
+ * With a schema, the entry's value is parsed by it, and one it rejects gives `initial`: an entry can hold what an older
+ * build of the app, or another page, put there. Define the schema at module level.
+ */
+export function useHistoryState<T>(name: string, initial: T): [T, SetHistoryState<T>];
+export function useHistoryState<Schema extends StandardSchemaV1>(
+  name: string,
+  initial: StandardSchemaV1.InferOutput<Schema>,
+  schema: Schema,
+): [StandardSchemaV1.InferOutput<Schema>, SetHistoryState<StandardSchemaV1.InferOutput<Schema>>];
+export function useHistoryState(name: string, initial: unknown, schema?: StandardSchemaV1): [unknown, SetHistoryState<unknown>] {
+  const { lineage, values, set } = useHistory();
+  // The first render's, as useState keeps its initial value: an array written inline is not a new value each render.
+  const [fallback] = useState(() => initial);
+  const resolve = useCallback(
+    (entry: HistoryValues) => {
+      if (!Object.hasOwn(entry, name)) return fallback;
+      return schema ? parseOr(schema, entry[name], fallback, `history state '${name}'`) : entry[name];
+    },
+    [name, schema, fallback],
+  );
+  const stored = Object.hasOwn(values, name) ? values[name] : NOT_SET;
+  // Parsed again only when the entry's value changes, not when another name's does.
+  const value = useMemo(() => (stored === NOT_SET ? fallback : resolve({ [name]: stored })), [resolve, name, stored, fallback]);
+  // Bound to the page's lineage, not to one entry: like a useState setter, it keeps working, and stays the same
+  // function, through a navigation that keeps the page on screen with its values (a refresh, another query).
+  const setValue = useCallback<SetHistoryState<unknown>>(
+    (next) => set(lineage, name, (current) => (typeof next === 'function' ? (next as (previous: unknown) => unknown)(resolve(current)) : next)),
+    [set, lineage, name, resolve],
+  );
+  return [value, setValue];
+}
+
+/**
+ * Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router kept
+ * (it asks the server nothing), or the whole document the browser kept in its back-forward cache. What the page shows
+ * is as old as the visit it is from, so the page can refresh itself (`router.refresh()`) or a part of it. A page the
+ * router loads from the server, and Back over a fragment link of the page on screen, do not call it.
+ */
+export function useHistoryRestore(callback: () => void): void {
+  const { onRestore } = useHistory();
+  const latest = useRef(callback);
+  useEffect(() => {
+    latest.current = callback;
+  });
+  useEffect(() => onRestore(() => latest.current()), [onRestore]);
 }

@@ -40,10 +40,14 @@ export type { PageKind, Params, SeededQuery, SegmentRef } from './payload.ts';
 export { usePublicConfig } from './public-config.tsx';
 export { Script, type ScriptProps, type ScriptStrategy } from './script.tsx';
 export {
+  type NavigateOptions,
   type NavigationState,
+  type SetHistoryState,
   type SubmitError,
   type Router,
   useBasePath,
+  useHistoryRestore,
+  useHistoryState,
   useHref,
   useNavigation,
   useParams,

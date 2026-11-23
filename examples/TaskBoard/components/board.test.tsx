@@ -26,6 +26,20 @@ describe('TaskCard', () => {
     expect(fields).toMatchObject({ projectSlug: 'web', number: '3', state: 'inProgress' });
   });
 
+  it('tells the task it opens the board as it is filtered, for the way back', async () => {
+    const app = createTestApp({ url: '/projects/web?q=launch&mine=true' });
+    render(
+      <ul>
+        <TaskCard slug="web" task={task} state="todo" />
+      </ul>,
+      { wrapper: app.Wrapper },
+    );
+
+    await userEvent.click(screen.getByRole('link', { name: 'Launch post' }));
+
+    expect(app.navigations).toEqual([{ type: 'push', href: '/projects/web/tasks/3', historyState: { board: '/projects/web?q=launch&mine=true' } }]);
+  });
+
   it('has no way left from the first column', () => {
     render(
       <ul>

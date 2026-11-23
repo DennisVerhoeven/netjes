@@ -22,6 +22,11 @@ export type LinkProps = Omit<ComponentPropsWithRef<'a'>, 'href'> & {
    * links, where a link that drops `page` goes to another page of the list.
    */
   exactQuery?: boolean;
+  /**
+   * `useHistoryState` values, by name, that the entry the link opens starts with: what a list tells the record it opens.
+   * A link the browser follows itself carries none.
+   */
+  historyState?: Readonly<Record<string, unknown>>;
 };
 
 const BASE = 'http://netjes.invalid';
@@ -75,7 +80,20 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
  * is never marked, and an `aria-current` prop wins. After a navigation to another page, the router announces the page
  * and starts the focus over at the top of the document.
  */
-export function Link({ href, replace = false, scroll = true, prefetch = 'intent', reloadDocument = false, exactQuery = false, onClick, onMouseEnter, onFocus, onTouchStart, ...rest }: LinkProps) {
+export function Link({
+  href,
+  replace = false,
+  scroll = true,
+  prefetch = 'intent',
+  reloadDocument = false,
+  exactQuery = false,
+  historyState,
+  onClick,
+  onMouseEnter,
+  onFocus,
+  onTouchStart,
+  ...rest
+}: LinkProps) {
   const router = useInternalRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -97,7 +115,8 @@ export function Link({ href, replace = false, scroll = true, prefetch = 'intent'
         if (event.defaultPrevented || reloadDocument || !isPlainLeftClick(event)) return;
         if (new URL(href, window.location.href).origin !== window.location.origin) return;
         event.preventDefault();
-        void (replace ? router.replace(href, { scroll, focusedAtStart }) : router.push(href, { scroll, focusedAtStart }));
+        const options = { scroll, focusedAtStart, ...(historyState ? { historyState } : {}) };
+        void (replace ? router.replace(href, options) : router.push(href, options));
       }}
       onMouseEnter={(event) => {
         onMouseEnter?.(event);

@@ -122,6 +122,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0066 – Cookies the app names change without reloading every tab](decisions/0066-cookies-the-app-names-change-without-reloading-every-tab.md)
 - [0067 – A link can compare the whole query to mark the current page](decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)
 - [0068 – A loader sets the document's lang](decisions/0068-a-loader-sets-the-documents-lang.md)
+- [0069 – A page keeps values with its history entry, and hears when Back shows it from memory](decisions/0069-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)
 
 ## The project
 

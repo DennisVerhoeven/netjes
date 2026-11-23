@@ -31,6 +31,17 @@ function topLevelKey(issue: StandardSchemaV1.Issue): string | undefined {
   return typeof key === 'string' ? key : undefined;
 }
 
+/** `value` parsed by the schema, or `fallback` when the schema rejects it. */
+export function parseOr<Schema extends StandardSchemaV1>(
+  schema: Schema,
+  value: unknown,
+  fallback: StandardSchemaV1.InferOutput<Schema>,
+  what: string,
+): StandardSchemaV1.InferOutput<Schema> {
+  const result = validateSync(schema, value, what);
+  return result.issues ? fallback : (result.value as StandardSchemaV1.InferOutput<Schema>);
+}
+
 /**
  * Like {@link parseWith}, for input visitors control: values the schema rejects are dropped (so defaults and
  * optional fields apply) before giving up. Only a value that stays invalid without them throws.
