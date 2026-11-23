@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { renderToString } from 'react-dom/server';
@@ -372,6 +372,61 @@ describe('createTestApp with history state', () => {
     ]);
     expect(screen.getByText('from the list')).toBeDefined();
     expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+  });
+
+  describe('a setter from before a navigation, as the router has it', () => {
+    let navigated: Promise<void> | undefined;
+    let setterEffects = 0;
+
+    /** Sets the ticks with the setter of the render that was clicked, once the navigation has ended. */
+    function ActsOnTicks() {
+      const [ticked, setTicked] = useHistoryState('ticked', 0);
+      const router = useRouter();
+      useEffect(() => {
+        setterEffects += 1;
+      }, [setTicked]);
+      return (
+        <>
+          <button type="button" onClick={() => setTicked((n) => n + 1)}>
+            ticked {ticked}
+          </button>
+          <button type="button" onClick={() => (navigated = router.replace('/orders?page=2').then(() => setTicked(0)))}>
+            clear on the next page
+          </button>
+          <button type="button" onClick={() => (navigated = router.push('/orders/7').then(() => setTicked(5)))}>
+            open order 7
+          </button>
+        </>
+      );
+    }
+
+    afterEach(() => {
+      setterEffects = 0;
+    });
+
+    it('sets the value while the page stays, and is the same function throughout', async () => {
+      const app = createTestApp({ url: '/orders' });
+      render(<ActsOnTicks />, { wrapper: app.Wrapper });
+
+      await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+      await userEvent.click(screen.getByRole('button', { name: 'clear on the next page' }));
+      await act(() => navigated);
+
+      expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+      expect(setterEffects).toBe(1);
+    });
+
+    it('sets nothing once the navigation went to another page', async () => {
+      const app = createTestApp({ url: '/orders' });
+      render(<ActsOnTicks />, { wrapper: app.Wrapper });
+
+      await userEvent.click(screen.getByRole('button', { name: 'ticked 0' }));
+      await userEvent.click(screen.getByRole('button', { name: 'open order 7' }));
+      await act(() => navigated);
+
+      expect(window.location.pathname).toBe('/orders/7');
+      expect(screen.getByRole('button', { name: 'ticked 0' })).toBeDefined();
+    });
   });
 
   it("passes what a page package's router carries", async () => {

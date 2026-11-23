@@ -160,24 +160,28 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
 
   function Wrapper({ children }: { children: ReactNode }) {
     const [url, setUrl] = useState(initialUrl);
-    // The useHistoryState values of the entry on screen.
-    const [historyValues, setHistoryValues] = useState<Readonly<Record<string, unknown>>>(() => options.historyState ?? {});
-    const history = useMemo<HistoryContextValue>(
-      () => ({
-        lineage: 0,
-        values: historyValues,
-        set: (_lineage, name, compute) => setHistoryValues((values) => ({ ...values, [name]: compute(values) })),
-        onRestore: () => () => {},
-      }),
-      [historyValues],
-    );
+    // The useHistoryState values of the entry on screen, and their lineage: as the router's, a navigation to another page
+    // starts a new one, and a setter of the lineage before sets nothing.
+    const [historyEntry, setHistoryEntry] = useState<Pick<HistoryContextValue, 'lineage' | 'values'>>(() => ({
+      lineage: 0,
+      values: options.historyState ?? {},
+    }));
+    // Stable, as the router's, so a setter is a new function only in a new lineage.
+    const [historyWriters] = useState<Pick<HistoryContextValue, 'set' | 'onRestore'>>(() => ({
+      set: (lineage, name, compute) =>
+        setHistoryEntry((entry) => (entry.lineage === lineage ? { lineage, values: { ...entry.values, [name]: compute(entry.values) } } : entry)),
+      onRestore: () => () => {},
+    }));
+    const history = useMemo<HistoryContextValue>(() => ({ ...historyEntry, ...historyWriters }), [historyEntry, historyWriters]);
     const router = useMemo<InternalRouter>(() => {
       const go = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
         navigations.push(historyState ? { type, href, historyState } : { type, href });
         const next = new URL(href, window.location.href);
         // As the router does: a page that stays keeps its values, another starts over; what the navigation carries goes on top.
         const stays = next.pathname === window.location.pathname;
-        setHistoryValues((values) => ({ ...(stays ? values : {}), ...historyState }));
+        setHistoryEntry(({ lineage, values }) =>
+          stays ? { lineage, values: { ...values, ...historyState } } : { lineage: lineage + 1, values: { ...historyState } },
+        );
         window.history.replaceState(null, '', next.href);
         setUrl(next);
         return Promise.resolve();
