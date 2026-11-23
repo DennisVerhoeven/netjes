@@ -22,6 +22,8 @@ internal sealed record PagePayload(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<QueryPayload>? Queries,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ActionStatePayload? ActionState,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PageMetadata? Metadata,
+    // The page loader's PageMetadata.Lang: the document's lang, before the layouts' (SegmentPayload.Lang) and the root's.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Lang,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<InterceptPayload>? Intercepts,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool DraftMode,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BasePath,
@@ -79,7 +81,9 @@ internal sealed record SegmentPayload(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Reused = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string?>? Slots = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Depth = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>>? SlotParams = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>>? SlotParams = null,
+    // The layout loader's PageMetadata.Lang. A reused segment has none: the client keeps the one it holds, as its props.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Lang = null)
 {
     /// <summary>The segment's files; its parallel route slots resolved for <paramref name="route"/> (defaults without one).</summary>
     public static SegmentPayload From(RouteSegment segment, PageRoute? route = null) =>

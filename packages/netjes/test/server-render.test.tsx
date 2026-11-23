@@ -97,6 +97,25 @@ describe('server rendering', () => {
     expect(html).toMatch(/<header>Demo<\/header>.*<h1>Hello &lt;\/script&gt;<\/h1>/s);
   });
 
+  it("writes the page loader's lang on <html>, else the innermost layout loader's, else the document's", async () => {
+    const layoutLang = [{ id: 'app', layout: 'app/layout.tsx', lang: 'fr-BE' }];
+
+    const page = await renderer.render(data({ lang: 'de', segments: layoutLang }));
+    const layout = await renderer.render(data({ segments: layoutLang }));
+    const root = await renderer.render(data({ locale: 'en' }, { lang: 'en' }));
+
+    expect(page).toContain('<html lang="de">');
+    expect(layout).toContain('<html lang="fr-BE">');
+    expect(root).toContain('<html lang="en">');
+  });
+
+  it('streams the same lang on <html>', async () => {
+    const chunks: string[] = [];
+    for await (const chunk of await renderer.renderToStream(data({ lang: 'de' }))) chunks.push(String(chunk));
+
+    expect(chunks.join('')).toContain('<html lang="de">');
+  });
+
   it('leaves the hydrated mark out of the server-rendered document', async () => {
     const html = await renderer.render(data());
 

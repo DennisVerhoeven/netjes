@@ -96,7 +96,7 @@ app.MapPageLoader("/blog", (string? tag, PostStore store) =>
         .WithMetadata(new PageMetadata { Title = tag is null ? "Blog" : $"Posts tagged {tag}" }));
 ```
 
-It is merged over the files' metadata, so the layouts' title templates still apply: `Posts tagged dotnet · Netjes Blog`. A title that is the whole document title, one the layouts' templates must not wrap, is `AbsoluteTitle`, the counterpart of `title: { absolute }`: `new PageMetadata { AbsoluteTitle = "Users · Back office" }` is `Users · Back office` under a root layout with the template `%s · Netjes Blog`. A page package that sends its own full titles, or a loader that composes the whole title, uses it. When both `Title` and `AbsoluteTitle` are set, `AbsoluteTitle` is the title. `PageMetadata` has `Title`, `AbsoluteTitle`, `Description`, `Keywords`, `Robots` (`new PageMetadataRobots(Index: false)`), `Alternates` (`Canonical`, `Languages`), `OpenGraph` (`Title`, `Description`, `Url`, `SiteName`, `Type`, `Locale`, `Images`), `Twitter` (`Card`, `Site`, `Creator`, `Images`; each image is a `PageMetadataImage`, and a plain URL string converts to one), `ThemeColor` and `Other`. Icons and authors are set in the files only.
+It is merged over the files' metadata, so the layouts' title templates still apply: `Posts tagged dotnet · Netjes Blog`. A title that is the whole document title, one the layouts' templates must not wrap, is `AbsoluteTitle`, the counterpart of `title: { absolute }`: `new PageMetadata { AbsoluteTitle = "Users · Back office" }` is `Users · Back office` under a root layout with the template `%s · Netjes Blog`. A page package that sends its own full titles, or a loader that composes the whole title, uses it. When both `Title` and `AbsoluteTitle` are set, `AbsoluteTitle` is the title. `PageMetadata` has `Title`, `AbsoluteTitle`, `Description`, `Keywords`, `Robots` (`new PageMetadataRobots(Index: false)`), `Alternates` (`Canonical`, `Languages`), `OpenGraph` (`Title`, `Description`, `Url`, `SiteName`, `Type`, `Locale`, `Images`), `Twitter` (`Card`, `Site`, `Creator`, `Images`; each image is a `PageMetadataImage`, and a plain URL string converts to one), `ThemeColor`, `Other` and `Lang`, the document's language ([below](#the-lang-attribute)). Icons and authors are set in the files only.
 
 ```csharp
 .WithMetadata(new PageMetadata
@@ -108,13 +108,34 @@ It is merged over the files' metadata, so the layouts' title templates still app
 })
 ```
 
-A layout loader's result can carry metadata too, but only the page loader's reaches the head.
+A layout loader's result can carry metadata too, but only the page loader's reaches the head. Its `Lang` is the one exception: it sets the language of the pages below the layout ([below](#the-lang-attribute)).
 
-If no Node sidecar is ready and the browser renders the page itself, the document Netjes writes has the title (`AbsoluteTitle` first, else `Title`), description and robots from C# only; the layouts' templates and the files' metadata apply once the page has rendered ([Rendering and streaming](rendering-and-streaming.md)).
+If no Node sidecar is ready and the browser renders the page itself, the document Netjes writes has the title (`AbsoluteTitle` first, else `Title`), description and robots from C# only, and the `lang` of `<html>` as a server render writes it; the layouts' templates and the files' metadata apply once the page has rendered ([Rendering and streaming](rendering-and-streaming.md)).
 
 ## The `lang` attribute
 
-`<html lang>` is `NetjesOptions.Lang`, `en` by default. With [locale routing](routing.md#locales) it follows the request culture.
+`<html lang>` tells a screen reader which language to read the page in, and the browser which dictionary, hyphenation and translation offer to use. It is `NetjesOptions.Lang`, `en` by default, or with [locale routing](routing.md#locales) the request's locale. A loader that knows the language of its pages, from their content or from the signed-in user, sets it with `PageMetadata.Lang`:
+
+```csharp
+// A back office in the language each user chose: its layout loader sets it for every page below it.
+app.MapLayoutLoader("/back-office", (ClaimsPrincipal user, AccountStore accounts) =>
+    Page.Props(new BackOfficeProps(user.Identity?.Name))
+        .WithMetadata(new PageMetadata { Lang = accounts.LanguageOf(user) }));
+
+// One post in Dutch on an English blog: the page loader's lang wins over its layouts'.
+app.MapPageLoader("/blog/[slug]", (string slug, PostStore store) =>
+    store.Find(slug) is { } post
+        ? Page.Props(new PostProps(post)).WithMetadata(new PageMetadata { Title = post.Title, Lang = post.Language })
+        : Page.NotFound());
+```
+
+- The page loader's `Lang` wins, then the innermost layout loader's, then the request's locale, then `NetjesOptions.Lang`. A layout loader's also holds for the not-found, error, forbidden and unauthorized pages rendered inside its layout. `null` leaves the choice to the next one.
+- The server writes it on `<html>` in the first response: in the document the sidecar renders, streamed or not, and in the one .NET writes when no sidecar is ready ([When no sidecar is ready](rendering-and-streaming.md#when-no-sidecar-is-ready)).
+- A client navigation sets the attribute for the page it shows, Back and Forward included, in the commit that shows the page, before the browser paints it. A page that none of its loaders gives a lang returns to the root's: its own locale, or `NetjesOptions.Lang`, the value a full load of its URL would have. So after a Dutch post, the English blog index is `en` again. While a layout stays on screen and the router reuses its props, it keeps the lang its loader gave.
+- The router changes the attribute only when that value changes from one page to the next. An app that sets `document.documentElement.lang` itself, in a script or an effect, keeps its value only until Netjes's value changes: a page whose loader gives a lang, or a page in another locale, replaces it, and a page without one after that has the root's value, not the app's.
+- The value must have the shape of a BCP 47 language tag, such as `nl`, `en-GB` or `zh-Hant-TW`: any other `Lang` throws `ArgumentException`, so a value from a user or a database can put nothing else on `<html>`. Netjes checks the shape only, so check a value from outside against the languages you support before you set it.
+- A page file's `export const metadata` has no `lang`. The language comes from a loader, which knows the user and the content, and so it is also in the document .NET writes when the browser renders the page.
+- A part of a page in another language, such as a quote, says so in its own markup as usual: `<blockquote lang="fr">`.
 
 ## Sitemap and robots
 

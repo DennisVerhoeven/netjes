@@ -556,10 +556,11 @@ type SegmentRef = {
   layout?: string; template?: string; loading?: string; error?: string;
   props?: Record<string, unknown>;      // from the layout loader
   key?: string;                // identifies what the layout loader saw
-  reused?: boolean;            // the loader was skipped; the client keeps its props
+  reused?: boolean;            // the loader was skipped; the client keeps its props and lang
   slots?: Record<string, string | null>;
   depth?: number;
   slotParams?: Record<string, Params>;
+  lang?: string;               // the layout loader's PageMetadata.Lang
 };
 ```
 

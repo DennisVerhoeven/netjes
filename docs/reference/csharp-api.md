@@ -373,6 +373,7 @@ public sealed record PageMetadata
     public PageMetadataTwitter? Twitter { get; init; }
     public string? ThemeColor { get; init; }
     public IReadOnlyDictionary<string, string>? Other { get; init; }
+    public string? Lang { get; init; }   // a BCP 47 language tag; another shape throws ArgumentException
 }
 
 public sealed record PageMetadataRobots(bool Index = true, bool Follow = true);
@@ -398,6 +399,8 @@ public sealed record PageMetadataTwitter
 ```
 
 Head tags from C#, passed to `WithMetadata`. Properties left `null` leave the files' metadata as it is. `Other` adds `<meta name content>` tags, and `Alternates.Languages` adds a `<link rel="alternate" hreflang>` for each locale. A `PageMetadataImage` is written as `og:image` (or `twitter:image`) with its `Url`, followed by `og:image:width`, `og:image:height` and `og:image:alt` for an Open Graph image, or `twitter:image:alt` for a Twitter one, whichever are set. The Twitter tags that neither `Twitter` nor the files set fill in from Open Graph and the page's title and description once the two are merged, as in Next.js ([Open Graph and Twitter](../guides/metadata.md#open-graph-and-twitter)). The title, description and robots are also what the [client-rendered fallback](../guides/rendering-and-streaming.md#when-no-sidecar-is-ready) puts in its head.
+
+`Lang` is the `lang` of `<html>`, not a head tag: the page loader's wins over its layout loaders', the innermost layout loader's over those above it, and a page none of them gives one has the locale or `NetjesOptions.Lang`. It is the one part of a layout loader's metadata Netjes uses. The server writes it in the first response, the client-rendered fallback included, and a client navigation sets the attribute for the page it shows. A value that is not the shape of a BCP 47 language tag (`nl`, `en-GB`, `zh-Hant-TW`) throws `ArgumentException` when it is set ([The `lang` attribute](../guides/metadata.md#the-lang-attribute)).
 
 ### MapSitemap, MapRobotsTxt, ExcludeFromSitemap
 

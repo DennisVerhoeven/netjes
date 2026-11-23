@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { QueryShell } from 'virtual:netjes/query';
 import { Document } from './document.tsx';
 import { ImageConfigProvider } from './image.tsx';
+import { documentLang } from './lang.ts';
 import { NonceProvider } from './nonce.tsx';
 import { PublicConfigProvider } from './public-config.tsx';
 import type { ModuleLoader, RouteModules } from './modules.ts';
@@ -24,13 +25,14 @@ function RootProviders({ info, children }: { info: DocumentInfo; children: React
 /** The same tree on the server and in the browser, so hydration matches. */
 export function Root({ payload, modules, loader, dataJson }: RootProps) {
   return (
-    <Document info={payload.document} dataJson={dataJson}>
+    <Document info={payload.document} lang={documentLang(payload, payload.document.lang)} dataJson={dataJson}>
       <RootProviders info={payload.document}>
         <RouterProvider
           initial={payload}
           initialModules={modules}
           loader={loader}
           errorPage={payload.document.errorPage}
+          documentLang={payload.document.lang}
           shell={QueryShell}
         />
       </RootProviders>
