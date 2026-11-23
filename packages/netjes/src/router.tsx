@@ -369,7 +369,8 @@ type NavigatorDeps = {
   version: string;
   /** `UsePathBase`'s base path ('' at the root): added to the root-relative hrefs the app navigates to. */
   basePath: string;
-  hardNavigate(href: string): void;
+  /** `letThrough`: a navigation the guards let go on, whose unload they do not ask about again. */
+  hardNavigate(href: string, letThrough: boolean): void;
   showDocument(html: string, url: string): void;
   download(file: Blob, name: string): void;
   setPending(state: NavigationState): void;
@@ -400,6 +401,8 @@ type NavigateCall = {
   focusedAtStart?: Element | null | undefined;
   /** `useHistoryState` values the new entry starts with. */
   historyState?: HistoryValues | undefined;
+  /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
+  letThrough?: boolean | undefined;
 };
 
 type GoOptions = {
@@ -418,6 +421,8 @@ type GoOptions = {
   historyState?: HistoryValues;
   /** What had the focus as the navigation started, when the caller read it: else go() reads it as it starts. */
   focusedAtStart?: Element | null;
+  /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
+  letThrough?: boolean;
 };
 
 /**
@@ -549,7 +554,7 @@ class Navigator {
   }
 
   async navigate(href: string, history: 'push' | 'replace', options: NavigateCall = {}): Promise<void> {
-    const { scroll = true, focusedAtStart = document.activeElement, historyState } = options;
+    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false } = options;
     // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
     // browser cannot keep throws here, before the navigation starts.
     const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
@@ -592,6 +597,7 @@ class Navigator {
       usePrefetch: true,
       reuseSegments: true,
       focusedAtStart,
+      letThrough,
       ...(carried ? { historyState: carried } : {}),
     });
   }
@@ -795,7 +801,16 @@ class Navigator {
       return;
     }
     this.betweenEntries = true;
-    void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true, entryValues: values });
+    void this.go(url, { method: 'GET' }, {
+      history: 'none',
+      scroll,
+      pending: 'loading',
+      key,
+      usePrefetch: false,
+      reuseSegments: true,
+      entryValues: values,
+      letThrough,
+    });
   }
 
   /**
@@ -861,7 +876,7 @@ class Navigator {
       // dropped them already, and started those in flight over.
       if (request.method === 'POST' && !navigation.changedCookies) this.prefetched.clear();
       if ('hard' in result) {
-        this.hard(result.hard);
+        this.hard(result.hard, options.letThrough);
         return;
       }
       if ('document' in result) {
@@ -921,7 +936,7 @@ class Navigator {
         return;
       }
       console.error('netjes: navigation failed, loading the page from the server instead', error);
-      this.hard(url);
+      this.hard(url, options.letThrough);
     } finally {
       if (this.active === navigation) {
         this.active = null;
@@ -1026,8 +1041,8 @@ class Navigator {
     return { ...payload, segments };
   }
 
-  private hard(url: URL) {
-    if (isWebUrl(url)) this.deps.hardNavigate(url.href);
+  private hard(url: URL, letThrough = false) {
+    if (isWebUrl(url)) this.deps.hardNavigate(url.href, letThrough);
     else console.error(`netjes: refusing to navigate to ${url.protocol} URL`);
   }
 
@@ -1203,7 +1218,10 @@ export function RouterProvider({
         loader,
         version: initial.version,
         basePath: initial.basePath ?? '',
-        hardNavigate,
+        hardNavigate: (href, letThrough) => {
+          if (letThrough) guards.letUnloadThrough();
+          hardNavigate(href);
+        },
         showDocument,
         download,
         setPending: setNavigation,
@@ -1337,7 +1355,7 @@ export function RouterProvider({
       } catch (error) {
         return Promise.reject(error);
       }
-      return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart, historyState }));
+      return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart, historyState, letThrough: true }));
     };
     return {
       push: (href, options) => guarded(href, 'push', options),

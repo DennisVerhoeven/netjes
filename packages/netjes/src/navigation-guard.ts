@@ -27,11 +27,27 @@ type Guard = { read(): NavigationGuardOptions };
  * Each navigation a guard holds asks the guards in turn, the one that started to hold last first, and runs once every
  * one of them has let it proceed. A newer attempt takes the place of one still being asked about, so a guard that never
  * answers keeps no navigation from being asked again.
+ *
+ * While any guard holds, `beforeunload` has the browser ask its own question before the document unloads: a reload,
+ * closing the tab, typing an address, a link to another site. The listener is there only then, as browsers keep no
+ * page with one in their back-forward cache.
  */
 export class NavigationGuards {
   private readonly guards: Guard[] = [];
   /** The attempt being asked about: dropping it ends it, as a stay does. */
   private asking: { drop(): void } | null = null;
+  /** The next unload is a full page load the guards let through: the browser does not ask about it again. */
+  private unloadLetThrough = false;
+
+  private readonly onBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (this.unloadLetThrough) {
+      this.unloadLetThrough = false;
+      return;
+    }
+    event.preventDefault();
+    // What browsers from before preventDefault() asked for.
+    event.returnValue = true;
+  };
 
   /** Whether any guard holds now. */
   get holding(): boolean {
@@ -42,10 +58,24 @@ export class NavigationGuards {
   register(read: () => NavigationGuardOptions): () => void {
     const guard: Guard = { read };
     this.guards.push(guard);
+    if (this.guards.length === 1) {
+      this.unloadLetThrough = false;
+      window.addEventListener('beforeunload', this.onBeforeUnload);
+    }
     return () => {
       const at = this.guards.indexOf(guard);
-      if (at >= 0) this.guards.splice(at, 1);
+      if (at < 0) return;
+      this.guards.splice(at, 1);
+      if (this.guards.length === 0) window.removeEventListener('beforeunload', this.onBeforeUnload);
     };
+  }
+
+  /**
+   * A navigation the guards let through is about to load a document (the router hands it to the browser): the
+   * `beforeunload` that follows does not ask again. Only that one.
+   */
+  letUnloadThrough(): void {
+    if (this.guards.length > 0) this.unloadLetThrough = true;
   }
 
   /**

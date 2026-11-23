@@ -463,3 +463,51 @@ describe('useNavigationGuard and the browser history', () => {
     expect(asked.at(-1)?.attempt).toMatchObject({ to: '/other', type: 'push' });
   });
 });
+
+/** Whether the document would ask before it unloads (a reload, closing the tab, a full page load): the browser's own question. */
+function asksBeforeUnload(): boolean {
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+describe('useNavigationGuard and the document unloading', () => {
+  it('has the browser ask before the document unloads while it holds, and not once it no longer holds', async () => {
+    const user = await renderApp(payload('editor', '/editor'));
+    expect(asksBeforeUnload()).toBe(true);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    expect(asksBeforeUnload()).toBe(false);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Unsaved' }));
+    expect(asksBeforeUnload()).toBe(true);
+    cleanup();
+    expect(asksBeforeUnload()).toBe(false);
+  });
+
+  it('lets a full page load that a guard let through unload without asking again, and asks after it', async () => {
+    // A page from another build of the app: the router loads it in full.
+    server.use(http.get(`${origin}/other`, () => HttpResponse.json(payload('other', '/other', { version: 'v2' }))));
+    const unloads: boolean[] = [];
+    const hardNavigate = vi.fn(() => void unloads.push(asksBeforeUnload()));
+    const user = await renderApp(payload('editor', '/editor'), hardNavigate);
+
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    await act(async () => onlyAttempt().proceed());
+    await vi.waitFor(() => expect(hardNavigate).toHaveBeenCalledWith(`${origin}/other`));
+
+    expect(unloads).toEqual([false]);
+    expect(asksBeforeUnload()).toBe(true);
+  });
+
+  it('has the browser ask about a navigation to another site, which no guard holds', async () => {
+    const unloads: boolean[] = [];
+    const hardNavigate = vi.fn(() => void unloads.push(asksBeforeUnload()));
+    await renderApp(payload('editor', '/editor'), hardNavigate);
+
+    await act(() => editorRouter!.push('https://example.com/elsewhere'));
+
+    expect(asked).toEqual([]);
+    expect(unloads).toEqual([true]);
+  });
+});
