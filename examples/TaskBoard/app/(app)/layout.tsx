@@ -1,5 +1,6 @@
 import { Form, Link, defineLayout, useAction, useNavigation } from 'netjes';
 import { Avatar, Logo } from '../../components/brand.tsx';
+import { NavigationFailed } from '../../components/navigation-failed.tsx';
 import { layouts, serverActions } from '../../generated/netjes.ts';
 import { useUser } from '../../lib/session.ts';
 
@@ -49,7 +50,10 @@ export default defineLayout(layouts['app/(app)'], function AppLayout({ projects,
           </div>
         )}
       </aside>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        <NavigationFailed />
+        {children}
+      </div>
     </div>
   );
 });
