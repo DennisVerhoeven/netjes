@@ -428,6 +428,31 @@ describe('useNavigationGuard and the browser history', () => {
     expect(where()).toBe('/editor');
   });
 
+  it('keeps the place of the entry on screen when the browser replaces it, for the same plain link followed again', async () => {
+    pages(['/editor', '/other']);
+    const user = await renderApp(payload('other', '/other'));
+    await toEditor(user);
+    const moved = popped();
+    await user.click(screen.getByRole('link', { name: 'Plain' }));
+    await act(() => moved);
+    // A link to the URL on screen replaces its entry, with no state, and fires popstate (jsdom does nothing there).
+    act(() => {
+      window.history.replaceState(null, '', window.location.href);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    });
+    // An entry after it, and back to it.
+    await user.click(screen.getByRole('link', { name: 'Other' }));
+    await act(async () => onlyAttempt().proceed());
+    await screen.findByRole('heading', { name: 'Other' });
+    await go(-1);
+
+    const asking = nextAttempt();
+    await go(-2);
+
+    expect(await act(() => asking)).toMatchObject({ to: '/other', type: 'back' });
+    expect(where() + window.location.hash).toBe('/editor#plain');
+  });
+
   it("holds router.back() as the browser's Back", async () => {
     pages(['/editor', '/other']);
     const user = await renderApp(payload('other', '/other'));

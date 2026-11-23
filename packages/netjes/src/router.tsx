@@ -472,6 +472,8 @@ class Navigator {
   private puttingBack: { index: number; ask(): void } | null = null;
   /** The place a guard let Back or Forward go to: the step there is not held again. */
   private letThrough: number | null = null;
+  /** The URL of the entry on screen as the browser shows it, fragment included (the first page's payload has none). */
+  private href = '';
   /** Shared with the app's other tabs, where the browser has BroadcastChannel; null until started, and once stopped. */
   private channel: BroadcastChannel | null = null;
 
@@ -500,6 +502,7 @@ class Navigator {
 
   start(): () => void {
     window.history.scrollRestoration = 'manual';
+    this.href = window.location.href;
     if (readKey(window.history.state) !== this.currentKey || readIndex(window.history.state) !== this.index) {
       window.history.replaceState(entryState(this.currentKey, this.index, this.values, window.history.state), '');
     }
@@ -786,11 +789,13 @@ class Navigator {
     this.letThrough = null;
     if (!letThrough && this.holdTraversal(url, index)) return;
     // An entry with no place on the page on screen: a fragment the browser moved to itself (a plain `<a href="#…">`, a
-    // fragment typed in the address bar, `location.hash`), which adds an entry after the one on screen and fires
-    // `popstate` with no state. It gets the next place, and a key, so the steps to it, from it and from the entries
-    // pushed after it are counted as any others.
+    // fragment typed in the address bar, `location.hash`), which fires `popstate` with no state. It adds an entry after
+    // the one on screen, which gets the next place, or replaces that entry when its URL is the one on screen (the same
+    // link followed again), which keeps its place. A place counted short only puts a held step back short of the
+    // entry on screen; one counted long could send it past the end of the history. Either way the entry gets a key,
+    // so the steps to it, from it and from the entries pushed after it are counted as any others.
     const fragment = index === undefined && samePage(url, this.current.url);
-    this.index = fragment ? this.nextIndex() : index;
+    this.index = !fragment ? index : url.href === this.href ? this.index : this.nextIndex();
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
@@ -1079,6 +1084,7 @@ class Navigator {
   private setCurrent(key: string, loaded: Loaded, values: HistoryValues, carries: boolean) {
     this.currentKey = key;
     this.current = loaded;
+    this.href = loaded.url.href;
     this.values = values;
     if (!carries) this.lineage += 1;
     this.betweenEntries = false;
