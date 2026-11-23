@@ -1259,7 +1259,7 @@ A selector on `[aria-current]` styles both values. `usePathname()` works as well
 
 ### Back and forward
 
-The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#signing-in-and-out)).
+The router remembers the last 50 pages it showed, one per history entry, and shows them again on back and forward without asking the server, restoring the scroll position. An action or form post that sets or deletes a cookie, such as signing in or out, makes it forget them, so those pages are loaded from the server again ([Signing in and out](https://raw.githubusercontent.com/DennisVerhoeven/netjes/main/docs/guides/actions-and-forms.md#signing-in-and-out)). When such a page does not come, the router steps back to the entry of the page on screen, which stays ([When a navigation fails](#when-a-navigation-fails)).
 
 A fragment link to the same page (`#comments`) changes the history entry, scrolls to the element and focuses it, without a request. When it adds an entry, Back scrolls to where the page was, also for a link followed while the page was still hydrating.
 
