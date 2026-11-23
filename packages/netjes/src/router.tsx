@@ -20,6 +20,7 @@ import type { Href } from './href.ts';
 import { documentLang as langOf } from './lang.ts';
 import { type ErrorPageProps, MissingModuleError, type ModuleLoader, type RouteModules } from './modules.ts';
 import { moveFocusAfterNavigation } from './navigation-focus.ts';
+import { NavigationGuards, type NavigationGuardOptions } from './navigation-guard.ts';
 import {
   type ActionResponse,
   type AntiforgeryToken,
@@ -38,6 +39,8 @@ import {
 import { RouteAnnouncer } from './route-announcer.tsx';
 import { ErrorBoundary, LayoutDepthContext, RouteTree, asError } from './route-tree.tsx';
 import { type StandardSchemaV1, parseLenient, parseOr, parseWith } from './schema.ts';
+
+export type { NavigationAttempt, NavigationAttemptType, NavigationGuardOptions } from './navigation-guard.ts';
 
 /** A form post that did not produce a page: a non-page error response (`status`), or no response at all (`null`). */
 export type SubmitError = { status: number | null; action: string };
@@ -140,6 +143,11 @@ const STATE_KEY = '__netjes';
 /** Where an entry's `useHistoryState` values are, in `history.state`, beside the entry's key. */
 const VALUES_KEY = '__netjesState';
 /**
+ * Where an entry's place in the tab's history is, in `history.state`: one more than the entry before it, the same as the
+ * entry it replaced. After Back or Forward it tells the router how many steps the browser took, and which way.
+ */
+const INDEX_KEY = '__netjesIndex';
+/**
  * On `<html>` while the client router runs in the document, and the public sign that it does: end-to-end tests wait
  * for it before they click. (The history entry's key is no such sign: the entry keeps it when the browser loads the
  * document again.) The effect that sets it must stay after the one that registers the router as the action client,
@@ -167,6 +175,11 @@ function readKey(state: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function readIndex(state: unknown): number | undefined {
+  const value = isRecord(state) ? state[INDEX_KEY] : undefined;
+  return Number.isSafeInteger(value) ? (value as number) : undefined;
+}
+
 /** The values `useHistoryState` keeps with one history entry, by name. */
 type HistoryValues = Readonly<Record<string, unknown>>;
 const NO_VALUES: HistoryValues = Object.freeze({});
@@ -186,11 +199,13 @@ function withCarried(values: HistoryValues, carried: HistoryValues | undefined):
 }
 
 /**
- * The state the router writes for an entry: its key and its values, over `kept`, the state of the entry it replaces,
- * so the keys an app or a library put there stay. A new entry keeps nothing of the one before.
+ * The state the router writes for an entry: its key, its place and its values, over `kept`, the state of the entry it
+ * replaces, so the keys an app or a library put there stay. A new entry keeps nothing of the one before.
  */
-function entryState(key: string, values: HistoryValues, kept: unknown = null): Record<string, unknown> {
+function entryState(key: string, index: number | undefined, values: HistoryValues, kept: unknown = null): Record<string, unknown> {
   const state: Record<string, unknown> = { ...(isRecord(kept) ? kept : {}), [STATE_KEY]: key };
+  if (index === undefined) delete state[INDEX_KEY];
+  else state[INDEX_KEY] = index;
   if (Object.keys(values).length > 0) state[VALUES_KEY] = values;
   else delete state[VALUES_KEY];
   return state;
@@ -355,7 +370,8 @@ type NavigatorDeps = {
   version: string;
   /** `UsePathBase`'s base path ('' at the root): added to the root-relative hrefs the app navigates to. */
   basePath: string;
-  hardNavigate(href: string): void;
+  /** `letThrough`: a navigation the guards let go on, whose unload they do not ask about again. */
+  hardNavigate(href: string, letThrough: boolean): void;
   showDocument(html: string, url: string): void;
   download(file: Blob, name: string): void;
   setPending(state: NavigationState): void;
@@ -367,6 +383,8 @@ type NavigatorDeps = {
   commit(loaded: Loaded, scroll: ScrollIntent, focusedAtStart: Element | null, entry: CommittedEntry): void;
   /** The values of the entry on screen changed without a navigation: a page set one, or the router read them at start. */
   setEntry(entry: HistoryEntry): void;
+  /** The guards that hold Back and Forward. */
+  guards: NavigationGuards;
 };
 
 /**
@@ -375,6 +393,18 @@ type NavigatorDeps = {
  */
 type HistoryEntry = { lineage: number; values: HistoryValues };
 type CommittedEntry = HistoryEntry & { restored: boolean };
+
+/** How `Navigator.navigate` goes. */
+type NavigateCall = {
+  /** Scroll to the top, or to the fragment's element. Default true. */
+  scroll?: boolean | undefined;
+  /** What had the focus as the navigation started: by default what has it as `navigate` is called. */
+  focusedAtStart?: Element | null | undefined;
+  /** `useHistoryState` values the new entry starts with. */
+  historyState?: HistoryValues | undefined;
+  /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
+  letThrough?: boolean | undefined;
+};
 
 type GoOptions = {
   history: HistoryMode;
@@ -392,6 +422,8 @@ type GoOptions = {
   historyState?: HistoryValues;
   /** What had the focus as the navigation started, when the caller read it: else go() reads it as it starts. */
   focusedAtStart?: Element | null;
+  /** The guards let it go on: a full page load it ends in does not have the browser ask again. */
+  letThrough?: boolean;
 };
 
 /**
@@ -432,6 +464,17 @@ class Navigator {
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
   private currentIsStale = false;
+  /**
+   * The place of the entry on screen in the tab's history (`INDEX_KEY`), or undefined on an entry the router did not
+   * make (one an app or a library pushed itself), whose place it does not know.
+   */
+  private index: number | undefined;
+  /** A guard held Back or Forward and the router is stepping back to the entry at `index`: once there, it `ask`s. */
+  private puttingBack: { index: number; ask(): void } | null = null;
+  /** The place a guard let Back or Forward go to: the step there is not held again. */
+  private letThrough: number | null = null;
+  /** The URL of the entry on screen as the browser shows it, fragment included (the first page's payload has none). */
+  private href = '';
   /** Shared with the app's other tabs, where the browser has BroadcastChannel; null until started, and once stopped. */
   private channel: BroadcastChannel | null = null;
 
@@ -447,6 +490,9 @@ class Navigator {
       const existing = readKey(window.history.state);
       if (existing) this.currentKey = existing;
       this.values = readValues(window.history.state);
+      // A new document's entry is the last one of the tab's history. Only the steps between the entries matter, so a
+      // place that is off (the browser keeps 50 entries or so) changes nothing.
+      this.index = readIndex(window.history.state) ?? Math.max(window.history.length - 1, 0);
     }
   }
 
@@ -457,7 +503,10 @@ class Navigator {
 
   start(): () => void {
     window.history.scrollRestoration = 'manual';
-    if (readKey(window.history.state) !== this.currentKey) window.history.replaceState(entryState(this.currentKey, this.values, window.history.state), '');
+    this.href = window.location.href;
+    if (readKey(window.history.state) !== this.currentKey || readIndex(window.history.state) !== this.index) {
+      window.history.replaceState(entryState(this.currentKey, this.index, this.values, window.history.state), '');
+    }
     this.remember(this.currentKey, this.current);
     // The commit that hydrated the page rendered every value as its initial one, as the server did. An entry that holds
     // values (after a reload) shows them now, before the browser paints; one with none renders nothing again.
@@ -503,22 +552,13 @@ class Navigator {
     if (lineage !== this.lineage || this.betweenEntries) return;
     const values = { ...this.values, [name]: compute(this.values) };
     // First, so a value the browser cannot keep throws before anything changed.
-    window.history.replaceState(entryState(this.currentKey, values, window.history.state), '');
+    window.history.replaceState(entryState(this.currentKey, this.index, values, window.history.state), '');
     this.values = values;
     this.deps.setEntry({ lineage, values });
   }
 
-  /**
-   * `focusedAtStart`: what had the focus as the navigation started, by default what has it as this is called.
-   * `historyState`: `useHistoryState` values the new entry starts with.
-   */
-  async navigate(
-    href: string,
-    history: 'push' | 'replace',
-    scroll: boolean,
-    focusedAtStart = document.activeElement,
-    historyState?: HistoryValues,
-  ): Promise<void> {
+  async navigate(href: string, history: 'push' | 'replace', options: NavigateCall = {}): Promise<void> {
+    const { scroll = true, focusedAtStart = document.activeElement, historyState, letThrough = false } = options;
     // A copy, as the browser keeps one: what the caller changes later does not reach the entry, and a value the
     // browser cannot keep throws here, before the navigation starts.
     const carried = historyState === undefined ? undefined : (structuredClone(historyState) as HistoryValues);
@@ -539,7 +579,12 @@ class Navigator {
       const key = createKey();
       // The page stays, and so do its values.
       const values = withCarried(this.values, carried);
-      window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, history === 'replace' ? window.history.state : null), '', url.href);
+      this.index = history === 'push' ? this.nextIndex() : this.index;
+      window.history[history === 'push' ? 'pushState' : 'replaceState'](
+        entryState(key, this.index, values, history === 'replace' ? window.history.state : null),
+        '',
+        url.href,
+      );
       this.setCurrent(key, { ...this.current, url }, values, true);
       this.deps.commit(this.current, scroll ? { kind: 'hash', hash: url.hash } : NONE, focusedAtStart, {
         lineage: this.lineage,
@@ -556,8 +601,27 @@ class Navigator {
       usePrefetch: true,
       reuseSegments: true,
       focusedAtStart,
+      letThrough,
       ...(carried ? { historyState: carried } : {}),
     });
+  }
+
+  /**
+   * Where a push or replace to `href` goes, as a guard is told (without the base path), or null for one no guard holds:
+   * to another origin or scheme, which the browser loads (a guard's `beforeunload` asks then), or to a fragment of the
+   * page on screen, which loads nothing and keeps the page.
+   */
+  heldTarget(href: string): string | null {
+    let url: URL;
+    try {
+      url = new URL(withBasePath(href, this.deps.basePath), window.location.href);
+    } catch {
+      // navigate() fails on it as it would without a guard.
+      return null;
+    }
+    if (!isWebUrl(url) || url.origin !== window.location.origin) return null;
+    if (url.hash && samePage(url, this.current.url)) return null;
+    return withoutBasePath(url.pathname, this.deps.basePath) + url.search + url.hash;
   }
 
   submit(action: URL, body: SubmitBody, focusedAtStart = document.activeElement): Promise<void> {
@@ -707,14 +771,42 @@ class Navigator {
     this.prefetched.set(url.href, prefetch);
   }
 
+  /** The place of an entry pushed after the one on screen. */
+  private nextIndex(): number | undefined {
+    return this.index === undefined ? undefined : this.index + 1;
+  }
+
   private onPopState(event: PopStateEvent) {
+    const index = readIndex(event.state);
+    const puttingBack = this.puttingBack;
+    this.puttingBack = null;
+    // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
+    if (puttingBack && index === puttingBack.index) {
+      puttingBack.ask();
+      return;
+    }
     const url = new URL(window.location.href);
+    const letThrough = this.letThrough !== null && index === this.letThrough;
+    this.letThrough = null;
+    // A step to another page takes the place of an attempt still waiting for its answer: it is asked about in its
+    // place, or it goes on. A step that keeps the page leaves the question open.
+    if (!samePage(url, this.current.url)) this.deps.guards.dropAttempt();
+    if (!letThrough && this.holdTraversal(url, index)) return;
+    // An entry with no place on the page on screen: a fragment the browser moved to itself (a plain `<a href="#…">`, a
+    // fragment typed in the address bar, `location.hash`), which fires `popstate` with no state. It adds an entry after
+    // the one on screen, which gets the next place, or replaces that entry when its URL is the one on screen (the same
+    // link followed again), which keeps its place. A place counted short only puts a held step back short of the
+    // entry on screen; one counted long could send it past the end of the history. Either way the entry gets a key,
+    // so the steps to it, from it and from the entries pushed after it are counted as any others.
+    const fragment = index === undefined && samePage(url, this.current.url);
+    this.index = !fragment ? index : url.href === this.href ? this.index : this.nextIndex();
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
     const scroll: ScrollIntent = saved ? { kind: 'restore', ...saved } : url.hash ? { kind: 'hash', hash: url.hash } : TOP;
     const cached = this.entries.get(key);
     const known = cached && samePage(cached.url, url) ? cached : samePage(url, this.current.url) ? this.current : null;
     const values = readValues(event.state);
+    if (fragment) window.history.replaceState(entryState(key, this.index, values, event.state), '');
     if (known) {
       this.active?.controller.abort();
       // From memory, unless the page on screen simply stays (Back over a fragment link).
@@ -724,7 +816,43 @@ class Navigator {
       return;
     }
     this.betweenEntries = true;
-    void this.go(url, { method: 'GET' }, { history: 'none', scroll, pending: 'loading', key, usePrefetch: false, reuseSegments: true, entryValues: values });
+    void this.go(url, { method: 'GET' }, {
+      history: 'none',
+      scroll,
+      pending: 'loading',
+      key,
+      usePrefetch: false,
+      reuseSegments: true,
+      entryValues: values,
+      letThrough,
+    });
+  }
+
+  /**
+   * Holds Back or Forward to `url`, the entry at `index`, while a guard holds: steps back to the entry on screen, then
+   * asks the guards, and steps to the entry the reader chose when they let it, from wherever the page is by then (a
+   * fragment link may have added an entry meanwhile). Back over a fragment link keeps the page and is not held.
+   * Neither is a step to an entry whose place the router does not know: it cannot tell the way back, and guessing could
+   * take the reader somewhere else, so it lets it go.
+   */
+  private holdTraversal(url: URL, index: number | undefined): boolean {
+    if (!this.deps.guards.holding || samePage(url, this.current.url)) return false;
+    const from = this.index;
+    if (index === undefined || from === undefined || index === from) return false;
+    const steps = index - from;
+    const to = withoutBasePath(url.pathname, this.deps.basePath) + url.search + url.hash;
+    this.puttingBack = {
+      index: from,
+      ask: () =>
+        void this.deps.guards.attempt(to, steps < 0 ? 'back' : 'forward', async () => {
+          const now = this.index;
+          if (now === undefined || now === index) return;
+          this.letThrough = index;
+          window.history.go(index - now);
+        }),
+    };
+    window.history.go(-steps);
+    return true;
   }
 
   private async go(url: URL, request: PageRequest, options: GoOptions): Promise<void> {
@@ -766,7 +894,7 @@ class Navigator {
       // dropped them already, and started those in flight over.
       if (request.method === 'POST' && !navigation.changedCookies) this.prefetched.clear();
       if ('hard' in result) {
-        this.hard(result.hard);
+        this.hard(result.hard, options.letThrough);
         return;
       }
       if ('document' in result) {
@@ -802,12 +930,13 @@ class Navigator {
       const values = history === 'none' ? (options.entryValues ?? NO_VALUES) : withCarried(carries ? this.values : NO_VALUES, options.historyState);
       let key = options.key ?? createKey();
       if (history === 'none') {
-        if (!options.key) window.history.replaceState(entryState(key, values, window.history.state), '');
+        if (!options.key) window.history.replaceState(entryState(key, this.index, values, window.history.state), '');
       } else {
         this.rememberScroll();
         key = createKey();
         const kept = history === 'replace' ? window.history.state : null;
-        window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, values, kept), '', shown.url.href);
+        this.index = history === 'push' ? this.nextIndex() : this.index;
+        window.history[history === 'push' ? 'pushState' : 'replaceState'](entryState(key, this.index, values, kept), '', shown.url.href);
       }
 
       this.currentIsStale = navigation.stale;
@@ -825,7 +954,7 @@ class Navigator {
         return;
       }
       console.error('netjes: navigation failed, loading the page from the server instead', error);
-      this.hard(url);
+      this.hard(url, options.letThrough);
     } finally {
       if (this.active === navigation) {
         this.active = null;
@@ -930,8 +1059,8 @@ class Navigator {
     return { ...payload, segments };
   }
 
-  private hard(url: URL) {
-    if (isWebUrl(url)) this.deps.hardNavigate(url.href);
+  private hard(url: URL, letThrough = false) {
+    if (isWebUrl(url)) this.deps.hardNavigate(url.href, letThrough);
     else console.error(`netjes: refusing to navigate to ${url.protocol} URL`);
   }
 
@@ -959,6 +1088,7 @@ class Navigator {
   private setCurrent(key: string, loaded: Loaded, values: HistoryValues, carries: boolean) {
     this.currentKey = key;
     this.current = loaded;
+    this.href = loaded.url.href;
     this.values = values;
     if (!carries) this.lineage += 1;
     this.betweenEntries = false;
@@ -1035,6 +1165,7 @@ const RouterContext = createContext<InternalRouter | null>(null);
 const ViewContext = createContext<ViewValue | null>(null);
 const NavigationContext = createContext<NavigationState>(IDLE);
 const HistoryContext = createContext<HistoryContextValue | null>(null);
+const GuardsContext = createContext<NavigationGuards | null>(null);
 
 export type RouterProviderProps = {
   initial: PagePayload;
@@ -1104,6 +1235,7 @@ export function RouterProvider({
     restored: false,
   }));
   const [navigation, setNavigation] = useState<NavigationState>(IDLE);
+  const [guards] = useState(() => new NavigationGuards());
   const [navigator] = useState(() => {
     // Server actions called before the effect below registers this router wait for it (the server runs no effects).
     if (typeof document !== 'undefined') expectActionClient();
@@ -1112,7 +1244,10 @@ export function RouterProvider({
         loader,
         version: initial.version,
         basePath: initial.basePath ?? '',
-        hardNavigate,
+        hardNavigate: (href, letThrough) => {
+          if (letThrough) guards.letUnloadThrough();
+          hardNavigate(href);
+        },
         showDocument,
         download,
         setPending: setNavigation,
@@ -1124,6 +1259,7 @@ export function RouterProvider({
             setEntry({ lineage, values });
           }),
         setEntry: (entry) => setEntry(entry),
+        guards,
       },
       view.loaded,
     );
@@ -1179,7 +1315,7 @@ export function RouterProvider({
           // The user may have moved on while the action ran: then neither pull them back (redirect) nor reload the
           // page they left (refresh, which would also cancel their navigation).
           const movedOn = navigator.page !== page || navigator.navigating;
-          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push', true);
+          if (!movedOn && response.redirect) await navigator.navigate(response.redirect, 'push');
           else if (!movedOn && response.revalidate) await navigator.refresh();
           // After signing in or out (an action that set or deleted a cookie), the page on screen shows whoever was
           // signed in before until a page comes from the server: refresh it, like Next.js. That is the action's page
@@ -1230,10 +1366,28 @@ export function RouterProvider({
     moveFocusAfterNavigation({ target, replaced, keep: view.scroll.kind === 'none', focusedAtStart: view.focusedAtStart });
   }, [view]);
 
-  const router = useMemo<InternalRouter>(
-    () => ({
-      push: (href, options) => navigator.navigate(href, 'push', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
-      replace: (href, options) => navigator.navigate(href, 'replace', options?.scroll ?? true, options?.focusedAtStart, options?.historyState),
+  const router = useMemo<InternalRouter>(() => {
+    /**
+     * A push or replace, asked of the guards that hold first. What had the focus and what the entry carries are read as
+     * it is called, as without a guard: a value the browser cannot copy rejects it before any guard is asked.
+     */
+    const guarded = (href: string, history: 'push' | 'replace', options: NavigateOptions & FocusAtStart = {}): Promise<void> => {
+      const focusedAtStart = options.focusedAtStart === undefined ? document.activeElement : options.focusedAtStart;
+      const to = navigator.heldTarget(href);
+      if (to === null) return navigator.navigate(href, history, { ...options, focusedAtStart });
+      // No guard holds: it goes at once, and takes the place of an attempt still waiting for its answer, as after a save.
+      if (!guards.holding) return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart }));
+      let historyState: HistoryValues | undefined;
+      try {
+        historyState = options.historyState === undefined ? undefined : (structuredClone(options.historyState) as HistoryValues);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      return guards.attempt(to, history, () => navigator.navigate(href, history, { ...options, focusedAtStart, historyState, letThrough: true }));
+    };
+    return {
+      push: (href, options) => guarded(href, 'push', options),
+      replace: (href, options) => guarded(href, 'replace', options),
       prefetch: (href) => navigator.prefetch(href),
       refresh: () => navigator.refresh(),
       back: () => window.history.back(),
@@ -1244,9 +1398,8 @@ export function RouterProvider({
         return () => actionListeners.delete(listener);
       },
       onCookiesChanged: (listener) => navigator.onCookiesChanged(listener),
-    }),
-    [navigator, actionListeners],
-  );
+    };
+  }, [navigator, actionListeners, guards]);
   const { payload, url } = view.loaded;
   const viewValue = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   // <html lang> for the page on screen. The server wrote the first page's, and Document keeps it as written, so the
@@ -1288,14 +1441,16 @@ export function RouterProvider({
 
   return (
     <RouterContext value={router}>
-      <ViewContext value={viewValue}>
-        <NavigationContext value={navigation}>
-          <HistoryContext value={history}>{page}</HistoryContext>
+      <GuardsContext value={guards}>
+        <ViewContext value={viewValue}>
+          <NavigationContext value={navigation}>
+            <HistoryContext value={history}>{page}</HistoryContext>
           {/* Outside the app's shell and error boundaries, which cannot remove it, and after them, so it reads what the
               new page has set. */}
-          <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
-        </NavigationContext>
-      </ViewContext>
+            <RouteAnnouncer location={url.pathname + url.search} path={withoutBasePath(url.pathname, payload.basePath ?? '')} />
+          </NavigationContext>
+        </ViewContext>
+      </GuardsContext>
     </RouterContext>
   );
 }
@@ -1347,6 +1502,7 @@ export function RouterContexts({
   url,
   navigation,
   history,
+  guards,
   children,
 }: {
   router: InternalRouter;
@@ -1354,16 +1510,19 @@ export function RouterContexts({
   url: URL;
   navigation: NavigationState;
   history: HistoryContextValue;
+  guards: NavigationGuards;
   children: ReactNode;
 }) {
   const view = useMemo<ViewValue>(() => ({ payload, url }), [payload, url]);
   return (
     <RouterContext value={router}>
-      <ViewContext value={view}>
-        <NavigationContext value={navigation}>
-          <HistoryContext value={history}>{children}</HistoryContext>
-        </NavigationContext>
-      </ViewContext>
+      <GuardsContext value={guards}>
+        <ViewContext value={view}>
+          <NavigationContext value={navigation}>
+            <HistoryContext value={history}>{children}</HistoryContext>
+          </NavigationContext>
+        </ViewContext>
+      </GuardsContext>
     </RouterContext>
   );
 }
@@ -1547,4 +1706,27 @@ export function useHistoryRestore(callback: () => void): void {
     latest.current = callback;
   });
   useEffect(() => onRestore(() => latest.current()), [onRestore]);
+}
+
+/**
+ * Holds every client navigation while `when` is true, and asks `onAttempt` first: links, `<Form method="get">`,
+ * `router.push`, `router.replace`, `router.back`, `router.forward` and the browser's Back and Forward. The navigation
+ * waits until the attempt's `proceed()` lets it go on, or its `stay()` keeps the page; for Back and Forward the router
+ * puts the entry back first, so the address bar shows the page on screen while the question is open. `proceed()` works
+ * whenever it is called, also once `when` is false (after a save), and a navigation that comes while one waits takes its
+ * place. While it holds, `beforeunload` has the browser ask before the document unloads: a reload, closing the tab, a
+ * link to another site. A link to a fragment of the page on screen, which keeps the page, is not held, and neither is a
+ * form post, a server action or `router.refresh()`. With several guards holding, each is asked in turn, the one that
+ * started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. Throws outside a
+ * Netjes page.
+ */
+export function useNavigationGuard(options: NavigationGuardOptions): void {
+  const guards = useContext(GuardsContext);
+  if (!guards) throw new Error('netjes: this hook must be used inside a Netjes page');
+  const latest = useRef(options);
+  useEffect(() => {
+    latest.current = options;
+  });
+  const { when } = options;
+  useEffect(() => (when ? guards.register(() => latest.current) : undefined), [guards, when]);
 }

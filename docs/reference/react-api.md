@@ -107,7 +107,7 @@ type NavigateOptions = {
 };
 ```
 
-The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
+The client router. `push` and `replace` navigate, adding or replacing a history entry. `prefetch` loads a page ahead, as a link does on hover. `refresh` loads the page on screen from the server again in place: every loader runs, in the same history entry, with the URL's fragment, without scrolling. `back` and `forward` go through history, showing remembered pages without a request. While a [`useNavigationGuard`](#usenavigationguard) holds, `push`, `replace`, `back` and `forward` ask it first; the promise of a push or a replace resolves once a guard keeps the page, or as without a guard once one lets it go on. The promises of `push`, `replace` and `refresh` resolve once the router has handed the new page to React, or once the navigation has ended another way (another navigation took its place, a full page load, a refused URL), so the old page can still be on screen then; inside a transition of the app's own, such as a form action, React shows the new page once that transition has ended. Code that needs the new page runs in an effect ([`useRouter`](../guides/routing.md#userouter)). `historyState` gives the entry `push` or `replace` adds or replaces its first [`useHistoryState`](#usehistorystate) values, over those of a page that stays on screen; the router keeps a copy (`structuredClone`), and a value the browser cannot copy rejects the promise before anything happens. Throws outside a Netjes page.
 
 #### `useNavigation`
 
@@ -145,6 +145,28 @@ function useHistoryRestore(callback: () => void): void;
 ```
 
 Calls `callback` each time the page on screen was shown from memory after Back or Forward: a page the router remembered, which it shows without a request, or the whole document the browser kept in its back-forward cache. A page the router loads from the server does not call it, nor does Back over a fragment link of the page on screen. It calls the `callback` of the latest render, after the page's own effects, so a page that mounts from memory hears it too. A page that has to show what is current calls `router.refresh()` from it ([Refreshing a page Back shows](../guides/routing.md#refreshing-a-page-back-shows)). Throws outside a Netjes page.
+
+#### `useNavigationGuard`
+
+```ts
+function useNavigationGuard(options: NavigationGuardOptions): void;
+
+type NavigationGuardOptions = {
+  when: boolean;                                // hold navigations now
+  onAttempt(attempt: NavigationAttempt): void;  // asked about each navigation held
+};
+
+type NavigationAttempt = {
+  to: string;                 // path, query and fragment, without the base path
+  type: NavigationAttemptType;
+  proceed(): void;            // let it go on: to the next guard that holds, then to the page
+  stay(): void;               // keep the page on screen
+};
+
+type NavigationAttemptType = 'push' | 'replace' | 'back' | 'forward';
+```
+
+While `when` is true, holds every client navigation and calls `onAttempt` first: links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward` and the browser's Back and Forward. The navigation waits until `proceed()` or `stay()` is called. For Back and Forward the router first puts the entry back, from the place of each entry it keeps in `history.state`, then asks; `proceed()` goes to the entry the browser went to. A fragment the browser moves to itself (a plain `<a href="#…">`) gets a place too, and a step to an entry an app or a library added or replaced itself (`history.pushState`, `history.replaceState`, `location.replace`) is let through. `proceed()` works whenever it is called, also once `when` is false; a navigation that comes while one waits takes its place, also one that goes at once because no guard holds any more, and the earlier attempt's answers do nothing. A link to a fragment of the page on screen, form posts, server actions and their redirects, `router.refresh()` and URLs on another origin are not held. While it holds, `beforeunload` has the browser ask before the document unloads (a reload, closing the tab, a link to another site), except for a navigation the guards let go on. Several guards are asked in turn, the one that started to hold last first, and the first `stay()` ends it. `onAttempt` is the latest render's. See [Holding a navigation](../guides/routing.md#holding-a-navigation). Throws outside a Netjes page.
 
 #### `usePathname`
 
@@ -646,7 +668,7 @@ The value `deferred()` parses to: a thenable that records `status`, `value` and 
 
 ## `netjes/testing`
 
-The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
+The harness for testing components and pages with Vitest and Testing Library ([Testing](../guides/testing.md)). The router in it is a fake: it records what the component asked for and moves to the new URL, but loads nothing. A [`useNavigationGuard`](#usenavigationguard) that holds is asked about a push or a replace first, which is recorded once the guard lets it go on; `back` and `forward` are recorded without asking. `renderDocument` renders a page's whole document instead, as the server sends it to a crawler.
 
 #### `createTestApp`
 

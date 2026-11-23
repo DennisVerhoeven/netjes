@@ -150,6 +150,12 @@ jobs:
       fail-fast: false
       matrix:
         example: [Blog, TaskBoard]
+        # The browsers each suite's projects use: TaskBoard runs its guard spec in Firefox and WebKit too.
+        include:
+          - example: Blog
+            browsers: chromium
+          - example: TaskBoard
+            browsers: chromium firefox webkit
     steps:
       - uses: actions/checkout@v7
         with:
@@ -162,22 +168,22 @@ jobs:
         id: playwright
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Both legs install the same browser, so it does not matter which one saves it.
+      # A cache per leg, as the legs install different browsers.
       - name: Cache Playwright's browsers
         id: playwright-cache
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.example }}
 
-      - name: Install Chromium
+      - name: Install the browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps ${{ matrix.browsers }}
 
-      # The cache holds the browser, not the system libraries it needs.
-      - name: Install Chromium's system libraries
+      # The cache holds the browsers, not the system libraries they need.
+      - name: Install the browsers' system libraries
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        run: npx playwright install-deps ${{ matrix.browsers }}
 
       # The examples import netjes from its build, dist/; each suite builds its example itself.
       - name: Build the package

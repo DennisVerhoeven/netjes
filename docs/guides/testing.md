@@ -42,7 +42,7 @@ describe('Greeting', () => {
 });
 ```
 
-The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
+The router is a fake. `<Link>`, `router.push` and `router.replace` move to the new URL, so hooks such as `usePathname()` and `useSearchParams()` see it, but no page is loaded. A [navigation guard](#navigation-guards) that holds is asked first. Every navigation, router call, form post and server action call is recorded in `app.navigations`, in order:
 
 | Entry | For |
 |---|---|
@@ -134,6 +134,25 @@ expect(screen.getByRole('link', { name: 'Back to the orders' }).getAttribute('hr
 ```
 
 A value a component sets is kept. A push or a replace records what it carries, `{ type: 'push', href: '/orders/7', historyState: { list: '/orders?status=open' } }`, and as the router does, keeps the values of a page that stays (the same path), starts another page over, and sets what it carried on top. A setter also works as the router's: one from before a navigation that keeps the path still sets the value, and one from before a navigation to another path sets nothing. The fake router shows no page from memory, so `useHistoryRestore` never calls back.
+
+### Navigation guards
+
+A component that holds navigations with [`useNavigationGuard`](routing.md#holding-a-navigation) is asked about a link, a form that navigates, `router.push` and `router.replace` as in the app, so a test can answer its question. The navigation is recorded once the guard lets it go on:
+
+```tsx
+const app = createTestApp({ url: '/orders/7/edit' });
+render(<EditOrder />, { wrapper: app.Wrapper });
+
+await userEvent.type(screen.getByLabelText('Note'), 'Call first');
+await userEvent.click(screen.getByRole('link', { name: 'Orders' }));
+expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeDefined();
+expect(app.navigations).toEqual([]);
+
+await userEvent.click(screen.getByRole('button', { name: 'Leave without saving' }));
+expect(app.navigations).toEqual([{ type: 'push', href: '/orders' }]);
+```
+
+A link to a fragment of the page on screen is not held, as in the app. The fake router keeps no history, so `router.back()` and `router.forward()` are recorded without asking, and the browser's own Back and Forward, which the router holds too, are tested end to end: TaskBoard's [`e2e/guard.spec.ts`](../../examples/TaskBoard/e2e/guard.spec.ts) runs in Chromium, Firefox and WebKit.
 
 ### Pages
 

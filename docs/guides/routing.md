@@ -348,7 +348,7 @@ const [list] = useHistoryState('list', null, listHref);
   ```
 
   Once its page has left, or Back or Forward has gone to another entry (also while Back loads the page before it), a setter changes nothing: a page that sets a value as it unmounts writes nothing into the next page's entry.
-- **Other keys stay.** The router keeps its entry key and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
+- **Other keys stay.** The router keeps its entry key, the entry's place in the tab's history ([Holding a navigation](#holding-a-navigation)) and these values under keys of its own in `history.state`, and keeps what an app or a library put there when it replaces the entry. A navigation that loads a document (another origin, `reloadDocument`, a new build) carries no values.
 
 ### Refreshing a page Back shows
 
@@ -362,6 +362,53 @@ useHistoryRestore(() => void router.refresh());
 ```
 
 It also calls back when the browser shows the whole document again from its back-forward cache, after the reader went to another site and came back. A page the router loads from the server does not call it (a link, a refresh, Back to an entry the router does not remember, such as one from before a reload), and neither does Back over a fragment link, where the page stays as it was. `router.refresh()` keeps the entry, its values and the scroll position. TaskBoard's board refreshes itself this way, and its task page goes back to the board as it was filtered ([`e2e/history.spec.ts`](../../examples/TaskBoard/e2e/history.spec.ts)).
+
+### Holding a navigation
+
+A form with changes that are not saved loses them when the reader leaves its page. `useNavigationGuard({ when, onAttempt })` holds every client navigation while `when` is true and asks `onAttempt` first; the navigation waits until the attempt's `proceed()` lets it go on or its `stay()` keeps the page. The page draws the question itself:
+
+```tsx
+import { Form, type NavigationAttempt, useAction, useNavigationGuard } from 'netjes';
+import { useEffect, useState } from 'react';
+import { serverActions } from '../../generated/netjes.ts';
+
+export function EditOrder() {
+  const [state, formAction] = useAction(serverActions['orders.update']);
+  const [changed, setChanged] = useState(false);
+  const [leaving, setLeaving] = useState<NavigationAttempt | null>(null);
+  // Saved: nothing to lose until the next change.
+  useEffect(() => {
+    if (state?.ok) setChanged(false);
+  }, [state]);
+  useNavigationGuard({ when: changed, onAttempt: setLeaving });
+
+  return (
+    <>
+      <Form action={formAction} onChange={() => setChanged(true)}>{/* the fields */}</Form>
+      {leaving && (
+        <div role="alertdialog" aria-labelledby="leave-question">
+          <h2 id="leave-question">Leave without saving?</h2>
+          <button type="button" autoFocus onClick={() => (leaving.stay(), setLeaving(null))}>
+            Keep editing
+          </button>
+          <button type="button" onClick={() => (leaving.proceed(), setLeaving(null))}>
+            Leave without saving
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+- **What it holds.** Links, `<Form method="get">`, `router.push`, `router.replace`, `router.back`, `router.forward`, and the browser's Back and Forward, a page package's links and router included. The attempt says where the navigation goes, `to` (the path, query and fragment, without the base path, as `usePathname()` reads them), and how, `type`: `'push'`, `'replace'`, `'back'` or `'forward'`. `onAttempt` can let some go at once: `if (new URL(attempt.to, location.href).pathname === pathname) attempt.proceed()` lets a tab or a page of a list through, which keep the page on screen.
+- **Back and Forward.** The browser moves to the other entry before a page hears of it, so the router puts the entry back, then asks: it keeps each entry's place in the tab's history in `history.state`, takes the same number of steps back, and calls `onAttempt` once the browser is on the page's entry again. The address bar shows the other URL for a moment. `proceed()` goes to the entry the browser went to, several steps at once after a long press on Back, and `stay()` leaves the reader where they were. A fragment the browser moves to itself, from a plain `<a href="#…">` (Markdown content, a skip link) or the address bar, gets its place too. An entry an app or a library adds or replaces itself, with `history.pushState`, `history.replaceState` or `location.replace`, has no place the router knows: a step to it is let through rather than guessed, and so are the steps from the entries pushed after it, while a step over it can be counted wrong. Navigate with the router instead.
+- **Reloading and closing the tab.** While it holds, the guard sets `beforeunload`, so the browser asks its own question before the document unloads: a reload, closing the tab, typing an address, a link to another site, a `reloadDocument` link and `router.push` to another origin. Browsers word that question themselves and ask only after the reader has interacted with the page. A navigation the guards let go on that the router then loads in full, such as a page from a new build after a deploy, is not asked about twice. The listener is there only while a guard holds, since such a listener has kept pages out of some browsers' back-forward cache.
+- **What it does not hold.** A link to a fragment of the page on screen, and Back or Forward over one, keep the page. A form post, a server action, the redirect a server action answers with, and `router.refresh()` are not held: the form is saving itself, or the page stays.
+- **It never traps the reader.** `proceed()` works whenever it is called, also once `when` is false: a "Save and leave" saves first, which ends the hold, then calls `proceed()`. A navigation that comes while the question is open takes the place of the one waiting, whose answers then do nothing: a second Back is asked about in its place, and a link followed once a save has ended the hold goes at once, so a late `proceed()` does not take the reader away from where they went. What loads or unloads the document only ever gets the browser's question.
+- **Several guards.** A form and an upload on one page can each hold. Each is asked in turn, the one that started to hold last first; `proceed()` passes the navigation to the next, and the first `stay()` ends it. `onAttempt` is the latest render's.
+
+TaskBoard's task form holds while a field differs from the task as stored, and asks "Leave without saving?" ([`components/task-page.tsx`](../../examples/TaskBoard/components/task-page.tsx), [`e2e/guard.spec.ts`](../../examples/TaskBoard/e2e/guard.spec.ts)). See [ADR 0070](../decisions/0070-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md).
 
 ### Focus and announcements
 

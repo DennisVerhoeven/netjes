@@ -123,6 +123,7 @@ Each decision record says what was decided, the alternatives, and what follows f
 - [0067 – A link can compare the whole query to mark the current page](decisions/0067-a-link-can-compare-the-whole-query-to-mark-the-current-page.md)
 - [0068 – A loader sets the document's lang](decisions/0068-a-loader-sets-the-documents-lang.md)
 - [0069 – A page keeps values with its history entry, and hears when Back shows it from memory](decisions/0069-a-page-keeps-values-with-its-history-entry-and-hears-when-back-shows-it-from-memory.md)
+- [0070 – A page can hold a navigation and ask, Back and Forward included](decisions/0070-a-page-can-hold-a-navigation-and-ask-back-and-forward-included.md)
 
 ## The project
 

@@ -7,6 +7,7 @@ import { type ActionClient, type ActionState, setActionClient } from './actions.
 import type { AntiforgeryToken, PagePayload, Params } from './payload.ts';
 import { PublicConfigProvider } from './public-config.tsx';
 import { dehydratedStateOf, mergeOptions } from './query.tsx';
+import { NavigationGuards } from './navigation-guard.ts';
 import { type HistoryContextValue, type InternalRouter, type NavigationState, RouterContexts, type SubmitBody } from './router.tsx';
 
 export { type RenderDocumentOptions, inlineScriptHashes, renderDocument } from './render-document.tsx';
@@ -173,6 +174,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
       onRestore: () => () => {},
     }));
     const history = useMemo<HistoryContextValue>(() => ({ ...historyEntry, ...historyWriters }), [historyEntry, historyWriters]);
+    const [guards] = useState(() => new NavigationGuards());
     const router = useMemo<InternalRouter>(() => {
       const go = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
         navigations.push(historyState ? { type, href, historyState } : { type, href });
@@ -186,9 +188,19 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         setUrl(next);
         return Promise.resolve();
       };
+      // As the router does: a guard that holds is asked first, except about a fragment of the page on screen or
+      // another site, and the navigation is recorded once the guards let it go on. One that goes at once, as no guard
+      // holds, takes the place of an attempt still waiting for its answer.
+      const guarded = (type: 'push' | 'replace', href: string, historyState: Readonly<Record<string, unknown>> | undefined) => {
+        const next = new URL(href, window.location.href);
+        const here = new URL(window.location.href);
+        const keepsPage = next.hash !== '' && next.pathname === here.pathname && next.search === here.search;
+        if (next.origin !== here.origin || keepsPage) return go(type, href, historyState);
+        return guards.attempt(next.pathname + next.search + next.hash, type, () => go(type, href, historyState));
+      };
       return {
-        push: (href, navigateOptions) => go('push', href, navigateOptions?.historyState),
-        replace: (href, navigateOptions) => go('replace', href, navigateOptions?.historyState),
+        push: (href, navigateOptions) => guarded('push', href, navigateOptions?.historyState),
+        replace: (href, navigateOptions) => guarded('replace', href, navigateOptions?.historyState),
         prefetch: () => {},
         refresh: () => {
           navigations.push({ type: 'refresh' });
@@ -203,7 +215,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
         onActionResponse: () => () => {},
         onCookiesChanged: () => () => {},
       };
-    }, []);
+    }, [guards]);
     const payload = useMemo<PagePayload>(() => {
       const route = options.route ?? (options.pageActionState ? url.pathname : null);
       return {
@@ -237,7 +249,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     return (
       <QueryClientProvider client={queryClient}>
         <PublicConfigProvider value={options.publicConfig ?? {}}>
-          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history}>
+          <RouterContexts router={router} payload={payload} url={url} navigation={options.navigation ?? { state: 'idle' }} history={history} guards={guards}>
             <RegisterActionClient client={actionClient} />
             {children}
           </RouterContexts>
