@@ -481,6 +481,7 @@ describe('useNavigationGuard and the browser history', () => {
     const user = await renderApp(payload('other', '/other'));
     const otherEntry: unknown = window.history.state;
     await toEditor(user);
+    const editorEntry = window.history.state as Record<string, unknown>;
     // The page sets a value right as the router steps back, while the browser is still on the entry Back went to.
     const go = window.history.go.bind(window.history);
     let thereMeanwhile: unknown;
@@ -495,6 +496,9 @@ describe('useNavigationGuard and the browser history', () => {
     (await act(() => asking)).stay();
 
     expect(thereMeanwhile).toEqual(otherEntry);
+    // Back on the editor's entry, a setter writes into it again.
+    act(() => setEditorTab!(3));
+    expect(window.history.state).toEqual({ ...editorEntry, __netjesState: { tab: 3 } });
     window.history.back();
     await vi.waitFor(() => expect(asked).toHaveLength(2));
     expect(asked[1]!.attempt).toMatchObject({ to: '/other', type: 'back' });

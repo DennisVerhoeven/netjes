@@ -308,7 +308,10 @@ describe('Back or Forward that fails', () => {
     await act(() => forward);
 
     expect(thereMeanwhile).toEqual({ __netjes: 'before-reload', __netjesIndex: 5 });
-    expect(window.history.state).toMatchObject({ __netjes: 'here', __netjesIndex: 6 });
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 6 });
+    // Back on the page's own entry, a setter writes into it again.
+    act(() => setAboutNote!('set once back'));
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 6, __netjesState: { note: 'set once back' } });
   });
 
   it('loads the URL as a document when the entry it went to has no place the router knows', async () => {
