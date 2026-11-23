@@ -308,7 +308,76 @@ describe('Back or Forward that fails', () => {
     await act(() => forward);
 
     expect(thereMeanwhile).toEqual({ __netjes: 'before-reload', __netjesIndex: 5 });
-    expect(window.history.state).toMatchObject({ __netjes: 'here', __netjesIndex: 6 });
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 6 });
+    // Back on the page's own entry, a setter writes into it again.
+    act(() => setAboutNote!('set once back'));
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 6, __netjesState: { note: 'set once back' } });
+  });
+
+  it('steps back to the entry of the page on screen when Back fails while the page of an earlier Back still loads', async () => {
+    quiet();
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      http.get(`${origin}/live`, async ({ request }) => {
+        // The page Back goes to first is slow to come; the one before it does not come.
+        if (new URL(request.url).search === '?slow') await slow;
+        return HttpResponse.error();
+      }),
+    );
+    window.history.replaceState({ __netjes: 'first', __netjesIndex: 40 }, '', `${origin}/live`);
+    window.history.pushState({ __netjes: 'slow', __netjesIndex: 41 }, '', `${origin}/live?slow`);
+    window.history.pushState({ __netjes: 'here', __netjesIndex: 42 }, '', `${origin}/about`);
+    const { hardNavigate } = await renderApp(payload('about', '/about'), { keepHistory: true });
+
+    const first = popped();
+    window.history.back();
+    await act(() => first);
+    expect(window.location.search).toBe('?slow');
+    const second = popped();
+    window.history.back();
+    await act(() => second);
+    // Once the request failed, the router steps forward past the entry whose page never came, to the about page's.
+    const forward = popped();
+    await act(() => forward);
+
+    expect(window.location.pathname + window.location.search).toBe('/about');
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 42 });
+    expect(screen.getByRole('heading', { name: 'About' })).toBeDefined();
+    expect(screen.getByRole('status').textContent).toBe(`failed ${JSON.stringify({ kind: 'navigate', status: null, location: '/live' })}`);
+    expect(hardNavigate).not.toHaveBeenCalled();
+    act(() => setAboutNote!('set once back'));
+    expect(window.history.state).toEqual({ __netjes: 'here', __netjesIndex: 42, __netjesState: { note: 'set once back' } });
+    release();
+  });
+
+  it('steps back to the entry of a page the router pushed when Back from it fails', async () => {
+    quiet();
+    server.use(
+      http.get(`${origin}/live`, () => HttpResponse.error()),
+      http.get(`${origin}/about`, () => HttpResponse.json(payload('about', '/about'))),
+    );
+    window.history.replaceState({ __netjes: 'before-reload', __netjesIndex: 60 }, '', `${origin}/live?before`);
+    window.history.pushState({ __netjes: 'here', __netjesIndex: 61 }, '', `${origin}/live`);
+    const { hardNavigate } = await renderApp(payload('live', '/live', { props: { n: 0 } }), { keepHistory: true });
+    await act(() => pageRouter!.push('/about'));
+    await screen.findByRole('heading', { name: 'About' });
+    const aboutEntry = window.history.state as Record<string, unknown>;
+    expect(aboutEntry).toMatchObject({ __netjesIndex: 62 });
+
+    // Back over the live page's entry, to the one before it, whose page does not come.
+    const back = popped();
+    window.history.go(-2);
+    await act(() => back);
+    const forward = popped();
+    await act(() => forward);
+
+    expect(window.location.pathname + window.location.search).toBe('/about');
+    expect(window.history.state).toEqual(aboutEntry);
+    expect(screen.getByRole('heading', { name: 'About' })).toBeDefined();
+    expect(hardNavigate).not.toHaveBeenCalled();
+    act(() => setAboutNote!('set once back'));
+    expect(window.history.state).toEqual({ ...aboutEntry, __netjesState: { note: 'set once back' } });
   });
 
   it('loads the URL as a document when the entry it went to has no place the router knows', async () => {

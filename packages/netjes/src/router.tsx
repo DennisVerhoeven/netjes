@@ -518,11 +518,6 @@ type GoOptions = {
   refresh?: boolean;
   /** A server action's redirect led to the URL: one that no page answers loads as a document. */
   redirected?: boolean;
-  /**
-   * Back or Forward from the entry at this place: when the page does not come, the router steps back to that entry,
-   * whose page stays on screen.
-   */
-  putBack?: number | undefined;
 };
 
 /**
@@ -558,18 +553,28 @@ class Navigator {
   private lineage = 0;
   /**
    * The browser is on another entry than the page on screen: Back or Forward went to one whose page is still loading,
-   * or the router is stepping back to the page's entry (a guard held Back, or the page did not come). The page must not
-   * write its values into that entry.
+   * or the router is stepping back (a guard held Back, or the page did not come). The page must not write its values
+   * into that entry.
    */
   private betweenEntries = false;
   /** The page on screen is from before cookies changed: kept for no history entry until one comes from the server. */
   private currentIsStale = false;
   /**
-   * The place of the entry on screen in the tab's history (`INDEX_KEY`), or undefined on an entry the router did not
-   * make (one an app or a library pushed itself), whose place it does not know.
+   * The place in the tab's history (`INDEX_KEY`) of the entry on screen, or of the entry Back or Forward went to while
+   * its page loads, or undefined on an entry the router did not make (one an app or a library pushed itself), whose
+   * place it does not know.
    */
   private index: number | undefined;
-  /** A guard held Back or Forward and the router is stepping back to the entry at `index`: once there, it `ask`s. */
+  /**
+   * The place of the entry of the page on screen. It is `index`, but while Back or Forward loads the page of the entry
+   * it went to: a Back or Forward whose page does not come steps back to it, also one that went from an entry whose
+   * page was still loading, and a step back of the router's that lands on it has the browser on the page's entry.
+   */
+  private shownIndex: number | undefined;
+  /**
+   * The router is stepping back to the entry at `index`, after a guard held Back or Forward (once there, it `ask`s) or
+   * a page did not come.
+   */
   private puttingBack: { index: number; ask(): void } | null = null;
   /** The place a guard let Back or Forward go to: the step there is not held again. */
   private letThrough: number | null = null;
@@ -593,6 +598,7 @@ class Navigator {
       // A new document's entry is the last one of the tab's history. Only the steps between the entries matter, so a
       // place that is off (the browser keeps 50 entries or so) changes nothing.
       this.index = readIndex(window.history.state) ?? Math.max(window.history.length - 1, 0);
+      this.shownIndex = this.index;
     }
   }
 
@@ -883,9 +889,13 @@ class Navigator {
     const index = readIndex(event.state);
     const puttingBack = this.puttingBack;
     this.puttingBack = null;
-    // The step back to the entry on screen, after a guard held Back or Forward: the browser shows its URL again.
+    // The router's own step back, after a guard held Back or Forward or a page did not come: the browser shows the URL
+    // of the entry it was on again.
     if (puttingBack && index === puttingBack.index) {
-      this.betweenEntries = false;
+      // That is the entry of the page on screen, unless a guard held Back while the page of the entry the browser was on
+      // still loads: the browser is back on that entry, which the page on screen must not write into. The places tell,
+      // also when that page has come meanwhile, or a refresh gave the page on screen a new key.
+      this.betweenEntries = index !== this.shownIndex;
       puttingBack.ask();
       return;
     }
@@ -903,7 +913,6 @@ class Navigator {
     // entry on screen; one counted long could send it past the end of the history. Either way the entry gets a key,
     // so the steps to it, from it and from the entries pushed after it are counted as any others.
     const fragment = index === undefined && samePage(url, this.current.url);
-    const from = this.index;
     this.index = !fragment ? index : url.href === this.href ? this.index : this.nextIndex();
     const key = readKey(event.state) ?? createKey();
     const saved = this.scrollPositions.get(key);
@@ -932,7 +941,6 @@ class Navigator {
       reuseSegments: true,
       entryValues: values,
       letThrough,
-      putBack: from,
     });
   }
 
@@ -1109,13 +1117,15 @@ class Navigator {
   /**
    * Keeps the page on screen after a navigation failed. Back or Forward has moved the browser to the entry it went to
    * already: the router steps back to the entry of the page on screen, so the address is the page's again, and a
-   * page's history values and a refresh go to that entry. Where it cannot tell that entry's place (a step from or to an
-   * entry an app or a library added itself), it loads the URL as a document instead and returns false.
+   * page's history values and a refresh go to that entry. That is also where it steps back to when Back went from an
+   * entry whose page was still loading (the reader pressed Back again meanwhile): that page never came. Where it cannot
+   * tell either place (a step from or to an entry an app or a library added itself), it loads the URL as a document
+   * instead and returns false.
    */
   private keepPage(url: URL, request: PageRequest, options: GoOptions): boolean {
     if (request.method !== 'GET' || options.history !== 'none') return true;
     const now = this.index;
-    const back = options.putBack;
+    const back = this.shownIndex;
     if (now === undefined || back === undefined || now === back) {
       this.hard(url, options.letThrough);
       return false;
@@ -1266,9 +1276,13 @@ class Navigator {
     );
   }
 
-  /** `carries`: the page on screen stays and its values went with it, so its setters keep writing. */
+  /**
+   * `carries`: the page on screen stays and its values went with it, so its setters keep writing. Every caller has set
+   * `index` to the place of the entry `key` names.
+   */
   private setCurrent(key: string, loaded: Loaded, values: HistoryValues, carries: boolean) {
     this.currentKey = key;
+    this.shownIndex = this.index;
     this.current = loaded;
     this.href = loaded.url.href;
     this.values = values;
